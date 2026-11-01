@@ -1,5 +1,11 @@
 """Scenario definitions: one story, four ways for the runtime to say no.
 
+   身份声明(2026-11-02 降级):金融参考域是 **Runtime 自检负载**,不是产品域。
+   产品是审计域(flowaudit);金融场景保留有两个理由——8 个治理场景用它
+   注入故障,24 个测试文件用它当测试床。物理搬迁到 examples/ 的闸门:
+   出现一个中立的测试夹具域,且 24 个测试完成迁移。在此之前,任何
+   "顺手删金融"都是砸自己测试套件的行为。
+
 Each scenario is the same kernel with a different host policy or a different
 failure injected. None of them changes runtime code — that is the claim the demo
 is making, so the scenarios are data, not branches.
