@@ -256,6 +256,13 @@ class Loop:
                     task, "context_compacted", dict(memory.pending_compaction)
                 )
                 memory.pending_compaction = None
+            # P0-3 fail-open 兑现:pinned 全量自身超预算时,证据完整性优先于
+            # 预算——事件如实记录溢出,不丢 pinned、不静默。
+            if memory.pending_pin_overflow is not None:
+                task = self.harness.record(
+                    task, "context_pin_overflow", dict(memory.pending_pin_overflow)
+                )
+                memory.pending_pin_overflow = None
 
             decision = self.harness.gate(task, step)
             self.observer.gate(round_no, decision)

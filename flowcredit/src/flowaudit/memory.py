@@ -135,6 +135,31 @@ def file_slice_summarize(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+#: 审计域证据工具与判定事件:这些观测在全量级保留(结构化声明,不做模型判断)。
+AUDIT_EVIDENCE_TOOLS: frozenset[str] = frozenset({
+    "verify_pattern", "read_target_slice", "record_evidence",
+    "report_blocked", "static_file_evidence", "probe",
+})
+AUDIT_PIN_EVENT_KINDS: frozenset[str] = frozenset({
+    "finding_promoted", "verification_passed",
+})
+
+
+def make_audit_pin_policy(observation_ids=None) -> "PinPolicy":
+    """审计域默认 PinPolicy:钉住验证判定、审批结果与审计证据指针。
+
+    ``observation_ids`` 允许会话把特定 result_hash(如已晋升发现的重放
+    证据)显式钉住;其余按工具名与事件类型声明。
+    """
+    from flowagent.memory.context import PinPolicy
+
+    return PinPolicy(
+        tool_names=frozenset(AUDIT_EVIDENCE_TOOLS),
+        event_kinds=frozenset(AUDIT_PIN_EVENT_KINDS),
+        observation_ids=frozenset(observation_ids or ()),
+    )
+
+
 def make_audit_state_fn(ledger_ref: Callable[[], dict]) -> Callable[[list], dict]:
     """Build the audit domain state view: the finding ledger, first-class.
 

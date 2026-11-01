@@ -187,6 +187,29 @@ def summarizer_for(spec) -> Callable[[dict[str, Any]], dict[str, Any]]:
 
 
 @dataclass(frozen=True)
+class PinPolicy:
+    """P0-3 pin 集:pinned 观测在全量级保留,永不降为索引行。
+
+    三个集合按"或"生效;event_kinds 由 loop 在构造观测行时传入事件类型
+    (restore 重放时为链上事件类型)。全部结构化声明,不做模型判断。
+    """
+
+    tool_names: frozenset[str] = frozenset()
+    event_kinds: frozenset[str] = frozenset()
+    observation_ids: frozenset[str] = frozenset()
+
+    def should_pin(self, record: "ObservationRecord",
+                   event_kind: str | None = None) -> bool:
+        if record.tool in self.tool_names:
+            return True
+        if event_kind is not None and event_kind in self.event_kinds:
+            return True
+        if record.result_hash and record.result_hash in self.observation_ids:
+            return True
+        return False
+
+
+@dataclass(frozen=True)
 class ObservationRecord:
     """One compressed observation, kept for the whole task."""
 
@@ -198,6 +221,9 @@ class ObservationRecord:
     #: P0-2 来源可信度。旧事件缺该字段时按 EXTERNAL_UNTRUSTED 读取
     #: (fail-closed:不声明即不可信),旧链校验不受影响。
     source_trust: SourceTrust = SourceTrust.EXTERNAL_UNTRUSTED
+    #: P0-3 该观测来源事件的类型(restore 重放时由 loop 传入)——
+    #: PinPolicy.event_kinds 的匹配依据;增量字段,缺省 None。
+    event_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -237,6 +263,12 @@ class WorkingMemory:
     #: into a ``context_compacted`` chain event and clears the pending marker.
     folded_through: int = 0
     pending_compaction: dict[str, Any] | None = None
+    #: P0-3 pin 集:pinned 观测保持全量且永不降为索引行。None = 无 pin
+    #(语义与改动前等价:全部观测按非 pinned 处理)。
+    pin_policy: "PinPolicy | None" = None
+    #: P0-3 pinned 全量自身超预算时置位;loop 落 context_pin_overflow
+    #: 事件(fail-open 仅限此情形:证据完整性优先于预算)。
+    pending_pin_overflow: dict[str, Any] | None = None
     #: The conversation a delegation was handed off from (chat → work bridge).
     #: Operator input, frozen in the task binding, sanitised by the console
     #: (role/text pairs, capped) — carried so temporal/place references in the
@@ -265,7 +297,8 @@ class WorkingMemory:
     rejected_proposals: list[dict[str, Any]] | None = None
 
     def record(self, round_no: int, observation: Observation,
-               source_trust: "SourceTrust | None" = None) -> ObservationRecord:
+               source_trust: "SourceTrust | None" = None,
+               event_kind: str | None = None) -> ObservationRecord:
         record = ObservationRecord(
             round=round_no,
             tool=observation.tool,
@@ -273,6 +306,7 @@ class WorkingMemory:
             result=dict(observation.result),
             result_hash=observation.result_hash,
             source_trust=source_trust or SourceTrust.EXTERNAL_UNTRUSTED,
+            event_kind=event_kind,
         )
         self.records.append(record)
         return record
@@ -313,58 +347,110 @@ class WorkingMemory:
         ``plan`` is the open-todo view, not the whole plan: the model needs to
         know what is left, not the history of how it got there.
 
-        The observation list is budgeted: the newest compressed rounds stay
-        inline; older rounds fold into ``observation_index`` rows (round, tool,
-        argument head, result hash). Folding is prompt-level forgetting — the
-        store keeps every record, and the loop turns a fresh fold into a
-        ``context_compacted`` chain event.
+        P0-3 三级折叠(替代原纯 FIFO 单档折叠):
+
+        - 第 1 级(全量):pinned 观测保持全量(仅受 RAW_MAX_CHARS 单条
+          上限保护)——证据完整性优先于预算;
+        - 第 2 级(摘要):非 pinned 观测呈 summarize 产物(策略分发见
+          summarizer_for);超预算时最老的非 pinned 摘要先降为索引行;
+        - 第 3 级(索引行):仅当第 2 级后仍超预算才发生,pinned 永不降入。
+
+        若只剩 pinned 全量仍超预算:不报错、不丢 pinned,记
+        ``pending_pin_overflow``(loop 落 context_pin_overflow 事件)——
+        fail-open 仅限此情形,理由:证据完整性优先于预算。
+
+        无 pin_policy 时语义与改动前等价:全部观测按非 pinned 处理,
+        索引行内容一致(round/tool/arguments_head/result_hash)。
         """
         # P0-2:trust 字段只在选择了非默认 profile 的上下文中输出——
         # finance 参考负载的字节冻结(SFT 金色哈希)依赖缺省键的缺席语义;
         # 审计域(general 及后续 audit profile)则强制携带来源可信度。
         include_trust = self.prompt_profile is not None
-        all_observations = [
-            {
+
+        rows: list[dict[str, Any]] = []
+        for record in self.records:
+            pinned = bool(self.pin_policy and self.pin_policy.should_pin(record))
+            summary = self._summarise(record)
+            full = {
                 "round": record.round,
                 "tool": record.tool,
                 "arguments": record.arguments,
-                "summary": self._summarise(record),
+                "result": raw_summarize({"result": record.result})["result"],
+                "result_hash": record.result_hash,
                 **({"trust": record.source_trust.value} if include_trust else {}),
             }
-            for record in self.records
-        ]
+            summary_row = {
+                "round": record.round,
+                "tool": record.tool,
+                "arguments": record.arguments,
+                "summary": summary,
+                **({"trust": record.source_trust.value} if include_trust else {}),
+            }
+            rows.append({"record": record, "pinned": pinned,
+                         "full": full, "summary_row": summary_row})
+
+        pinned_full = [row["full"] for row in rows if row["pinned"]]
+        inline: list[dict[str, Any]] = []
         index_rows: list[dict[str, Any]] = []
-        inline = all_observations
-        total = sum(len(canonical_json(o)) for o in all_observations)
-        if total > self.observation_budget and len(all_observations) > 1:
-            running = total
-            keep_from = len(all_observations)
-            for i in range(len(all_observations) - 1):
-                running -= len(canonical_json(all_observations[i]))
-                if running <= self.observation_budget:
-                    keep_from = i + 1
-                    break
-            keep_from = max(keep_from, 1)
-            folded = all_observations[:keep_from]
-            inline = all_observations[keep_from:]
-            index_rows = [
-                {
-                    "round": row["round"],
-                    "tool": row["tool"],
-                    "arguments_head": _arguments_head(record.arguments),
-                    "result_hash": record.result_hash[:12],
-                }
-                for row, record in zip(folded, self.records[:keep_from])
-            ]
-            last_folded = index_rows[-1]["round"]
-            if last_folded > self.folded_through:
-                self.pending_compaction = {
-                    "from_round": index_rows[0]["round"],
-                    "through_round": last_folded,
-                    "inlined_from_round": inline[0]["round"],
-                    "folded_count": len(index_rows),
-                }
-                self.folded_through = last_folded
+
+        pinned_chars = sum(len(canonical_json(o)) for o in pinned_full)
+        if pinned_chars > self.observation_budget:
+            # fail-open(仅限此情形):证据完整性优先于预算。
+            self.pending_pin_overflow = {
+                "pinned_count": len(pinned_full),
+                "pinned_chars": pinned_chars,
+                "budget": self.observation_budget,
+            }
+            inline = pinned_full + [
+                row["summary_row"] for row in rows if not row["pinned"]]
+        else:
+            non_pinned_summaries = [
+                row["summary_row"] for row in rows if not row["pinned"]]
+            budget_left = self.observation_budget - pinned_chars
+            used = sum(len(canonical_json(o)) for o in non_pinned_summaries)
+            if used <= budget_left or not non_pinned_summaries:
+                inline = [row["full"] for row in rows if row["pinned"]] \
+                    + non_pinned_summaries
+            else:
+                # 第 3 级:最老的非 pinned 摘要先降为索引行,直到预算内。
+                keep_from = len(non_pinned_summaries)
+                running = used
+                for i, row in enumerate(non_pinned_summaries):
+                    running -= len(canonical_json(row))
+                    if running <= budget_left:
+                        keep_from = i + 1
+                        break
+                folded = non_pinned_summaries[:keep_from]
+                inline = ([row["full"] for row in rows if row["pinned"]]
+                          + non_pinned_summaries[keep_from:])
+                pinned_records = [row["record"] for row in rows if row["pinned"]]
+                non_pinned_records = [row["record"] for row in rows
+                                      if not row["pinned"]]
+                index_rows = [
+                    {
+                        "round": row["round"],
+                        "tool": row["tool"],
+                        "arguments_head": _arguments_head(
+                            record.arguments),
+                        "result_hash": record.result_hash[:12],
+                    }
+                    for row, record in zip(folded, non_pinned_records[:keep_from])
+                ]
+                if index_rows:
+                    last_folded = index_rows[-1]["round"]
+                    if last_folded > self.folded_through:
+                        self.pending_compaction = {
+                            "from_round": index_rows[0]["round"],
+                            "through_round": last_folded,
+                            "inlined_from_round": inline[-1].get("round",
+                                                                 round_no),
+                            "folded_count": len(index_rows),
+                            "pinned_count": len(pinned_full),
+                            "levels": {"full": len(pinned_full),
+                                       "summary": len(inline) - len(pinned_full),
+                                       "index": len(index_rows)},
+                        }
+                        self.folded_through = last_folded
 
         context = {
             "objective": self.objective,
