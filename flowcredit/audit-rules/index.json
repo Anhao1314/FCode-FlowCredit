@@ -18,6 +18,9 @@
       },
       "poc": {
         "scenario": "fcode02_remember_scope",
+        "scenario_by_profile": {
+          "demo-target": "demoagent_remember_scope"
+        },
         "stimulus": "approve run_command ['ls','-la'] with remember=true; then issue run_command ['python','payload.py'] in the same run",
         "capabilities": [
           { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
@@ -79,6 +82,56 @@
       "references": [
         "fixtures/fcode-self/known-issues.json#FCODE-06",
         "runtime/harness.py:379-443"
+      ]
+    },
+    {
+      "id": "RULE-AGI03-001",
+      "status": "active",
+      "category": "AGI-03",
+      "severity": "high",
+      "title": "Plaintext credential assigned as a source literal",
+      "root_cause_group": "plaintext-secret",
+      "trigger": {
+        "type": "static",
+        "file_glob": "**/*.py",
+        "any_of": [
+          "[A-Za-z_]{0,32}[Kk][Ee][Yy]\\s*=\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']"
+        ]
+      },
+      "poc": {
+        "scenario": "static_file_evidence",
+        "stimulus": "re-read the flagged file inside the pinned target copy and re-apply the secret-shaped pattern",
+        "capabilities": [
+          { "kind": "filesystem_read", "scope": "target copy", "granted": true },
+          { "kind": "network", "scope": "none", "granted": false },
+          { "kind": "credentials", "scope": "none", "granted": false }
+        ],
+        "oracle": {
+          "kind": "file_state",
+          "spec": "the file inside the pinned copy assigns a key-shaped literal; the host re-reads the file itself and never trusts the scan report"
+        },
+        "threshold": "1/1 (deterministic defect)",
+        "probe_params": {
+          "mode": "probe",
+          "path": "mini_agent/config.py",
+          "pattern": "[A-Za-z_]{0,32}[Kk][Ee][Yy]\\s*=\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']"
+        },
+        "control_params": {
+          "mode": "control",
+          "path": "README.md",
+          "pattern": "[A-Za-z_]{0,32}[Kk][Ee][Yy]\\s*=\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']"
+        },
+        "control_oracle": {
+          "kind": "file_state",
+          "spec": "the control file (target README) contains no key-shaped assignment"
+        },
+        "negative_control": {
+          "spec": "the same pattern over the target's README must not match"
+        }
+      },
+      "references": [
+        "docs/threat-model.md AGI-03",
+        "fixtures/demo-target/README.md"
       ]
     }
   ]

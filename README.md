@@ -44,9 +44,12 @@
 git clone https://github.com/Anhao1314/FCode-FlowCredit.git
 cd FCode-FlowCredit/flowcredit
 
+python -m flowaudit.cli audit fixtures/demo-target
+# → 30 秒看到审计器工作:内置漏洞样例应用 MiniAgent,
+#   2 条发现(审批记忆绕过 AGI-02 / 明文密钥 AGI-03),每条附可重放证据
+
 python demo.py all                      # 8 个治理场景,全部离线
-python -m flowaudit.cli audit .         # 用审计器审计本仓库(约 1 分钟)
-# → 导出 audit-bundle.json:findings + 每条发现的 PoC 证据 + 复核入口
+python -m flowaudit.cli audit .         # 进阶:让审计器审计本仓库自己
 ```
 
 打开 Work 控制台(规划、执行、审批、Trace 回放):

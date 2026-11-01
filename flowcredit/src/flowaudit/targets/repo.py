@@ -53,3 +53,21 @@ def manifest_hash(copy_root: Path) -> str:
 
 def new_workdir(parent: Path | None = None) -> Path:
     return Path(tempfile.mkdtemp(prefix="fcode-audit-", dir=parent))
+
+
+def detect_profile(copy_root: Path) -> str:
+    """Classify the target copy so rules can bind scenarios per profile.
+
+    A rule generalizes across codebases; a scenario is bound to one
+    target's seams. The profile is decided by marker layout, top-down:
+    demo target first (it nests inside other trees), then a FCode-like
+    checkout, then ``generic``.
+    """
+    root = Path(copy_root)
+    if (root / "mini_agent" / "agent.py").exists():
+        return "demo-target"
+    if (root / "flowcredit" / "viewer" / "console_runtime.py").exists() \
+            or (root / "src" / "flowagent" / "__init__.py").exists() \
+            or (root / "viewer" / "console_runtime.py").exists():
+        return "fcode"
+    return "generic"

@@ -92,13 +92,34 @@ def _control_fcode06(facts: dict) -> tuple[bool, str]:
     )
 
 
+def _oracle_static_file_evidence(facts: dict) -> tuple[bool, str]:
+    """file_state: the pattern was found again in the pinned copy."""
+    observed = bool(facts.get("matched")) and facts.get("mode") == "probe"
+    return observed, (
+        "the file inside the pinned copy still assigns a key-shaped literal"
+        if observed else "no key-shaped assignment found in the probe file"
+    )
+
+
+def _control_static_file_evidence(facts: dict) -> tuple[bool, str]:
+    clean = facts.get("matched") is False
+    return clean, (
+        "control file is clean, as designed"
+        if clean else "control file matched — the pattern is too broad"
+    )
+
+
 _ORACLE_POC = {
     ("fcode02_remember_scope", "event_absent"): _oracle_fcode02_event_absent,
     ("fcode06_ungated_execute", "event_present"): _oracle_fcode06_probe,
+    ("demoagent_remember_scope", "event_absent"): _oracle_fcode02_event_absent,
+    ("static_file_evidence", "file_state"): _oracle_static_file_evidence,
 }
 _ORACLE_CONTROL = {
     "fcode02_remember_scope": _control_fcode02,
     "fcode06_ungated_execute": _control_fcode06,
+    "demoagent_remember_scope": _control_fcode02,
+    "static_file_evidence": _control_static_file_evidence,
 }
 
 
@@ -256,7 +277,8 @@ def replay_candidate(rule, candidate, target_ref: dict, target_copy: Path,
         "filesystem": "temporary",
         "target_copy": True,
     }
-    scenario = rule.poc["scenario"]
+    scenario = rule.poc.get("scenario_by_profile", {}).get(
+        target_ref.get("profile", "generic")) or rule.poc["scenario"]
     probe_workdir = workdir / "replay"
     probe_workdir.mkdir(parents=True, exist_ok=True)
 

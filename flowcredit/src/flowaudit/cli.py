@@ -46,6 +46,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     audit_id = _audit_id(target)
     target_copy = repo_adapter.copy_target(target, workdir)
     manifest_sha256 = repo_adapter.manifest_hash(target_copy)
+    profile = repo_adapter.detect_profile(target_copy)
 
     ruleset = engine.load_ruleset(rules_dir)
     candidates = engine.static_scan(target_copy, ruleset)
@@ -56,6 +57,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "identity": str(target),
         "version": "",
         "manifest_sha256": manifest_sha256,
+        "profile": profile,
     }
 
     poc_records: list[dict] = []

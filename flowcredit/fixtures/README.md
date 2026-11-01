@@ -3,6 +3,15 @@
 审计引擎的 ground truth 在这里:每个靶子是一组**已确认、带证据指针**的缺陷,
 规则引擎的最小验收标准是"能独立找出这些缺陷,且每条发现可一条命令重放"。
 
+## demo-target/(演示靶子)
+
+`demo-target/` 是一个**故意写坏的迷你 agent 应用(MiniAgent)**,作为审计器的
+开箱范例:声明的缺陷 = 审批记忆按工具名键控(AGI-02)+ 明文密钥(AGI-03)。
+30 秒体验:`python -m flowaudit.cli audit fixtures/demo-target`。
+要点:**命中它的规则与审计 FCode 自己用的是同一套**(规则泛化),重放场景按
+目标 profile 绑定(`scenario_by_profile`)——这就是"规则跨代码库,场景按靶子"的
+活例子。
+
 ## fcode-self/
 
 FCode 自身经 2026-10-30 全面评估确认的 7 个问题(`known-issues.json`)。

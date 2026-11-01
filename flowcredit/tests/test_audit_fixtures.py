@@ -112,6 +112,14 @@ def make_clean_control(workdir: pathlib.Path) -> pathlib.Path:
     harness.write_text(htext, encoding="utf-8")
     _write_decoy(copy)
     runtime.write_text(text, encoding="utf-8")
+    # The bundled demo target's fake key would light up RULE-AGI03-001 on
+    # a "clean" audit; a clean repo fixes its demo target too.
+    demo_cfg = copy / "fixtures" / "demo-target" / "mini_agent" / "config.py"
+    if demo_cfg.exists():
+        demo_cfg.write_text(
+            '"""MiniAgent configuration (clean control: reads from env)."""\n'
+            'import os\n\nAPI_KEY = os.environ.get("MINIAGENT_API_KEY", "")\n',
+            encoding="utf-8")
     return copy
 
 
