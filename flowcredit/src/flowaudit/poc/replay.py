@@ -304,9 +304,20 @@ def replay_candidate(rule, candidate, target_ref: dict, target_copy: Path,
         reason = poc_error
 
     control_ok = control_facts is not None
+    control_behaved = False
+    if control_facts is not None:
+        control_behaved, _ = _ORACLE_CONTROL.get(
+            scenario,
+            lambda facts: (False, "no control oracle"),
+        )(control_facts)
     if poc_facts is None or not control_ok:
         outcome = "invalid_poc"
         passed = 0
+    elif observed and not control_behaved:
+        # 对照组也没拦:说明刺激不孤立缺陷(谁都绕),前提塌了。
+        outcome = "invalid_poc"
+        passed = 0
+        reason = "negative control violated; the stimulus does not isolate the defect"
     elif observed:
         outcome = "finding"
         passed = 1

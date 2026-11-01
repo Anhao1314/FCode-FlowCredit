@@ -40,10 +40,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
         return 1
     rules_dir = Path(args.rules).resolve()
     workdir = repo_adapter.new_workdir()
-    out_dir = Path(args.out).resolve() if args.out else workdir / "bundle"
+    audit_id = _audit_id(target)
+    # 默认落盘到 flowcredit/work/audit/<audit_id>/——viewer 的发现账本从
+    # 这里读取;显式 --out 仍然优先。
+    out_dir = Path(args.out).resolve() if args.out \
+        else DEFAULT_RULES.parent / "work" / "audit" / audit_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    audit_id = _audit_id(target)
     target_copy = repo_adapter.copy_target(target, workdir)
     manifest_sha256 = repo_adapter.manifest_hash(target_copy)
     profile = repo_adapter.detect_profile(target_copy)

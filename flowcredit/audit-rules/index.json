@@ -23,10 +23,26 @@
         },
         "stimulus": "approve run_command ['ls','-la'] with remember=true; then issue run_command ['python','payload.py'] in the same run",
         "capabilities": [
-          { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
-          { "kind": "filesystem_read", "scope": "target copy", "granted": true },
-          { "kind": "network", "scope": "none", "granted": false },
-          { "kind": "credentials", "scope": "none", "granted": false }
+          {
+            "kind": "filesystem_write",
+            "scope": "temporary workspace copy only",
+            "granted": true
+          },
+          {
+            "kind": "filesystem_read",
+            "scope": "target copy",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
         ],
         "oracle": {
           "kind": "event_absent",
@@ -35,6 +51,12 @@
         "threshold": "1/1 (deterministic defect)",
         "negative_control": {
           "spec": "same stimulus with remember=false: the second call must pause and produce an approval_requested event"
+        },
+        "probe_params": {
+          "remember": true
+        },
+        "control_params": {
+          "remember": false
         }
       },
       "references": [
@@ -60,17 +82,33 @@
         "scenario": "fcode06_ungated_execute",
         "stimulus": "Harness.execute dispatches list_documents while the task's allowed_tools contains only run_command",
         "capabilities": [
-          { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
-          { "kind": "network", "scope": "none", "granted": false },
-          { "kind": "credentials", "scope": "none", "granted": false }
+          {
+            "kind": "filesystem_write",
+            "scope": "temporary workspace copy only",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
         ],
         "oracle": {
           "kind": "event_present",
           "spec": "tool_succeeded recorded for list_documents while it is absent from task.allowed_tools; the host queries the chain itself"
         },
         "threshold": "1/1 (deterministic defect)",
-        "probe_params": { "mode": "probe" },
-        "control_params": { "mode": "control" },
+        "probe_params": {
+          "mode": "probe"
+        },
+        "control_params": {
+          "mode": "control"
+        },
         "control_oracle": {
           "kind": "host_decision",
           "spec": "permissions.gate denies list_documents (not in allowed_tools) — the gate works; the flaw is that execute never calls it"
@@ -102,9 +140,21 @@
         "scenario": "static_file_evidence",
         "stimulus": "re-read the flagged file inside the pinned target copy and re-apply the secret-shaped pattern",
         "capabilities": [
-          { "kind": "filesystem_read", "scope": "target copy", "granted": true },
-          { "kind": "network", "scope": "none", "granted": false },
-          { "kind": "credentials", "scope": "none", "granted": false }
+          {
+            "kind": "filesystem_read",
+            "scope": "target copy",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
         ],
         "oracle": {
           "kind": "file_state",
