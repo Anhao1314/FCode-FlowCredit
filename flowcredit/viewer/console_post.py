@@ -24,12 +24,31 @@ from console_post_runs import (
     post_run_steer,
     post_run_stop,
 )
+from audit_jobs import start_audit_run
+
+
+def post_audit_run(handler):
+    """`/audit <target>` 斜杠命令的落点:离线审计管线跑成后台作业。"""
+    repo = type(handler).repo
+    if repo is None:
+        return handler._json({"error": "no repo; audit unavailable"}, 503)
+    body = handler._read_body()
+    target = str(body.get("target") or "").strip()
+    if not target:
+        return handler._json({"error": "target is required"}, 400)
+    try:
+        job_id = start_audit_run(repo, target)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"job_id": job_id, "status": "running"})
+
 
 _STATIC = {
     "/api/intake": post_intake,
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
     "/api/runs": post_run_create,
+    "/api/audit/run": post_audit_run,
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,

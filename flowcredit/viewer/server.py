@@ -410,6 +410,12 @@ class Handler(SimpleHTTPRequestHandler):
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
+        if path.startswith("/api/audit/jobs/"):
+            from audit_jobs import job_status
+            job = job_status(path[len("/api/audit/jobs/"):].strip("/"))
+            if job is None:
+                return self._json({"error": "not found"}, 404)
+            return self._json(job)
         if path == "/api/review-profile":
             query = parse_qs(urlparse(self.path).query)
 

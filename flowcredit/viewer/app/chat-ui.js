@@ -2,6 +2,24 @@
 
 import { applyChatEvent, createChatStreamRegistry } from "../core/chat-streams.js";
 
+/* /audit <target> 斜杠命令:在唯一对话框里触发审计管线。
+   解析是纯函数,node --test 直接覆盖;执行走 POST /api/audit/run,
+   轮询 /api/audit/jobs/<id>,结果指向发现账本(audit.html)。 */
+export function parseAuditCommand(text) {
+  const match = /^\s*\/audit\s+(\S[\s\S]*)$/.exec(text || "");
+  return match ? match[1].trim() : null;
+}
+
+export function auditStatusText(job) {
+  if (!job) return "审计任务不存在";
+  if (job.status === "running") return `⏳ 审计进行中(job ${job.job_id})…完成后在审计台查看发现`;
+  if (job.status === "done") {
+    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:/audit.html`;
+  }
+  if (job.status === "failed") return `❌ 审计失败:${job.error || "unknown"}`;
+  return `审计状态:${job.status}`;
+}
+
 /* 对话线程、消息流与模式切换。运行镜像和 Provider 设置分别在独立模块。 */
 export function createChatUI(deps) {
   const d = deps;
@@ -615,6 +633,33 @@ export function createChatUI(deps) {
     renderChatHead();
     renderChat({ forceBottom: true });
     setChatStreaming(true);
+    const auditTarget = parseAuditCommand(text);
+    if (auditTarget) {
+      // 单一对话框的审计入口:斜杠命令 → 服务器跑审计管线 → 卡片更新状态。
+      const assistant = chat.current.messages[chat.current.messages.length - 1];
+      try {
+        const response = await fetch("/api/audit/run", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target: auditTarget }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        assistant.text = auditStatusText({ status: "running", job_id: data.job_id });
+        renderChat({ forceBottom: true });
+        for (let poll = 0; poll < 90; poll++) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const jobRes = await fetch(`/api/audit/jobs/${encodeURIComponent(data.job_id)}`);
+          const job = await jobRes.json();
+          if (job.status !== "running") { assistant.text = auditStatusText(job); break; }
+        }
+      } catch (error) {
+        assistant.text = `❌ 审计启动失败:${error.message}`;
+      }
+      assistant.status = "ok";
+      setChatStreaming(false);
+      renderChat({ forceBottom: true });
+      return;
+    }
     await streamChat("/api/chat/send", { threadId, text, attachments, model });
   }
 

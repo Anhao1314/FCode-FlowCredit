@@ -12,6 +12,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -122,6 +123,72 @@ class AuditViewerApiTests(unittest.TestCase):
             html = res.read().decode("utf-8")
         self.assertNotIn("<script>window", html)
         self.assertIn('src="boot.js?v=1"', html)
+
+
+class AuditRunTests(unittest.TestCase):
+    """POST /api/audit/run:the one-dialog audit entry, end to end.
+
+    The harness repo is the real flowcredit checkout, so the spawned CLI
+    run audits the shipped demo target and must land a bundle with the
+    two declared findings. Traversal targets are refused before spawn.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
+        cls.server = ConsoleServer(
+            runs_dir=pathlib.Path(cls.tmp.name) / "runs",
+            config_dir=pathlib.Path(cls.tmp.name) / "config",
+            extra_args=["--repo", str(ROOT)],
+        )
+        cls.server.start()
+        cls.addClassCleanup(cls.server.stop)
+        cls.port = cls.server.port
+
+    @property
+    def base(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def _post(self, path: str, payload: dict):
+        import urllib.request
+        req = urllib.request.Request(
+            f"{self.base}{path}", method="POST",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                return res.status, json.loads(res.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read() or b"{}")
+
+    def test_audit_run_completes_with_declared_findings(self) -> None:
+        import urllib.request
+        status, payload = self._post("/api/audit/run",
+                                     {"target": "fixtures/demo-target"})
+        self.assertEqual(status, 200)
+        job_id = payload["job_id"]
+        outcome = None
+        for _ in range(60):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/audit/jobs/{job_id}", timeout=10) as res:
+                outcome = json.loads(res.read())
+            if outcome["status"] != "running":
+                break
+            time.sleep(1.0)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertEqual(outcome["findings"], 2)
+        with urllib.request.urlopen(f"{self.base}/api/audit/bundles", timeout=10) as res:
+            bundles = json.loads(res.read())["bundles"]
+        self.assertTrue(any(b["audit_id"] and b["findings"] == 2 for b in bundles),
+                        "the spawned audit must land in the ledger feed")
+
+    def test_traversal_target_is_refused_before_spawn(self) -> None:
+        status, payload = self._post("/api/audit/run", {"target": "../outside"})
+        self.assertEqual(status, 400)
+        self.assertIn("escapes", payload.get("error", ""))
+        status, payload = self._post("/api/audit/run", {"target": ""})
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":

@@ -131,7 +131,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
             "wallet_spent_microusd": analyst_result["wallet_spent_microusd"],
             "followups": len(analyst_result["followups"]),
         }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    # 单行紧凑 JSON:audit_jobs 的作业解析按行读;人看可以 | python -m json.tool。
+    print(json.dumps(summary, ensure_ascii=False, separators=(",", ":")))
     return 0
 
 
