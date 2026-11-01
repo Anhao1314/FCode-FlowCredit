@@ -21,6 +21,7 @@ from ..core.store import TaskStore
 from ..providers.base import Proposal, Provider
 from ..tools.base import EFFECT_READ, Observation
 from ..tools.registry import ToolRegistry
+from ..tools.trust import trust_for_tool
 from .budget import Budget, BudgetLimits
 from .permissions import GateDecision, Permissions
 
@@ -439,6 +440,9 @@ class Harness:
             "result_hash": observation.result_hash,
             "tool_version": observation.tool_version,
             "round": round_no,
+            # P0-2 增量字段:旧链无此键,读取按 EXTERNAL_UNTRUSTED 缺省,
+            # 哈希校验不受影响(新事件才携带)。
+            "trust": trust_for_tool(observation.tool).value,
         }
         return self._commit(task, task, "tool_succeeded", detail), observation
 

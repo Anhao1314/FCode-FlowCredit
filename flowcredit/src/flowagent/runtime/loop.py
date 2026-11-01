@@ -23,7 +23,8 @@ from typing import Any
 
 from ..core.contracts import PLAN_VERSION, AgentError, Task
 from ..core.plan import Plan
-from ..memory.context import WorkingMemory
+from ..memory.context import SourceTrust, WorkingMemory
+from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
 from ..tools.base import Observation
 from .policy import PacketProvider, compile_packet
@@ -307,7 +308,8 @@ class Loop:
             except AgentError as error:
                 return self._abort(task_id, error)
 
-            memory.record(round_no, observation)
+            memory.record(round_no, observation,
+                          source_trust=trust_for_tool(observation.tool))
             plan = self.planner.advance(plan, observation) if self.planner else plan
             task = self._persist_plan(task, plan, round_no)
 
@@ -721,6 +723,9 @@ class Loop:
             if event["type"] != "tool_succeeded":
                 continue
             detail = event["payload"].get("detail", {})
+            # P0-2:旧事件无 trust 键 → EXTERNAL_UNTRUSTED(fail-closed 缺省)。
+            source_trust = SourceTrust(
+                detail.get("trust") or SourceTrust.EXTERNAL_UNTRUSTED.value)
             memory.record(
                 int(detail.get("round", 0)),
                 Observation(
@@ -729,6 +734,7 @@ class Loop:
                     result=detail["result"],
                     result_hash=detail["result_hash"],
                 ),
+                source_trust=source_trust,
             )
         memory.prior_cases = prior_cases
         return memory

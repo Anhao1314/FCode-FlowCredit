@@ -15,6 +15,20 @@ phrasing rather than on facts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class SourceTrust(str, Enum):
+    """P0-2 观测来源可信度。缺省即不可信(fail-closed)。
+
+    VERIFIED_TOOL      — 注册表内、宿主确定性执行的内部工具;
+    AGENT_INFERRED     — 模型自身推理产物(非工具观测);
+    EXTERNAL_UNTRUSTED — MCP/外部 HTTP/未知来源:内容进 prompt 前必须隔离。
+    """
+
+    VERIFIED_TOOL = "verified_tool"
+    AGENT_INFERRED = "agent_inferred"
+    EXTERNAL_UNTRUSTED = "external_untrusted"
 from typing import Any, Callable
 
 from ..core.contracts import AgentError
@@ -181,6 +195,9 @@ class ObservationRecord:
     arguments: dict[str, Any]
     result: dict[str, Any]
     result_hash: str
+    #: P0-2 来源可信度。旧事件缺该字段时按 EXTERNAL_UNTRUSTED 读取
+    #: (fail-closed:不声明即不可信),旧链校验不受影响。
+    source_trust: SourceTrust = SourceTrust.EXTERNAL_UNTRUSTED
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -189,6 +206,7 @@ class ObservationRecord:
             "arguments": self.arguments,
             "result": self.result,
             "result_hash": self.result_hash,
+            "trust": self.source_trust.value,
         }
 
 
@@ -246,13 +264,15 @@ class WorkingMemory:
     #: emitted only when non-empty, so runs that never hit one keep their bytes.
     rejected_proposals: list[dict[str, Any]] | None = None
 
-    def record(self, round_no: int, observation: Observation) -> ObservationRecord:
+    def record(self, round_no: int, observation: Observation,
+               source_trust: "SourceTrust | None" = None) -> ObservationRecord:
         record = ObservationRecord(
             round=round_no,
             tool=observation.tool,
             arguments=dict(observation.arguments),
             result=dict(observation.result),
             result_hash=observation.result_hash,
+            source_trust=source_trust or SourceTrust.EXTERNAL_UNTRUSTED,
         )
         self.records.append(record)
         return record
@@ -299,12 +319,17 @@ class WorkingMemory:
         store keeps every record, and the loop turns a fresh fold into a
         ``context_compacted`` chain event.
         """
+        # P0-2:trust 字段只在选择了非默认 profile 的上下文中输出——
+        # finance 参考负载的字节冻结(SFT 金色哈希)依赖缺省键的缺席语义;
+        # 审计域(general 及后续 audit profile)则强制携带来源可信度。
+        include_trust = self.prompt_profile is not None
         all_observations = [
             {
                 "round": record.round,
                 "tool": record.tool,
                 "arguments": record.arguments,
                 "summary": self._summarise(record),
+                **({"trust": record.source_trust.value} if include_trust else {}),
             }
             for record in self.records
         ]
