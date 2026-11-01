@@ -101,6 +101,16 @@ def cmd_audit(args: argparse.Namespace) -> int:
              "reason": "ruleset covers the AGI-02 dev set; blind fixtures excluded by policy"},
         ],
     )
+
+    analyst_result = None
+    if args.analyst:
+        from . import analyst as analyst_mod
+        analyst_result = analyst_mod.followup_priorities(bundle)
+        bundle["toolchain"]["analyst_model"] = (
+            f"{analyst_result['model']} (1 call, {analyst_result['cost_microusd']} µUSD)")
+        (out_dir / "analyst-followups.json").write_text(
+            json.dumps(analyst_result, ensure_ascii=False, indent=2), encoding="utf-8")
+
     bundle_path = out_dir / "audit-bundle.json"
     bundle_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -114,6 +124,13 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "evidence_records": len(poc_records),
         "bundle": str(bundle_path),
     }
+    if analyst_result is not None:
+        summary["analyst"] = {
+            "model": analyst_result["model"],
+            "cost_microusd": analyst_result["cost_microusd"],
+            "wallet_spent_microusd": analyst_result["wallet_spent_microusd"],
+            "followups": len(analyst_result["followups"]),
+        }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
@@ -158,6 +175,10 @@ def main(argv: list[str] | None = None) -> int:
     p_audit.add_argument("--out", default=None)
     p_audit.add_argument("--operator", default="operator")
     p_audit.add_argument("--profile", default="static", choices=["static"])
+    p_audit.add_argument("--analyst", action="store_true",
+                         help="let the analyst model (deepseek-flash) propose "
+                              "follow-up priorities; requires an online policy "
+                              "and charges the wallet")
     p_audit.set_defaults(func=cmd_audit)
 
     p_verify = sub.add_parser("verify-bundle", help="validate an audit bundle")

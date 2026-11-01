@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "authorized_at": "2026-11-01",
+  "operator": "yimingyang",
+  "scope": "audit-domain online calls only (analyst proposals / triage); NOT a general license",
+  "providers": {
+    "deepseek": {
+      "enabled": true,
+      "wallet_cap_microusd": 1000000,
+      "note": "钱包 ¥10(≈$1.39);按 $1.00 封顶留缓冲。价格口径见环境变量 DEEPSEEK_PRICE_*"
+    },
+    "jev": {
+      "enabled": true,
+      "wallet_cap_microusd": 4000000,
+      "note": "钱包 $5;按 $4.00 封顶留缓冲。triage_judge(S2-20)未接线前配额冻结,仅记录授权"
+    }
+  },
+  "per_session_cap_microusd": 50000,
+  "rules": [
+    "每次在线调用前先对账:累计花费 + 本次预留 ≤ 钱包上限,否则 ONLINE_BUDGET_EXCEEDED",
+    "花费实时记入 work/audit/online-spend.json;该文件与审计包一样属于证据",
+    "模型的一切输出只是输入:假设仍走能力清单 + 宿主 oracle,不因模型声称而晋升"
+  ]
+}
