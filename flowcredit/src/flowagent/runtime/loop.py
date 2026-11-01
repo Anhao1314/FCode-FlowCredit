@@ -87,10 +87,16 @@ class Loop:
         #: Memory profile from the domain: per-tool observation compressors and
         #: the state view. The memory layer stays tool-name-blind; the assembly
         #: hands these in from the ToolSpecs and the DomainModule.
-        self.memory_summarizers = dict(
-            memory_summarizers if memory_summarizers is not None
-            else harness.registry.summarizers()
-        )
+        #: P0-1:按每个 ToolSpec 的 summary_policy 分发压缩策略(custom/default/
+        #: raw),而非只收集自定义压缩器——未配置工具不再退化为盲摘要。
+        if memory_summarizers is not None:
+            self.memory_summarizers = dict(memory_summarizers)
+        else:
+            from ..memory.context import summarizer_for
+            self.memory_summarizers = {
+                name: summarizer_for(harness.registry.get(name))
+                for name in harness.registry.names
+            }
         self.memory_state_fn = (
             memory_state_fn if memory_state_fn is not None else harness.state_fn
         )

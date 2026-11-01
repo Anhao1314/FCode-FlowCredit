@@ -12,7 +12,9 @@ from typing import Any, Iterable, Mapping
 
 from ..core.contracts import AgentError
 from ..core.hashing import digest
-from .base import EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Observation, ToolSpec, validate_arguments, validate_output
+from .base import (EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Observation,
+                   VALID_SUMMARY_POLICIES, ToolSpec, validate_arguments,
+                   validate_output)
 
 __all__ = ["ToolRegistry"]
 
@@ -25,6 +27,22 @@ class ToolRegistry:
         names = [spec.name for spec in ordered]
         if len(names) != len(set(names)):
             raise AgentError("TOOL_REGISTRY_INVALID", "duplicate tool name")
+        for spec in ordered:
+            # P0-1 fail-closed:策略必须合法;"custom" 策略承诺了自定义压缩器,
+            # 缺失即拒绝注册——带病注册会让该工具在 prompt 里退化为盲摘要,
+            # 且无人察觉。
+            if spec.summary_policy not in VALID_SUMMARY_POLICIES:
+                raise AgentError(
+                    "TOOL_SUMMARY_POLICY_INVALID",
+                    f"{spec.name!r} has unknown summary_policy "
+                    f"{spec.summary_policy!r}",
+                )
+            if spec.summary_policy == "custom" and spec.summarize is None:
+                raise AgentError(
+                    "TOOL_SUMMARY_POLICY_INVALID",
+                    f"{spec.name!r} declares summary_policy='custom' "
+                    "but provides no summarize implementation",
+                )
         self._specs: dict[str, ToolSpec] = {spec.name: spec for spec in ordered}
 
     def __contains__(self, name: object) -> bool:

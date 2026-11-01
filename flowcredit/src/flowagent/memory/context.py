@@ -17,10 +17,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..core.contracts import AgentError
+from ..tools.base import VALID_SUMMARY_POLICIES
 from ..core.hashing import canonical_json
 from ..tools.base import Observation
 
-__all__ = ["DEFAULT_INSTRUCTION", "ObservationRecord", "WorkingMemory", "default_summarize"]
+__all__ = [
+    "DEFAULT_INSTRUCTION", "DEFAULT_SUMMARY_MAX_DEPTH", "DEFAULT_SUMMARY_HEAD",
+    "DEFAULT_SUMMARY_TAIL", "RAW_MAX_CHARS", "ObservationRecord", "WorkingMemory",
+    "default_summarize", "detailed_summarize", "raw_summarize", "summarizer_for",
+]
+
+# ---- P0-1 压缩常量(集中定义,不散落) -------------------------------------
+#: 嵌套展开的最大深度:超过该层的 dict 折叠为键名列表。
+DEFAULT_SUMMARY_MAX_DEPTH = 2
+#: 长字符串保留头/尾的字符数;总长 ≤ HEAD+TAIL 时不截断。
+DEFAULT_SUMMARY_HEAD = 200
+DEFAULT_SUMMARY_TAIL = 200
+#: "raw" 策略的单条截断上限:不做结构化压缩,只防失控。
+RAW_MAX_CHARS = 4_000
 
 #: The kernel's default protocol wording. Read-only by construction, which is
 #: exactly what the finance reference workload is: the frozen v10 prompt was
@@ -40,12 +55,50 @@ def _arguments_head(arguments: dict[str, Any], limit: int = 80) -> str:
     return flat[:limit]
 
 
-def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
-    """Shape-based fallback for tools that do not declare a summarizer.
+def _clip(value: str) -> str:
+    """长字符串的头尾保留规则(P0-1):≤400 原样;否则头 200 + 标记 + 尾 200。"""
+    if len(value) <= DEFAULT_SUMMARY_HEAD + DEFAULT_SUMMARY_TAIL:
+        return value
+    omitted = len(value) - DEFAULT_SUMMARY_HEAD - DEFAULT_SUMMARY_TAIL
+    return (value[:DEFAULT_SUMMARY_HEAD]
+            + f"...[truncated {omitted} chars]..."
+            + value[-DEFAULT_SUMMARY_TAIL:])
 
-    Scalars survive whole (long strings as head + true length); lists become a
-    count plus a peek at the first scalar item; nested objects become their
-    sorted key list. Tools that declare ``summarize`` on their spec always win.
+
+def _compact(value: Any, depth: int) -> Any:
+    """P0-1 的结构化压缩:深度内保留一层键值/列表首项,超出折叠为键名/计数。"""
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, str):
+        return _clip(value)
+    if depth <= 0:
+        if isinstance(value, list):
+            return {"count": len(value)}
+        if isinstance(value, dict):
+            return {"keys": sorted(value)[:8]}
+        return str(value)[:120]
+    if isinstance(value, list):
+        if len(value) <= 3:
+            return [_compact(item, DEFAULT_SUMMARY_MAX_DEPTH) for item in value]
+        first = _compact(value[0], DEFAULT_SUMMARY_MAX_DEPTH)
+        return [first, {"count": len(value)}]
+    if isinstance(value, dict):
+        return {key: _compact(item, depth - 1) for key, item in value.items()}
+    return str(value)[:120]
+
+
+def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """Shape-based fallback — **byte-frozen legacy behavior**(见下)。
+
+    冻结原因:finance 参考负载的观测经此函数压缩,SFT 金色哈希与
+    test_sft_export 的字节保真测试钉住了它的输出。改进版压缩见
+    :func:`detailed_summarize`(策略 "detailed");两个"默认"的关系:
+    "default" = 向后兼容的旧形状压缩,"detailed" = P0-1 的修复,
+    由新工具/审计域显式选用。
+
+    原始行为(保持不变):Scalars survive whole (long strings as head +
+    true length); lists become a count plus a peek at the first scalar
+    item; nested objects become their sorted key list.
     """
     out: dict[str, Any] = {}
     for key, value in result.items():
@@ -65,6 +118,58 @@ def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
         else:
             out[key] = str(value)[:120]
     return out
+
+
+def detailed_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """P0-1 改进版压缩(策略 "detailed"),修复"模型失明"。
+
+    与旧 default 的差异:列表首项全量(深度内)、其余项保留计数;短列表
+    (≤3)全部保留;嵌套 dict 保留一层键值;长字符串头尾保留并带显式
+    截断标记。深度与预算常量集中在本模块头部。
+    """
+    return {key: _compact(value, DEFAULT_SUMMARY_MAX_DEPTH)
+            for key, value in result.items()}
+
+
+def raw_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """"raw" 策略:不做结构化压缩,仅单条截断保护(RAW_MAX_CHARS)。"""
+    out: dict[str, Any] = {}
+    for key, value in result.items():
+        if isinstance(value, str) and len(value) > RAW_MAX_CHARS:
+            out[key] = {"head": value[:RAW_MAX_CHARS], "chars": len(value)}
+        else:
+            out[key] = value
+    return out
+
+
+def summarizer_for(spec) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """P0-1 策略分发:按 ToolSpec.summary_policy 返回压缩函数。
+
+    duck-typed(不 import ToolSpec,避免 tools↔memory 反向耦合);
+    未知策略 fail-closed。优先级:**已提供 summarize 实现 → 用实现**
+    (向后兼容,finance 字节冻结依赖此条);显式策略覆盖实现
+    ("raw"/"detailed" 压过自定义实现是有意的——作者改了主意)。
+    """
+    policy = getattr(spec, "summary_policy", "default")
+    impl = getattr(spec, "summarize", None)
+    if policy == "custom":
+        if impl is None:
+            raise AgentError(
+                "TOOL_SUMMARY_POLICY_INVALID",
+                f"{spec.name!r} declares summary_policy='custom' "
+                "but provides no summarize implementation",
+            )
+        return impl
+    if policy == "raw":
+        return raw_summarize
+    if policy == "detailed":
+        return detailed_summarize
+    if policy == "default":
+        return impl if impl is not None else default_summarize
+    raise AgentError(
+        "TOOL_SUMMARY_POLICY_INVALID",
+        f"{spec.name!r} has unknown summary_policy {policy!r}",
+    )
 
 
 @dataclass(frozen=True)
