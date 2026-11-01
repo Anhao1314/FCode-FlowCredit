@@ -30,7 +30,9 @@ DEFAULT_RULES = Path(__file__).resolve().parents[2] / "audit-rules"
 def _audit_id(target: Path) -> str:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     name = "".join(c if c.isalnum() or c in "-." else "-" for c in target.name.lower())
-    return f"{name}-{date}"[:64]
+    # 同靶同日多次审计是常态(回归跟踪),audit_id 必须互异——6 位熵后缀。
+    import uuid
+    return f"{name}-{date}-{uuid.uuid4().hex[:6]}"[:72]
 
 
 def cmd_audit(args: argparse.Namespace) -> int:
@@ -113,6 +115,34 @@ def cmd_audit(args: argparse.Namespace) -> int:
         for f in ledgers["findings"]
     ]
 
+    # L3 情景投影:会话收尾自动入册;同靶时间线上算回归(known/new/fixed/regressed)。
+    from .episodes import EpisodeStore, regression as compute_regression
+    episodes_db = Path(args.episodes_db).resolve() if args.episodes_db \
+        else DEFAULT_RULES.parent / "work" / "audit" / "episodes.sqlite"
+    episode_store = EpisodeStore(episodes_db)
+    prior = episode_store.prior_episode(target_ref["manifest_sha256"], audit_id)
+    current_episode = episode_store.close_episode(
+        bundle={"audit_id": audit_id, "target": {"manifest_sha256": manifest_sha256,
+                                                 "identity": str(target)},
+                "authorization": {"granted_at": now_iso},
+                "sessions": [{"session_ref": profile}],
+                "findings": findings,
+                "poc_evidence_refs": [r["poc_id"] for r in poc_records],
+                "chain_verification": {"head_hash": bundle_mod.evidence_set_hash(poc_records)}},
+        bundle_dir=str(out_dir),
+    )
+    prior_findings = prior["findings"] if prior else []
+    # 无 prior 情景(首次审计)不产生回归判断——判定是 CLI 的职责,
+    # 纯函数只对给定两方诚实(prior 空=干净靶子,发现即 new)。
+    regression = compute_regression(prior_findings, findings) if prior else {
+        "known": [], "new": [], "fixed": [], "regressed": []}
+    (out_dir / "regression.json").write_text(
+        json.dumps({
+            "prior_audit_id": (prior or {}).get("audit_id"),
+            "prior_manifest_sha256": (prior or {}).get("target_hash"),
+            **{key: value for key, value in regression.items()},
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+
     bundle = bundle_mod.build_bundle(
         audit_id=audit_id,
         target_identity=str(target),
@@ -160,6 +190,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "findings": len(findings),
         "evidence_records": len(poc_records),
         "bundle": str(bundle_path),
+        "regression": {k: len(v) for k, v in regression.items()},
     }
     if analyst_result is not None:
         summary["analyst"] = {
@@ -213,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
     p_audit.add_argument("--out", default=None)
     p_audit.add_argument("--operator", default="operator")
     p_audit.add_argument("--profile", default="static", choices=["static"])
+    p_audit.add_argument("--episodes-db", default=None,
+                         help="情景库路径(默认 work/audit/episodes.sqlite)")
     p_audit.add_argument("--analyst", action="store_true",
                          help="let the analyst model (deepseek-flash) propose "
                               "follow-up priorities; requires an online policy "
