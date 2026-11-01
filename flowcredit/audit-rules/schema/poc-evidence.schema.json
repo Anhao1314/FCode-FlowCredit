@@ -66,7 +66,7 @@
       "additionalProperties": false,
       "required": ["kind", "spec", "executor"],
       "properties": {
-        "kind": { "enum": ["event_absent", "event_present", "file_state", "process_exit", "network_observation"] },
+        "kind": { "enum": ["event_absent", "event_present", "file_state", "process_exit", "network_observation", "host_decision"] },
         "spec": { "type": "string" },
         "executor": { "const": "host" }
       }

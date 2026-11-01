@@ -28,24 +28,23 @@ RULES_DIR = ROOT / "audit-rules"
 
 
 class EngineTests(unittest.TestCase):
-    def test_ruleset_loads_and_drafts_are_flagged(self) -> None:
+    def test_ruleset_loads_with_both_dev_rules_active(self) -> None:
         ruleset = engine.load_ruleset(RULES_DIR)
-        summary = engine.ruleset_summary(ruleset)
-        self.assertEqual(summary["draft"], ["RULE-AGI02-002"])
         active_ids = [rule.id for rule in engine.active_rules(ruleset)]
         self.assertIn("RULE-AGI02-001", active_ids)
-        self.assertNotIn("RULE-AGI02-002", active_ids)
+        self.assertIn("RULE-AGI02-002", active_ids)
 
     def test_draft_rule_never_produces_a_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pkg = pathlib.Path(tmp) / "pkg"
             pkg.mkdir()
-            # This file matches the DRAFT rule's trigger exactly; if the
-            # engine ever leaks drafts into scanning, this test dies.
+            # A file that matches the trigger exactly; the rule is demoted
+            # to draft in memory, and the engine must refuse to scan it.
             (pkg / "harness_like.py").write_text(
                 "class H:\n    def execute(self, task, step):\n        return step\n",
                 encoding="utf-8")
             ruleset = engine.load_ruleset(RULES_DIR)
+            ruleset["rules"]["RULE-AGI02-002"].status = "draft"
             candidates = engine.static_scan(pathlib.Path(tmp), ruleset)
             self.assertEqual(
                 [c.rule_id for c in candidates],
@@ -87,10 +86,11 @@ class EndToEndTests(unittest.TestCase):
 
             bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
             self.assertEqual(bundle["schema_version"], "fcode.audit-bundle/v1")
-            approval_findings = [f for f in bundle["findings"]
-                                 if f["root_cause_group"] == "approval-memory"]
-            self.assertTrue(approval_findings,
-                            "the FCODE-02 finding must be promoted by replay")
+            groups = {f["root_cause_group"] for f in bundle["findings"]}
+            self.assertIn("approval-memory", groups,
+                          "the FCODE-02 finding must be promoted by replay")
+            self.assertIn("ungated-execute", groups,
+                          "the FCODE-06 finding must be promoted by replay")
 
             schema = json.loads(
                 (RULES_DIR / "schema" / "poc-evidence.schema.json").read_text(encoding="utf-8"))

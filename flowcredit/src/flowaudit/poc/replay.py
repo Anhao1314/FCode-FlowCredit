@@ -64,8 +64,42 @@ def _oracle_fcode02_event_present(facts: dict) -> tuple[bool, str]:
         else "gate did not request approval in the control"
 
 
-_ORACLE_POC = {("fcode02_remember_scope", "event_absent"): _oracle_fcode02_event_absent}
-_ORACLE_CONTROL = {("fcode02_remember_scope", "event_present"): _oracle_fcode02_event_present}
+def _oracle_fcode06_probe(facts: dict) -> tuple[bool, str]:
+    """event_present: tool_succeeded recorded for a tool absent from the
+    task's allow list — execute dispatched without any permission check."""
+    succeeded = any(
+        event.get("type") == "tool_succeeded" and event.get("tool") == facts.get("tool")
+        for event in facts.get("events", [])
+    )
+    ungranted = not facts.get("in_allowed_tools", True)
+    observed = bool(facts.get("direct_execute_allowed")) and succeeded and ungranted
+    return observed, (
+        "execute dispatched an ungranted tool and the chain recorded its success"
+        if observed else "execute did not run the ungranted tool"
+    )
+
+
+def _control_fcode02(facts: dict) -> tuple[bool, str]:
+    behaved, reason = _oracle_fcode02_event_present(facts)
+    return behaved, reason
+
+
+def _control_fcode06(facts: dict) -> tuple[bool, str]:
+    denied = bool(facts.get("gate_denied"))
+    return denied, (
+        "gate denied the ungranted tool in the control"
+        if denied else "gate ALLOWED the ungranted tool in the control"
+    )
+
+
+_ORACLE_POC = {
+    ("fcode02_remember_scope", "event_absent"): _oracle_fcode02_event_absent,
+    ("fcode06_ungated_execute", "event_present"): _oracle_fcode06_probe,
+}
+_ORACLE_CONTROL = {
+    "fcode02_remember_scope": _control_fcode02,
+    "fcode06_ungated_execute": _control_fcode06,
+}
 
 
 def _worker_env(workdir: Path) -> dict:
@@ -107,14 +141,14 @@ def _evidence_record(rule, candidate, target_ref: dict, env: dict,
                      error_note: str = "") -> dict:
     control_result = "not_run"
     if control_facts is not None:
-        observed, _ = _ORACLE_CONTROL.get(
-            (rule.poc["scenario"], "event_present"),
+        behaved, _ = _ORACLE_CONTROL.get(
+            rule.poc["scenario"],
             lambda facts: (False, "no control oracle"),
         )(control_facts)
-        # event_present oracle: observed means the gate requested approval
-        # for the new arguments — exactly the designed behavior a negative
+        # Control oracle: "behaved" means the designed safe behavior was
+        # observed (gate asked / gate denied) — exactly what a negative
         # control must show.
-        control_result = "as_expected" if observed else "violated"
+        control_result = "as_expected" if behaved else "violated"
     record = {
         "schema_version": "fcode.poc-evidence/v1",
         "record_kind": "poc",
@@ -183,8 +217,9 @@ def _control_record(rule, target_ref: dict, env: dict, outcome: str,
         "stimulus": {"kind": "command",
                      "spec": rule.poc["negative_control"]["spec"]},
         "oracle": {
-            "kind": "event_present",
-            "spec": "the gate must request approval for the new arguments",
+            "kind": rule.poc.get("control_oracle", {}).get("kind", "event_present"),
+            "spec": rule.poc.get("control_oracle", {}).get(
+                "spec", rule.poc["negative_control"]["spec"]),
             "executor": "host",
         },
         "negative_control": {
@@ -227,12 +262,12 @@ def replay_candidate(rule, candidate, target_ref: dict, target_copy: Path,
 
     control_facts, control_error = _run_worker(
         target_copy, probe_workdir / "control", scenario,
-        {"remember": False, "workdir": str(probe_workdir / "control")},
+        {**rule.poc.get("control_params", {}), "workdir": str(probe_workdir / "control")},
         probe_workdir / "control-facts.json",
     )
     poc_facts, poc_error = _run_worker(
         target_copy, probe_workdir / "poc", scenario,
-        {"remember": True, "workdir": str(probe_workdir / "poc")},
+        {**rule.poc.get("probe_params", {}), "workdir": str(probe_workdir / "poc")},
         probe_workdir / "poc-facts.json",
     )
 
@@ -255,7 +290,7 @@ def replay_candidate(rule, candidate, target_ref: dict, target_copy: Path,
         passed = 1
     elif control_facts is not None:
         control_behaved, _ = _ORACLE_CONTROL.get(
-            (scenario, "event_present"),
+            scenario,
             lambda facts: (False, "no control oracle"),
         )(control_facts)
         outcome = "not_reproduced"

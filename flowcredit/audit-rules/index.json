@@ -41,7 +41,7 @@
     },
     {
       "id": "RULE-AGI02-002",
-      "status": "draft",
+      "status": "active",
       "category": "AGI-02",
       "severity": "high",
       "title": "Tool execution path performs no permission checks (gate is a call convention)",
@@ -54,12 +54,27 @@
         ]
       },
       "poc": {
-        "scenario": "pending: drive Harness.execute with a tool outside allowed_tools",
-        "stimulus": "TBD — scenario lands with S2-05",
-        "capabilities": [],
-        "oracle": { "kind": "event_present", "spec": "TBD" },
+        "scenario": "fcode06_ungated_execute",
+        "stimulus": "Harness.execute dispatches list_documents while the task's allowed_tools contains only run_command",
+        "capabilities": [
+          { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
+          { "kind": "network", "scope": "none", "granted": false },
+          { "kind": "credentials", "scope": "none", "granted": false }
+        ],
+        "oracle": {
+          "kind": "event_present",
+          "spec": "tool_succeeded recorded for list_documents while it is absent from task.allowed_tools; the host queries the chain itself"
+        },
         "threshold": "1/1 (deterministic defect)",
-        "negative_control": { "spec": "TBD" }
+        "probe_params": { "mode": "probe" },
+        "control_params": { "mode": "control" },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "permissions.gate denies list_documents (not in allowed_tools) — the gate works; the flaw is that execute never calls it"
+        },
+        "negative_control": {
+          "spec": "the same call submitted through permissions.gate must be denied"
+        }
       },
       "references": [
         "fixtures/fcode-self/known-issues.json#FCODE-06",
