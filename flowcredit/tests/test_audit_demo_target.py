@@ -49,6 +49,19 @@ class DemoTargetAuditTests(unittest.TestCase):
                                   "--evidence", str(out)])
             self.assertEqual(rc_verify, 0)
 
+            # L2 验收:会话账本从链重建一致,晋升全部由 host 执行。
+            from flowaudit.session import AuditSession
+            reopened = AuditSession.attach(
+                __import__("flowagent.core.store", fromlist=["TaskStore"])
+                .TaskStore(out / "session.sqlite"),
+                f"audit-{bundle['audit_id']}")
+            ledgers = reopened.ledgers()
+            self.assertEqual(len(ledgers["findings"]), 2)
+            self.assertTrue(all(f["actor"] == "host" for f in ledgers["findings"]))
+            self.assertTrue(all(c["status"] == "finding"
+                                for c in ledgers["candidates"]))
+            reopened.verify()
+
     def test_demo_target_readme_is_the_control_file_and_stays_clean(self) -> None:
         """The AGI03 rule's negative control reads the target README; if a
         future edit pastes a key-shaped literal into it, the control would

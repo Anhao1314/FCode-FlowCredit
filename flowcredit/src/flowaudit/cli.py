@@ -63,18 +63,55 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "profile": profile,
     }
 
+    # L2 会话:两本账(候选/发现)事件化在哈希链上——断点续跑可重建,
+    # operator 不可晋升,晋升必须带重放收据。
+    from .session import AuditSession
+    session = AuditSession.start(out_dir, audit_id, operator=args.operator,
+                                 target_identity=str(target))
+
     poc_records: list[dict] = []
-    findings: list[dict] = []
+    candidate_ids: dict[str, str] = {}
     for number, candidate in enumerate(candidates, start=1):
+        cid = session.propose_candidate(
+            rule_id=candidate.rule.id, category=candidate.rule.category,
+            severity=candidate.rule.severity,
+            root_cause_group=candidate.rule.root_cause_group,
+            evidence=candidate.evidence, actor="host",
+        )
+        candidate_ids[candidate.rule.id] = cid
         record = replay_mod.replay_candidate(
             candidate.rule, candidate, target_ref, target_copy,
             workdir, now_iso, f"POC-{number:04d}",
         )
         poc_records.append(record)
-        if record["replay"]["outcome"] == "finding":
-            findings.append(bundle_mod.build_finding(candidate, record))
+        outcome = record["replay"]["outcome"]
+        if outcome == "finding":
+            session.promote_finding(
+                cid, poc_id=record["poc_id"],
+                receipt_ref=f"replay:{record['poc_id']}", actor="host")
+        elif outcome == "invalid_poc":
+            session.prune_candidate(
+                cid, reason=(record.get("notes") or "invalid poc"), actor="host")
+        elif outcome == "not_vulnerable_under_scope":
+            session.dismiss_candidate(
+                cid, reason="not vulnerable under declared scope", actor="host")
+        # not_reproduced:候选保留,等待补证重试——账本如实留在待定区。
         (out_dir / f"{record['poc_id']}.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    ledgers = session.ledgers()
+    cand_by_id = {c["candidate_id"]: c for c in ledgers["candidates"]}
+    findings = [
+        {
+            "finding_id": f["finding_id"],
+            "root_cause_group": cand_by_id.get(f["candidate_id"], {}).get(
+                "root_cause_group", f["candidate_id"]),
+            "category": cand_by_id.get(f["candidate_id"], {}).get("category", ""),
+            "severity": cand_by_id.get(f["candidate_id"], {}).get("severity", "info"),
+            "poc_refs": [f["poc_id"]],
+        }
+        for f in ledgers["findings"]
+    ]
 
     bundle = bundle_mod.build_bundle(
         audit_id=audit_id,
