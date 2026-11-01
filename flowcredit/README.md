@@ -24,6 +24,8 @@ Python 包名为 `flowagent`。金融研究是第一个示例域，运行内核�
 
 一个 Agent 说自己完成了，并不等于工作真的完成。
 
+在这个内核之上，FCode 构建了审计域 `flowaudit`——审计其他 agent 应用的 agent，见仓库首页与 [能力图谱](docs/capability-map.md)。
+
 FCode 更关心另一组问题：它读了哪些证据，调用了什么工具，为什么被允许执行，失败后能否恢复，结果能否由独立过程复算。可信不来自模型的自述，而来自可验证的运行记录。
 
 ### 三条约束
@@ -141,7 +143,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**661 项 Python 测试、166 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**679 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、166 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
