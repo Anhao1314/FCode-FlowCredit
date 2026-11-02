@@ -15,6 +15,7 @@ phrasing rather than on facts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from enum import Enum
 
 
@@ -269,6 +270,12 @@ class WorkingMemory:
     #: P0-3 pinned 全量自身超预算时置位;loop 落 context_pin_overflow
     #: 事件(fail-open 仅限此情形:证据完整性优先于预算)。
     pending_pin_overflow: dict[str, Any] | None = None
+    #: P1-1 增量 summary 缓存(SummaryCache|None)。None = 不缓存(默认,
+    #: 语义与改动前完全一致)。缓存异常一律 fail-open 回退实时 summarize。
+    summary_cache: Any = None
+    #: P1-1 缓存指纹来源:tool → (summary_policy, summary_version)。由 loop
+    #: 从 ToolSpec 装配;缺失时按 ("default", 1) 计(仍稳定)。
+    summarizer_config: dict[str, tuple[str, int]] = field(default_factory=dict)
     #: The conversation a delegation was handed off from (chat → work bridge).
     #: Operator input, frozen in the task binding, sanitised by the console
     #: (role/text pairs, capped) — carried so temporal/place references in the
@@ -514,8 +521,27 @@ class WorkingMemory:
 
         The tool's own ``summarize`` contract wins; the shape-based default
         keeps unknown tools honest without the memory layer knowing tool names.
+
+        P1-1:若配置了 summary_cache,先按五元组查缓存;未命中才实时
+        summarize 并写回。缓存读写异常一律 fail-open(回退实时计算),
+        缓存永远不能让 loop 中断。
         """
         summarizer = self.summarizers.get(record.tool)
+        key = None
+        if self.summary_cache is not None:
+            policy, version = self.summarizer_config.get(
+                record.tool, ("default", 1))
+            args_hash = hashlib.sha256(
+                canonical_json(record.arguments).encode("utf-8")).hexdigest()
+            key = (record.tool, args_hash, record.result_hash,
+                   policy, int(version))
+            cached = self.summary_cache.get(key)
+            if cached is not None:
+                return cached
         if summarizer is not None:
-            return summarizer(record.result)
-        return default_summarize(record.result)
+            product = summarizer(record.result)
+        else:
+            product = default_summarize(record.result)
+        if key is not None:
+            self.summary_cache.put(key, product)
+        return product

@@ -24,6 +24,7 @@ from typing import Any
 from ..core.contracts import PLAN_VERSION, AgentError, Task
 from ..core.plan import Plan
 from ..memory.context import SourceTrust, WorkingMemory
+from ..memory.summary_cache import SummaryCache
 from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
 from ..tools.base import Observation
@@ -98,6 +99,16 @@ class Loop:
                 name: summarizer_for(harness.registry.get(name))
                 for name in harness.registry.names
             }
+        #: P1-1 缓存指纹:tool → (summary_policy, summary_version),来自注册表;
+        #: 未登记工具按 ("default", 1) 计(仍稳定)。
+        self.memory_summarizer_config = {
+            name: (harness.registry.get(name).summary_policy,
+                   int(getattr(harness.registry.get(name),
+                               "summary_version", 1)))
+            for name in harness.registry.names
+        }
+        #: P1-1 增量 summary 缓存:与事件链同库不同表;失败一律 fail-open。
+        self.memory_summary_cache = SummaryCache(harness.store)
         self.memory_state_fn = (
             memory_state_fn if memory_state_fn is not None else harness.state_fn
         )
@@ -721,6 +732,8 @@ class Loop:
             conversation=conversation,
             instruction=self.memory_instruction,
             prompt_profile=self.memory_prompt_profile,
+            summary_cache=self.memory_summary_cache,
+            summarizer_config=self.memory_summarizer_config,
         )
         for event in self.harness.store.events(task.id):
             if event["type"] == "memory_recalled":
