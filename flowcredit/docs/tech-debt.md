@@ -48,3 +48,22 @@ prompt 中不带来源可信度标记。
    collect_source 等未登记项),从源头消除不可信来源。
 3. 在工具注册层引入 fail-closed 校验:"未在信任表登记的工具禁止进入 finance 运行",
    让缺口在注册时暴露而不是在 prompt 里沉默。
+
+
+## TD-002:SQLite summary 缓存介质净负(P1-1 收尾结论)
+
+**现状**:P1-1 的 `SummaryCache`(五元组 key、与事件链同库不同表、fail-open)
+按数据判定为**净负优化**。`runtime/loop.py` 的 `ENABLE_SQLITE_SUMMARY_CACHE`
+默认 `False`,缓存代码与测试作为显式可用的资产保留。
+
+**数据**(`work/cache-benchmark/large-payload-report.json`,本机 macOS arm64):
+- 90.6KB 大载荷、50 轮:无缓存均值 0.272ms vs 冷缓存 0.378ms(慢 39%);
+- 单次 `detailed_summarize` 3.65µs vs 单次 SQLite 命中点查 4.71µs。
+
+**根因**:本仓库 summarizer 按设计早剪枝(dict 列表→首项+count、长文→头尾),
+成本几乎不随载荷增长;SQLite 点查为固定成本且高于 summarize 本身——**不存在
+任何载荷大小能让缓存转正**,阈值门控的数学前提不成立。
+
+**后续**:进程内 dict 查找约 0.1µs,比 summarize 快一个量级,是唯一有数据
+支持的介质候选;但它不提供跨运行持久化。换介质属于独立任务(需重测),
+本次不做;若未来启用,`SummaryCache` 的五元组契约与测试可直接复用。

@@ -41,6 +41,13 @@ REPAIRABLE_DENIALS = ("TOOL_ARGUMENTS_INVALID",)
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
 
+#: P1-1.5 收尾:SQLite summary 缓存**默认关闭**。数据见
+#: work/cache-benchmark/large-payload-report.json:90KB 载荷下单次 detailed
+#: summarize 3.65µs,而单次 SQLite 命中点查 4.71µs——summarizer 早剪枝,
+#: 成本不随载荷增长,任何阈值都无法让 SQLite 点查转正。保留 SummaryCache
+#: 资产(显式传入才启用);进程内 dict 介质见 P1-2。
+ENABLE_SQLITE_SUMMARY_CACHE = False
+
 __all__ = ["Loop", "NullObserver"]
 
 
@@ -108,7 +115,9 @@ class Loop:
             for name in harness.registry.names
         }
         #: P1-1 增量 summary 缓存:与事件链同库不同表;失败一律 fail-open。
-        self.memory_summary_cache = SummaryCache(harness.store)
+        #: P1-1.5 收尾:默认关闭(净负,见常量注释);显式开启才注入。
+        self.memory_summary_cache = (
+            SummaryCache(harness.store) if ENABLE_SQLITE_SUMMARY_CACHE else None)
         self.memory_state_fn = (
             memory_state_fn if memory_state_fn is not None else harness.state_fn
         )
