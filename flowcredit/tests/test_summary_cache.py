@@ -59,7 +59,11 @@ class CacheHitTests(unittest.TestCase):
             second = memory.build(2, {}, None)["observations"]
             self.assertEqual(calls["n"], 1, "第二次必须命中缓存,不重跑 summarizer")
             self.assertEqual(first, second, "产物必须一致")
-            self.assertEqual(cache.hits, 1, "原缓存实例应记录一次命中")
+            # P1-2 起介质顺序为 dict memo → SQLite:第二次 build 由进程内
+            # memo 服务,不触达 SQLite——hits==0 是期望,不是缓存失效;
+            # memo 只应有一条(五元组 key 与 SQLite 版一致)。
+            self.assertEqual(cache.hits, 0)
+            self.assertEqual(len(memory._memo), 1)
 
     def test_t2_version_bump_invalidates_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

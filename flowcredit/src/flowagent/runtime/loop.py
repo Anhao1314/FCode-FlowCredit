@@ -45,7 +45,8 @@ MAX_PROPOSAL_REPAIRS = 2
 #: work/cache-benchmark/large-payload-report.json:90KB 载荷下单次 detailed
 #: summarize 3.65µs,而单次 SQLite 命中点查 4.71µs——summarizer 早剪枝,
 #: 成本不随载荷增长,任何阈值都无法让 SQLite 点查转正。保留 SummaryCache
-#: 资产(显式传入才启用);进程内 dict 介质见 P1-2。
+#: 资产(显式传入才启用);进程内 dict 介质已由 P1-2 实现
+#: (WorkingMemory._memo,优先于本缓存)。
 ENABLE_SQLITE_SUMMARY_CACHE = False
 
 __all__ = ["Loop", "NullObserver"]
