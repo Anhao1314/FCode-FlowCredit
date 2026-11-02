@@ -175,6 +175,7 @@ class McpBridge:
                         tool=raw_name,
                         spec=ToolSpec(
                             name=full,
+                            summary_policy="detailed",
                             summary=str(tool.get("description") or f"{config.name} tool {raw_name}")[:200],
                             effect=EFFECT_READ if lowered in readonly else EFFECT_WRITE,
                             params=params,

@@ -120,6 +120,7 @@ def build_workspace_tools(
     return [
         ToolSpec(
             name="ingest_file",
+            summary_policy="detailed",
             summary="Ingest a text/CSV/JSON file inside the evidence sandbox; returns a content hash and line anchors",
             effect=EFFECT_READ,
             params=(
@@ -144,6 +145,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="search_corpus",
+            summary_policy="detailed",
             summary="Search ingested evidence by substring; returns hits with doc_id and line anchors",
             effect=EFFECT_READ,
             params=(
@@ -161,6 +163,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="read_slice",
+            summary_policy="detailed",
             summary="Read a bounded line range from ingested evidence; whole documents are never dumped",
             effect=EFFECT_READ,
             params=(
@@ -181,6 +184,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="working_paper_append",
+            summary_policy="detailed",
             summary="Append one cited section to the working paper; content-addressed and approval-gated",
             effect=EFFECT_WRITE,
             params=(
@@ -208,6 +212,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="search_cases",
+            summary_policy="detailed",
             summary="Search past delegations for similar work; returns explainable scores",
             effect=EFFECT_READ,
             params=(
@@ -224,6 +229,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="read_case",
+            summary_policy="detailed",
             summary="Read one indexed case: summary, citations, artifacts and chain head",
             effect=EFFECT_READ,
             params=(
@@ -253,6 +259,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="query_facts",
+            summary_policy="detailed",
             summary="Query bi-temporal facts (as-of and known-at) with provenance",
             effect=EFFECT_READ,
             params=(
@@ -273,6 +280,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="collect_source",
+            summary_policy="detailed",
             summary="Collect a host-configured source, extract text, and ingest it as cited evidence",
             effect=EFFECT_NETWORK,
             params=(
@@ -311,6 +319,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="fetch_source",
+            summary_policy="detailed",
             summary="Fetch a host-configured external source by name; endpoint and credentials stay with the host",
             effect=EFFECT_NETWORK,
             params=(
