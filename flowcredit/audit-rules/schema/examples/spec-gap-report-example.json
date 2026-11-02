@@ -1,7 +1,7 @@
 {
   "schema_version": "fcode.spec-gap-report/v1",
-  "report_id": "spec-gap-dsh-gap-2026-11-02-example",
-  "audit_id": "dsh-gap-2026-11-02-example",
+  "report_id": "spec-gap-dsh-gap-2026-11-02",
+  "audit_id": "dsh-gap-2026-11-02",
   "target": {
     "identity": "deepseek-harness",
     "version": "0.2.1-rc.5",
@@ -40,7 +40,8 @@
           "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "log_format": "zstd"
         }
-      ]
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
     },
     {
       "judgment_id": "SG-0002",
@@ -73,7 +74,8 @@
           "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "log_format": "zstd"
         }
-      ]
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
     },
     {
       "judgment_id": "SG-0003",
@@ -140,7 +142,8 @@
             "turn": 1
           }
         }
-      ]
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
     }
   ]
 }
