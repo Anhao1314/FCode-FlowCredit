@@ -30,6 +30,7 @@
 | 四值结果状态机 | finding / not_reproduced / invalid_poc / not_vulnerable_under_scope;负对照违反一律 invalid_poc | `python -m unittest tests.test_audit_vertical` |
 | 负对照与对照证据 | 每条 PoC 必带负对照;`schema/poc-evidence.schema.json` 钉死字段 | `audit-rules/schema/examples/` |
 | 审计包与第三方复核 | `bundle.py` 导出 fcode.audit-bundle/v1;`cli verify-bundle` 独立复核 | `python -m flowaudit.cli verify-bundle <bundle> --evidence <dir>` |
+| 规范空白判定 | `audit-rules/schema/spec-gap-report.schema.json` + `flowaudit/spec_gap.py`;独立 JSON,不进入 audit-bundle | `python -m flowaudit.cli spec-gap-report --input audit-rules/schema/examples/spec-gap-report-example.json --out /tmp/spec-gap-report.json` |
 | 审计器自身威胁模型 | `docs/threat-model.md` §3.1:目标可控字节→通道→缓解,逐环节成表 | 读表 |
 | 自审计闭环 | 对本仓库审计端到端产出 FCODE-02 真实 finding(审批记忆参数无关免审批),证据含正反对照 | `python -m flowaudit.cli audit . --out /tmp/a` |
 

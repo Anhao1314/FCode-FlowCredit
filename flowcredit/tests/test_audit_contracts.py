@@ -31,7 +31,8 @@ from flowaudit.jsonschema_lite import validate  # noqa: E402, F401
 
 class SchemaIntegrityTests(unittest.TestCase):
     def test_schemas_parse_and_declare_subset(self) -> None:
-        for name in ("poc-evidence.schema.json", "audit-bundle.schema.json"):
+        for name in ("poc-evidence.schema.json", "audit-bundle.schema.json",
+                     "spec-gap-report.schema.json"):
             schema = json.loads((SCHEMA_DIR / name).read_text(encoding="utf-8"))
             self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
             self.assertEqual(schema["type"], "object")

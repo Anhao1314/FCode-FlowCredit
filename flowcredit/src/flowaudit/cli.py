@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import bundle as bundle_mod
 from . import jsonschema_lite
+from . import spec_gap
 from .poc import replay as replay_mod
 from .targets import repo as repo_adapter
 from .vulns import engine
@@ -204,6 +205,40 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spec_gap_report(args: argparse.Namespace) -> int:
+    """Write a standalone spec-gap report from a judgments input document."""
+    try:
+        data = spec_gap.load_input(args.input)
+        judgments = data.get("judgments")
+        if not isinstance(judgments, list):
+            raise ValueError("input.judgments must be an array")
+        target = data.get("target")
+        if not isinstance(target, dict):
+            raise ValueError("input.target must be an object")
+        audit_id = args.audit_id or data.get("audit_id")
+        if not isinstance(audit_id, str) or not spec_gap.AUDIT_ID_RE.fullmatch(audit_id):
+            raise ValueError("audit_id is required and must match [a-z0-9][a-z0-9.-]{2,127}")
+        report = spec_gap.build_report(judgments, target, audit_id)
+        out_path = (
+            Path(args.out)
+            if args.out
+            else DEFAULT_RULES.parent / "work" / "audit" / audit_id / "spec-gap-report.json"
+        )
+        if out_path.exists() and out_path.is_dir():
+            out_path = out_path / "spec-gap-report.json"
+        spec_gap.write_report(report, out_path)
+    except (OSError, ValueError) as error:
+        print(json.dumps({"error": "SPEC_GAP_INVALID", "reason": str(error)},
+                         ensure_ascii=False))
+        return 1
+    print(json.dumps({
+        "spec_gap_report": str(out_path),
+        "audit_id": audit_id,
+        "judgments": len(report["judgments"]),
+    }, ensure_ascii=False))
+    return 0
+
+
 def cmd_verify_bundle(args: argparse.Namespace) -> int:
     """Validate a bundle; ``--evidence`` is required for full verification.
 
@@ -278,6 +313,24 @@ def main(argv: list[str] | None = None) -> int:
              "verification (without it only bundle schema validation runs)",
     )
     p_verify.set_defaults(func=cmd_verify_bundle)
+
+    p_spec = sub.add_parser(
+        "spec-gap-report",
+        help="write a standalone spec-gap report (not an audit-bundle)",
+    )
+    p_spec.add_argument(
+        "--input", required=True,
+        help="JSON input with audit_id, target and judgments",
+    )
+    p_spec.add_argument(
+        "--out", default=None,
+        help="report file path; default work/audit/<audit_id>/spec-gap-report.json",
+    )
+    p_spec.add_argument(
+        "--audit-id", default=None,
+        help="override audit_id from the input document",
+    )
+    p_spec.set_defaults(func=cmd_spec_gap_report)
 
     args = parser.parse_args(argv)
     return args.func(args)

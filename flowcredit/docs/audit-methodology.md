@@ -112,3 +112,54 @@ PoC/oracle/重放器版本、负对照与清理结果、**未覆盖面与无法�
   honeypot 外传检测约束。
 - 消息类探针(AGI-01)只使用测试账号/自建会话,不触碰真实联系人。
 - 审计发现面向修复,不面向武器化(见 threat-model 第五节)。
+
+## 五、spec-gap-report:规范空白判定
+
+`spec-gap-report` 是 **audit-bundle 之外的独立 JSON**,用于记录两类当前
+finding 结构无法表达的判定:
+
+- **conforms**:已检查目标行为,且目标文档明确允许该行为;
+- **undetermined**:检查项命中事实,但目标文档没有给出可判定的规范,
+  无法判为 finding,也无法判为安全。
+
+没有判定时,`judgments` 为空数组,报告仍可有意义(表示本次没有生成
+规范空白结论),但它不是 finding,也不替代 `uncovered_surfaces`。
+
+### 结构
+
+报告顶层:`schema_version`、`report_id`、`audit_id`、`target`
+(`identity` / `version?` / `artifact_sha256` / `session_log_sha256`)、
+`generated_at`、`judgments`。`target.artifact_sha256` 是被审计应用产物的
+哈希,`target.session_log_sha256` 是本次判定依据的会话日志哈希。
+
+每条 judgment 必须有 `judgment_id`、`subject`、`verdict`、`evidence_refs`。
+条件规则在 writer 代码层检查(schema 不支持 if/then):
+
+- `verdict=conforms`:必须带 `basis.doc_refs` 且至少一条;
+- `verdict=undetermined`:必须带 `missing_spec`,含 `question`、
+  `searched_refs`、`result`。
+
+### evidence_refs 与 absence_refs
+
+- `evidence_refs` 指向 DSH 的现存事件:
+  `{kind, session_id, seq, event_type, log_path, log_sha256, log_format}`。
+  `session_id + seq + event_type` 唯一定位事件;`log_path` 便于取回日志;
+  `log_sha256` 固定日志内容。
+- `absence_refs` 用于“事件未出现”的断言(例如零 `approval/asked`):
+  `{kind, session_id, event_type, scope}`,其中 `scope` 必须是
+  `{from_seq, to_seq, turn?}` 的结构化区间,不接受自由字符串。
+- `log_format` 为 `jsonl` 或 `zstd`。**即使 `log_format=zstd`,
+  `log_sha256` 也固定为解压后 raw JSONL 字节流的 SHA-256**,这样第三方
+  先解压再按同一字节流复算。
+
+### 生成命令
+
+```bash
+python -m flowaudit.cli spec-gap-report \
+  --input audit-rules/schema/examples/spec-gap-report-example.json \
+  --out /tmp/spec-gap-report.json
+```
+
+`--audit-id` 可覆盖输入中的 `audit_id`;不提供 `--out` 时默认写到
+`work/audit/<audit_id>/spec-gap-report.json`。输入或 schema 校验失败
+返回非零且不写文件。该命令只负责落盘,不读取 DSH 日志,也不生成判定。
