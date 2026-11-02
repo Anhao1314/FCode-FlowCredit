@@ -43,12 +43,20 @@ def _workspace_specs():
 
 
 class WorkspacePolicyTests(unittest.TestCase):
+    #: P0-1.5 起 search_corpus 走 custom(指针型),由
+    #: tests/test_search_corpus_summary.py 单独验收;其余 8 个仍为 detailed。
+    CUSTOM_EXCEPTIONS = {"search_corpus"}
+
     def test_all_workspace_tools_declare_detailed(self) -> None:
         tmp, specs = _workspace_specs()
         with tmp:
             by_name = {spec.name: spec for spec in specs}
             self.assertEqual(tuple(by_name), WORKSPACE_TOOL_NAMES)
             for name, spec in by_name.items():
+                if name in self.CUSTOM_EXCEPTIONS:
+                    self.assertEqual(spec.summary_policy, "custom")
+                    self.assertIsNotNone(spec.summarize)
+                    continue
                 self.assertEqual(
                     spec.summary_policy, "detailed",
                     f"{name} 必须显式声明 detailed,否则 default 会压成 count/keys/240 字头")
@@ -59,6 +67,9 @@ class WorkspacePolicyTests(unittest.TestCase):
         tmp, specs = _workspace_specs()
         with tmp:
             for spec in specs:
+                if spec.name in self.CUSTOM_EXCEPTIONS:
+                    self.assertIs(summarizer_for(spec), spec.summarize)
+                    continue
                 self.assertIs(summarizer_for(spec), detailed_summarize,
                               f"{spec.name} 的分发必须落到 detailed_summarize")
 
