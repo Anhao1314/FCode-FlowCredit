@@ -205,30 +205,45 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 def cmd_verify_bundle(args: argparse.Namespace) -> int:
+    """Validate a bundle; ``--evidence`` is required for full verification.
+
+    Without ``--evidence`` this checks only the bundle schema. It reports
+    ``schema_only`` and exits nonzero: PoC records and the evidence-set hash
+    were not verified, so this is not a pass.
+    """
     bundle = json.loads(Path(args.bundle).read_text(encoding="utf-8"))
     errors = jsonschema_lite.validate(
         bundle, json.loads(bundle_mod.BUNDLE_SCHEMA_PATH.read_text(encoding="utf-8")))
     if errors:
         print(json.dumps({"verify": "failed", "errors": errors}, ensure_ascii=False, indent=2))
         return 1
-    if args.evidence:
-        schema = json.loads((Path(args.evidence).parent if Path(args.evidence).is_file()
-                             else Path(args.evidence)).joinpath("poc-evidence.schema.json").read_text(encoding="utf-8")) \
-            if False else json.loads(replay_mod.SCHEMA_PATH.read_text(encoding="utf-8"))
-        records = []
-        for ref in bundle["poc_evidence_refs"]:
-            path = Path(args.evidence) / f"{ref}.json"
+    if not args.evidence:
+        print(json.dumps({
+            "verify": "schema_only",
+            "note": "PoC evidence not verified; pass --evidence to verify evidence-set hash",
+        }, ensure_ascii=False))
+        return 1
+    schema = json.loads(replay_mod.SCHEMA_PATH.read_text(encoding="utf-8"))
+    records = []
+    for ref in bundle["poc_evidence_refs"]:
+        path = Path(args.evidence) / f"{ref}.json"
+        try:
             records.append(json.loads(path.read_text(encoding="utf-8")))
-        for record in records:
-            errors = jsonschema_lite.validate(record, schema)
-            if errors:
-                print(json.dumps({"verify": "failed", "poc_id": record.get("poc_id"),
-                                  "errors": errors}, ensure_ascii=False, indent=2))
-                return 1
-        head = bundle_mod.evidence_set_hash(records)
-        if head != bundle["chain_verification"]["head_hash"]:
-            print(json.dumps({"verify": "failed", "reason": "evidence-set hash mismatch"}))
+        except (OSError, ValueError) as error:
+            print(json.dumps({"verify": "failed", "poc_id": ref,
+                              "reason": f"evidence record missing or unreadable: {error}"},
+                             ensure_ascii=False))
             return 1
+    for record in records:
+        errors = jsonschema_lite.validate(record, schema)
+        if errors:
+            print(json.dumps({"verify": "failed", "poc_id": record.get("poc_id"),
+                              "errors": errors}, ensure_ascii=False, indent=2))
+            return 1
+    head = bundle_mod.evidence_set_hash(records)
+    if head != bundle["chain_verification"]["head_hash"]:
+        print(json.dumps({"verify": "failed", "reason": "evidence-set hash mismatch"}))
+        return 1
     print(json.dumps({"verify": "passed", "audit_id": bundle["audit_id"],
                       "findings": len(bundle["findings"])}))
     return 0
@@ -252,10 +267,16 @@ def main(argv: list[str] | None = None) -> int:
                               "and charges the wallet")
     p_audit.set_defaults(func=cmd_audit)
 
-    p_verify = sub.add_parser("verify-bundle", help="validate an audit bundle")
+    p_verify = sub.add_parser(
+        "verify-bundle",
+        help="validate an audit bundle; --evidence is required for full verification",
+    )
     p_verify.add_argument("bundle")
-    p_verify.add_argument("--evidence", default=None,
-                          help="directory containing <poc_id>.json records")
+    p_verify.add_argument(
+        "--evidence", default=None,
+        help="directory containing <poc_id>.json records; required for full "
+             "verification (without it only bundle schema validation runs)",
+    )
     p_verify.set_defaults(func=cmd_verify_bundle)
 
     args = parser.parse_args(argv)
