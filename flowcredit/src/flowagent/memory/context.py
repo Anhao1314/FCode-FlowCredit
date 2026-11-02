@@ -283,8 +283,11 @@ class WorkingMemory:
     _pinned_chars: int = 0
     _np_chars: int = 0
     _prepared_signature: Any = None
-    #: P1-2 G:进程内 dict 介质(五元组 key 与 SQLite 版一致;无 TTL/LRU,
-    #: 单机单任务,进程生命周期内膨胀有界)。
+    #: P1-2 加固:每次 record() 追加后递增,用于签名暴露“记录列表发生过变更”。
+    _records_version: int = 0
+    #: P1-2 G:进程内 dict 介质(五元组 key 与 SQLite 版一致;无 TTL/LRU)。
+    #: 生命周期依赖每任务新建 WorkingMemory;若未来引入跨任务复用,必须在
+    #: 任务边界调用 _memo.clear() 或加条目上限,否则会跨任务累积。
     _memo: dict[tuple[str, str, str, str, int], dict[str, Any]] = field(
         default_factory=dict)
     #: P1-1 缓存指纹来源:tool → (summary_policy, summary_version)。由 loop
@@ -320,6 +323,12 @@ class WorkingMemory:
     def record(self, round_no: int, observation: Observation,
                source_trust: "SourceTrust | None" = None,
                event_kind: str | None = None) -> ObservationRecord:
+        """Append one observation and bump the records version.
+
+        ``arguments``/``result`` 是顶层 dict 浅拷贝(dict(...));嵌套对象在
+        记录后不得原地修改。需要修改时请先深拷贝,否则已缓存的行产物不会
+        感知变化。
+        """
         record = ObservationRecord(
             round=round_no,
             tool=observation.tool,
@@ -330,6 +339,7 @@ class WorkingMemory:
             event_kind=event_kind,
         )
         self.records.append(record)
+        self._records_version += 1
         return record
 
     # ------------------------------------------------------------------- state
@@ -499,16 +509,25 @@ class WorkingMemory:
         求和)。行产物不可变;游标只前进。pin 策略/summarizer 配置/profile
         若被替换(理论上不该发生),按签名重建全部产物(fail-safe)。
         """
-        signature = (id(self.pin_policy), id(self.summarizer_config),
-                     self.prompt_profile)
-        if self._prepared_signature != signature:
+        signature = (
+            id(self.pin_policy),                           # PinPolicy: frozen dataclass
+            tuple(sorted(self.summarizer_config.items())),  # 内容而非对象 id
+            self.prompt_profile,
+            self._records_version,
+        )
+        previous = self._prepared_signature
+        # records_version 每次追加都会变化。若让“签名变化”直接清空行,
+        # 每轮都会重建全部历史行,把 P1-2 增量化打回 O(N)/轮;因此只把
+        # 前三项视为“影响行内容”的签名,追加交给下方 while 增量处理。
+        content_changed = (previous is None or previous[:3] != signature[:3])
+        if content_changed or len(self.records) < len(self._prepared):
             self._prepared.clear()
             self._pinned_rows.clear()
             self._np_rows.clear()
             self._np_prefix.clear()
             self._pinned_chars = 0
             self._np_chars = 0
-            self._prepared_signature = signature
+        self._prepared_signature = signature
         include_trust = self.prompt_profile is not None
         while len(self._prepared) < len(self.records):
             record = self.records[len(self._prepared)]

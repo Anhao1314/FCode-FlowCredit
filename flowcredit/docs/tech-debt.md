@@ -77,3 +77,29 @@ prompt 中不带来源可信度标记。
 **残留债务**:dict memo 仅存活于单个 `WorkingMemory` 实例,不跨进程;因
 summarizer 是五元组纯函数,跨进程复用暂无收益证据,接受现状。若未来某个
 工具的 summarizer 变成昂贵操作(如调用模型),需重新评估持久缓存。
+
+
+## TD-003:每轮全量扫描 store.events() 与启动双次全表解码
+
+**现状**:L1 行装配已由 P1-2 增量化,但事件读取仍是全量:
+
+- `Loop.operator_notes()` 每轮调用 `store.events()`(`runtime/loop.py:184`
+  调用,`loop.py:701` 全量扫描);
+- `Loop._decisions()` 同样全量扫描(`runtime/loop.py:681`);
+- 一次 run 启动,`store.load()` 的 `verify_chain()`(`core/store.py:287`)
+  先全表解码并逐事件哈希校验,`Loop.restore()` 随后又经 `store.events()`
+  (`core/store.py:268`)二次全表解码。
+
+**数据**:当前 demo 六场景 24–50 事件、benchmark 19 任务 3–29 事件
+(`work/demo/*.sqlite`、`artifacts/runtime-benchmark/latest/tasks/*/events.json`),
+成本毫秒级。
+
+**结论**:P2 候选,按真实任务规模再评估。P1-3(`events(since_seq=)`)**不适用于
+restore**:restore 从空 `WorkingMemory` 重建,必须重放全部 `tool_succeeded`,
+增量读取无收益。
+
+**解法候选**:
+
+1. `restore()` 复用 `load()/verify_chain()` 已解码的事件行,消除启动期第二次
+   全表解码(需调整 `TaskStore` 接口);
+2. `operator_notes()`/`_decisions()` 改增量读取(需先测轮次 × 事件数,确认收益)。
