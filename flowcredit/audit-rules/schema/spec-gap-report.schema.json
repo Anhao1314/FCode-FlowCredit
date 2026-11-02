@@ -83,11 +83,14 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "session_id", "event_type", "scope"],
+              "required": ["kind", "session_id", "event_type", "scope", "log_path", "log_sha256", "log_format"],
               "properties": {
                 "kind": { "enum": ["dsh_event_absence"] },
                 "session_id": { "type": "string" },
                 "event_type": { "type": "string" },
+                "log_path": { "type": "string" },
+                "log_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "log_format": { "enum": ["jsonl", "zstd"] },
                 "scope": {
                   "type": "object",
                   "additionalProperties": false,

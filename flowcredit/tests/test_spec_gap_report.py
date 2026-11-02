@@ -126,6 +126,18 @@ class SpecGapReportTests(unittest.TestCase):
                 spec_gap.write_report(report, out)
             self.assertFalse(out.exists())
 
+    def test_t7_absence_requires_log_pin(self) -> None:
+        example = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        judgments = copy.deepcopy(example["judgments"])
+        judgments[2]["absence_refs"][0].pop("log_sha256")
+        report = spec_gap.build_report(
+            judgments, example["target"], example["audit_id"])
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "report.json"
+            with self.assertRaises(ValueError):
+                spec_gap.write_report(report, out)
+            self.assertFalse(out.exists())
+
     def test_t6_complete_report_and_example_conform(self) -> None:
         schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
         example = json.loads(EXAMPLE.read_text(encoding="utf-8"))

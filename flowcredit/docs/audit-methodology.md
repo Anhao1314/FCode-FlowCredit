@@ -146,8 +146,10 @@ finding 结构无法表达的判定:
   `session_id + seq + event_type` 唯一定位事件;`log_path` 便于取回日志;
   `log_sha256` 固定日志内容。
 - `absence_refs` 用于“事件未出现”的断言(例如零 `approval/asked`):
-  `{kind, session_id, event_type, scope}`,其中 `scope` 必须是
-  `{from_seq, to_seq, turn?}` 的结构化区间,不接受自由字符串。
+  `{kind, session_id, event_type, scope, log_path, log_sha256, log_format}`,
+  其中 `scope` 必须是 `{from_seq, to_seq, turn?}` 的结构化区间,不接受自由字符串。
+  **absence 断言必须 pin 住它基于的日志(`log_path + log_sha256`),否则
+  第三方无法复核“未出现”。**
 - `log_format` 为 `jsonl` 或 `zstd`。**即使 `log_format=zstd`,
   `log_sha256` 也固定为解压后 raw JSONL 字节流的 SHA-256**,这样第三方
   先解压再按同一字节流复算。

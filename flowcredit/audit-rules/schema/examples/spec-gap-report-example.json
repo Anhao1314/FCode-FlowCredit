@@ -131,6 +131,9 @@
           "kind": "dsh_event_absence",
           "session_id": "session-227423e1-example",
           "event_type": "approval/asked",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd",
           "scope": {
             "from_seq": 2,
             "to_seq": 51,
