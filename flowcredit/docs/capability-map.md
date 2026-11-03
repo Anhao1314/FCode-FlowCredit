@@ -2,7 +2,7 @@
 
 > 本文档面向两类读者:**想快速判断这个项目深度的工程师/面试官**,和**想复现任何一条能力的使用者**。
 > 规矩沿用项目自己的纪律:每条能力对到**可指出的代码**和**可现场复现的命令**;没有对应证据的,直接写"未覆盖",不凑。
-> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 679 项),前端以 `node --test viewer/tests/*.test.js` 为准(166 项)。数字由 CI 在每次提交时重新推导。
+> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 765 项),前端以 `node --test viewer/tests/*.test.js` 为准(177 项)。数字由 CI 在每次提交时重新推导。
 
 ## 一、Agent 应用工程
 
@@ -29,10 +29,10 @@
 | 宿主侧 oracle | `poc/replay.py`:判定读目标事件链,PoC 自报 PASS 无效(枚举+测试双重拒绝) | `python -m unittest tests.test_audit_contracts.TamperDetectionTests` |
 | 四值结果状态机 | finding / not_reproduced / invalid_poc / not_vulnerable_under_scope;负对照违反一律 invalid_poc | `python -m unittest tests.test_audit_vertical` |
 | 负对照与对照证据 | 每条 PoC 必带负对照;`schema/poc-evidence.schema.json` 钉死字段 | `audit-rules/schema/examples/` |
-| 审计包与第三方复核 | `bundle.py` 导出 fcode.audit-bundle/v1;`cli verify-bundle` 独立复核 | `python -m flowaudit.cli verify-bundle <bundle> --evidence <dir>` |
-| 规范空白判定 | `audit-rules/schema/spec-gap-report.schema.json` + `flowaudit/spec_gap.py`;独立 JSON,不进入 audit-bundle | `python -m flowaudit.cli spec-gap-report --input audit-rules/schema/examples/spec-gap-report-example.json --out /tmp/spec-gap-report.json` |
+| 审计包与第三方复核 | `bundle.py` 导出 fcode.audit-bundle/v1;`cli verify-bundle` 独立复核 | `python audit.py verify-bundle <bundle> --evidence <dir>` |
+| 规范空白判定 | `audit-rules/schema/spec-gap-report.schema.json` + `flowaudit/spec_gap.py`;独立 JSON,不进入 audit-bundle | `python audit.py spec-gap-report --input audit-rules/schema/examples/spec-gap-report-example.json --out /tmp/spec-gap-report.json` |
 | 审计器自身威胁模型 | `docs/threat-model.md` §3.1:目标可控字节→通道→缓解,逐环节成表 | 读表 |
-| 自审计闭环 | 对本仓库审计端到端产出 FCODE-02 真实 finding(审批记忆参数无关免审批),证据含正反对照 | `python -m flowaudit.cli audit . --out /tmp/a` |
+| 自审计闭环 | 对本仓库审计端到端产出 FCODE-02 真实 finding(审批记忆参数无关免审批),证据含正反对照 | `python audit.py audit . --out /tmp/a` |
 
 ## 三、工程素养
 
@@ -41,7 +41,7 @@
 | 零依赖 / 可移植 | `pyproject.toml` `dependencies = []`,CI 第一步断言为空;规则用 JSON 不用 YAML | CI "Confirm there is nothing to install" |
 | 数据完整性与密码学用法 | `core/store.py` 序列号 CAS + 追加式事件;`core/hashing.py` canonical JSON(拒 float);`core/receipts.py` HMAC + `compare_digest` | 改一个字节,`load` 抛 `CHAIN_TAMPERED` |
 | 状态机建模 | `core/contracts.py` 显式迁移表,存储层强制 | `test_illegal_transition_is_rejected` |
-| 测试设计 | 679 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 166 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
+| 测试设计 | 765 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 177 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
 | 契约即测试 | 证据 Schema 用 stdlib 迷你校验器 enforced;8 类篡改用例(自报 PASS/非宿主 oracle/改环境标志…)全部被拒 | `python -m unittest tests.test_audit_contracts` |
 | 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台 mockup 已出 | `python viewer/server.py --repo .` |
 | 文档能力 | `docs/`:架构、威胁模型、审计方法论、规则指南、外部评审裁决记录(`design-reviews/`) | 随便打开一篇 |

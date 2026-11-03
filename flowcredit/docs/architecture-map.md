@@ -1,8 +1,8 @@
 # FCode-FlowCredit 仓库架构梳理
 
-> 基线：`main` 分支 `80748ab`，2026-11-03 克隆版本（222 commits，Apache-2.0）。
+> 基线：`main` 分支（PR #4 合入后，2026-11-03），Apache-2.0。
 > 文中所有行数、测试数、依赖边均为本地实测，不是照抄 README。
-> **范围**：本文只梳理 `main`。审计产品 `flowaudit` 位于未合并分支 `feat/audit-skeleton`（PR #4），见 [附录 A](#附录-a未合并的审计产品pr-4)。
+> 审计域 `flowaudit` 已随 PR #4 合入，本文覆盖内核与审计域两部分。
 
 ---
 
@@ -10,9 +10,9 @@
 
 `main` 分支上，它是：
 
-**一个 host-governed、事件溯源、可崩溃恢复的 agent runtime（内核）+ 两个可插拔领域模块（finance 参考负载 / general 默认入口）+ 三个外壳（离线 demo、Work 控制台、benchmark）。**
+**一个 host-governed、事件溯源、可崩溃恢复的 agent runtime（内核 `flowagent`）+ 三个可插拔领域（finance 参考负载 / general 默认入口 / audit 安全审计）+ 四个外壳（离线 demo、Work 控制台、benchmark、审计 CLI）。**
 
-"审计 agent 应用"是它的**产品方向**，代码在未合并的 PR #4（`feat/audit-skeleton`，+9,120 行，CI 全绿）里：`flowaudit` 作为第三个领域叠在同一个内核上。所以 GitHub 描述不是空话，但它描述的是 **PR 合入之后的状态，不是 `main` 的现状**——这也是这份文档要单独标注范围的原因。
+最上层是审计产品 `flowaudit`：它把"审计 agent 应用"做成一个领域，叠在同一个内核上，复用同一套门控、预算、哈希链与恢复机制。所以它既是一个可复用的治理内核，也是一个具体的安全审计产品——两者是同一棵树，不是两套实现。
 
 整个仓库的架构主线只有一句：**模型只提议，主机来门控、执行、验证，人保留决定权。**
 
@@ -22,7 +22,10 @@
 
 | 路径 | 是什么 | 备注 |
 |---|---|---|
-| `flowcredit/` | **真正的项目主体** | 运行时 + 控制台 + 测试 + 文档，全部在这里 |
+| `flowcredit/` | **真正的项目主体** | 运行时 + 审计域 + 控制台 + 测试 + 文档，全部在这里 |
+| `flowcredit/audit-rules/` | 版本化规则库（JSON 即数据） | 审计规则与证据 Schema，不经代码发布 |
+| `flowcredit/fixtures/` | 审计靶子与 ground truth | `demo-target`（MiniAgent）、`fcode-self`（7 个自体缺陷） |
+| `flowcredit/config/` | `online-policy.json` | 在线调用的授权范围与钱包上限，主机策略 |
 | `desktop/` | PyInstaller 桌面壳（新版） | README 指向这个，`build.sh` 在这里 |
 | `archive/node-prototype/` | 旧版 Node 原型，1.7 MB | 只作历史对照，不参与运行 |
 | `.agents/skills/fcode-design/` | 给编码 agent 用的设计规范 | 说明开发过程本身用了 agent |
@@ -41,16 +44,20 @@
 │ demo.py → demo/          8 个离线场景（CLI）                           │
 │ viewer/                  Work 控制台：HTTP + SSE + 零构建前端          │
 │ benchmark/               19 个版本化任务，复用生产 Loop                │
+│ flowaudit/cli.py         审计命令行（audit / verify-bundle）            │
 │ chat*.py                 对话分支（只回答，不执行工具）                 │
 │ sft/                     trace → SFT 数据 / 策略评测                   │
 │ review*.py               运行后人工复核（追加签名，不改写）             │
 └───────────────────────────────┬────────────────────────────────────────┘
                                 │ 组装（demo/runner.py 是唯一装配点）
-┌─ 领域插件 domains/ ───────────┴────────────────────────────────────────┐
-│ base.py     DomainModule 契约：世界 / 工具 / 规划器 / 验证器 / 审批点   │
-│ finance.py  参考负载：确定性、可独立复算                               │
-│ general.py  默认入口：文件 / 命令 / 网页 / 追问                        │
+┌─ 领域插件 ────────────────────┴────────────────────────────────────────┐
+│ domains/base.py  DomainModule 契约：世界/工具/规划器/验证器/审批点      │
+│ domains/finance  参考负载：确定性、可独立复算                          │
+│ domains/general  默认入口：文件 / 命令 / 网页 / 追问                   │
 │   └ tools/finance/*   tools/general/*                                  │
+│ flowaudit/       审计产品域（独立包，只依赖 flowagent）                │
+│   vulns 分类法 · poc 重放 · targets 适配器 · report · session          │
+│   └ audit-rules/（JSON 规则）· fixtures/（靶子与 ground truth）        │
 └───────────────────────────────┬────────────────────────────────────────┘
 ┌─ 运行时内核 runtime/ ─────────┴────────────────────────────────────────┐
 │ loop.py          多轮驱动：计划 → 逐轮单动作 → 终止判定                 │
@@ -96,7 +103,7 @@
 core  →  tools / providers  →  runtime  →  demo
 ```
 
-依赖方向的**事实**（AST 实测 fan-in）：`core` 81 条入边、`tools` 61、`providers` 36、`runtime` 32。主干成立，但有 4 处反向边（见 §7）。
+依赖方向的**事实**（AST 实测）：`flowagent` 内部 fan-in 仍是 `core` 81 条入边、`tools` 61、`providers` 36、`runtime` 32；包际方向 `flowaudit → flowagent` 共 22 条，反向 **0** 条。主干成立，`flowagent` 内部仍有 4 处反向边（见 §7）。
 
 ---
 
@@ -104,20 +111,21 @@ core  →  tools / providers  →  runtime  →  demo
 
 | 包 | 文件数 | 行数 | 一句话职责 | 关键约束 |
 |---|---:|---:|---|---|
-| `core/` | 5 | 1,303 | 契约、哈希、存储、收据、计划 | 不 import 包内任何其他模块 |
-| `runtime/` | 11 | 2,870 | 门控与循环，系统的"法官" | 只依赖 core/tools/providers |
-| `tools/` | 22 | 6,384 | 模型唯一的动作面 | 封闭注册表，无动态发现 |
+| `core/` | 6 | 1,312 | 契约、哈希、存储、收据、计划 | 不 import 包内任何其他模块 |
+| `runtime/` | 12 | 2,926 | 门控与循环，系统的"法官" | 只依赖 core/tools/providers |
+| `tools/` | 30 | 6,508 | 模型唯一的动作面 | 封闭注册表，无动态发现 |
 | `providers/` | 13 | 2,829 | 模型接入，只产出提案 | 不执行、不写库 |
-| `memory/` | 4 | 1,278 | 派生记忆：上下文 / 案例 / 事实 / 工件 | 派生而非累积 |
+| `memory/` | 6 | 1,658 | 派生记忆：上下文 / 案例 / 事实 / 工件 | 派生而非累积 |
 | `domains/` | 4 | 383 | 领域插件契约与注册 | 内核从不 import 具体领域 |
-| `demo/` | 13 | 2,795 | 装配 + 8 场景 + 终端渲染 | **唯一装配点** |
+| `flowaudit/` | 23 | 2,455 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
+| `demo/` | 13 | 2,801 | 装配 + 8 场景 + 终端渲染 | **唯一装配点** |
 | `benchmark/` | 8 | 1,304 | 19 任务评测 | 适配器只喂提案 |
 | `sft/` | 6 | 1,173 | trace → 训练数据 / 策略评测 | 依赖 demo（违规） |
 | `trajectory/` | 3 | 261 | 录制、导出、独立重校验 | 观察者，不参与决策 |
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
-| **合计** | **~89** | **23,086** | | |
+| **合计** | **~134** | **26,092** | | |
 
-外围：`tests/` 63 个文件、14,891 行、661 个测试；`viewer/` Python 3,657 行 + JS 14,052 行（含 166 个前端测试）；`docs/` 28 篇。
+外围：`tests/` 82 个文件、17,581 行、765 个测试；`viewer/` Python 3,852 行 + JS 14,392 行（含 177 个前端测试）；`docs/` 36 篇。
 
 ---
 
@@ -137,8 +145,8 @@ core  →  tools / providers  →  runtime  →  demo
 
 | 文件 | 行 | 职责 |
 |---|---:|---|
-| `loop.py` | 1,045 | 多轮驱动。`run()` 主循环；`restore()` 从事件日志重建；`_verify_obligation()` / `_verify_result_set()` 独立复算；`_succeed/_deny/_stop` 终态判定 |
-| `harness.py` | 492 | 最小动作单元。propose → gate → charge → dispatch → observe；`_unknown()` 把超时转入 `recovery_required`，**不重试** |
+| `loop.py` | 1,087 | 多轮驱动。`run()` 主循环；`restore()` 从事件日志重建；`_verify_obligation()` / `_verify_result_set()` 独立复算；`_succeed/_deny/_stop` 终态判定 |
+| `harness.py` | 496 | 最小动作单元。propose → gate → charge → dispatch → observe；`_unknown()` 把超时转入 `recovery_required`，**不重试**；观测落库时写入 `trust` 标记 |
 | `permissions.py` | 121 | 三道独立检查：工具在注册表 / 在任务 scope / 在当前 grant。任一条不过即 deny |
 | `budget.py` | 152 | 调用、读取、成本、token 四维；**发送前扣减，失败不退** |
 | `verification.py` | 193 | 完成义务只允许 `run_command`；必须来自冻结的 delegation spec；超时/未知一律 fail closed |
@@ -188,16 +196,33 @@ core  →  tools / providers  →  runtime  →  demo
 
 | 文件 | 行 | 回答的问题 |
 |---|---:|---|
-| `context.py` | 305 | "模型这一轮该看到什么"——派生、有 token 预算、可重建 |
+| `context.py` | 597 | "模型这一轮该看到什么"——派生、有 token 预算、可重建 |
 | `cases.py` | 450 | "以前做过什么"——终态 trace 变成可搜索案例簿 |
 | `facts.py` | 289 | "我们曾经相信什么"——双时态，更正靠追加 |
 | `artifacts.py` | 226 | "现在存在什么、谁产出的"——跨任务工件事实层 |
+| `summary_cache.py` | 88 | 增量摘要缓存；度量后默认关闭（点查比重算更慢） |
 
 ### 4.6 `domains/`
 
 `base.py` 的 `DomainModule` 是整个仓库最像"框架"的地方：一个领域要提供 `create_world` / `build_tools` / `make_planner` / `verify` / `result_tools` / `approval_tools` / `summarize_state` / `prompt_profile` / `plan_extension` / `make_verification`。**内核从不 import 具体领域**，新增业务 = 新增模块 + 注册。
 
-### 4.7 外壳
+### 4.7 `flowaudit/` — 审计产品域
+
+| 文件 / 目录 | 职责 |
+|---|---|
+| `vulns/engine.py` | AGI 九类漏洞分类法 + 规则引擎；规则是数据（`audit-rules/*.json`），引擎只解释 |
+| `poc/replay.py` + `replay_worker.py` | PoC 在受限子进程重放：剥离凭据、`HOME`/`TMPDIR` 指向审计目录、`sys.addaudithook` 拦 socket/subprocess |
+| `poc/scenarios/*` | 内置场景（含 fcode-self 的真实缺陷与负对照） |
+| `targets/repo.py` | **唯一已实现**的目标适配器；desktop-app / http / mcp 在 `__init__.py` 里标注为 Sprint 2+ 计划 |
+| `analyst.py` / `online.py` | 模型只做候选提议与分诊；在线调用受 `config/online-policy.json` 额度约束 |
+| `report/` + `bundle.py` | 发现 + 审计自身的哈希链；审计包可独立 `verify-bundle` |
+| `session.py` / `episodes.py` | 静态 / 动态分会话，共享 `audit_id` 与不可变目标清单 |
+| `spec_gap.py` | 规格缺口报告——缺失的证据本身也是发现 |
+| `jsonschema_lite.py` | 零依赖 schema 校验器 |
+
+边界：`flowagent` 从不 import `flowaudit`，由 `tests/test_module_boundary.py` 的 AST 测试强制；反向 22 条 import 全部是 `flowaudit → flowagent`。
+
+### 4.8 外壳
 
 - `demo/runner.py`（670）：**全仓唯一装配点**。选择 provider、domain、policy、store、recorder，然后交给 `Loop`。往下所有模块都只接受注入。
 - `demo/fixtures.py`（244）：8 个场景 = 同一内核 + 不同 host 策略 + 不同故障注入。
@@ -208,26 +233,26 @@ core  →  tools / providers  →  runtime  →  demo
 - `benchmark/verifier.py`（184）：从文件、进程、事件、收据独立判分，不信任被测运行的自述。
 - `chat*.py`（1,809）：对话面；关键区别是 chat 只回答、不执行工具，但仍计预算、进事件链。
 
-### 4.8 `viewer/`
+### 4.9 `viewer/`
 
-**后端（3,657 行，按职责拆得比较干净）：**
+**后端（3,852 行，按职责拆得比较干净）：**
 
 | 文件 | 行 | 职责 |
 |---|---:|---|
-| `server.py` | 701 | HTTP + SSE + 认证/同源/mutation guard；`do_POST` 只剩 11 行分发 |
+| `server.py` | 802 | HTTP + SSE + 认证/同源/mutation guard；`do_POST` 只剩 12 行分发；新增只读审计 API 与 CSP |
 | `console_manager.py` | 743 | 运行历史、创建、恢复、复核、`runs/` 目录 |
 | `console_runtime.py` | 972 | 运行时宿主：导入 flowagent、表示一次 run、挂 observer、检查崩溃 |
 | `console_run_driver.py` | 393 | 单次运行的装配 → 执行 → 发布 → 清理 |
 | `console_post*.py` | 586 | 路由表 + chat 处理器 + run 处理器 |
 | `console_common.py` | 243 | 路径、静态守卫、模型目录（可单测） |
 
-**前端（14,052 行）：**
+**前端（14,392 行）：**
 
-`app.js` 5,899 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的 8 个视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`tests/` 166 项。
+`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 177 项。
 
 ---
 
-## 5. 三条执行路径（同一个内核）
+## 5. 四条执行路径（同一个内核）
 
 ```
 A. 离线演示
@@ -243,9 +268,16 @@ B. Work 控制台
 C. 评测
    benchmark/__main__ → runner → benchmark/runtime（适配器只喂提案）
      → 同一个 Loop → verifier（从文件/进程/事件独立判分）
+
+D. 审计
+   python audit.py audit <target>          （等价于已安装后的 python -m flowaudit.cli）
+     → targets/ 生成目标清单 → vulns/ 规则引擎出候选
+     → poc/ 生成 PoC → replay_worker（受限子进程）→ 宿主 oracle 判定
+     → report/bundle：发现 + 审计事件链 → work/audit/<audit_id>/
+     → flowaudit.cli verify-bundle：第三方独立复核
 ```
 
-**这是整个仓库最好的架构决策：三个外壳共用同一个 `Loop`，没有为 demo、UI、benchmark 各写一套执行器。** 判断一个 agent 项目是否"真框架"，看这一点通常就够了。
+**这是整个仓库最好的架构决策：四个外壳共用同一个 `Loop`，没有为 demo、UI、benchmark、审计各写一套执行器。** 判断一个 agent 项目是否"真框架"，看这一点通常就够了。
 
 ---
 
@@ -281,11 +313,13 @@ Task ──< Plan ──< Step/Todo
 | 违规 | 位置 | 问题 | 建议 |
 |---|---|---|---|
 | 模型层 → 运行时 | `providers/deepseek.py:21`、`providers/local_policy.py:21` | 导入 `runtime.policy.ActionChoice/DecisionPacket` | 把 `DecisionPacket` 下沉到 `core/contracts.py` |
-| 能力层 → 记忆层 | `tools/workspace.py:22-23` | 导入 `memory.cases.CaseIndex`、`memory.facts.FactStore` | 定义 `CasePort`/`FactPort` 协议，由装配点注入 |
-| 记忆层 → 能力层 | `memory/context.py:21` | 导入 `tools.base.Observation` | `Observation` 下沉到 `core/` |
+| 能力层 → 记忆层 | `tools/workspace.py:23-24` | 导入 `memory.cases.CaseIndex`、`memory.facts.FactStore` | 定义 `CasePort`/`FactPort` 协议，由装配点注入 |
+| 记忆层 → 能力层 | `memory/context.py:37,39` | 导入 `tools.base.Observation` / `VALID_SUMMARY_POLICIES` | `Observation` 与摘要策略下沉到 `core/` |
 | 训练管线 → 演示层 | `sft/export.py:35`、`sft/evaluate.py:17-18` | 依赖 `demo.fixtures`、`demo.packet` | 场景定义移到 `domains/` 或独立 `scenarios/` |
 
 第 2、3 条合起来构成 **`memory/ ↔ tools/` 循环依赖**，这正是"记忆"和"能力"边界没定清的症状。
+
+包际方向是干净的：`flowaudit → flowagent` 共 22 条，`flowagent → flowaudit` **0 条**，由 `tests/test_module_boundary.py` 的 AST 扫描强制。也就是说审计域没有污染内核——它只是把内核当平台用。
 
 ---
 
@@ -297,10 +331,8 @@ Task ──< Plan ──< Step/Todo
 | P1 | **`memory/ ↔ tools/` 循环依赖** | 见 §7 | 两层无法独立测试/替换 |
 | P1 | **两套 `desktop/`** | 根 `desktop/`（重写版）vs `flowcredit/desktop/`（旧版） | 用户不知道该改哪套；README 只指前者 |
 | P2 | **`tools/workspace.py` 与 `tools/general/` 职责重叠** | 共享工具 vs 通用域工具，靠约定区分 | 新增领域时不知道工具该放哪 |
-| P2 | **`app.js` 仍 5,899 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
-| P2 | **版本号不一致** | `__version__ = "0.1.0"` vs `pyproject = "0.2.0"` | 打包/上报口径混乱 |
-| P2 | **许可证不一致** | 根 `LICENSE` = Apache-2.0；`pyproject` 写 `UNLICENSED` | 法务口径冲突，比代码问题更值得先修 |
-| P3 | **文档数字陈旧** | `docs/jd-mapping.md` 写"tests/ 41 项"（实际 661）；`refactor-evaluation.md` 写 app.js 5,699 行（实际 5,899） | 降低"可验证"这一核心卖点的可信度 |
+| P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
+| P2 | **审计目标适配器只有 `repo`** | `targets/__init__.py` 把其余三个标注为 Sprint 2+ 计划，但 PR 描述与 README 的措辞像是四个都已落地 | 对外表述要先于代码收敛，否则重演"描述超前于实现" |
 | P3 | **生成物入库** | `flowcredit/artifacts/` 388 个文件 | clone 体积；但作为 benchmark 证据可以接受 |
 | P3 | **`archive/` 1.7 MB** | 旧 Node 原型 | 历史价值 vs 仓库重量 |
 
@@ -311,20 +343,26 @@ Task ──< Plan ──< Step/Todo
 不改任何行为，只调整归属（括号内为现有文件）：
 
 ```
-flowagent/
-├── core/            contracts(hashing/store/receipts/plan) + observation/decision 契约
-├── kernel/          runtime/*                        ← 现 runtime/
-├── capabilities/    registry/base/artifacts/evidence/connectors/workspace/mcp
-├── domains/         base + finance/ + general/
-├── providers/       base + mock + openai_compat + presets
-├── memory/          context/cases/facts/artifacts（只依赖 core）
-├── surfaces/
-│   ├── demo/        runner/fixtures/render/cli
-│   ├── chat/        chat/chat_answer/chat_config/chat_provider/chat_usage
-│   ├── console/     viewer/*.py（后端）
-│   ├── benchmark/
-│   └── sft/
-└── scenarios/       8 个 demo 场景 + 19 个 benchmark 任务的共享定义
+src/
+├── flowagent/       内核包（域无关）
+│   ├── core/        contracts(hashing/store/receipts/plan) + observation/decision 契约
+│   ├── kernel/      runtime/*                        ← 现 runtime/
+│   ├── capabilities/ registry/base/artifacts/evidence/connectors/workspace/mcp
+│   ├── domains/     base + finance/ + general/
+│   ├── providers/   base + mock + openai_compat + presets
+│   ├── memory/      context/cases/facts/artifacts（只依赖 core）
+│   └── surfaces/
+│       ├── demo/    runner/fixtures/render/cli
+│       ├── chat/    chat/chat_answer/chat_config/chat_provider/chat_usage
+│       ├── console/ viewer/*.py（后端）
+│       ├── benchmark/
+│       └── sft/
+└── flowaudit/       审计域（只依赖 flowagent，反向有 AST 测试）
+    ├── vulns/ · poc/ · targets/ · report/
+    └── session / episodes / spec_gap / bundle
+audit-rules/         JSON 规则库
+fixtures/            demo-target / fcode-self
+scenarios/           8 个 demo 场景 + 19 个 benchmark 任务的共享定义
 ```
 
 三条硬规则：
@@ -345,29 +383,29 @@ flowagent/
 | 状态层 | ✅ 完整 | 事件溯源 + SQLite + 哈希链 + CAS |
 | 观测层 | 🟡 偏弱 | 有 trace/replay，但缺真实模型的指标与回归基线 |
 | 治理层 | 🟡 部分 | 权限/预算/审批/收据齐；**无 OS 级沙箱**、无多租户 |
-| 领域插件 | ✅ 有契约 | `DomainModule` 是真正的扩展点，`main` 有 2 个实现 |
-| 安全审计域 | 🟡 在 PR #4 | `flowaudit` 骨架 + AGI 九分类法 + 可重放 PoC；未合入 `main` |
+| 领域插件 | ✅ 有契约 | `DomainModule` 是真正的扩展点；`flowaudit` 用独立包验证了它 |
+| 安全审计域 | ✅ 已合入 | AGI 九分类法 + 可重放 PoC + 宿主 oracle + 可复核审计包；目标适配器目前只有 repo |
 | 编排 | ❌ 缺 | 多 agent 只在 `labs/multi_agent/`，未进主路径 |
 | 评测 | ❌ 缺关键环 | 19 任务全离线脚本；`ONLINE_MODEL: NOT_RUN` |
 | 部署 | ❌ 缺 | 单机 SQLite、无队列、无多副本 |
 | 上下文工程 | 🟡 有思路 | 派生上下文 + 折叠 + recall，但没有检索 |
 
-**结论：这是一个 8/10 的 runtime，3/10 的 framework。它的目录结构已经比大多数同类项目清楚，主要问题是"层名对了但边界没焊死"。**
+**结论：这是一个 8/10 的 runtime，4/10 的 framework。审计域证明了插件契约真的能用，但没有补上编排、真实模型评测和部署；目录结构比大多数同类项目清楚，主要问题仍是"层名对了但边界没焊死"。**
 
 ---
 
-## 附录 A：未合并的审计产品（PR #4）
+## 附录 A：审计域 `flowaudit`（已随 PR #4 合入）
 
-`feat/audit-skeleton`：34 commits ahead，+9,120 行，CI（Ubuntu/macOS × 3.11/3.13）全绿，`MERGEABLE`，未进入 `main`。
+PR #4：34 commits，+9,120 行，CI（Ubuntu/macOS × 3.11/3.13）四组全绿后合入。
 
-它**不改变内核分层**，而是在 `domains` 这一层加了第三个域：
+它**不改变内核分层**，而是在领域层加了第三个域，而且是一个独立包：
 
 ```
 flowaudit/
   vulns/      AGI 九类漏洞分类法 + 规则引擎
   poc/        detect → generate → 独立重放 → finding
               （replay / replay_worker / 4 个场景）
-  targets/    repo / desktop-app / http / mcp 目标适配器
+  targets/    repo 目标适配器（desktop-app / http / mcp 为 Sprint 2+ 计划）
   report/     发现 + 审计自身的哈希链
   session.py  静态 / 动态分会话，共享 audit_id
   spec_gap.py 规格缺口报告
@@ -389,7 +427,9 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 
 四条不变量：发现 = PoC 重放通过（宿主 oracle 判定）；FAIL 按三值区分（未复现 / harness 缺陷 / 范围内不成立）；目标内容不可信（PoC 能力清单 + 宿主校验，越界即中止）；审计事件自身进哈希链。
 
-**对本文的影响**：PR 同时改动了 `tools/workspace.py`、`tools/registry.py`、`memory/context.py`、`runtime/harness.py`、`runtime/loop.py`。合入后 §7 的依赖边和 §8 的条目需要重跑一次。从分层角度看，审计域没有破坏内核，反而验证了 `DomainModule` 这个扩展点是够用的。
+**对内核的影响**：PR 同时改动了 `tools/workspace.py`、`tools/registry.py`、`memory/context.py`、`runtime/harness.py`、`runtime/loop.py`，都是加法且 fail-closed（观测加 `trust` 标记、旧事件缺省 `EXTERNAL_UNTRUSTED`、摘要策略非法则拒绝注册）。§7 的依赖边与 §8 的条目已按合入后的工作树重跑。从分层角度看，审计域没有破坏内核，反而验证了 `DomainModule` 这个扩展点是够用的。
+
+**它自己承认的边界**（`docs/sprint2-acceptance.md`）：Sprint 2 进行中；目标适配器只有 repo；在线模型只在审计域内、受 `online-policy.json` 额度约束。
 
 ---
 
@@ -397,8 +437,9 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 
 ```bash
 cd flowcredit
-python3.12 -m unittest discover -s tests -q     # 661 tests, OK
-node --test viewer/tests/*.test.js              # 166 pass
+python3.12 -m unittest discover -s tests -q     # 765 tests, OK
+node --test viewer/tests/*.test.js              # 177 pass
 python3.12 demo.py all                          # 8 场景全过
+python3.12 audit.py audit fixtures/demo-target
 PYTHONPATH=src python3.12 -m flowagent.benchmark --output /tmp/bench
 ```

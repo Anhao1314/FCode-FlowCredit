@@ -13,7 +13,7 @@
 - **会话是脊柱**:审计是用户与审计 agent 的会话(Analyst 主导,工具流每步
   过门控、入链、带收据);账本、审批门、审计包都是**同一条事件链的投影**,
   不是独立应用。
-- **CLI 一等入口**:`python -m flowaudit.cli audit <target>` 提供批处理模式
+- **CLI 一等入口**:`python audit.py audit <target>` 提供批处理模式
   (CI/audit-as-code 基础,零网络可跑静态规则);交互式对话面随后,桌面/Web
   与 CLI 共享同一会话内核。
 - **`target.md` 约定**:目标目录可放置审计档案(范围、已知面、联系点)。
@@ -157,7 +157,7 @@ finding 结构无法表达的判定:
 ### 生成命令
 
 ```bash
-python -m flowaudit.cli spec-gap-report \
+python audit.py spec-gap-report \
   --input audit-rules/schema/examples/spec-gap-report-example.json \
   --out /tmp/spec-gap-report.json
 ```

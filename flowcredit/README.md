@@ -143,7 +143,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**679 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、166 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**765 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、177 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 

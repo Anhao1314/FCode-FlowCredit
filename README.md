@@ -22,7 +22,7 @@
 - **问题**:agent 应用爆发式增长,而它们有一个传统软件没有的攻击面——**不可信内容会变成指令**。现有评测工具给出分数,却不给出能被第三方重新执行的证据。
 - **做法**:一个治理级 Runtime 之上(哈希链事件日志、权限门控、预算、SIGKILL 崩溃恢复,全部 stdlib-only),构建审计域 `flowaudit`:AGI 九类漏洞分类法、规则即数据、PoC 在受限子进程中重放、**宿主侧 oracle 判定**、负对照必带、审计包可独立复核。
 - **证据**:它审计了自己的仓库——端到端挖出 1 个真实缺陷(审批记忆参数无关免审批,带正反对照重放),7 个自体缺陷归档为 ground truth;一份 49 条意见的外部对抗评审被逐条裁决并合入契约(`docs/design-reviews/`)。
-- **状态**:Sprint 2 进行中。**679 项 Python 测试 + 166 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
+- **状态**:Sprint 2 进行中。**765 项 Python 测试 + 177 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
 
 ## 它和评分工具的区别
 
@@ -44,12 +44,12 @@
 git clone https://github.com/Anhao1314/FCode-FlowCredit.git
 cd FCode-FlowCredit/flowcredit
 
-python -m flowaudit.cli audit fixtures/demo-target
+python audit.py audit fixtures/demo-target
 # → 30 秒看到审计器工作:内置漏洞样例应用 MiniAgent,
 #   2 条发现(审批记忆绕过 AGI-02 / 明文密钥 AGI-03),每条附可重放证据
 
 python demo.py all                      # 8 个治理场景,全部离线
-python -m flowaudit.cli audit .         # 进阶:让审计器审计本仓库自己
+python audit.py audit .                 # 进阶:让审计器审计本仓库自己
 ```
 
 打开 Work 控制台(规划、执行、审批、Trace 回放):
@@ -122,7 +122,7 @@ flowcredit/
   fixtures/        已知缺陷靶子(fcode-self = 自审计 ground truth)
   viewer/          Work / Chat 控制台、SSE、Trace 回放
   desktop/         桌面应用入口与构建脚本(macOS arm64 已验证)
-  tests/           679 项 Python 测试;viewer/tests/ 166 项前端测试
+  tests/           765 项 Python 测试;viewer/tests/ 177 项前端测试
 archive/           v1 Node 原型(NO_GO 负结果,不参与 CI)
 ```
 
