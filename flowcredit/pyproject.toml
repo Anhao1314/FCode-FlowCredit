@@ -6,23 +6,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flowagent"
-version = "0.2.0"
+# Single source of truth: the version lives in flowagent.__version__ so the
+# package and the metadata cannot drift apart.
+dynamic = ["version"]
 description = "Host-governed, durable, auditable agent runtime with an offline finance demo"
 readme = "README.md"
 requires-python = ">=3.11"
 # Deliberately empty. The runtime is standard library only; adding a dependency
 # here would mean a fresh clone could no longer run without a network.
 dependencies = []
-license = { text = "UNLICENSED" }
+license = { text = "Apache-2.0" }
 
 [project.scripts]
 flowagent-demo = "flowagent.demo.__main__:main"
 
 [project.urls]
-Repository = "https://github.com/Anhao1314/FCode"
+Repository = "https://github.com/Anhao1314/FCode-FlowCredit"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "flowagent.__version__" }
