@@ -17,31 +17,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import bisect
 import hashlib
-from enum import Enum
-
-
-class SourceTrust(str, Enum):
-    """P0-2 观测来源可信度。缺省即不可信(fail-closed)。
-
-    VERIFIED_TOOL      — 注册表内、宿主确定性执行的内部工具;
-    AGENT_INFERRED     — 模型自身推理产物(非工具观测);
-    EXTERNAL_UNTRUSTED — MCP/外部 HTTP/未知来源:内容进 prompt 前必须隔离。
-    """
-
-    VERIFIED_TOOL = "verified_tool"
-    AGENT_INFERRED = "agent_inferred"
-    EXTERNAL_UNTRUSTED = "external_untrusted"
 from typing import Any, Callable
 
 from ..core.contracts import AgentError
-from ..tools.base import VALID_SUMMARY_POLICIES
 from ..core.hashing import canonical_json
-from ..tools.base import Observation
+# Observation / SourceTrust / summary policy now live in core; memory only
+# depends on core, never on the capability layer.
+from ..core.observation import Observation, SourceTrust, VALID_SUMMARY_POLICIES
 
 __all__ = [
     "DEFAULT_INSTRUCTION", "DEFAULT_SUMMARY_MAX_DEPTH", "DEFAULT_SUMMARY_HEAD",
-    "DEFAULT_SUMMARY_TAIL", "RAW_MAX_CHARS", "ObservationRecord", "WorkingMemory",
-    "default_summarize", "detailed_summarize", "raw_summarize", "summarizer_for",
+    "DEFAULT_SUMMARY_TAIL", "RAW_MAX_CHARS", "ObservationRecord", "SourceTrust",
+    "WorkingMemory", "default_summarize", "detailed_summarize", "raw_summarize",
+    "summarizer_for",
 ]
 
 # ---- P0-1 压缩常量(集中定义,不散落) -------------------------------------

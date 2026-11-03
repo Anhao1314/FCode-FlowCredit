@@ -103,7 +103,7 @@
 core  →  tools / providers  →  runtime  →  demo
 ```
 
-依赖方向的**事实**（AST 实测）：`flowagent` 内部 fan-in 仍是 `core` 81 条入边、`tools` 61、`providers` 36、`runtime` 32；包际方向 `flowaudit → flowagent` 共 22 条，反向 **0** 条。主干成立，`flowagent` 内部仍有 4 处反向边（见 §7）。
+依赖方向的**事实**（AST 实测）：`flowagent` 内部 fan-in 以 `core` 最高，`tools` / `providers` / `memory` 平级，`runtime` 在它们之上；包际方向 `flowaudit → flowagent` 共 22 条，反向 **0** 条。主干成立，`flowagent` 内部只剩 1 处反向边（`sft → demo`，见 §7）。
 
 ---
 
@@ -111,19 +111,19 @@ core  →  tools / providers  →  runtime  →  demo
 
 | 包 | 文件数 | 行数 | 一句话职责 | 关键约束 |
 |---|---:|---:|---|---|
-| `core/` | 6 | 1,312 | 契约、哈希、存储、收据、计划 | 不 import 包内任何其他模块 |
-| `runtime/` | 12 | 2,926 | 门控与循环，系统的"法官" | 只依赖 core/tools/providers |
-| `tools/` | 30 | 6,508 | 模型唯一的动作面 | 封闭注册表，无动态发现 |
+| `core/` | 11 | 1,820 | 契约、跨层词汇、哈希、存储、收据、计划 | 不 import 包内任何其他模块 |
+| `runtime/` | 12 | 2,686 | 门控与循环，系统的"法官" | 只依赖 core/tools/providers/memory |
+| `tools/` | 30 | 6,495 | 模型唯一的动作面 | 封闭注册表，无动态发现 |
 | `providers/` | 13 | 2,829 | 模型接入，只产出提案 | 不执行、不写库 |
-| `memory/` | 6 | 1,658 | 派生记忆：上下文 / 案例 / 事实 / 工件 | 派生而非累积 |
-| `domains/` | 4 | 383 | 领域插件契约与注册 | 内核从不 import 具体领域 |
-| `flowaudit/` | 23 | 2,455 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
+| `memory/` | 6 | 1,586 | 派生记忆：上下文 / 案例 / 事实 / 工件 | 只依赖 core，与 tools 平级 |
+| `domains/` | 4 | 391 | 领域插件契约与注册 | 内核从不 import 具体领域 |
+| `flowaudit/` | 23 | 2,454 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
 | `demo/` | 13 | 2,801 | 装配 + 8 场景 + 终端渲染 | **唯一装配点** |
 | `benchmark/` | 8 | 1,304 | 19 任务评测 | 适配器只喂提案 |
 | `sft/` | 6 | 1,173 | trace → 训练数据 / 策略评测 | 依赖 demo（违规） |
 | `trajectory/` | 3 | 261 | 录制、导出、独立重校验 | 观察者，不参与决策 |
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
-| **合计** | **~134** | **26,092** | | |
+| **合计** | **~139** | **26,282** | | |
 
 外围：`tests/` 82 个文件、17,581 行、765 个测试；`viewer/` Python 3,852 行 + JS 14,392 行（含 177 个前端测试）；`docs/` 36 篇。
 
@@ -140,6 +140,11 @@ core  →  tools / providers  →  runtime  →  demo
 | `hashing.py` | 77 | canonical JSON（键排序、无空白、**拒收 float**）+ SHA-256；`compare_digest` 比对 | store、receipts、trajectory |
 | `receipts.py` | 120 | HMAC-SHA256 签名收据；"结果未知"时唯一可用的对账凭据；密钥随库存放（威胁模型写明了） | runtime/harness |
 | `plan.py` | 198 | Goal → Plan → Todo 的持久化形状与推进语义 | loop、domains |
+| `observation.py` | 54 | `Observation` / `SourceTrust` / 摘要策略；跨层词汇，打破 memory↔tools | tools、memory、runtime |
+| `packets.py` | 94 | `DecisionPacket` / `ActionChoice` / `ActionCandidate` 及哈希 | runtime/policy、providers |
+| `verification.py` | 193 | host 声明的完成义务与校验；从 runtime 下沉 | runtime、tools/general |
+| `ports.py` | 90 | `CaseSearchPort` / `FactQueryPort` + Null 实现 | tools/workspace、domains |
+| `facts.py` | 77 | `make_fact` / `logical_key` / `fact_dates` 纯函数 | memory/facts、tools/finance |
 
 ### 4.2 `runtime/` — 内核
 
@@ -308,16 +313,25 @@ Task ──< Plan ──< Step/Todo
 
 ## 7. 依赖实测：声明 vs 事实
 
-声明是单向：`core → tools/providers → runtime → demo`。实测有 4 处反向边：
+声明是单向：`core → tools / providers / memory → runtime → surfaces`。
+
+当前只剩 1 处反向边：
 
 | 违规 | 位置 | 问题 | 建议 |
 |---|---|---|---|
-| 模型层 → 运行时 | `providers/deepseek.py:21`、`providers/local_policy.py:21` | 导入 `runtime.policy.ActionChoice/DecisionPacket` | 把 `DecisionPacket` 下沉到 `core/contracts.py` |
-| 能力层 → 记忆层 | `tools/workspace.py:23-24` | 导入 `memory.cases.CaseIndex`、`memory.facts.FactStore` | 定义 `CasePort`/`FactPort` 协议，由装配点注入 |
-| 记忆层 → 能力层 | `memory/context.py:37,39` | 导入 `tools.base.Observation` / `VALID_SUMMARY_POLICIES` | `Observation` 与摘要策略下沉到 `core/` |
 | 训练管线 → 演示层 | `sft/export.py:35`、`sft/evaluate.py:17-18` | 依赖 `demo.fixtures`、`demo.packet` | 场景定义移到 `domains/` 或独立 `scenarios/` |
 
-第 2、3 条合起来构成 **`memory/ ↔ tools/` 循环依赖**，这正是"记忆"和"能力"边界没定清的症状。
+原本的 `memory/ ↔ tools/` 循环、`providers → runtime`、`tools → runtime` 已消掉，做法是把跨层类型下沉到 `core`：
+
+| 下沉到 core | 新位置 | 消除了哪条反向边 |
+|---|---|---|
+| `Observation` / `SourceTrust` / `VALID_SUMMARY_POLICIES` | `core/observation.py` | `memory → tools` |
+| `ActionCandidate` / `ActionChoice` / `DecisionPacket` | `core/packets.py` | `providers → runtime` |
+| `VerificationObligation` / `build_obligation` | `core/verification.py` | `tools/general → runtime` |
+| `CaseSearchPort` / `FactQueryPort` / Null 实现 | `core/ports.py` | `tools/workspace → memory` |
+| `make_fact` / `logical_key` / `fact_dates` | `core/facts.py` | `tools/finance → memory` |
+
+`tools/finance/facts.py` 的 CLI `main()` 仍有一个函数内 `FactStore` import（只用于把结果写库），模块导入期不构成边。
 
 包际方向是干净的：`flowaudit → flowagent` 共 22 条，`flowagent → flowaudit` **0 条**，由 `tests/test_module_boundary.py` 的 AST 扫描强制。也就是说审计域没有污染内核——它只是把内核当平台用。
 
@@ -327,9 +341,9 @@ Task ──< Plan ──< Step/Todo
 
 | 级别 | 问题 | 证据 | 影响 |
 |---|---|---|---|
-| P1 | **包根平铺 10 个模块**（chat* 5 个、intake、pacing、review* 2 个），不属于任何层 | `src/flowagent/*.py` 共 2,479 行 | 新人无法从目录判断职责；依赖方向声明也没覆盖它们 |
-| P1 | **`memory/ ↔ tools/` 循环依赖** | 见 §7 | 两层无法独立测试/替换 |
+| P1 | **包根平铺 10 个模块**（chat* 5 个、intake、pacing、review* 2 个），不属于任何层 | `src/flowagent/*.py` 共 2,482 行 | 新人无法从目录判断职责；依赖方向声明也没覆盖它们 |
 | P1 | **两套 `desktop/`** | 根 `desktop/`（重写版）vs `flowcredit/desktop/`（旧版） | 用户不知道该改哪套；README 只指前者 |
+| P2 | **`sft/ → demo/` 反向边** | `sft/export.py:35`、`sft/evaluate.py:17-18` | 训练管线无法脱离演示层单独复用 |
 | P2 | **`tools/workspace.py` 与 `tools/general/` 职责重叠** | 共享工具 vs 通用域工具，靠约定区分 | 新增领域时不知道工具该放哪 |
 | P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
 | P2 | **审计目标适配器只有 `repo`** | `targets/__init__.py` 把其余三个标注为 Sprint 2+ 计划，但 PR 描述与 README 的措辞像是四个都已落地 | 对外表述要先于代码收敛，否则重演"描述超前于实现" |

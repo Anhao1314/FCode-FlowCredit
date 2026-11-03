@@ -22,8 +22,9 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.contracts import PLAN_VERSION, AgentError, Task
+from ..core.observation import SourceTrust
 from ..core.plan import Plan
-from ..memory.context import SourceTrust, WorkingMemory
+from ..memory.context import WorkingMemory
 from ..memory.summary_cache import SummaryCache
 from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
