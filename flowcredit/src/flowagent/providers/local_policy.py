@@ -18,7 +18,7 @@ import urllib.request
 from typing import Any
 
 from ..core.contracts import AgentError
-from ..runtime.policy import ActionChoice, DecisionPacket
+from ..core.packets import ActionChoice, DecisionPacket
 from .packet_prompt import render_policy_prompt
 
 __all__ = ["LocalPolicy"]

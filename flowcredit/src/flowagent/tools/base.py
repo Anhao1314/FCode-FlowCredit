@@ -15,9 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Mapping
 
-VALID_SUMMARY_POLICIES: tuple[str, ...] = ("default", "custom", "detailed", "raw")
-
 from ..core.contracts import AgentError
+# The vocabulary lives in core so memory can name its own input without
+# importing tools. Re-exported here to keep the tool-facing API stable.
+from ..core.observation import Observation, VALID_SUMMARY_POLICIES
 
 __all__ = [
     "EFFECT_READ",
@@ -138,26 +139,6 @@ class ToolSpec:
             "effect": self.effect,
             "parameters": {param.name: param.to_schema() for param in self.params},
             "outputs": {param.name: param.to_schema() for param in self.outputs},
-        }
-
-
-@dataclass(frozen=True)
-class Observation:
-    """What a tool returned, plus the hash the runtime will re-check later."""
-
-    tool: str
-    arguments: dict[str, Any]
-    result: dict[str, Any]
-    result_hash: str = ""
-    tool_version: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "tool": self.tool,
-            "arguments": self.arguments,
-            "result": self.result,
-            "result_hash": self.result_hash,
-            "tool_version": self.tool_version,
         }
 
 

@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ...memory.facts import FactStore, logical_key, make_fact
+from ...core.facts import logical_key, make_fact
 
 __all__ = ["EXTRACTOR_VERSION", "project_facts", "main"]
 
@@ -210,6 +210,10 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = Path(args.repo).expanduser().resolve()
     db_path = Path(args.db) if args.db else repo / "flowcredit" / "viewer" / "memory" / "cases.sqlite"
+    # Persistence is the CLI's concern; the extraction path above is pure and
+    # must not pull the memory layer into the capability package.
+    from ...memory.facts import FactStore
+
     store = FactStore(db_path)
     total = 0
     for run_id, trace in _load_traces(repo):

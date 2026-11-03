@@ -23,9 +23,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ..core.hashing import digest
+# Fact identity/construction is pure and lives in core so the domain extractor
+# can build rows without importing memory. Re-exported for existing callers.
+from ..core.facts import fact_dates, logical_key, make_fact
 
-__all__ = ["FactStore", "fact_dates", "logical_key"]
+__all__ = ["FactStore", "fact_dates", "logical_key", "make_fact"]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
@@ -54,22 +56,6 @@ CREATE INDEX IF NOT EXISTS idx_facts_key ON facts(logical_key);
 CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject, predicate, period);
 CREATE INDEX IF NOT EXISTS idx_facts_run ON facts(source_run);
 """
-
-
-def logical_key(subject: str, predicate: str, period: str) -> str:
-    """The identity of a claim, independent of when it was recorded."""
-    return "\x1f".join((subject, predicate, period))
-
-
-def fact_dates(period: str) -> tuple[str, str]:
-    """Valid-time interval for a fiscal period. Unknown periods stay open."""
-    import re
-
-    match = re.search(r"(?:FY)?(20\d{2})", period or "", re.IGNORECASE)
-    if not match:
-        return "", ""
-    year = int(match.group(1))
-    return f"{year}-01-01", f"{year}-12-31"
 
 
 class FactStore:
@@ -241,49 +227,3 @@ class FactStore:
         }
 
 
-def make_fact(
-    *,
-    run_id: str,
-    subject: str,
-    predicate: str,
-    period: str,
-    value_int: int | None = None,
-    value_text: str | None = None,
-    unit: str = "",
-    recorded_at: str,
-    source_event: int,
-    source_hash: str,
-    source_result_hash: str,
-    entities: list[str],
-    extractor_version: str,
-) -> dict[str, Any]:
-    """Build one fact row with a content-addressed id. Pure function."""
-    valid_from, valid_to = fact_dates(period)
-    identity = {
-        "run_id": run_id,
-        "subject": subject,
-        "predicate": predicate,
-        "period": period,
-        "value_int": value_int,
-        "value_text": value_text,
-        "unit": unit,
-        "source_event": source_event,
-        "source_hash": source_hash,
-    }
-    return {
-        "fact_id": "fact_" + digest(identity)[:32],
-        "subject": subject,
-        "predicate": predicate,
-        "period": period,
-        "value_int": value_int,
-        "value_text": value_text,
-        "unit": unit,
-        "valid_from": valid_from,
-        "valid_to": valid_to,
-        "recorded_at": recorded_at,
-        "source_event": source_event,
-        "source_hash": source_hash,
-        "source_result_hash": source_result_hash,
-        "entities": sorted(set(entities)),
-        "extractor_version": extractor_version,
-    }

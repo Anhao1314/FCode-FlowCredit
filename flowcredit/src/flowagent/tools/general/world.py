@@ -29,7 +29,7 @@ from typing import Any
 from ...core.contracts import AgentError
 from dataclasses import replace
 
-from ...runtime.verification import (
+from ...core.verification import (
     VERIFICATION_SOURCE_SPEC,
     VERIFICATION_TOOL,
     VerificationObligation,

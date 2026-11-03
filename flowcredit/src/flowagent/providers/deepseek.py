@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.contracts import AgentError
-from ..runtime.policy import ActionChoice, DecisionPacket
+from ..core.packets import ActionChoice, DecisionPacket
 from .base import Proposal
 from .openai_compat import (
     CompatClient,

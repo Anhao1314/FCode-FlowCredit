@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from flowagent.memory.context import SourceTrust
+from ..core.observation import SourceTrust
 
 _VERIFIED_TOOLS: frozenset[str] = frozenset({
     # finance 参考域:宿主确定性计算(输出为派生数值,无外部内容)

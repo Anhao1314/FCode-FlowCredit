@@ -12,6 +12,10 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.contracts import AgentError
+# The domain is a composition point: it may name the memory implementations
+# that the capability layer only sees as ports.
+from ..memory.cases import CaseIndex
+from ..memory.facts import FactStore
 from ..tools.base import Observation, ToolSpec
 from ..tools.finance.fixtures import FinanceWorld
 from ..tools.finance.planner import FinancePlanner
@@ -39,7 +43,11 @@ def build_tools(
     cases: Any = None,
     facts: Any = None,
 ) -> list[ToolSpec]:
-    return build_finance_tools(world, evidence, artifacts, connectors, cases, facts)
+    return build_finance_tools(
+        world, evidence, artifacts, connectors,
+        cases if cases is not None else CaseIndex(),
+        facts if facts is not None else FactStore(),
+    )
 
 
 def make_planner(world: Any = None, **kwargs: Any) -> FinancePlanner:

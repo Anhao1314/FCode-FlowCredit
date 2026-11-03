@@ -20,8 +20,10 @@ from .connectors import ConnectorRegistry
 from .evidence import EvidenceStore
 from ..core.contracts import AgentError
 from ..core.hashing import canonical_json
-from ..memory.cases import CaseIndex
-from ..memory.facts import FactStore
+# Ports, not implementations: the capability layer must not import memory.
+# Composition roots inject the real CaseIndex / FactStore; standalone callers
+# get the empty defaults.
+from ..core.ports import CaseSearchPort, FactQueryPort, NullCaseIndex, NullFactStore
 
 __all__ = ["SEARCH_SUMMARY_MAX_CHARS", "build_workspace_tools",
            "summarize_search_corpus"]
@@ -70,8 +72,8 @@ def build_workspace_tools(
     evidence: EvidenceStore,
     artifacts: ArtifactStore,
     connectors: ConnectorRegistry,
-    cases: CaseIndex | None = None,
-    facts: FactStore | None = None,
+    cases: CaseSearchPort | None = None,
+    facts: FactQueryPort | None = None,
 ) -> list[ToolSpec]:
     """Compose the shared tools bound to their stores."""
 
@@ -129,8 +131,8 @@ def build_workspace_tools(
             "truncated": len(collected["text"]) > len(preview),
         }
 
-    index = cases or CaseIndex()
-    fact_index = facts or FactStore()
+    index = cases or NullCaseIndex()
+    fact_index = facts or NullFactStore()
 
     def search_cases(arguments: dict[str, Any]) -> dict[str, Any]:
         hits = index.search(
