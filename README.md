@@ -140,6 +140,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | --- | --- |
 | 项目入口与完整使用说明 | [Runtime README](flowcredit/README.md) |
 | 系统架构 | [architecture](flowcredit/docs/architecture.md) |
+| 仓库全貌：分层、包职责、逐文件地图与结构债 | [architecture-map](flowcredit/docs/architecture-map.md) |
 | 任务基准、指标与证据 | [runtime-benchmark](flowcredit/docs/runtime-benchmark.md) |
 | 演示与录屏脚本 | [demo-script](flowcredit/docs/demo-script.md) |
 | 环境配置示例 | [environment](flowcredit/docs/environment.md) |
