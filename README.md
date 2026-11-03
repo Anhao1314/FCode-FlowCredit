@@ -102,6 +102,7 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 | --- | --- |
 | Runtime 完整说明 | [flowcredit/README.md](flowcredit/README.md) |
 | 系统架构 | [architecture](flowcredit/docs/architecture.md) |
+| 仓库全貌：分层、包职责、逐文件地图与结构债 | [architecture-map](flowcredit/docs/architecture-map.md) |
 | **Agent 应用威胁模型(AGI 分类法)** | [threat-model](flowcredit/docs/threat-model.md) |
 | **审计方法论与交互模型** | [audit-methodology](flowcredit/docs/audit-methodology.md) |
 | **规则编写指南** | [rule-authoring](flowcredit/docs/rule-authoring.md) |
