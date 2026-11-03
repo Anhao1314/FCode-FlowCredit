@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fcode.audit-bundle/v1",
+  "title": "Audit bundle manifest",
+  "description": "The export a third party needs to re-run the audit's conclusions without talking to the auditor: pinned target, session split, tool versions, every poc-evidence record, root-cause-merged finding index, uncovered surfaces, authorization statement and the chain verification entry. Companion to fcode.poc-evidence/v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "audit_id", "authorization", "target",
+    "sessions", "toolchain", "poc_evidence_refs", "findings",
+    "uncovered_surfaces", "chain_verification"
+  ],
+  "properties": {
+    "schema_version": { "const": "fcode.audit-bundle/v1" },
+    "audit_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,63}$" },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator", "scope", "granted_at"],
+      "properties": {
+        "operator": { "type": "string" },
+        "scope": { "type": "string" },
+        "time_window": { "type": "string" },
+        "granted_at": { "type": "string" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "manifest_sha256"],
+      "properties": {
+        "identity": { "type": "string" },
+        "version": { "type": "string" },
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "target_profile_note": { "type": "string" }
+      }
+    },
+    "sessions": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phase", "session_ref"],
+        "properties": {
+          "phase": { "enum": ["profile", "static", "dynamic", "governance", "report"] },
+          "session_ref": { "type": "string" }
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replayer", "oracle_version"],
+      "properties": {
+        "analyst_model": { "type": "string" },
+        "triage_model": { "type": "string" },
+        "replayer": { "type": "string" },
+        "oracle_version": { "type": "string" },
+        "ruleset_version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "poc_evidence_refs": {
+      "type": "array", "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "root_cause_group", "category", "severity", "poc_refs"],
+        "properties": {
+          "finding_id": { "type": "string" },
+          "root_cause_group": { "type": "string" },
+          "category": {
+            "enum": ["AGI-01", "AGI-02", "AGI-03", "AGI-04", "AGI-05",
+                     "AGI-06", "AGI-07", "AGI-08", "AGI-09"]
+          },
+          "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+          "poc_refs": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "operator_disposition": { "enum": ["accepted_risk", "false_positive_disputed", "wont_fix"] }
+        }
+      }
+    },
+    "uncovered_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["surface", "reason"],
+        "properties": {
+          "surface": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "chain_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head_hash", "command"],
+      "properties": {
+        "head_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "command": { "type": "string" }
+      }
+    }
+  }
+}

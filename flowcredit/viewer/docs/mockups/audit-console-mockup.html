@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FCode 审计台 · 静态 mockup</title>
+<style>
+  /* ===== 产品真实 token(app.css/design.css 提取) ===== */
+  :root {
+    --canvas: #fbfbfb; --panel: #f3f3f3; --raised: #ffffff; --inset: #f5f5f5;
+    --line: rgba(0,0,0,.075); --line-soft: rgba(0,0,0,.06); --line-strong: rgba(0,0,0,.14);
+    --radius: 9px; --radius-card: 14px; --radius-pill: 999px;
+    --text-1: rgba(0,0,0,.88); --text-2: rgba(0,0,0,.58);
+    --text-3: rgba(0,0,0,.42); --text-4: rgba(0,0,0,.28);
+    --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Hiragino Sans GB", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --ok: #15803D;   --warn: #B45309;   --bad: #B91C1C;
+    /* 审计面新增 actor 色(软底+深字) */
+    --actor-analyst: #6D28D9; --actor-analyst-bg: rgba(109,40,217,.08);
+    --actor-triage: #1D4ED8;  --actor-triage-bg: rgba(29,78,216,.08);
+    --actor-host: #15803D;    --actor-host-bg: rgba(21,128,61,.09);
+    --actor-operator: #C2410C;--actor-operator-bg: rgba(194,65,12,.09);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--canvas); color: var(--text-1); font: 14px/1.6 var(--font-ui); }
+
+  /* ===== 顶栏 ===== */
+  .topbar { display:flex; align-items:center; gap:6px; padding: 10px 20px;
+    background: var(--raised); border-bottom: 1px solid var(--line); position: sticky; top:0; z-index:10; }
+  .brand { font-weight: 650; letter-spacing:.01em; margin-right: 14px; }
+  .nav { display:flex; gap:2px; }
+  .nav button { border:0; background:none; padding: 6px 12px; border-radius: var(--radius);
+    color: var(--text-3); font: inherit; cursor: pointer; }
+  .nav button:hover { color: var(--text-1); background: var(--panel); }
+  .nav button.active { color: var(--text-1); background: var(--panel); font-weight: 550; }
+  .nav .divider { width:1px; height:18px; background: var(--line-strong); margin: 6px 10px; }
+  .mockup-note { margin-left:auto; font-size:12px; color: var(--text-4); font-family: var(--font-mono); }
+
+  /* ===== 通用 ===== */
+  .wrap { max-width: 980px; margin: 24px auto 60px; padding: 0 20px; }
+  .screen { display: none; } .screen.active { display: block; }
+  .card { background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-card); }
+  .chip { display:inline-flex; align-items:center; gap:5px; padding: 2px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; font-weight: 550; border: 1px solid var(--line); }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .dim { color: var(--text-3); } .dimmer { color: var(--text-4); }
+  .s-ok { color: var(--ok); } .s-warn { color: var(--warn); } .s-bad { color: var(--bad); }
+  .badge-ok { color: var(--ok); background: rgba(21,128,61,.09); border-color: rgba(21,128,61,.25); }
+  .badge-warn { color: var(--warn); background: rgba(180,83,9,.08); border-color: rgba(180,83,9,.25); }
+  .badge-dim { color: var(--text-3); background: var(--panel); }
+  .actor { display:inline-flex; align-items:center; padding: 1px 8px; border-radius: var(--radius-pill);
+    font-size: 11.5px; font-weight: 550; }
+  .actor::before { content:""; width:6px; height:6px; border-radius:50%; margin-right:5px; background: currentColor; }
+  .actor.analyst { color: var(--actor-analyst); background: var(--actor-analyst-bg); }
+  .actor.triage { color: var(--actor-triage); background: var(--actor-triage-bg); }
+  .actor.host { color: var(--actor-host); background: var(--actor-host-bg); }
+  .actor.operator { color: var(--actor-operator); background: var(--actor-operator-bg); }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding: 7px 14px; border-radius: var(--radius);
+    border: 1px solid var(--line-strong); background: var(--raised); color: var(--text-1);
+    font: inherit; font-size: 14px; cursor: pointer; }
+  .btn:hover { background: var(--panel); }
+  .btn.primary { background: var(--text-1); color: #fff; border-color: var(--text-1); }
+  .btn.primary:hover { opacity:.85; background: var(--text-1); }
+  .btn:disabled { color: var(--text-4); border-color: var(--line); background: var(--panel); cursor: not-allowed; }
+  .cap-chip { display:inline-flex; align-items:center; gap:5px; padding: 2px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; font-family: var(--font-mono); border: 1px solid var(--line); background: var(--panel); color: var(--text-2); }
+  .cap-chip.deny { color: var(--bad); background: rgba(185,28,28,.06); border-color: rgba(185,28,28,.2); }
+
+  /* ===== 屏 1:发现账本 ===== */
+  .audit-head { display:flex; align-items:center; gap:10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .audit-head h1 { font-size: 18px; font-weight: 650; }
+  .tabs { display:flex; gap:2px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .tabs button { border:0; background:none; padding: 8px 14px; font: inherit; color: var(--text-3);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.active { color: var(--text-1); font-weight: 550; border-bottom-color: var(--text-1); }
+  .tabs .n { font-family: var(--font-mono); font-size: 11px; color: var(--text-4); margin-left: 4px; }
+  .ledger { overflow: hidden; }
+  .row { display:flex; align-items:center; gap:12px; padding: 13px 18px; border-bottom: 1px solid var(--line-soft);
+    cursor: pointer; }
+  .row:last-child { border-bottom: 0; }
+  .row:hover { background: var(--panel); }
+  .row.is-candidate { opacity: .82; }
+  .row .mark { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .mark.ok { background: var(--ok); } .mark.warn { background: var(--warn); }
+  .mark.dim { background: var(--text-4); } .mark.bad { background: var(--bad); }
+  .row .title { font-weight: 550; flex: 1; min-width: 0; }
+  .row.is-candidate .title { font-weight: 450; }
+  .row .meta { display:flex; align-items:center; gap:8px; flex: none; }
+  .sev { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+  .sev.high { color: var(--bad); } .sev.medium { color: var(--warn); }
+  .cat { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 6px; }
+
+  /* ===== 屏 2:发现详情 ===== */
+  .back { border:0; background:none; color: var(--text-3); font: inherit; cursor:pointer;
+    padding: 0; margin-bottom: 12px; display:inline-flex; gap:6px; align-items:center; }
+  .back:hover { color: var(--text-1); }
+  .fd-head { display:flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .fd-head h1 { font-size: 20px; font-weight: 650; }
+  .verdict { padding: 16px 18px; margin-bottom: 14px; border: 1px solid rgba(21,128,61,.25);
+    background: rgba(21,128,61,.05); border-radius: var(--radius-card); }
+  .verdict .line { display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }
+  .verdict .big { font-weight: 650; color: var(--ok); display:flex; align-items:center; gap: 8px; }
+  details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised);
+    margin-bottom: 10px; }
+  details summary { cursor: pointer; padding: 11px 16px; font-weight: 550; list-style: none;
+    display:flex; align-items:center; gap:8px; user-select: none; }
+  details summary::-webkit-details-marker { display:none; }
+  details summary::before { content:"▸"; color: var(--text-4); font-size: 12px; transition: transform .12s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  details .body { padding: 2px 16px 14px; color: var(--text-2); }
+  .timeline { padding: 4px 0 6px; }
+  .tl { display:flex; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line-soft); align-items: baseline; }
+  .tl:last-child { border-bottom: 0; }
+  .tl .t { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-4); width: 66px; flex:none; }
+  .tl .what { color: var(--text-2); flex:1; }
+  .tl .what b { color: var(--text-1); font-weight: 550; }
+  .kv { display:grid; grid-template-columns: 110px 1fr; gap: 6px 14px; font-size: 13.5px; }
+  .kv .k { color: var(--text-3); } .kv .v { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-2); word-break: break-all; }
+  .actions { display:flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .legend { margin-top: 26px; padding: 12px 16px; border: 1px dashed var(--line-strong);
+    border-radius: var(--radius); color: var(--text-3); font-size: 12.5px; display:flex; gap:18px; flex-wrap:wrap; }
+
+  /* ===== 屏 3:审批门 ===== */
+  .gate { max-width: 560px; margin: 40px auto; padding: 0; overflow: hidden; }
+  .gate .ghead { padding: 16px 20px; border-bottom: 1px solid var(--line);
+    background: rgba(180,83,9,.05); display:flex; align-items:center; gap: 10px; }
+  .gate .ghead h2 { font-size: 15.5px; font-weight: 650; color: var(--warn); }
+  .gate .gbody { padding: 18px 20px; }
+  .gate .gfoot { padding: 14px 20px; border-top: 1px solid var(--line); display:flex; gap: 10px; justify-content: flex-end; }
+  .field { margin-bottom: 14px; }
+  .field .flabel { font-size: 12.5px; color: var(--text-3); margin-bottom: 6px; display:flex; justify-content: space-between; }
+  .caps { display:flex; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">FCode</span>
+  <nav class="nav">
+    <button data-goto="ledger" class="nav-audit">审计台</button>
+    <button data-goto="ledger" class="active">发现账本</button>
+    <button onclick="alert('Sprint 3:规则库只读浏览(dev/盲测集标注)')">规则库</button>
+    <span class="divider"></span>
+    <button onclick="alert('现有 Work 控制台(降为次级入口)')">Work</button>
+    <button onclick="alert('现有 Chat(降为次级入口)')">Chat</button>
+  </nav>
+  <span class="mockup-note">静态 mockup · 数据为演示 · v0.1</span>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= 屏 1:发现账本 ================= -->
+  <section class="screen active" id="screen-ledger">
+    <div class="audit-head">
+      <h1>发现账本</h1>
+      <span class="mono dim">audit: fcode-self-2026-11-02</span>
+      <span class="chip badge-ok">🔗 链校验通过</span>
+      <span class="chip badge-warn" data-goto="gate" style="cursor:pointer">⏸ 1 项探针待审批</span>
+    </div>
+
+    <div class="tabs">
+      <button class="active">发现<span class="n">3</span></button>
+      <button onclick="alert('候选账本:11 条(含影子分诊意见)')">候选<span class="n">11</span></button>
+      <button onclick="alert('已排除:6 条,均带排除原因存档')">已排除<span class="n">6</span></button>
+      <button onclick="alert('盲测集:FCODE-04/07,规则开发不可接触')">盲测<span class="n">2</span></button>
+    </div>
+
+    <div class="card ledger">
+      <div class="row" data-goto="detail">
+        <span class="mark ok"></span>
+        <span class="title">FCODE-02 · 审批记忆参数无关免审批</span>
+        <span class="meta">
+          <span class="actor host">host</span>
+          <span class="chip badge-ok">✓ 重放 3/3</span>
+          <span class="cat">AGI-02</span><span class="sev high">HIGH</span>
+        </span>
+      </div>
+      <div class="row" onclick="alert('FCODE-06:详情同构,略')">
+        <span class="mark ok"></span>
+        <span class="title">FCODE-06 · 工具执行绕过门控(约定而非机制)</span>
+        <span class="meta">
+          <span class="actor host">host</span>
+          <span class="chip badge-ok">✓ 重放 2/2</span>
+          <span class="cat">AGI-02</span><span class="sev high">HIGH</span>
+        </span>
+      </div>
+      <div class="row" onclick="alert('FCODE-01:详情同构,略')">
+        <span class="mark ok"></span>
+        <span class="title">FCODE-01 · 无 token 模式写保护可绕过</span>
+        <span class="meta">
+          <span class="actor host">host</span>
+          <span class="chip badge-ok">✓ 重放 1/1</span>
+          <span class="cat">AGI-07</span><span class="sev high">HIGH</span>
+        </span>
+      </div>
+      <div class="row is-candidate" onclick="alert('候选详情:证据不足,已转 Analyst 补证——注意视觉分量低于发现行')">
+        <span class="mark warn"></span>
+        <span class="title">候选#14 · 可疑:收据签名密钥与数据同库</span>
+        <span class="meta">
+          <span class="actor triage">triage·shadow</span>
+          <span class="chip badge-warn">⏳ noul 0.39</span>
+          <span class="cat">AGI-08</span><span class="sev medium">MED</span>
+        </span>
+      </div>
+      <div class="row is-candidate" onclick="alert('not_reproduced:保留候选,不当安全结论')">
+        <span class="mark dim"></span>
+        <span class="title">候选#15 · README 声称与预算链实现不符</span>
+        <span class="meta">
+          <span class="actor host">host</span>
+          <span class="chip badge-dim">✗ not_reproduced</span>
+          <span class="cat">AGI-08</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><b style="color:var(--text-2)">图例</b></span>
+      <span><span class="mark ok" style="display:inline-block"></span> 已验证(挂着收据)</span>
+      <span><span class="mark warn" style="display:inline-block"></span> 待定(证据不足/待审批)</span>
+      <span><span class="mark dim" style="display:inline-block"></span> 未复现(保留)</span>
+      <span><span class="mark bad" style="display:inline-block"></span> 失陷信号</span>
+      <span class="dimmer">UI 分量 = 证据强度:候选行刻意弱于发现行</span>
+    </div>
+  </section>
+
+  <!-- ================= 屏 2:发现详情(money screen) ================= -->
+  <section class="screen" id="screen-detail">
+    <button class="back" data-goto="ledger">← 发现账本</button>
+
+    <div class="fd-head">
+      <h1>FCODE-02 · 审批记忆参数无关免审批</h1>
+      <span class="cat">AGI-02</span><span class="sev high">HIGH</span>
+      <span class="chip badge-ok">已验证</span>
+    </div>
+
+    <div class="verdict">
+      <div class="line">
+        <span class="big">✓ 重放 3/3 通过</span>
+        <span class="dim">·</span>
+        <span>负对照不通过(符合预期)</span>
+        <span class="dim">·</span>
+        <span>根因组 <b class="mono" style="font-size:12.5px">approval-memory</b></span>
+        <span class="dim">·</span>
+        <a href="#" class="mono" style="color:var(--text-2)" onclick="alert('收据 #4471:HMAC-SHA256,密钥外置(修复后)')">重放收据 #4471</a>
+      </div>
+    </div>
+
+    <details>
+      <summary>叙述(一段)</summary>
+      <div class="body">审批记忆以工具名为键:operator 批准过一次 run_command(remember=true)后,
+      同一运行内后续任何 run_command 不再触发审批——包括参数完全不同的危险调用。
+      升级路径:批准一条只读命令 → 免审批执行任意命令。</div>
+    </details>
+
+    <details open>
+      <summary>证据链(不可折叠)</summary>
+      <div class="body timeline">
+        <div class="tl"><span class="t">10:02:11</span><span class="actor analyst">analyst</span>
+          <span class="what">候选提出 <b>候选#2</b> — 静态规则 RULE-AGI02-001 命中</span></div>
+        <div class="tl"><span class="t">10:02:13</span><span class="actor triage">triage·shadow</span>
+          <span class="what">影子分诊:noul=0.12 · 建议优先级 <b>high</b>(仅记录,未参与裁决)</span></div>
+        <div class="tl"><span class="t">10:02:14</span><span class="actor host">host</span>
+          <span class="what">门控放行 — 能力清单校验 <b>✓</b>:workspace-write / 禁网 / 无凭据</span></div>
+        <div class="tl"><span class="t">10:02:31</span><span class="actor host">host</span>
+          <span class="what">重放 <b>3/3 通过</b>;负对照(remember=false)正确产生审批事件 → 收据 <b>#4471</b></span></div>
+        <div class="tl"><span class="t">10:02:31</span><span class="actor host">host</span>
+          <span class="what">晋升 <b>finding</b>,绑定收据 #4471,入审计事件链</span></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>PoC 查看</summary>
+      <div class="body">
+        <div class="kv">
+          <span class="k">刺激物</span><span class="v">approve run_command ['ls','-la'] (remember=true) → run_command ['python','payload.py']</span>
+          <span class="k">oracle(宿主)</span><span class="v">事件链上第二次调用无 approval 事件 — 宿主自行查链,不读 PoC 输出</span>
+          <span class="k">负对照</span><span class="v">同刺激 remember=false → 必须出现审批事件</span>
+          <span class="k">样本协议</span><span class="v">n=3,通过阈值 3/3(确定性缺陷)</span>
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+          <span class="cap-chip">📁 workspace-write</span>
+          <span class="cap-chip">🚫 no-network</span>
+          <span class="cap-chip">🚫 no-credentials</span>
+          <span class="cap-chip">⏱ 30s</span>
+          <span class="cap-chip">🧹 cleanup ✓</span>
+        </div>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button class="btn primary" onclick="alert('重放运行于受限环境:无凭据/禁网/临时fs/目标副本')">▶ 重新重放</button>
+      <button class="btn" onclick="alert('导出 audit-bundle:目标清单哈希+全部 poc-evidence+事件链校验入口')">导出审计包</button>
+      <button class="btn" onclick="alert('operator 处置:wont_fix(不产生/不撤销 finding)')">标记 wont_fix</button>
+      <button class="btn" onclick="alert('false_positive_disputed:登记争议,不改变 finding 状态')">争议标记</button>
+    </div>
+
+    <div class="legend">
+      <span class="dimmer">诚实状态演示:若此条是候选,「导出/标记」将置灰,唯一亮着的是「重新重放」——UI 不显示强于链上证据的状态</span>
+    </div>
+  </section>
+
+  <!-- ================= 屏 3:探针审批门 ================= -->
+  <section class="screen" id="screen-gate">
+    <button class="back" data-goto="ledger">← 发现账本</button>
+    <div class="card gate">
+      <div class="ghead">
+        <span>⏸</span><h2>动态探针待批准</h2>
+        <span class="mono dim" style="margin-left:auto">probe: message-injection-01</span>
+      </div>
+      <div class="gbody">
+        <div class="field">
+          <div class="flabel"><span>目标</span><span class="mono">evox(工程联调靶·授权声明已签署)</span></div>
+          <span class="mono" style="font-size:12.5px; color:var(--text-2)">target-manifest sha256: 9f2c…e41b · v1.1.0-beta.46</span>
+        </div>
+        <div class="field">
+          <div class="flabel"><span>能力声明(宿主将实时校验,超出即中止并记录)</span></div>
+          <div class="caps">
+            <span class="cap-chip">🌐 网络:仅 honeypot.local</span>
+            <span class="cap-chip">🔑 凭据:测试账号 only</span>
+            <span class="cap-chip">📁 写入:目标副本</span>
+            <span class="cap-chip">⏱ 超时 30s</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="flabel"><span>探针内容</span></div>
+          <div style="font-size:13.5px; color:var(--text-2)">
+            向自建测试会话发送注入 payload(角色覆盖 ×3、工具诱导 ×2),观测目标是否
+            执行声明外工具调用;<span class="s-bad">若触发行为金丝雀 → 记录 auditor_compromised</span>
+          </div>
+        </div>
+      </div>
+      <div class="gfoot">
+        <button class="btn" onclick="alert('拒绝:探针不执行,记录 operator 决定')">拒绝</button>
+        <button class="btn" onclick="alert('批准本规则全部探针(共 5 个,同能力清单)')">批准本规则全部</button>
+        <button class="btn primary" onclick="alert('批准本次;actor=operator 入链')">批准本次</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // 静态 mockup 的全部交互:屏切换。无框架、无外部资源、无状态持久化。
+  document.querySelectorAll("[data-goto]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var id = "screen-" + el.getAttribute("data-goto");
+      document.querySelectorAll(".screen").forEach(function (s) { s.classList.remove("active"); });
+      document.getElementById(id).classList.add("active");
+      document.querySelectorAll(".nav button").forEach(function (b) { b.classList.remove("active"); });
+      if (el.classList.contains("nav-audit")) el.classList.add("active");
+      window.scrollTo(0, 0);
+    });
+  });
+</script>
+</body>
+</html>

@@ -19,10 +19,51 @@ from .base import EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Param, ToolSpec
 from .connectors import ConnectorRegistry
 from .evidence import EvidenceStore
 from ..core.contracts import AgentError
+from ..core.hashing import canonical_json
 from ..memory.cases import CaseIndex
 from ..memory.facts import FactStore
 
-__all__ = ["build_workspace_tools"]
+__all__ = ["SEARCH_SUMMARY_MAX_CHARS", "build_workspace_tools",
+           "summarize_search_corpus"]
+
+
+#: search_corpus 指针型压缩的输出字符上限:候选集可见,但不挤爆上下文预算。
+SEARCH_SUMMARY_MAX_CHARS = 2_000
+
+
+def summarize_search_corpus(result: dict[str, Any]) -> dict[str, Any]:
+    """指针型压缩(P0-1.5):保留全部命中的证据指针,剔除 snippet 正文。
+
+    正文可经 doc_id+line 重读,链上保留全量;prompt 里需要的是"有哪些
+    命中、在哪"。超过 SEARCH_SUMMARY_MAX_CHARS 时按序保留前 N 条并显式
+    标注截断(truncated_after/total)——不退化为只留第一条,也不静默丢。
+    """
+    raw_hits = list(result.get("hits") or [])
+    pointers = [
+        {"doc_id": hit.get("doc_id"), "path": hit.get("path"),
+         "source": hit.get("source"), "line": hit.get("line")}
+        for hit in raw_hits
+    ]
+    base: dict[str, Any] = {
+        **{key: value for key, value in result.items()
+           if key != "hits" and not isinstance(value, (list, dict))},
+        "count": len(pointers),
+    }
+
+    def render(kept: list[dict[str, Any]]) -> dict[str, Any]:
+        out: dict[str, Any] = {**base, "hits": kept}
+        if len(kept) < len(pointers):
+            out["truncated_after"] = len(kept)
+            out["total"] = len(pointers)
+        return out
+
+    kept: list[dict[str, Any]] = []
+    for pointer in pointers:
+        trial = kept + [pointer]
+        if kept and len(canonical_json(render(trial))) > SEARCH_SUMMARY_MAX_CHARS:
+            break
+        kept = trial
+    return render(kept)
 
 
 def build_workspace_tools(
@@ -120,6 +161,7 @@ def build_workspace_tools(
     return [
         ToolSpec(
             name="ingest_file",
+            summary_policy="detailed",
             summary="Ingest a text/CSV/JSON file inside the evidence sandbox; returns a content hash and line anchors",
             effect=EFFECT_READ,
             params=(
@@ -144,6 +186,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="search_corpus",
+            summary_policy="custom",
             summary="Search ingested evidence by substring; returns hits with doc_id and line anchors",
             effect=EFFECT_READ,
             params=(
@@ -151,6 +194,7 @@ def build_workspace_tools(
                 Param(name="limit", kind="integer", required=False, minimum=1, maximum=50, description="max hits (default 10)"),
             ),
             handler=search_corpus,
+            summarize=summarize_search_corpus,
             outputs=(
                 Param.output("query", "string"),
                 Param.output("hits", "array"),
@@ -161,6 +205,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="read_slice",
+            summary_policy="detailed",
             summary="Read a bounded line range from ingested evidence; whole documents are never dumped",
             effect=EFFECT_READ,
             params=(
@@ -181,6 +226,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="working_paper_append",
+            summary_policy="detailed",
             summary="Append one cited section to the working paper; content-addressed and approval-gated",
             effect=EFFECT_WRITE,
             params=(
@@ -208,6 +254,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="search_cases",
+            summary_policy="detailed",
             summary="Search past delegations for similar work; returns explainable scores",
             effect=EFFECT_READ,
             params=(
@@ -224,6 +271,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="read_case",
+            summary_policy="detailed",
             summary="Read one indexed case: summary, citations, artifacts and chain head",
             effect=EFFECT_READ,
             params=(
@@ -253,6 +301,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="query_facts",
+            summary_policy="detailed",
             summary="Query bi-temporal facts (as-of and known-at) with provenance",
             effect=EFFECT_READ,
             params=(
@@ -273,6 +322,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="collect_source",
+            summary_policy="detailed",
             summary="Collect a host-configured source, extract text, and ingest it as cited evidence",
             effect=EFFECT_NETWORK,
             params=(
@@ -311,6 +361,7 @@ def build_workspace_tools(
         ),
         ToolSpec(
             name="fetch_source",
+            summary_policy="detailed",
             summary="Fetch a host-configured external source by name; endpoint and credentials stay with the host",
             effect=EFFECT_NETWORK,
             params=(

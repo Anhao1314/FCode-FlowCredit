@@ -1052,7 +1052,8 @@ function updateRunCounts() {
 
 function renderRuns() {
   const runNav = document.getElementById("run-nav");
-  if (!runNav) return;
+  const chatTasks = document.getElementById("chat-tasks");
+  if (!runNav && !chatTasks) return;
   const tasks = document.getElementById("work-tasks");
   if (tasks) tasks.innerHTML = taskSectionHtml(runHistory.length);
   updateRunCounts();
@@ -1066,9 +1067,11 @@ function renderRuns() {
   runs = runs.filter(run => !run.pinned);
 
   if (!runs.length) {
-    runNav.innerHTML = query
+    const emptyHtml = query
       ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
       : `<div class="section-empty">任务会出现在这里</div>`;
+    if (runNav) runNav.innerHTML = emptyHtml;
+    if (chatTasks) chatTasks.innerHTML = emptyHtml;
     return;
   }
 
@@ -1096,6 +1099,8 @@ function renderRuns() {
     }
   }
   runNav.innerHTML = html;
+  // 收敛:任务列表同时镜像进对话侧栏——唯一对话框也能看到运行状态。
+  if (chatTasks) chatTasks.innerHTML = html;
 }
 
 /* ------------------------------- RENDER LAYER — 证据面板内容与事件列表 */
@@ -4674,10 +4679,9 @@ const {
 const WORK_STAGE_NOTE = "给想法一个运行空间。你定义目标，FCode 负责规划、执行与交付。";
 const WORK_STAGE_FOOTNOTE = "模型提议，主机守门。每次工具调用都过权限与预算，每一步都有证据。";
 const WORK_PLACEHOLDER = "描述你想实现的事，FCode 从这一步开始…";
-let uiMode = (() => {
-  try { return localStorage.getItem("fa.uiMode") === "work" ? "work" : "chat"; }
-  catch { return "chat"; }
-})();
+// 收敛(2026-11-02):唯一对话框交互。work 模式退居深视图(运行线程等),
+// 不再作为可切换的前端模式;uiMode 恒为 chat。
+let uiMode = "chat";
 
 const {
   loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,

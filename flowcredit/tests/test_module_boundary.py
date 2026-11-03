@@ -3,10 +3,15 @@
 This is the guardrail for the module split. A second domain (audit, quant) must
 add its own tools *next to* the workspace set, never re-implement ingestion or
 push generic capabilities into the kernel.
+
+It also guards the package direction: flowaudit (the audit product) may ride
+on flowagent (the kernel), never the reverse. If the kernel learns about the
+product, "domain-agnostic kernel" stops being a property and becomes a hope.
 """
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import sys
 import tempfile
@@ -73,6 +78,40 @@ class ModuleBoundaryTests(unittest.TestCase):
 
     def test_domain_tools_do_not_duplicate_workspace_names(self) -> None:
         self.assertEqual(set(FINANCE_TOOLS) & set(WORKSPACE_TOOLS), set())
+
+
+class PackageDependencyBoundaryTests(unittest.TestCase):
+    """flowaudit → flowagent is the design; flowagent → flowaudit is a bug.
+
+    Checked by walking every module under src/flowagent with ast, so the
+    violation is caught at CI time regardless of import style (import x,
+    from x import y, or a deferred import inside a function body).
+    """
+
+    def test_flowagent_never_imports_flowaudit(self) -> None:
+        src_root = ROOT / "src" / "flowagent"
+        offenders: list[str] = []
+        for path in sorted(src_root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module] if node.module else []
+                else:
+                    continue
+                for name in names:
+                    if name == "flowaudit" or name.startswith("flowaudit."):
+                        offenders.append(f"{path.relative_to(ROOT)}: {name}")
+        self.assertEqual(
+            offenders,
+            [],
+            "flowagent must never import flowaudit; the dependency points one way",
+        )
+
+    def test_flowaudit_package_exists_and_declares_its_direction(self) -> None:
+        init = (ROOT / "src" / "flowaudit" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("flowagent", init, "flowaudit must name the kernel it rides on")
 
 
 if __name__ == "__main__":

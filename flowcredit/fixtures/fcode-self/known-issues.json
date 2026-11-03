@@ -1,0 +1,63 @@
+{
+  "target": "FCode (self-audit ground truth)",
+  "source": "full external evaluation, 2026-10-30, evidence at file:line as of commit 80748ab",
+  "issues": [
+    {
+      "id": "FCODE-01",
+      "title": "DNS rebinding defeats the mutation guard in tokenless CLI mode",
+      "category": "AGI-07",
+      "severity": "high",
+      "evidence": "viewer/server.py:136-146 compares Origin netloc to Host header; under rebinding both are attacker-controlled and identical, and GET requests have no origin check at all. A malicious webpage can read the API and POST /api/runs/{id}/decision to approve consequential tool calls.",
+      "fix_hint": "validate Host against a loopback allowlist on every request"
+    },
+    {
+      "id": "FCODE-02",
+      "title": "Remembered approval is keyed by tool name, whitelisting all future arguments",
+      "category": "AGI-02",
+      "severity": "medium",
+      "evidence": "viewer/console_runtime.py:722-727 adds tool name to self._remembered; approving one run_command ls exempts every later run_command in the run, including python payload.py.",
+      "fix_hint": "key the memory on tool name plus an argument digest"
+    },
+    {
+      "id": "FCODE-03",
+      "title": "README claims budget enters the hash chain; the ledger is a mutable side table",
+      "category": "AGI-08",
+      "severity": "medium",
+      "evidence": "README.md line 41 lists 预算 among hash-chained records; core/store.py:61-67 defines budget as a plain mutable table updated via UPDATE (+?) at store.py:335-342 with no budget event type; replay.py:5-8 admits counters are not encoded in events.",
+      "fix_hint": "either emit budget events into the chain or correct the claim"
+    },
+    {
+      "id": "FCODE-04",
+      "title": "Receipt signing key stored in the same database as the signed data",
+      "category": "AGI-08",
+      "severity": "medium",
+      "evidence": "core/receipts.py:61-66 stores the HMAC key hex in the store's meta table; anyone able to tamper with events can also re-sign receipts. Module docstring admits it; README carries no qualifier.",
+      "fix_hint": "externalize the key or state the boundary in user-facing docs"
+    },
+    {
+      "id": "FCODE-05",
+      "title": "Unsynchronized reads on the shared SQLite connection can spuriously flag CHAIN_TAMPERED",
+      "category": "AGI-08",
+      "severity": "low",
+      "evidence": "core/store.py:257-333 run bare self._conn.execute without the RLock writers hold under BEGIN IMMEDIATE; the threaded viewer (server.py:582) and chat worker threads share the store, so a read interleaved inside another thread's transaction sees new events with the old head.",
+      "fix_hint": "take the store lock on read paths and add a concurrent-read regression test"
+    },
+    {
+      "id": "FCODE-06",
+      "title": "Permission gate is a convention: Harness.execute() itself performs no checks",
+      "category": "AGI-02",
+      "severity": "medium",
+      "evidence": "runtime/harness.py:379-443 executes tools with zero permission checks; gating holds only because both in-repo call sites (runtime/loop.py:300, 565) call gate() first. Nothing structural stops a future caller from bypassing it.",
+      "fix_hint": "move the gate inside execute() as defense in depth"
+    },
+    {
+      "id": "FCODE-07",
+      "title": "A float inside a tool result crashes with an unhandled TypeError",
+      "category": "AGI-09",
+      "severity": "low",
+      "evidence": "harness.py:247-268 converts proposal-side float rejection into PROPOSAL_MALFORMED, but the same canonical_json TypeError from digest(result) at tools/registry.py:74 is caught by neither harness.execute's except AgentError nor loop.run's.",
+      "fix_hint": "catch the float rejection at the result boundary with a stable error code"
+    }
+  ],
+  "acceptance": "the audit engine must independently detect at least 3 of these with re-playable evidence before Sprint 2 closes"
+}

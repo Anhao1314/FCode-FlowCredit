@@ -13,7 +13,9 @@ module matters more than its size. Two rules are encoded here:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
+
+VALID_SUMMARY_POLICIES: tuple[str, ...] = ("default", "custom", "detailed", "raw")
 
 from ..core.contracts import AgentError
 
@@ -104,6 +106,17 @@ class ToolSpec:
     #: This only affects the prompt; the verifier and the chain always see the
     #: full result.
     summarize: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    #: P0-1 压缩策略选择(memory/context.py::summarizer_for 按此分发):
+    #:   "custom"  — 必须同时提供 summarize,注册时缺失即报错(fail-closed);
+    #:   "default" — 改进版默认 summarize(头尾保留、列表首项全量、嵌套一层);
+    #:   "raw"     — 不做结构化压缩,仅单条截断保护(RAW_MAX_CHARS),
+    #:               降级交给上下文折叠机制。
+    summary_policy: str = "default"
+    #: P1-1 缓存指纹:变更 summarize 实现或压缩配置时**必须手动 bump**
+    #: (不自动推断版本——不哈希函数源码、不读常量值,fail-closed 显式声明)。
+    #: 不 bump 会让增量缓存返回旧产物。
+    summary_version: int = 1
+    # 合法策略全集;registry 注册时校验,memory/context.summarizer_for 同源引用。
 
     def to_schema(self) -> dict[str, Any]:
         """Model-facing schema. Deliberately excludes outputs/version: the

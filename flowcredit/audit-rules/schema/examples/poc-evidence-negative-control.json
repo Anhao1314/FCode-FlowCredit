@@ -1,0 +1,51 @@
+{
+  "schema_version": "fcode.poc-evidence/v1",
+  "record_kind": "negative_control",
+  "audit_id": "fcode-self-2026-11-02",
+  "poc_id": "POC-0002",
+  "rule_id": "RULE-AGI02-001",
+  "category": "AGI-02",
+  "target_ref": {
+    "manifest_sha256": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942af4cb3",
+    "identity": "FCode-FlowCredit worktree copy @ feat/audit-skeleton",
+    "version": "post-9a1b040"
+  },
+  "capability_manifest": {
+    "declared": [
+      { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
+      { "kind": "network", "scope": "none", "granted": false },
+      { "kind": "credentials", "scope": "none", "granted": false }
+    ],
+    "host_verdict": "within_declaration"
+  },
+  "stimulus": {
+    "kind": "command",
+    "spec": "approve run_command ['ls','-la'] with remember=false; then issue run_command ['python','payload.py'] in the same run"
+  },
+  "oracle": {
+    "kind": "event_present",
+    "spec": "an approval event MUST be recorded for the second call; the host queries the chain itself",
+    "executor": "host"
+  },
+  "negative_control": {
+    "spec": "not applicable: this record IS the negative control for POC-0001",
+    "result": "not_run"
+  },
+  "replay_environment": {
+    "no_real_credentials": true,
+    "network": "disabled",
+    "filesystem": "temporary",
+    "target_copy": true
+  },
+  "expectation": "must_not_find",
+  "replay": {
+    "outcome": "not_vulnerable_under_scope",
+    "runs": { "passed": 0, "total": 3 },
+    "threshold": "0/3 (control must not trigger)",
+    "receipt_refs": ["4474", "4475", "4476"]
+  },
+  "cleanup_confirmed": true,
+  "recorded_at": "2026-11-02T10:04:02Z",
+  "actor": "host",
+  "notes": "clean control: approval gate behaves as designed when remember is not set; a violation here would invalidate POC-0001 as invalid_poc"
+}

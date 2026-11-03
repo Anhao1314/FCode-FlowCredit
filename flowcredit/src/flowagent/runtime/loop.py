@@ -23,7 +23,9 @@ from typing import Any
 
 from ..core.contracts import PLAN_VERSION, AgentError, Task
 from ..core.plan import Plan
-from ..memory.context import WorkingMemory
+from ..memory.context import SourceTrust, WorkingMemory
+from ..memory.summary_cache import SummaryCache
+from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
 from ..tools.base import Observation
 from .policy import PacketProvider, compile_packet
@@ -38,6 +40,14 @@ from .plan_extension import validate_additions
 REPAIRABLE_DENIALS = ("TOOL_ARGUMENTS_INVALID",)
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
+
+#: P1-1.5 收尾:SQLite summary 缓存**默认关闭**。数据见
+#: work/cache-benchmark/large-payload-report.json:90KB 载荷下单次 detailed
+#: summarize 3.65µs,而单次 SQLite 命中点查 4.71µs——summarizer 早剪枝,
+#: 成本不随载荷增长,任何阈值都无法让 SQLite 点查转正。保留 SummaryCache
+#: 资产(显式传入才启用);进程内 dict 介质已由 P1-2 实现
+#: (WorkingMemory._memo,优先于本缓存)。
+ENABLE_SQLITE_SUMMARY_CACHE = False
 
 __all__ = ["Loop", "NullObserver"]
 
@@ -87,10 +97,28 @@ class Loop:
         #: Memory profile from the domain: per-tool observation compressors and
         #: the state view. The memory layer stays tool-name-blind; the assembly
         #: hands these in from the ToolSpecs and the DomainModule.
-        self.memory_summarizers = dict(
-            memory_summarizers if memory_summarizers is not None
-            else harness.registry.summarizers()
-        )
+        #: P0-1:按每个 ToolSpec 的 summary_policy 分发压缩策略(custom/default/
+        #: raw),而非只收集自定义压缩器——未配置工具不再退化为盲摘要。
+        if memory_summarizers is not None:
+            self.memory_summarizers = dict(memory_summarizers)
+        else:
+            from ..memory.context import summarizer_for
+            self.memory_summarizers = {
+                name: summarizer_for(harness.registry.get(name))
+                for name in harness.registry.names
+            }
+        #: P1-1 缓存指纹:tool → (summary_policy, summary_version),来自注册表;
+        #: 未登记工具按 ("default", 1) 计(仍稳定)。
+        self.memory_summarizer_config = {
+            name: (harness.registry.get(name).summary_policy,
+                   int(getattr(harness.registry.get(name),
+                               "summary_version", 1)))
+            for name in harness.registry.names
+        }
+        #: P1-1 增量 summary 缓存:与事件链同库不同表;失败一律 fail-open。
+        #: P1-1.5 收尾:默认关闭(净负,见常量注释);显式开启才注入。
+        self.memory_summary_cache = (
+            SummaryCache(harness.store) if ENABLE_SQLITE_SUMMARY_CACHE else None)
         self.memory_state_fn = (
             memory_state_fn if memory_state_fn is not None else harness.state_fn
         )
@@ -249,6 +277,13 @@ class Loop:
                     task, "context_compacted", dict(memory.pending_compaction)
                 )
                 memory.pending_compaction = None
+            # P0-3 fail-open 兑现:pinned 全量自身超预算时,证据完整性优先于
+            # 预算——事件如实记录溢出,不丢 pinned、不静默。
+            if memory.pending_pin_overflow is not None:
+                task = self.harness.record(
+                    task, "context_pin_overflow", dict(memory.pending_pin_overflow)
+                )
+                memory.pending_pin_overflow = None
 
             decision = self.harness.gate(task, step)
             self.observer.gate(round_no, decision)
@@ -301,7 +336,8 @@ class Loop:
             except AgentError as error:
                 return self._abort(task_id, error)
 
-            memory.record(round_no, observation)
+            memory.record(round_no, observation,
+                          source_trust=trust_for_tool(observation.tool))
             plan = self.planner.advance(plan, observation) if self.planner else plan
             task = self._persist_plan(task, plan, round_no)
 
@@ -706,6 +742,8 @@ class Loop:
             conversation=conversation,
             instruction=self.memory_instruction,
             prompt_profile=self.memory_prompt_profile,
+            summary_cache=self.memory_summary_cache,
+            summarizer_config=self.memory_summarizer_config,
         )
         for event in self.harness.store.events(task.id):
             if event["type"] == "memory_recalled":
@@ -715,6 +753,9 @@ class Loop:
             if event["type"] != "tool_succeeded":
                 continue
             detail = event["payload"].get("detail", {})
+            # P0-2:旧事件无 trust 键 → EXTERNAL_UNTRUSTED(fail-closed 缺省)。
+            source_trust = SourceTrust(
+                detail.get("trust") or SourceTrust.EXTERNAL_UNTRUSTED.value)
             memory.record(
                 int(detail.get("round", 0)),
                 Observation(
@@ -723,6 +764,7 @@ class Loop:
                     result=detail["result"],
                     result_hash=detail["result_hash"],
                 ),
+                source_trust=source_trust,
             )
         memory.prior_cases = prior_cases
         return memory

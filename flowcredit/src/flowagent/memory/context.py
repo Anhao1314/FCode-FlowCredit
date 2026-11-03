@@ -15,12 +15,43 @@ phrasing rather than on facts.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import bisect
+import hashlib
+from enum import Enum
+
+
+class SourceTrust(str, Enum):
+    """P0-2 观测来源可信度。缺省即不可信(fail-closed)。
+
+    VERIFIED_TOOL      — 注册表内、宿主确定性执行的内部工具;
+    AGENT_INFERRED     — 模型自身推理产物(非工具观测);
+    EXTERNAL_UNTRUSTED — MCP/外部 HTTP/未知来源:内容进 prompt 前必须隔离。
+    """
+
+    VERIFIED_TOOL = "verified_tool"
+    AGENT_INFERRED = "agent_inferred"
+    EXTERNAL_UNTRUSTED = "external_untrusted"
 from typing import Any, Callable
 
+from ..core.contracts import AgentError
+from ..tools.base import VALID_SUMMARY_POLICIES
 from ..core.hashing import canonical_json
 from ..tools.base import Observation
 
-__all__ = ["DEFAULT_INSTRUCTION", "ObservationRecord", "WorkingMemory", "default_summarize"]
+__all__ = [
+    "DEFAULT_INSTRUCTION", "DEFAULT_SUMMARY_MAX_DEPTH", "DEFAULT_SUMMARY_HEAD",
+    "DEFAULT_SUMMARY_TAIL", "RAW_MAX_CHARS", "ObservationRecord", "WorkingMemory",
+    "default_summarize", "detailed_summarize", "raw_summarize", "summarizer_for",
+]
+
+# ---- P0-1 压缩常量(集中定义,不散落) -------------------------------------
+#: 嵌套展开的最大深度:超过该层的 dict 折叠为键名列表。
+DEFAULT_SUMMARY_MAX_DEPTH = 2
+#: 长字符串保留头/尾的字符数;总长 ≤ HEAD+TAIL 时不截断。
+DEFAULT_SUMMARY_HEAD = 200
+DEFAULT_SUMMARY_TAIL = 200
+#: "raw" 策略的单条截断上限:不做结构化压缩,只防失控。
+RAW_MAX_CHARS = 4_000
 
 #: The kernel's default protocol wording. Read-only by construction, which is
 #: exactly what the finance reference workload is: the frozen v10 prompt was
@@ -40,12 +71,50 @@ def _arguments_head(arguments: dict[str, Any], limit: int = 80) -> str:
     return flat[:limit]
 
 
-def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
-    """Shape-based fallback for tools that do not declare a summarizer.
+def _clip(value: str) -> str:
+    """长字符串的头尾保留规则(P0-1):≤400 原样;否则头 200 + 标记 + 尾 200。"""
+    if len(value) <= DEFAULT_SUMMARY_HEAD + DEFAULT_SUMMARY_TAIL:
+        return value
+    omitted = len(value) - DEFAULT_SUMMARY_HEAD - DEFAULT_SUMMARY_TAIL
+    return (value[:DEFAULT_SUMMARY_HEAD]
+            + f"...[truncated {omitted} chars]..."
+            + value[-DEFAULT_SUMMARY_TAIL:])
 
-    Scalars survive whole (long strings as head + true length); lists become a
-    count plus a peek at the first scalar item; nested objects become their
-    sorted key list. Tools that declare ``summarize`` on their spec always win.
+
+def _compact(value: Any, depth: int) -> Any:
+    """P0-1 的结构化压缩:深度内保留一层键值/列表首项,超出折叠为键名/计数。"""
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, str):
+        return _clip(value)
+    if depth <= 0:
+        if isinstance(value, list):
+            return {"count": len(value)}
+        if isinstance(value, dict):
+            return {"keys": sorted(value)[:8]}
+        return str(value)[:120]
+    if isinstance(value, list):
+        if len(value) <= 3:
+            return [_compact(item, DEFAULT_SUMMARY_MAX_DEPTH) for item in value]
+        first = _compact(value[0], DEFAULT_SUMMARY_MAX_DEPTH)
+        return [first, {"count": len(value)}]
+    if isinstance(value, dict):
+        return {key: _compact(item, depth - 1) for key, item in value.items()}
+    return str(value)[:120]
+
+
+def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """Shape-based fallback — **byte-frozen legacy behavior**(见下)。
+
+    冻结原因:finance 参考负载的观测经此函数压缩,SFT 金色哈希与
+    test_sft_export 的字节保真测试钉住了它的输出。改进版压缩见
+    :func:`detailed_summarize`(策略 "detailed");两个"默认"的关系:
+    "default" = 向后兼容的旧形状压缩,"detailed" = P0-1 的修复,
+    由新工具/审计域显式选用。
+
+    原始行为(保持不变):Scalars survive whole (long strings as head +
+    true length); lists become a count plus a peek at the first scalar
+    item; nested objects become their sorted key list.
     """
     out: dict[str, Any] = {}
     for key, value in result.items():
@@ -67,6 +136,81 @@ def default_summarize(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def detailed_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """P0-1 改进版压缩(策略 "detailed"),修复"模型失明"。
+
+    与旧 default 的差异:列表首项全量(深度内)、其余项保留计数;短列表
+    (≤3)全部保留;嵌套 dict 保留一层键值;长字符串头尾保留并带显式
+    截断标记。深度与预算常量集中在本模块头部。
+    """
+    return {key: _compact(value, DEFAULT_SUMMARY_MAX_DEPTH)
+            for key, value in result.items()}
+
+
+def raw_summarize(result: dict[str, Any]) -> dict[str, Any]:
+    """"raw" 策略:不做结构化压缩,仅单条截断保护(RAW_MAX_CHARS)。"""
+    out: dict[str, Any] = {}
+    for key, value in result.items():
+        if isinstance(value, str) and len(value) > RAW_MAX_CHARS:
+            out[key] = {"head": value[:RAW_MAX_CHARS], "chars": len(value)}
+        else:
+            out[key] = value
+    return out
+
+
+def summarizer_for(spec) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """P0-1 策略分发:按 ToolSpec.summary_policy 返回压缩函数。
+
+    duck-typed(不 import ToolSpec,避免 tools↔memory 反向耦合);
+    未知策略 fail-closed。优先级:**已提供 summarize 实现 → 用实现**
+    (向后兼容,finance 字节冻结依赖此条);显式策略覆盖实现
+    ("raw"/"detailed" 压过自定义实现是有意的——作者改了主意)。
+    """
+    policy = getattr(spec, "summary_policy", "default")
+    impl = getattr(spec, "summarize", None)
+    if policy == "custom":
+        if impl is None:
+            raise AgentError(
+                "TOOL_SUMMARY_POLICY_INVALID",
+                f"{spec.name!r} declares summary_policy='custom' "
+                "but provides no summarize implementation",
+            )
+        return impl
+    if policy == "raw":
+        return raw_summarize
+    if policy == "detailed":
+        return detailed_summarize
+    if policy == "default":
+        return impl if impl is not None else default_summarize
+    raise AgentError(
+        "TOOL_SUMMARY_POLICY_INVALID",
+        f"{spec.name!r} has unknown summary_policy {policy!r}",
+    )
+
+
+@dataclass(frozen=True)
+class PinPolicy:
+    """P0-3 pin 集:pinned 观测在全量级保留,永不降为索引行。
+
+    三个集合按"或"生效;event_kinds 由 loop 在构造观测行时传入事件类型
+    (restore 重放时为链上事件类型)。全部结构化声明,不做模型判断。
+    """
+
+    tool_names: frozenset[str] = frozenset()
+    event_kinds: frozenset[str] = frozenset()
+    observation_ids: frozenset[str] = frozenset()
+
+    def should_pin(self, record: "ObservationRecord",
+                   event_kind: str | None = None) -> bool:
+        if record.tool in self.tool_names:
+            return True
+        if event_kind is not None and event_kind in self.event_kinds:
+            return True
+        if record.result_hash and record.result_hash in self.observation_ids:
+            return True
+        return False
+
+
 @dataclass(frozen=True)
 class ObservationRecord:
     """One compressed observation, kept for the whole task."""
@@ -76,6 +220,12 @@ class ObservationRecord:
     arguments: dict[str, Any]
     result: dict[str, Any]
     result_hash: str
+    #: P0-2 来源可信度。旧事件缺该字段时按 EXTERNAL_UNTRUSTED 读取
+    #: (fail-closed:不声明即不可信),旧链校验不受影响。
+    source_trust: SourceTrust = SourceTrust.EXTERNAL_UNTRUSTED
+    #: P0-3 该观测来源事件的类型(restore 重放时由 loop 传入)——
+    #: PinPolicy.event_kinds 的匹配依据;增量字段,缺省 None。
+    event_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +234,7 @@ class ObservationRecord:
             "arguments": self.arguments,
             "result": self.result,
             "result_hash": self.result_hash,
+            "trust": self.source_trust.value,
         }
 
 
@@ -114,6 +265,34 @@ class WorkingMemory:
     #: into a ``context_compacted`` chain event and clears the pending marker.
     folded_through: int = 0
     pending_compaction: dict[str, Any] | None = None
+    #: P0-3 pin 集:pinned 观测保持全量且永不降为索引行。None = 无 pin
+    #(语义与改动前等价:全部观测按非 pinned 处理)。
+    pin_policy: "PinPolicy | None" = None
+    #: P0-3 pinned 全量自身超预算时置位;loop 落 context_pin_overflow
+    #: 事件(fail-open 仅限此情形:证据完整性优先于预算)。
+    pending_pin_overflow: dict[str, Any] | None = None
+    #: P1-1 增量 summary 缓存(SummaryCache|None)。None = 不缓存(默认,
+    #: 语义与改动前完全一致)。缓存异常一律 fail-open 回退实时 summarize。
+    summary_cache: Any = None
+    #: P1-2 行构造增量化的已准备产物:每条记录只构造一次行(含全量行、
+    #: 摘要行、索引行与字符数),以及 pinned/非 pinned 的累计量与前缀和。
+    _prepared: list[dict[str, Any]] = field(default_factory=list)
+    _pinned_rows: list[dict[str, Any]] = field(default_factory=list)
+    _np_rows: list[dict[str, Any]] = field(default_factory=list)
+    _np_prefix: list[int] = field(default_factory=list)
+    _pinned_chars: int = 0
+    _np_chars: int = 0
+    _prepared_signature: Any = None
+    #: P1-2 加固:每次 record() 追加后递增,用于签名暴露“记录列表发生过变更”。
+    _records_version: int = 0
+    #: P1-2 G:进程内 dict 介质(五元组 key 与 SQLite 版一致;无 TTL/LRU)。
+    #: 生命周期依赖每任务新建 WorkingMemory;若未来引入跨任务复用,必须在
+    #: 任务边界调用 _memo.clear() 或加条目上限,否则会跨任务累积。
+    _memo: dict[tuple[str, str, str, str, int], dict[str, Any]] = field(
+        default_factory=dict)
+    #: P1-1 缓存指纹来源:tool → (summary_policy, summary_version)。由 loop
+    #: 从 ToolSpec 装配;缺失时按 ("default", 1) 计(仍稳定)。
+    summarizer_config: dict[str, tuple[str, int]] = field(default_factory=dict)
     #: The conversation a delegation was handed off from (chat → work bridge).
     #: Operator input, frozen in the task binding, sanitised by the console
     #: (role/text pairs, capped) — carried so temporal/place references in the
@@ -141,15 +320,26 @@ class WorkingMemory:
     #: emitted only when non-empty, so runs that never hit one keep their bytes.
     rejected_proposals: list[dict[str, Any]] | None = None
 
-    def record(self, round_no: int, observation: Observation) -> ObservationRecord:
+    def record(self, round_no: int, observation: Observation,
+               source_trust: "SourceTrust | None" = None,
+               event_kind: str | None = None) -> ObservationRecord:
+        """Append one observation and bump the records version.
+
+        ``arguments``/``result`` 是顶层 dict 浅拷贝(dict(...));嵌套对象在
+        记录后不得原地修改。需要修改时请先深拷贝,否则已缓存的行产物不会
+        感知变化。
+        """
         record = ObservationRecord(
             round=round_no,
             tool=observation.tool,
             arguments=dict(observation.arguments),
             result=dict(observation.result),
             result_hash=observation.result_hash,
+            source_trust=source_trust or SourceTrust.EXTERNAL_UNTRUSTED,
+            event_kind=event_kind,
         )
         self.records.append(record)
+        self._records_version += 1
         return record
 
     # ------------------------------------------------------------------- state
@@ -188,53 +378,71 @@ class WorkingMemory:
         ``plan`` is the open-todo view, not the whole plan: the model needs to
         know what is left, not the history of how it got there.
 
-        The observation list is budgeted: the newest compressed rounds stay
-        inline; older rounds fold into ``observation_index`` rows (round, tool,
-        argument head, result hash). Folding is prompt-level forgetting — the
-        store keeps every record, and the loop turns a fresh fold into a
-        ``context_compacted`` chain event.
+        P0-3 三级折叠(替代原纯 FIFO 单档折叠):
+
+        - 第 1 级(全量):pinned 观测保持全量(仅受 RAW_MAX_CHARS 单条
+          上限保护)——证据完整性优先于预算;
+        - 第 2 级(摘要):非 pinned 观测呈 summarize 产物(策略分发见
+          summarizer_for);超预算时最老的非 pinned 摘要先降为索引行;
+        - 第 3 级(索引行):仅当第 2 级后仍超预算才发生,pinned 永不降入。
+
+        若只剩 pinned 全量仍超预算:不报错、不丢 pinned,记
+        ``pending_pin_overflow``(loop 落 context_pin_overflow 事件)——
+        fail-open 仅限此情形,理由:证据完整性优先于预算。
+
+        无 pin_policy 时语义与改动前等价:全部观测按非 pinned 处理,
+        索引行内容一致(round/tool/arguments_head/result_hash)。
         """
-        all_observations = [
-            {
-                "round": record.round,
-                "tool": record.tool,
-                "arguments": record.arguments,
-                "summary": self._summarise(record),
-            }
-            for record in self.records
-        ]
+        # P0-2:trust 字段只在选择了非默认 profile 的上下文中输出——
+        # finance 参考负载的字节冻结(SFT 金色哈希)依赖缺省键的缺席语义;
+        # 审计域(general 及后续 audit profile)则强制携带来源可信度。
+        include_trust = self.prompt_profile is not None
+        self._prepare_rows()
+        pinned_rows = self._pinned_rows
+        np_rows = self._np_rows
+        inline: list[dict[str, Any]] = []
         index_rows: list[dict[str, Any]] = []
-        inline = all_observations
-        total = sum(len(canonical_json(o)) for o in all_observations)
-        if total > self.observation_budget and len(all_observations) > 1:
-            running = total
-            keep_from = len(all_observations)
-            for i in range(len(all_observations) - 1):
-                running -= len(canonical_json(all_observations[i]))
-                if running <= self.observation_budget:
-                    keep_from = i + 1
-                    break
-            keep_from = max(keep_from, 1)
-            folded = all_observations[:keep_from]
-            inline = all_observations[keep_from:]
-            index_rows = [
-                {
-                    "round": row["round"],
-                    "tool": row["tool"],
-                    "arguments_head": _arguments_head(record.arguments),
-                    "result_hash": record.result_hash[:12],
-                }
-                for row, record in zip(folded, self.records[:keep_from])
-            ]
-            last_folded = index_rows[-1]["round"]
-            if last_folded > self.folded_through:
-                self.pending_compaction = {
-                    "from_round": index_rows[0]["round"],
-                    "through_round": last_folded,
-                    "inlined_from_round": inline[0]["round"],
-                    "folded_count": len(index_rows),
-                }
-                self.folded_through = last_folded
+
+        pinned_chars = self._pinned_chars
+        if pinned_chars > self.observation_budget:
+            # fail-open(仅限此情形):证据完整性优先于预算。
+            self.pending_pin_overflow = {
+                "pinned_count": len(pinned_rows),
+                "pinned_chars": pinned_chars,
+                "budget": self.observation_budget,
+            }
+            inline = pinned_rows + np_rows
+        else:
+            budget_left = self.observation_budget - pinned_chars
+            used = self._np_chars
+            if used <= budget_left or not np_rows:
+                inline = pinned_rows + np_rows
+            else:
+                # 第 3 级:最老的非 pinned 摘要先降为索引行,直到预算内。
+                # 与全量重建算法逐字节等价:keep_from = 最小的 k≥1 使
+                # 后缀和 ≤ budget_left(等价于旧循环的首次下穿)。
+                threshold = used - budget_left
+                keep_from = bisect.bisect_left(self._np_prefix, threshold) + 1
+                if keep_from > len(np_rows):
+                    keep_from = len(np_rows)
+                inline = pinned_rows + np_rows[keep_from:]
+                index_rows = [entry["index_row"]
+                              for entry in self._prepared if not entry["pinned"]][:keep_from]
+                if index_rows:
+                    last_folded = index_rows[-1]["round"]
+                    if last_folded > self.folded_through:
+                        self.pending_compaction = {
+                            "from_round": index_rows[0]["round"],
+                            "through_round": last_folded,
+                            "inlined_from_round": inline[-1].get("round",
+                                                                 round_no),
+                            "folded_count": len(index_rows),
+                            "pinned_count": len(pinned_rows),
+                            "levels": {"full": len(pinned_rows),
+                                       "summary": len(inline) - len(pinned_rows),
+                                       "index": len(index_rows)},
+                        }
+                        self.folded_through = last_folded
 
         context = {
             "objective": self.objective,
@@ -293,13 +501,97 @@ class WorkingMemory:
             ]
         return context
 
+    def _prepare_rows(self) -> None:
+        """P1-2:只为新增观测构造一次行;历史行永不重建。
+
+        每记录一次:全量行、摘要行、索引行、字符数;并增量维护 pinned/
+        非 pinned 的累计字符与前缀和(折叠游标据此二分,不再每轮全量
+        求和)。行产物不可变;游标只前进。pin 策略/summarizer 配置/profile
+        若被替换(理论上不该发生),按签名重建全部产物(fail-safe)。
+        """
+        signature = (
+            id(self.pin_policy),                           # PinPolicy: frozen dataclass
+            tuple(sorted(self.summarizer_config.items())),  # 内容而非对象 id
+            self.prompt_profile,
+            self._records_version,
+        )
+        previous = self._prepared_signature
+        # records_version 每次追加都会变化。若让“签名变化”直接清空行,
+        # 每轮都会重建全部历史行,把 P1-2 增量化打回 O(N)/轮;因此只把
+        # 前三项视为“影响行内容”的签名,追加交给下方 while 增量处理。
+        content_changed = (previous is None or previous[:3] != signature[:3])
+        if content_changed or len(self.records) < len(self._prepared):
+            self._prepared.clear()
+            self._pinned_rows.clear()
+            self._np_rows.clear()
+            self._np_prefix.clear()
+            self._pinned_chars = 0
+            self._np_chars = 0
+        self._prepared_signature = signature
+        include_trust = self.prompt_profile is not None
+        while len(self._prepared) < len(self.records):
+            record = self.records[len(self._prepared)]
+            pinned = bool(self.pin_policy and self.pin_policy.should_pin(record))
+            trust = ({"trust": record.source_trust.value}
+                     if include_trust else {})
+            full = {
+                "round": record.round,
+                "tool": record.tool,
+                "arguments": record.arguments,
+                "result": raw_summarize({"result": record.result})["result"],
+                "result_hash": record.result_hash,
+                **trust,
+            }
+            summary_row = {
+                "round": record.round,
+                "tool": record.tool,
+                "arguments": record.arguments,
+                "summary": self._summarise(record),
+                **trust,
+            }
+            index_row = {
+                "round": record.round,
+                "tool": record.tool,
+                "arguments_head": _arguments_head(record.arguments),
+                "result_hash": record.result_hash[:12],
+            }
+            self._prepared.append({"pinned": pinned, "full": full,
+                                   "summary_row": summary_row,
+                                   "index_row": index_row})
+            if pinned:
+                self._pinned_rows.append(full)
+                self._pinned_chars += len(canonical_json(full))
+            else:
+                self._np_rows.append(summary_row)
+                self._np_chars += len(canonical_json(summary_row))
+                self._np_prefix.append(self._np_chars)
+
     def _summarise(self, record: ObservationRecord) -> dict[str, Any]:
         """Compress one observation to the fields a decision needs.
 
         The tool's own ``summarize`` contract wins; the shape-based default
         keeps unknown tools honest without the memory layer knowing tool names.
+
+        P1-2 介质顺序:进程内 dict(_memo,默认启用,~0.1µs)→ SQLite
+        summary_cache(默认关闭,显式传入才启用)→ 实时 summarize。
+        所有缓存层都 fail-open:异常时回退实时计算,不中断 loop。
         """
+        policy, version = self.summarizer_config.get(record.tool, ("default", 1))
+        args_hash = hashlib.sha256(
+            canonical_json(record.arguments).encode("utf-8")).hexdigest()
+        key = (record.tool, args_hash, record.result_hash, policy, int(version))
+        cached = self._memo.get(key)
+        if cached is not None:
+            return cached
+        if self.summary_cache is not None:
+            external = self.summary_cache.get(key)
+            if external is not None:
+                self._memo[key] = external
+                return external
         summarizer = self.summarizers.get(record.tool)
-        if summarizer is not None:
-            return summarizer(record.result)
-        return default_summarize(record.result)
+        product = (summarizer(record.result) if summarizer is not None
+                   else default_summarize(record.result))
+        self._memo[key] = product
+        if self.summary_cache is not None:
+            self.summary_cache.put(key, product)
+        return product

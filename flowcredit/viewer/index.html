@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light">
 <title>FCode · 本机 Agent 工作区</title>
 <link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
-<script>window.__errs=[];window.addEventListener('error',e=>window.__errs.push((e.message||'')+'@'+e.lineno));window.addEventListener('unhandledrejection',e=>window.__errs.push('rej:'+(e.reason&&e.reason.message||e.reason)));</script><script>if(new URLSearchParams(location.search).get("desktop")==="1")document.documentElement.classList.add("desktop-app");</script><link rel="stylesheet" href="app.css?v=80">
+<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=80">
 <link rel="stylesheet" href="design.css?v=82">
 <link rel="stylesheet" href="desktop.css?v=6">
 <link rel="stylesheet" href="chat.css?v=8">
@@ -28,15 +28,6 @@
       <img class="brand-mark" src="brand/logo.svg" alt="FCode" width="32" height="32">
       <span class="side-flavor" id="side-flavor">WORK</span>
       <span class="grow"></span>
-    </div>
-
-    <div class="mode-switch" role="tablist" aria-label="主功能切换">
-      <button class="mode-opt" id="mode-work" type="button" role="tab" aria-selected="false" title="工作（⌘1）">
-        <span data-doodle="work"></span><span>工作</span>
-      </button>
-      <button class="mode-opt active" id="mode-chat" type="button" role="tab" aria-selected="true" title="对话（⌘2）">
-        <span data-doodle="message"></span><span>对话</span>
-      </button>
     </div>
 
     <button class="side-new" id="new-run" title="新对话">
@@ -68,6 +59,7 @@
       <div id="chat-projects"></div>
       <div id="chat-chats"></div>
       <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
+      <div id="chat-tasks"></div>
     </div>
 
     <!-- 工作侧栏 = Kimi Work 的 AppSidebar：平坦导航（看板/判断/定时）→ 置顶 →
@@ -117,6 +109,7 @@
       <div class="tb-title" id="tb-title">—</div>
       <div class="tb-chips" id="tb-chips"></div>
       <div class="grow"></div>
+      <a class="tb-audit-link" href="/audit.html" title="发现账本:审计器产出的缺陷与证据">审计台 ↗</a>
       <button class="conn-pill" id="conn-pill" type="button" title="运行流连接状态" hidden>
         <span class="conn-dot" aria-hidden="true"></span><span id="conn-pill-text"></span>
       </button>
@@ -154,7 +147,7 @@
               <div class="chat-attach-chips" id="chat-attach-chips" hidden></div>
               <div class="project-composer" id="project-composer" hidden></div>
               <textarea class="composer-ta" id="composer-ta" rows="1" aria-label="输入消息或任务描述"
-                placeholder="给 agent 派一个任务：判断 2024 与 2025 两期合并毛利率是否可比…"></textarea>
+                placeholder="给 agent 派一个任务：例如整理本仓库的审计发现并生成一份摘要报告…"></textarea>
               <div class="composer-bar">
                 <button class="c-icon" id="composer-open" title="资料 / 工具 / 预算" aria-expanded="false">
                   <svg class="i plus-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>

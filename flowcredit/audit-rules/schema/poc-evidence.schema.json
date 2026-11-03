@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fcode.poc-evidence/v1",
+  "title": "PoC replay evidence record",
+  "description": "One replay of one proof-of-concept against one pinned target. The record is the unit a third party re-runs; it binds stimulus, host-side oracle, capability manifest, negative control and outcome. Authored 2026-10-31; the keyword subset (type/required/properties/enum/const/pattern/items/minItems/additionalProperties) is deliberately small so flowaudit validates it with stdlib alone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_kind", "audit_id", "poc_id", "rule_id",
+    "category", "target_ref", "capability_manifest", "stimulus", "oracle",
+    "negative_control", "replay_environment", "expectation", "replay",
+    "cleanup_confirmed", "recorded_at", "actor"
+  ],
+  "properties": {
+    "schema_version": { "const": "fcode.poc-evidence/v1" },
+    "record_kind": { "enum": ["poc", "negative_control"] },
+    "audit_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,63}$" },
+    "poc_id": { "type": "string", "pattern": "^POC-[0-9]{4,}(-c)?$" },
+    "rule_id": { "type": "string", "pattern": "^RULE-AGI[0-9]{2}-[0-9]{3}$" },
+    "category": {
+      "enum": ["AGI-01", "AGI-02", "AGI-03", "AGI-04", "AGI-05",
+               "AGI-06", "AGI-07", "AGI-08", "AGI-09"]
+    },
+    "target_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_sha256", "identity"],
+      "properties": {
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "identity": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "capability_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared", "host_verdict"],
+      "properties": {
+        "declared": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "scope", "granted"],
+            "properties": {
+              "kind": { "enum": ["filesystem_read", "filesystem_write", "network", "credentials", "subprocess"] },
+              "scope": { "type": "string" },
+              "granted": { "type": "boolean" }
+            }
+          }
+        },
+        "host_verdict": { "enum": ["within_declaration", "violation_observed"] }
+      }
+    },
+    "stimulus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "spec"],
+      "properties": {
+        "kind": { "enum": ["command", "http", "file_payload", "message"] },
+        "spec": { "type": "string" }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "spec", "executor"],
+      "properties": {
+        "kind": { "enum": ["event_absent", "event_present", "file_state", "process_exit", "network_observation", "host_decision"] },
+        "spec": { "type": "string" },
+        "executor": { "const": "host" }
+      }
+    },
+    "negative_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec", "result"],
+      "properties": {
+        "spec": { "type": "string" },
+        "result": { "enum": ["as_expected", "violated", "not_run"] }
+      }
+    },
+    "replay_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["no_real_credentials", "network", "filesystem", "target_copy"],
+      "properties": {
+        "no_real_credentials": { "const": true },
+        "network": { "enum": ["disabled", "allowlist"] },
+        "filesystem": { "enum": ["temporary", "sandboxed"] },
+        "target_copy": { "type": "boolean" }
+      }
+    },
+    "expectation": { "enum": ["must_find", "must_not_find"] },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "runs"],
+      "properties": {
+        "outcome": { "enum": ["finding", "not_reproduced", "invalid_poc", "not_vulnerable_under_scope"] },
+        "runs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "total"],
+          "properties": {
+            "passed": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "threshold": { "type": "string" },
+        "receipt_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cleanup_confirmed": { "type": "boolean" },
+    "recorded_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "actor": { "enum": ["host", "operator"] },
+    "notes": { "type": "string" }
+  }
+}

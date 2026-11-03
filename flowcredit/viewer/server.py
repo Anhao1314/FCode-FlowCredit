@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import socketserver
 import sys
@@ -74,6 +75,7 @@ class Handler(SimpleHTTPRequestHandler):
     server_version = "FcodeConsole/1.1"
     manager: RunManager  # set by main()
     token: str | None = None  # set by main() in desktop mode
+    repo: Path | None = None  # set by create_server(); audit artifacts live here
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, directory=str(VIEWER_DIR), **kwargs)
@@ -108,6 +110,16 @@ class Handler(SimpleHTTPRequestHandler):
         # Static assets change under the operator's feet; never let the browser cache them.
         if (self.path or "").split("?")[0].endswith((".html", ".css", ".js")):
             self.send_header("Cache-Control", "no-cache")
+        # 74 处 innerHTML 的第二道防线：脚本一律外部文件（boot.js 已抽取），
+        # 样式允许既有 esc() 产出的内联属性。任何一处转义遗漏不再等于 XSS。
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'",
+        )
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
     def _json(self, payload: dict | list, code: int = 200) -> None:
@@ -118,6 +130,71 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    # ------------------------------------------------------------- audit api
+    # 只读：数据全部来自 `fcode audit` 落盘的 work/audit/<audit_id>/。
+    # 目录名与记录名都过白名单正则，resolve 后再验包含关系——与 run_trace_path
+    # 同一纪律，不给路径穿越留缝。
+
+    _AUDIT_DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
+    _AUDIT_POC_RE = re.compile(r"^POC-[0-9]{4,}(-c)?$")
+
+    def _audit_root(self) -> Path | None:
+        repo = type(self).repo or (Path(self.manager.runtime.repo)
+                                   if self.manager.runtime else None)
+        if repo is None:
+            return None
+        return Path(repo) / "work" / "audit"
+
+    def _audit_bundles(self) -> dict:
+        root = self._audit_root()
+        if root is None:
+            return {"error": "live mode unavailable: no repo given", "bundles": []}
+        bundles = []
+        if root.exists():
+            for path in sorted(root.glob("*/audit-bundle.json")):
+                try:
+                    bundle = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                bundles.append({
+                    "dir": path.parent.name,
+                    "audit_id": bundle.get("audit_id"),
+                    "target": (bundle.get("target") or {}).get("identity"),
+                    "findings": len(bundle.get("findings") or []),
+                    "evidence": len(bundle.get("poc_evidence_refs") or []),
+                    "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
+                })
+        return {"bundles": bundles}
+
+    def _audit_bundle(self, name: str) -> dict | tuple[dict, int]:
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        path = (root / name / "audit-bundle.json").resolve()
+        if root.resolve() not in path.parents:
+            return {"error": "not found"}, 404
+        if not path.exists():
+            return {"error": "not found"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable bundle"}, 500
+
+    def _audit_evidence(self, name: str, poc_id: str) -> dict | tuple[dict, int]:
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or "") \
+                or not self._AUDIT_POC_RE.match(poc_id or ""):
+            return {"error": "not found"}, 404
+        path = (root / name / f"{poc_id}.json").resolve()
+        if root.resolve() not in path.parents:
+            return {"error": "not found"}, 404
+        if not path.exists():
+            return {"error": "not found"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable evidence"}, 500
 
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -316,6 +393,29 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"tools": mgr.runtime.tool_contracts()})
         if path == "/api/runs":
             return self._json(mgr.list_runs())
+        # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
+        if path == "/api/audit/bundles":
+            return self._json(self._audit_bundles())
+        if path.startswith("/api/audit/bundle/"):
+            result = self._audit_bundle(path[len("/api/audit/bundle/"):].strip("/"))
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/evidence/"):
+            parts = [p for p in path.split("/") if p]
+            # /api/audit/evidence/<audit_dir>/<poc_id>
+            if len(parts) != 5:
+                return self._json({"error": "bad path"}, 400)
+            result = self._audit_evidence(parts[3], parts[4])
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/jobs/"):
+            from audit_jobs import job_status
+            job = job_status(path[len("/api/audit/jobs/"):].strip("/"))
+            if job is None:
+                return self._json({"error": "not found"}, 404)
+            return self._json(job)
         if path == "/api/review-profile":
             query = parse_qs(urlparse(self.path).query)
 
@@ -627,6 +727,7 @@ def create_server(
     )
     Handler.manager = manager
     Handler.token = token or None
+    Handler.repo = Path(repo).expanduser().resolve() if repo else None
     httpd = ConsoleHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     return httpd
