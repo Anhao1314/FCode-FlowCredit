@@ -32,8 +32,12 @@
 | `.github/workflows/` | CI：Ubuntu/macOS × Python 3.11/3.13 | 第一步断言 `dependencies = []` |
 | `mcp.json.example` | MCP 服务器白名单示例 | 模型看不到 URL，只能选主机配置的源 |
 
-**注意：`flowcredit/` 内部还有一个 `desktop/`，与根目录 `desktop/` 是两套实现。**
-根目录那份是重写版（"No second implementation" + 启动 token），`flowcredit/desktop/` 是旧版。这是明确的结构债。
+**注意：`flowcredit/` 内部还有一个 `desktop/`，与根目录 `desktop/` 是两套实现，而且不是"新版 / 旧版"的关系。**
+
+- 根 `desktop/`：release 打包，staging 源树 + bundle id + 每启动 token 鉴权；`app.py` 最后更新 2026-10-25
+- `flowcredit/desktop/`：开发 / 冒烟打包，带 `--smoke-test` 和 provider 环境隔离；`app.py` 最后更新 2026-10-28
+
+两份 `app.py` 有 451 行差异，功能互有对方没有的（token 鉴权 vs 环境隔离 + 冒烟测试）。**这不是删一个就能收敛的重复，而是需要一次功能合并。**
 
 ---
 
@@ -342,7 +346,7 @@ Task ──< Plan ──< Step/Todo
 | 级别 | 问题 | 证据 | 影响 |
 |---|---|---|---|
 | P1 | **包根平铺 10 个模块**（chat* 5 个、intake、pacing、review* 2 个），不属于任何层 | `src/flowagent/*.py` 共 2,482 行 | 新人无法从目录判断职责；依赖方向声明也没覆盖它们 |
-| P1 | **两套 `desktop/`** | 根 `desktop/`（重写版）vs `flowcredit/desktop/`（旧版） | 用户不知道该改哪套；README 只指前者 |
+| P1 | **两套 `desktop/`，功能互有缺失** | 根：release 打包 + token 鉴权；`flowcredit/desktop/`：冒烟测试 + provider 环境隔离。451 行差异 | 用户不知道该改哪套；两份 README 各自指向自己那份 |
 | P2 | **`sft/ → demo/` 反向边** | `sft/export.py:35`、`sft/evaluate.py:17-18` | 训练管线无法脱离演示层单独复用 |
 | P2 | **`tools/workspace.py` 与 `tools/general/` 职责重叠** | 共享工具 vs 通用域工具，靠约定区分 | 新增领域时不知道工具该放哪 |
 | P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
