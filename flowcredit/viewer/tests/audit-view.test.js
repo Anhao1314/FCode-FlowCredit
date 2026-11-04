@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderAuthorization, renderBundle, renderBundles, renderChain, renderGoDeps, renderEntitlementDiff, renderSidecarDetail, renderReaEvidence, renderReaFacts, renderSpecGap,
+  renderAuthorization, renderBundle, renderBundles, renderChain, renderGoDeps, renderEntitlementDiff, renderSidecarDetail, renderReaEvidence, renderReaFacts, renderRegression, renderSpecGap,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
@@ -277,6 +277,27 @@ test("sidecar 详情表:展示 flags", () => {
   });
   assert.ok(html.includes("demo-bridge"), "sidecar name");
   assert.ok(html.includes("未授权 listener"), "unauth flag");
+});
+
+test("回归对比:known/new/fixed/regressed 四桶展示", () => {
+  const html = renderRegression({
+    prior_audit_id: "prior-001",
+    known: [{ category: "AGI-07", root_cause_group: "entitlement" }],
+    new: [{ category: "AGI-05", root_cause_group: "supply-chain" }],
+    fixed: [{ category: "AGI-03", root_cause_group: "secret-leak" }],
+    regressed: [{ category: "AGI-02", root_cause_group: "approval" }],
+  });
+  assert.ok(html.includes("known"), "known badge");
+  assert.ok(html.includes("new"), "new badge");
+  assert.ok(html.includes("fixed"), "fixed badge");
+  assert.ok(html.includes("regressed"), "regressed badge");
+  assert.ok(html.includes("prior-001"), "prior audit id");
+  assert.ok(html.includes("entitlement"), "known finding detail");
+});
+
+test("回归对比:空数据不渲染", () => {
+  assert.equal(renderRegression({ known: [], new: [], fixed: [], regressed: [] }), "");
+  assert.equal(renderRegression(null), "");
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {

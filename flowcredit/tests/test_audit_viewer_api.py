@@ -238,6 +238,28 @@ class AuditViewerApiTests(unittest.TestCase):
                 f"{self.base}/api/audit/spec-gap/demo-target-test")
         self.assertEqual(caught.exception.code, 404)
 
+    def test_regression_endpoint_returns_data(self) -> None:
+        import urllib.request
+
+        reg_path = (pathlib.Path(self.tmp.name) / "work" / "audit"
+                    / "demo-target-test" / "regression.json")
+        reg_path.write_text(json.dumps({
+            "prior_audit_id": "prior-001", "prior_manifest_sha256": "a" * 64,
+            "known": [], "new": [], "fixed": [], "regressed": [],
+        }), encoding="utf-8")
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/regression/demo-target-test") as res:
+            reg = json.loads(res.read())
+        self.assertEqual(reg["prior_audit_id"], "prior-001")
+
+    def test_regression_missing_returns_empty(self) -> None:
+        import urllib.request
+
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/regression/nonexistent") as res:
+            reg = json.loads(res.read())
+        self.assertEqual(reg["known"], [])
+
     def test_rea_evidence_is_bundle_allowlisted(self) -> None:
         import urllib.error
         import urllib.request

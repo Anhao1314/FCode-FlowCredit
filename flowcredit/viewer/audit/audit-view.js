@@ -349,6 +349,31 @@ export function renderSpecGap(report) {
   </section>`;
 }
 
+export function renderRegression(reg) {
+  if (!reg || typeof reg !== "object") return "";
+  const has = (key) => Array.isArray(reg[key]) && reg[key].length > 0;
+  if (!has("known") && !has("new") && !has("fixed") && !has("regressed")) return "";
+  const badge = (label, tone) => `<span class="at-badge at-${tone}">${esc(label)}</span>`;
+  const section = (key, label, tone) => {
+    if (!has(key)) return "";
+    const items = reg[key].map((f) =>
+      `<span class="at-reg-item">${esc(f.category || "?")} · ${esc(f.root_cause_group || "?")}</span>`
+    ).join(" ");
+    return `<div class="at-reg-row"><span class="at-reg-label">${badge(label, tone)}</span> ${items}</div>`;
+  };
+  const prior = reg.prior_audit_id
+    ? `<div class="at-kv"><span class="k">prior audit</span><span class="v">${esc(reg.prior_audit_id)}</span></div>`
+    : "";
+  return `<section class="at-reg">
+    <h2>回归对比</h2>
+    ${prior}
+    ${section("known", "known", "dim")}
+    ${section("new", "new", "warn")}
+    ${section("fixed", "fixed", "ok")}
+    ${section("regressed", "regressed", "bad")}
+  </section>`;
+}
+
 export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
@@ -415,6 +440,7 @@ export function renderBundle(bundle, records, options = {}) {
   ${renderUncovered(bundle)}
   ${options.chain ? renderChain(options.chain) : ""}
   ${options.specGap ? renderSpecGap(options.specGap) : ""}
+  ${options.regression ? renderRegression(options.regression) : ""}
   <div class="at-note dim">UI 只显示证据支持的状态:徽章来自 poc-evidence 的 outcome,不来自任何人的声称。</div>`;
 }
 
@@ -473,7 +499,12 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         const sgRes = await fetchImpl(`/api/audit/spec-gap/${encodeURIComponent(dir)}`);
         if (sgRes.ok) specGap = await sgRes.json();
       } catch { specGap = null; }
-      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain, specGap });
+      let regression = null;
+      try {
+        const regRes = await fetchImpl(`/api/audit/regression/${encodeURIComponent(dir)}`);
+        if (regRes.ok) regression = await regRes.json();
+      } catch { regression = null; }
+      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain, specGap, regression });
       main.querySelectorAll(".at-disp-select").forEach((select) => {
         select.addEventListener("change", async () => {
           const findingId = select.getAttribute("data-finding");

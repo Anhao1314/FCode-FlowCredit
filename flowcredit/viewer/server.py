@@ -343,6 +343,21 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return {"error": "unreadable spec-gap report"}, 500
 
+    def _audit_regression(self, name: str) -> dict:
+        """Read regression.json (known/new/fixed/regressed) for one audit."""
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}
+        path = (root / name / "regression.json").resolve()
+        if root.resolve() not in path.parents or not path.exists():
+            return {"prior_audit_id": None, "known": [], "new": [],
+                    "fixed": [], "regressed": []}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"prior_audit_id": None, "known": [], "new": [],
+                    "fixed": [], "regressed": []}
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -557,6 +572,9 @@ class Handler(SimpleHTTPRequestHandler):
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
+        if path.startswith("/api/audit/regression/"):
+            audit_dir = path[len("/api/audit/regression/"):].strip("/")
+            return self._json(self._audit_regression(audit_dir))
         if path.startswith("/api/audit/spec-gap/"):
             audit_dir = path[len("/api/audit/spec-gap/"):].strip("/")
             result = self._audit_spec_gap(audit_dir)

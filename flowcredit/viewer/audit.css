@@ -139,3 +139,10 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
   border-bottom: 1px solid var(--line-soft); }
 .at-table td { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); }
 .at-table td:first-child { word-break: break-all; }
+
+.at-reg { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-soft); }
+.at-reg h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.at-reg-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  padding: 4px 8px; border-radius: 6px; background: var(--panel); margin-bottom: 4px; flex-wrap: wrap; }
+.at-reg-label { flex: none; }
+.at-reg-item { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
