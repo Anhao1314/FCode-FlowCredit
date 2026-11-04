@@ -1,0 +1,68 @@
+name: real REA artifact lane
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-rea:
+    name: ${{ matrix.os }} / REA artifact audit
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Select Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.4"
+
+      - name: Install REA
+        run: npm install --global rea-agents@6.8.0
+
+      - name: Confirm REA is runnable
+        run: rea --version
+
+      - name: Audit the synthetic artifact with real REA
+        working-directory: flowcredit
+        run: |
+          PYTHONPATH=src python -m flowaudit.cli audit fixtures/rea/demo-app \
+            --adapter rea \
+            --target-md fixtures/rea/demo-app/target.md \
+            --rea-bin rea \
+            --out /tmp/rea-audit \
+            --operator ci
+
+      - name: Verify the audit bundle and REA evidence
+        working-directory: flowcredit
+        run: |
+          PYTHONPATH=src python -m flowaudit.cli verify-bundle \
+            /tmp/rea-audit/audit-bundle.json --evidence /tmp/rea-audit
+
+      - name: Assert the real evidence produced the expected sidecar finding
+        working-directory: flowcredit
+        run: |
+          python3 - <<'PY'
+          import json
+          bundle = json.load(open("/tmp/rea-audit/audit-bundle.json", encoding="utf-8"))
+          assert bundle["toolchain"]["rea"]["version"].startswith("6.8"), bundle["toolchain"]["rea"]
+          assert bundle["rea_evidence_refs"], "REA evidence refs are missing"
+          assert bundle["rea_facts_ref"], "REA facts ref is missing"
+          assert any(f["category"] == "AGI-02" for f in bundle["findings"]), bundle["findings"]
+          print("real REA findings:", [(f["category"], f["root_cause_group"]) for f in bundle["findings"]])
+          PY

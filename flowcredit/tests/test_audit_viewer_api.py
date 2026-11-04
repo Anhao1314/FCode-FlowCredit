@@ -24,13 +24,28 @@ BUNDLE = {
     "schema_version": "fcode.audit-bundle/v1",
     "audit_id": "demo-target-test",
     "authorization": {"operator": "ci", "scope": "test", "granted_at": "2026-11-01T00:00:00Z"},
-    "target": {"identity": "demo", "version": "1", "manifest_sha256": "a" * 64},
+    "target": {
+        "identity": "demo", "version": "1", "manifest_sha256": "a" * 64,
+        "artifact_sha256": "c" * 64,
+    },
     "sessions": [{"phase": "static", "session_ref": "cli-batch"}],
-    "toolchain": {"replayer": "v1", "oracle_version": "1"},
+    "toolchain": {
+        "replayer": "v1", "oracle_version": "1",
+        "rea": {"version": "6.8.0", "evidence_schema": "rea.evidence/v1",
+                "facts_schema": "fcode.rea-facts/v1", "manifest_sha256": "d" * 64},
+    },
     "poc_evidence_refs": ["POC-0001"],
     "findings": [{"finding_id": "F-POC-0001", "root_cause_group": "approval-memory",
                   "category": "AGI-02", "severity": "high", "poc_refs": ["POC-0001"]}],
-    "uncovered_surfaces": [],
+    "uncovered_surfaces": [{"surface": "dynamic", "reason": "static only"}],
+    "rea_evidence_refs": [{
+        "evidence_id": "ev_" + "e" * 64,
+        "operation": "inspect_go_binary",
+        "path": "rea-evidence/inspect_go_binary.json",
+        "sha256": "f" * 64,
+    }],
+    "rea_facts_ref": {"path": "rea-evidence/facts.json", "sha256": "1" * 64},
+    "rea_control_facts_ref": {"path": "rea-evidence/control-facts.json", "sha256": "2" * 64},
     "chain_verification": {"head_hash": "b" * 64, "command": "verify-bundle"},
 }
 EVIDENCE = {
@@ -67,6 +82,20 @@ class AuditViewerApiTests(unittest.TestCase):
         audit_dir.mkdir(parents=True)
         (audit_dir / "audit-bundle.json").write_text(json.dumps(BUNDLE), encoding="utf-8")
         (audit_dir / "POC-0001.json").write_text(json.dumps(EVIDENCE), encoding="utf-8")
+        rea_dir = audit_dir / "rea-evidence"
+        rea_dir.mkdir()
+        (rea_dir / "facts.json").write_text(json.dumps({
+            "schema_version": "fcode.rea-facts/v1",
+            "target": {"artifact_sha256": "c" * 64},
+            "operations": {"inspect_go_binary": {"evidence_id": "ev_" + "e" * 64}},
+            "host": {"entitlements": ["audio-input"], "declared_features": []},
+        }), encoding="utf-8")
+        (rea_dir / "control-facts.json").write_text(json.dumps({"control": True}), encoding="utf-8")
+        (rea_dir / "inspect_go_binary.json").write_text(json.dumps({
+            "evidence_id": "ev_" + "e" * 64,
+            "operation": "inspect_go_binary",
+        }), encoding="utf-8")
+        (rea_dir / "unreferenced.json").write_text(json.dumps({"secret": "no"}), encoding="utf-8")
         cls.server = ConsoleServer(runs_dir=root / "runs", config_dir=root / "config",
                                    extra_args=["--repo", str(root)])
         cls.server.start()
@@ -106,6 +135,29 @@ class AuditViewerApiTests(unittest.TestCase):
             # traversal surfaces as a segment count/name mismatch (400) —
             # the contract is "refused with 4xx, nothing served", not a
             # specific code.
+            self.assertIn(caught.exception.code, (400, 404), path)
+
+    def test_rea_evidence_is_bundle_allowlisted(self) -> None:
+        import urllib.error
+        import urllib.request
+
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/rea/demo-target-test/facts.json") as res:
+            facts = json.loads(res.read())
+        self.assertEqual(facts["schema_version"], "fcode.rea-facts/v1")
+
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/rea/demo-target-test/inspect_go_binary.json") as res:
+            record = json.loads(res.read())
+        self.assertEqual(record["operation"], "inspect_go_binary")
+
+        for path in (
+            "/api/audit/rea/demo-target-test/unreferenced.json",
+            "/api/audit/rea/demo-target-test/..%2F..%2Fetc%2Fpasswd",
+            "/api/audit/rea/demo-target-test/not-json.txt",
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(f"{self.base}{path}")
             self.assertIn(caught.exception.code, (400, 404), path)
 
     def test_security_headers_on_every_response(self) -> None:

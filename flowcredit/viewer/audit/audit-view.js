@@ -36,13 +36,19 @@ export function groupFindings(findings) {
 
 export function summarizeBundle(bundle) {
   const target = bundle.target || {};
+  const toolchain = bundle.toolchain || {};
+  const artifact = target.artifact_sha256 || "";
   return {
     auditId: bundle.audit_id || "—",
     target: target.identity || "—",
     manifest: (target.manifest_sha256 || "").slice(0, 16) + "…",
+    artifact: artifact ? artifact.slice(0, 16) + "…" : "—",
     findings: (bundle.findings || []).length,
     evidence: (bundle.poc_evidence_refs || []).length,
-    ruleset: (bundle.toolchain || {}).ruleset_version || "—",
+    reaEvidence: (bundle.rea_evidence_refs || []).length,
+    reaVersion: (toolchain.rea || {}).version || "—",
+    ruleset: toolchain.ruleset_version || "—",
+    uncovered: (bundle.uncovered_surfaces || []).length,
   };
 }
 
@@ -72,10 +78,106 @@ export function bundleItemHtml(entry, selected) {
   return `<button class="at-bitem${sel}" data-dir="${esc(entry.dir)}">`
     + `<span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>`
     + `<span class="at-bmeta">${esc(String(entry.findings ?? 0))} 发现 · `
-    + `${esc(String(entry.evidence ?? 0))} 证据</span></button>`;
+    + `${esc(String(entry.evidence ?? 0))} 证据`
+    + (entry.rea_evidence ? ` · ${esc(String(entry.rea_evidence))} REA` : "")
+    + `</span></button>`;
 }
 
-export function renderBundle(bundle, records) {
+export function renderReaFacts(facts) {
+  if (!facts || typeof facts !== "object") return "";
+  const target = facts.target || {};
+  const host = facts.host || {};
+  const operations = Object.entries(facts.operations || {});
+  const entitlements = Array.isArray(host.entitlements) ? host.entitlements : [];
+  const declared = Array.isArray(host.declared_features) ? host.declared_features : [];
+  const extra = entitlements.filter((item) => !declared.includes(item));
+  const sidecars = Array.isArray(host.sidecars) ? host.sidecars : [];
+  const validation = host.library_validation || null;
+  const validationVerdict = validation ? ({
+    not_applicable: "不适用",
+    no_static_justification: "静态加载链未发现必要性",
+    requires_review: "存在需复核的加载路径",
+    unknown: "存在未解析的加载路径",
+  }[validation.verdict] || validation.verdict) : "";
+  const validationRow = validation && validation.status === "observed"
+    ? `<div class="at-kv"><span class="k">library validation</span><span class="v">`
+      + `team ${esc(validation.main_team_id || "—")} · loaded ${esc(String(validation.loaded_count ?? 0))}`
+      + ` · system ${esc(String(validation.system_count ?? 0))}`
+      + ` · non-team ${esc(String((validation.non_team_signed || []).length))}`
+      + ` · unresolved ${esc(String((validation.unresolved || []).length))}`
+      + ` · ${esc(validationVerdict)}</span></div>`
+    : "";
+  const sidecarRows = sidecars.map((sidecar) => {
+    const flags = [];
+    if ((sidecar.listener_without_auth || []).length) {
+      flags.push(`未授权 listener ${(sidecar.listener_without_auth || []).length}`);
+    }
+    if ((sidecar.secret_like || []).length) {
+      flags.push(`secret-like ${(sidecar.secret_like || []).length}`);
+    }
+    if ((sidecar.npm_install || []).length) {
+      flags.push(`npm install/exec ${(sidecar.npm_install || []).length}`);
+    }
+    const summary = `${sidecar.source_files || 0} source · ${sidecar.test_files || 0} test`
+      + (flags.length ? ` · ${flags.join(" · ")}` : "");
+    return `<div class="at-rea-op">
+      <span class="at-mono">${esc(sidecar.name || "?")}</span>
+      <span class="at-rea-bits">${esc(summary)}</span>
+    </div>`;
+  }).join("");
+  const opRows = operations.map(([name, op]) => {
+    const value = (op || {}).facts || {};
+    const bits = [];
+    if (value.go_version) bits.push(`Go ${value.go_version}`);
+    if ((value.module || {}).path) bits.push(value.module.path);
+    if (Array.isArray(value.dependencies)) bits.push(`${value.dependencies.length} deps`);
+    if (typeof value.entry_count === "number") bits.push(`${value.entry_count} entries`);
+    if ((value.statistics || {}).relevant_files != null) {
+      bits.push(`${value.statistics.relevant_files} files`);
+    }
+    return `<div class="at-rea-op">
+      <span class="at-mono">${esc(name)}</span>
+      <span class="at-mono dim">${esc((op || {}).evidence_id || "")}</span>
+      <span class="at-rea-bits">${esc(bits.join(" · ") || "—")}</span>
+    </div>`;
+  }).join("");
+  const extras = extra.length
+    ? `<div class="at-rea-extra">未声明 entitlement: ${extra.map((item) => `<code>${esc(item)}</code>`).join(" ")}</div>`
+    : `<div class="at-rea-ok">entitlements 均在声明范围内</div>`;
+  return `<section class="at-rea-facts">
+    <h2>REA 事实</h2>
+    <div class="at-kv"><span class="k">artifact</span><span class="v mono">${esc(target.artifact_sha256 || "—")}</span></div>
+    <div class="at-kv"><span class="k">operations</span><span class="v">${esc(operations.map(([name]) => name).join(", ") || "—")}</span></div>
+    ${opRows}
+    <div class="at-kv"><span class="k">entitlements</span><span class="v">${esc(entitlements.join(", ") || "—")}</span></div>
+    <div class="at-kv"><span class="k">declared</span><span class="v">${esc(declared.join(", ") || "—")}</span></div>
+    ${extras}
+    ${validationRow}
+    ${sidecarRows ? `<div class="at-kv"><span class="k">sidecars</span><span class="v">${esc(sidecars.map((item) => item.name || "?").join(", "))}</span></div>${sidecarRows}` : ""}
+  </section>`;
+}
+
+export function renderReaEvidence(bundle, dir = "") {
+  const refs = bundle.rea_evidence_refs || [];
+  if (!refs.length) return "";
+  const rows = refs.map((ref) => {
+    const filename = String(ref.path || "").split("/").pop();
+    const href = `/api/audit/rea/${encodeURIComponent(dir)}/${encodeURIComponent(filename)}`;
+    return `<li><a href="${esc(href)}" target="_blank" rel="noopener">${esc(ref.operation || filename)}</a>`
+      + ` <span class="at-mono dim">${esc(String(ref.evidence_id || "").slice(0, 18))}…</span></li>`;
+  }).join("");
+  return `<section class="at-rea"><h2>REA 证据</h2><ul class="at-rea-list">${rows}</ul></section>`;
+}
+
+export function renderUncovered(bundle) {
+  const items = bundle.uncovered_surfaces || [];
+  if (!items.length) return "";
+  const rows = items.map((item) => `<li><strong>${esc(item.surface || "?")}</strong>`
+    + ` <span class="dim">${esc(item.reason || "")}</span></li>`).join("");
+  return `<section class="at-uncovered"><h2>未覆盖面</h2><ul>${rows}</ul></section>`;
+}
+
+export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
   const findingRows = (bundle.findings || []).map((f) => {
@@ -114,21 +216,29 @@ export function renderBundle(bundle, records) {
       </div>`;
     }).join("");
 
+  const reaFacts = options.reaFacts || null;
+  const dir = options.dir || "";
   return `
   <div class="at-bhead">
     <h1>发现账本</h1>
     <span class="at-mono dim">${esc(sum.auditId)}</span>
     <span class="at-badge at-ok">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
+    ${sum.reaEvidence ? `<span class="at-badge at-dim">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
   </div>
   <div class="at-bmeta2">
     <span class="at-mono">目标 ${esc(sum.target)}</span>
     <span class="at-mono dim">manifest ${esc(sum.manifest)}</span>
+    ${sum.artifact !== "—" ? `<span class="at-mono dim">artifact ${esc(sum.artifact)}</span>` : ""}
+    ${sum.reaVersion !== "—" ? `<span class="at-mono dim">REA v${esc(String(sum.reaVersion))}</span>` : ""}
     <span class="at-mono dim">规则集 v${esc(String(sum.ruleset))}</span>
   </div>
   <div class="at-ledger">
     ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}
     ${pendingRows}
   </div>
+  ${renderReaEvidence(bundle, dir)}
+  ${renderReaFacts(reaFacts)}
+  ${renderUncovered(bundle)}
   <div class="at-note dim">UI 只显示证据支持的状态:徽章来自 poc-evidence 的 outcome,不来自任何人的声称。</div>`;
 }
 
@@ -160,7 +270,20 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         const r = await fetchImpl(`/api/audit/evidence/${encodeURIComponent(dir)}/${encodeURIComponent(ref)}`);
         return r.json();
       }));
-      main.innerHTML = renderBundle(bundle, records);
+      let reaFacts = null;
+      const factsPath = (bundle.rea_facts_ref || {}).path;
+      if (typeof factsPath === "string" && factsPath) {
+        const filename = factsPath.split("/").pop();
+        try {
+          const response = await fetchImpl(
+            `/api/audit/rea/${encodeURIComponent(dir)}/${encodeURIComponent(filename)}`,
+          );
+          if (response.ok) reaFacts = await response.json();
+        } catch {
+          reaFacts = null;
+        }
+      }
+      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts });
     });
   });
 }

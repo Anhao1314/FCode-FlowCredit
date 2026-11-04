@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 6,
   "rules": [
     {
       "id": "RULE-AGI02-001",
@@ -182,6 +182,481 @@
       "references": [
         "docs/threat-model.md AGI-03",
         "fixtures/demo-target/README.md"
+      ]
+    },
+    {
+      "id": "RULE-AGI05-101",
+      "status": "active",
+      "category": "AGI-05",
+      "severity": "medium",
+      "title": "Shipped dependency graph contains pre-release modules",
+      "root_cause_group": "prerelease-dependencies",
+      "trigger": {
+        "type": "rea",
+        "operation": "inspect_go_binary",
+        "selector": "dependencies",
+        "predicate": {
+          "any": {
+            "field": "prerelease",
+            "equals": true
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned REA facts snapshot and selects the dependency rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host reads the pinned facts itself and requires a dependency row whose version is a pre-release; a REA claim alone is not a finding"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "inspect_go_binary",
+          "selector": "dependencies"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "inspect_go_binary",
+          "selector": "dependencies"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control facts projection contains no pre-release dependency"
+        },
+        "negative_control": {
+          "spec": "the same selector over a facts projection with pre-release rows removed must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-05",
+        "fixtures/rea/facts-prerelease.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI07-101",
+      "status": "active",
+      "category": "AGI-07",
+      "severity": "high",
+      "title": "Application requests OS entitlements not declared by the operator",
+      "root_cause_group": "entitlement-overreach",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "entitlements",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned entitlements and the operator's declared feature list",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host computes entitlements minus declared_features from the pinned facts; a non-empty difference is the finding"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": ""
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": ""
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection declares every observed entitlement, so the difference is empty"
+        },
+        "negative_control": {
+          "spec": "the same comparison over facts whose declared_features cover every entitlement must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-07",
+        "fixtures/rea/facts-entitlements.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI02-102",
+      "status": "active",
+      "category": "AGI-02",
+      "severity": "medium",
+      "title": "Bundled sidecar exposes a listener without an authorization marker",
+      "root_cause_group": "sidecar-listener-auth",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "sidecars",
+        "predicate": {
+          "any": {
+            "field": "listener_without_auth",
+            "count_gt": 0
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the sidecar source facts and checks every listener for an authorization marker",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects sidecars whose listener list is non-empty and auth_markers is empty; a listener without an auth marker is the finding"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection marks every sidecar listener as authenticated"
+        },
+        "negative_control": {
+          "spec": "the same selection over facts whose sidecar listeners all have auth markers must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-02",
+        "fixtures/rea/sidecar-unauth.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI03-102",
+      "status": "active",
+      "category": "AGI-03",
+      "severity": "high",
+      "title": "Bundled sidecar source contains a key-shaped literal",
+      "root_cause_group": "sidecar-secret-literal",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "sidecars",
+        "predicate": {
+          "any": {
+            "field": "secret_like",
+            "count_gt": 0
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the sidecar source facts and confirms a key-shaped literal at file:line",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects sidecars with non-empty secret_like; the record keeps only file/line/kind, never the literal"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection removes every key-shaped literal"
+        },
+        "negative_control": {
+          "spec": "the same selection over facts whose sidecars have no secret_like rows must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-03",
+        "fixtures/rea/sidecar-secret.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI05-102",
+      "status": "active",
+      "category": "AGI-05",
+      "severity": "medium",
+      "title": "Bundled sidecar source invokes npm install/exec at runtime",
+      "root_cause_group": "sidecar-npm-runtime",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "sidecars",
+        "predicate": {
+          "any": {
+            "field": "npm_install",
+            "count_gt": 0
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the sidecar source facts and confirms npm install/exec references",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects sidecars with non-empty npm_install; a bundled runtime that can fetch packages at runtime is the finding"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "sidecars"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection removes every npm install/exec row"
+        },
+        "negative_control": {
+          "spec": "the same selection over facts whose sidecars do not invoke npm at runtime must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-05",
+        "fixtures/rea/sidecar-npm.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI05-103",
+      "status": "active",
+      "category": "AGI-05",
+      "severity": "high",
+      "title": "Go dependency version matches an offline OSV record",
+      "root_cause_group": "osv-dependency-match",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vulnerabilities",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned OSV match rows produced from the Go dependency graph",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty vulnerabilities rows; each row names the OSV id, dependency and version"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vulnerabilities"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vulnerabilities"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection removes every OSV match"
+        },
+        "negative_control": {
+          "spec": "the same selection over facts with no OSV match must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-05",
+        "fixtures/rea/osv-snapshot.json",
+        "fixtures/rea/facts-vulnerable.json"
+      ]
+    },
+    {
+      "id": "RULE-AGI05-104",
+      "status": "active",
+      "category": "AGI-05",
+      "severity": "medium",
+      "title": "Main binary contains a runtime global npm install command",
+      "root_cause_group": "runtime-npm-install",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "runtime_installers",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned runtime installer facts and selects the command rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty runtime_installers; each row names a global package install command found in the executable strings"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "runtime_installers"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "runtime_installers"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection removes every runtime install command"
+        },
+        "negative_control": {
+          "spec": "the same selection over facts with no runtime install command must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-05",
+        "fixtures/rea/facts-runtime-install.json"
       ]
     }
   ]

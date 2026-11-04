@@ -13,6 +13,7 @@ network — the whole pipeline is stdlib.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -36,6 +37,13 @@ def _audit_id(target: Path) -> str:
     return f"{name}-{date}-{uuid.uuid4().hex[:6]}"[:72]
 
 
+def _parse_declared_features(raw: str | None) -> list[str] | None:
+    if not raw:
+        return None
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    return items or None
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     if not target.exists():
@@ -50,21 +58,88 @@ def cmd_audit(args: argparse.Namespace) -> int:
         else DEFAULT_RULES.parent / "work" / "audit" / audit_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    target_copy = repo_adapter.copy_target(target, workdir)
-    manifest_sha256 = repo_adapter.manifest_hash(target_copy)
-    profile = repo_adapter.detect_profile(target_copy)
+    rea_snapshot = None
+    rea_evidence_refs: list[dict] = []
+    rea_toolchain = None
+    target_artifact_sha256 = None
+    target_rea_evidence_id = None
+    target_snapshot_sha256 = None
+    target_version = ""
+    target_profile = None
+    rea_facts_ref = None
+    rea_control_facts_ref = None
+
+    if args.adapter == "rea":
+        from .targets import rea as rea_adapter
+        rea_snapshot = rea_adapter.prepare(
+            target, workdir,
+            declared_features=_parse_declared_features(args.declared_features),
+            target_md=args.target_md or None,
+            osv_snapshot=args.osv_snapshot or None,
+            binary=args.rea_bin or None,
+            timeout=args.rea_timeout,
+            evidence_dir=out_dir / "rea-evidence",
+        )
+        target_copy = rea_snapshot.snapshot_root
+        manifest_sha256 = rea_snapshot.manifest_sha256
+        profile = "artifact"
+        target_version = rea_snapshot.version
+        target_artifact_sha256 = rea_snapshot.artifact_sha256 or None
+        target_rea_evidence_id = (
+            rea_snapshot.evidence_files[0]["evidence_id"]
+            if rea_snapshot.evidence_files else None
+        )
+        target_snapshot_sha256 = rea_snapshot.facts_sha256
+        target_profile = "artifact"
+        rea_evidence_refs = [
+            {
+                "evidence_id": item["evidence_id"],
+                "operation": item["operation"],
+                "path": f"rea-evidence/{item['filename']}",
+                "sha256": item["sha256"],
+            }
+            for item in rea_snapshot.evidence_files
+        ]
+        rea_toolchain = {
+            "version": rea_snapshot.rea_version,
+            "evidence_schema": "rea.evidence/v1",
+            "facts_schema": rea_snapshot.facts["schema_version"],
+            "manifest_sha256": rea_snapshot.analysis_manifest_sha256,
+        }
+        rea_facts_ref = {
+            "path": "rea-evidence/facts.json",
+            "sha256": rea_snapshot.facts_sha256,
+        }
+        rea_control_facts_ref = {
+            "path": "rea-evidence/control-facts.json",
+            "sha256": hashlib.sha256(
+                rea_snapshot.control_facts_path.read_bytes()
+            ).hexdigest(),
+        }
+    else:
+        target_copy = repo_adapter.copy_target(target, workdir)
+        manifest_sha256 = repo_adapter.manifest_hash(target_copy)
+        profile = repo_adapter.detect_profile(target_copy)
 
     ruleset = engine.load_ruleset(rules_dir)
     candidates = engine.static_scan(target_copy, ruleset)
+    if rea_snapshot is not None:
+        candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     target_ref = {
         "audit_id": audit_id,
         "identity": str(target),
-        "version": "",
+        "version": target_version,
         "manifest_sha256": manifest_sha256,
         "profile": profile,
     }
+    if rea_snapshot is not None:
+        target_ref.update({
+            "artifact_sha256": target_artifact_sha256,
+            "target_copy": False,
+            "target_snapshot_sha256": target_snapshot_sha256,
+        })
 
     # L2 会话:两本账(候选/发现)事件化在哈希链上——断点续跑可重建,
     # operator 不可晋升,晋升必须带重放收据。
@@ -147,7 +222,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
     bundle = bundle_mod.build_bundle(
         audit_id=audit_id,
         target_identity=str(target),
-        target_version="",
+        target_version=target_version,
         manifest_sha256=manifest_sha256,
         operator=args.operator,
         scope=f"static audit of {target} (dev ruleset, constrained replay)",
@@ -164,10 +239,23 @@ def cmd_audit(args: argparse.Namespace) -> int:
         findings=findings,
         uncovered_surfaces=[
             {"surface": "dynamic probing (message/HTTP/behavior)",
-             "reason": "sprint 2 scope: static rules with constrained replay only"},
-            {"surface": "AGI categories beyond the dev ruleset",
-             "reason": "ruleset covers the AGI-02 dev set; blind fixtures excluded by policy"},
+             "reason": "this bundle records static REA facts; separate isolated runtime observation is retained outside the bundle and is not full dynamic probing"},
+            {"surface": "AGI categories beyond the current ruleset",
+             "reason": "active rules cover AGI-02 static checks plus AGI-05/07 artifact facts; "
+                       "AGI-01/03/04/06/08/09 are not yet covered"},
+            *(
+                [dict(item) for item in rea_snapshot.uncovered]
+                if rea_snapshot is not None else []
+            ),
         ],
+        rea_evidence_refs=rea_evidence_refs or None,
+        rea_toolchain=rea_toolchain,
+        target_artifact_sha256=target_artifact_sha256,
+        target_rea_evidence_id=target_rea_evidence_id,
+        target_snapshot_sha256=target_snapshot_sha256,
+        target_profile=target_profile,
+        rea_facts_ref=rea_facts_ref,
+        rea_control_facts_ref=rea_control_facts_ref,
     )
 
     analyst_result = None
@@ -190,6 +278,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         "candidates": len(candidates),
         "findings": len(findings),
         "evidence_records": len(poc_records),
+        "rea_evidence": len(rea_evidence_refs),
         "bundle": str(bundle_path),
         "regression": {k: len(v) for k, v in regression.items()},
     }
@@ -279,6 +368,46 @@ def cmd_verify_bundle(args: argparse.Namespace) -> int:
     if head != bundle["chain_verification"]["head_hash"]:
         print(json.dumps({"verify": "failed", "reason": "evidence-set hash mismatch"}))
         return 1
+    for key in ("rea_facts_ref", "rea_control_facts_ref"):
+        ref = bundle.get(key)
+        if not ref:
+            continue
+        path = Path(args.evidence) / ref["path"]
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            print(json.dumps({"verify": "failed", key: ref.get("path"),
+                              "reason": f"REA facts missing or unreadable: {error}"},
+                             ensure_ascii=False))
+            return 1
+        if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
+            print(json.dumps({"verify": "failed", key: ref.get("path"),
+                              "reason": "REA facts sha256 mismatch"}, ensure_ascii=False))
+            return 1
+    for ref in bundle.get("rea_evidence_refs") or []:
+        path = Path(args.evidence) / ref["path"]
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            print(json.dumps({"verify": "failed", "rea_evidence": ref.get("evidence_id"),
+                              "reason": f"REA evidence missing or unreadable: {error}"},
+                             ensure_ascii=False))
+            return 1
+        if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
+            print(json.dumps({"verify": "failed", "rea_evidence": ref.get("evidence_id"),
+                              "reason": "REA evidence sha256 mismatch"}, ensure_ascii=False))
+            return 1
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as error:
+            print(json.dumps({"verify": "failed", "rea_evidence": ref.get("evidence_id"),
+                              "reason": f"REA evidence is not valid JSON: {error}"},
+                             ensure_ascii=False))
+            return 1
+        if not isinstance(payload, dict) or payload.get("evidence_id") != ref["evidence_id"]:
+            print(json.dumps({"verify": "failed", "rea_evidence": ref.get("evidence_id"),
+                              "reason": "REA evidence identity mismatch"}, ensure_ascii=False))
+            return 1
     print(json.dumps({"verify": "passed", "audit_id": bundle["audit_id"],
                       "findings": len(bundle["findings"])}))
     return 0
@@ -294,6 +423,19 @@ def main(argv: list[str] | None = None) -> int:
     p_audit.add_argument("--out", default=None)
     p_audit.add_argument("--operator", default="operator")
     p_audit.add_argument("--profile", default="static", choices=["static"])
+    p_audit.add_argument("--adapter", default="repo", choices=["repo", "rea"],
+                         help="repo: source tree; rea: shipped artifact via REA")
+    p_audit.add_argument("--rea-bin", default=None,
+                         help="REA CLI path (default: REA_BIN env or 'rea')")
+    p_audit.add_argument("--rea-timeout", type=int, default=300,
+                         help="per-operation REA timeout in seconds")
+    p_audit.add_argument("--declared-features", default=None,
+                         help="comma-separated declared entitlement/feature names")
+    p_audit.add_argument("--target-md", default=None,
+                         help="target.md descriptor for an installed artifact "
+                              "(used when the bundle cannot hold one)")
+    p_audit.add_argument("--osv-snapshot", default=None,
+                         help="offline OSV JSON snapshot for Go dependency matching")
     p_audit.add_argument("--episodes-db", default=None,
                          help="情景库路径(默认 work/audit/episodes.sqlite)")
     p_audit.add_argument("--analyst", action="store_true",

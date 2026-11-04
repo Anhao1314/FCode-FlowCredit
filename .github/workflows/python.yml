@@ -51,6 +51,10 @@ jobs:
         working-directory: flowcredit
         run: node --test viewer/tests/*.test.js
 
+      - name: Check documentation links and current surfaces
+        working-directory: flowcredit
+        run: python scripts/check_docs.py
+
       - name: Run every scenario through the CLI
         working-directory: flowcredit
         run: python demo.py all

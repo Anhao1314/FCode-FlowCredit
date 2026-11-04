@@ -5,6 +5,26 @@
 > 下一版框架（Policy / Voice 分层、领域模块、评测与学习闭环）见
 > [`framework.md`](framework.md)。本文描述当前已落地的运行时。
 
+## 审计域与制品证据
+
+`flowaudit/` 是叠在同一个内核上的审计产品域，不是运行时的一部分：
+`flowagent ← flowaudit` 单向依赖，反向由 AST 测试强制。它提供 AGI 分类法、
+规则即数据、PoC 受限重放、宿主 oracle、审计包与 `verify-bundle`。
+
+没有源码的交付物走 `flowaudit/targets/rea.py`：REA 只产生 Evidence 和
+allow-list facts，宿主 `codesign` 读取 entitlements/签名，判定仍由
+`flowaudit/poc/replay.py` 的宿主 oracle 完成。原始 Evidence、facts 与
+PoC 记录都按 SHA-256 固定在审计包里。
+
+```bash
+python audit.py audit fixtures/demo-target
+python audit.py audit /Applications/EvoX.app --adapter rea --declared-features "microphone"
+python viewer/server.py --repo . --port 8642   # /audit.html
+```
+
+详见 [architecture-map](architecture-map.md)、[audit-methodology](audit-methodology.md)
+与 [integration-rea](integration-rea.md)。
+
 ## 分层与依赖方向
 
 ```

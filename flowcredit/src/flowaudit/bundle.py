@@ -39,7 +39,30 @@ def evidence_set_hash(records: list[dict]) -> str:
 def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
                  manifest_sha256: str, operator: str, scope: str, granted_at: str,
                  sessions: list[dict], toolchain: dict, poc_records: list[dict],
-                 findings: list[dict], uncovered_surfaces: list[dict]) -> dict:
+                 findings: list[dict], uncovered_surfaces: list[dict],
+                 rea_evidence_refs: list[dict] | None = None,
+                 rea_toolchain: dict | None = None,
+                 target_artifact_sha256: str | None = None,
+                 target_rea_evidence_id: str | None = None,
+                 target_snapshot_sha256: str | None = None,
+                 target_profile: str | None = None,
+                 rea_facts_ref: dict | None = None,
+                 rea_control_facts_ref: dict | None = None) -> dict:
+    target = {
+        "identity": target_identity,
+        "version": target_version,
+        "manifest_sha256": manifest_sha256,
+    }
+    if target_artifact_sha256:
+        target["artifact_sha256"] = target_artifact_sha256
+    if target_rea_evidence_id:
+        target["rea_evidence_id"] = target_rea_evidence_id
+    if target_snapshot_sha256:
+        target["target_snapshot_sha256"] = target_snapshot_sha256
+    if target_profile:
+        target["profile"] = target_profile
+    if rea_toolchain:
+        toolchain = {**toolchain, "rea": rea_toolchain}
     bundle = {
         "schema_version": "fcode.audit-bundle/v1",
         "audit_id": audit_id,
@@ -48,16 +71,16 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
             "scope": scope,
             "granted_at": granted_at,
         },
-        "target": {
-            "identity": target_identity,
-            "version": target_version,
-            "manifest_sha256": manifest_sha256,
-        },
+        "target": target,
         "sessions": sessions,
         "toolchain": toolchain,
         "poc_evidence_refs": [record["poc_id"] for record in poc_records],
         "findings": findings,
         "uncovered_surfaces": uncovered_surfaces,
+        "rea_evidence_refs": rea_evidence_refs or [],
+        **({"rea_facts_ref": rea_facts_ref} if rea_facts_ref else {}),
+        **({"rea_control_facts_ref": rea_control_facts_ref}
+           if rea_control_facts_ref else {}),
         "chain_verification": {
             "head_hash": evidence_set_hash(poc_records),
             "command": (

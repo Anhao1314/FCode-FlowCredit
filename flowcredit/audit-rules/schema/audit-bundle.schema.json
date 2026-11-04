@@ -32,7 +32,11 @@
         "identity": { "type": "string" },
         "version": { "type": "string" },
         "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "target_profile_note": { "type": "string" }
+        "target_profile_note": { "type": "string" },
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "rea_evidence_id": { "type": "string", "pattern": "^ev_[0-9a-f]{64}$" },
+        "target_snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "profile": { "type": "string" }
       }
     },
     "sessions": {
@@ -56,7 +60,18 @@
         "triage_model": { "type": "string" },
         "replayer": { "type": "string" },
         "oracle_version": { "type": "string" },
-        "ruleset_version": { "type": "integer", "minimum": 1 }
+        "ruleset_version": { "type": "integer", "minimum": 1 },
+        "rea": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "evidence_schema", "facts_schema"],
+          "properties": {
+            "version": { "type": "string" },
+            "evidence_schema": { "type": "string" },
+            "facts_schema": { "type": "string" },
+            "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
       }
     },
     "poc_evidence_refs": {
@@ -92,6 +107,38 @@
           "surface": { "type": "string" },
           "reason": { "type": "string" }
         }
+      }
+    },
+    "rea_evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "operation", "path", "sha256"],
+        "properties": {
+          "evidence_id": { "type": "string", "pattern": "^ev_[0-9a-f]{64}$" },
+          "operation": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "rea_facts_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "rea_control_facts_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "chain_verification": {

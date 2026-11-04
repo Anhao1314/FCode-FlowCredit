@@ -69,8 +69,8 @@ Runtime 不只记录“做了什么”，还记录“为什么允许做”。独
 需要 **Python 3.11+**。离线演示零第三方依赖、零配置。
 
 ```bash
-git clone https://github.com/Anhao1314/FCode.git
-cd FCode/flowcredit
+git clone https://github.com/Anhao1314/FCode-FlowCredit.git
+cd FCode-FlowCredit/flowcredit
 python demo.py
 ```
 
@@ -85,6 +85,25 @@ python viewer/server.py --repo . --port 8642
 ```
 
 打开 `http://127.0.0.1:8642/`。控制台包含 Work、Chat、任务与运行历史、审批、轨迹回放和运行控制。
+
+### 打开审计台
+
+同一服务提供只读的发现账本：
+
+```bash
+python audit.py audit fixtures/demo-target
+# 浏览器打开 http://127.0.0.1:8642/audit.html
+```
+
+制品审计（没有源码的 `.app` / 二进制 / JS 树）用 REA 证据：
+
+```bash
+python audit.py audit /Applications/EvoX.app \
+  --adapter rea --declared-features "microphone"
+```
+
+审计台读取 `work/audit/<audit_id>/` 的 bundle 与 PoC Evidence，不执行目标；
+方法见 [REA 制品证据融合](docs/integration-rea.md)。
 
 ### 一条线程，看清工作
 
@@ -143,7 +162,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**765 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、177 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**791 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、183 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -153,6 +172,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 
 - FCode 当前是治理较强的**单 Agent Runtime**，不是产品级多 Agent 集群。
 - 本地工具与命令有应用层约束，但不构成操作系统级安全沙箱。
+- REA 制品审计当前只覆盖静态事实（Go 构建信息 / bundle 解剖 / entitlements）；sidecar JS 图、动态探针与 CVE 情报仍在路线图。
 - Chat 附件目前以文本注入为主，不等于完整多模态理解管线。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复只覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用；通用任务仍受模型能力与可验证性限制。
@@ -187,7 +207,8 @@ src/flowagent/
   trajectory/  轨迹记录、导出与独立重算
   demo/        CLI、终端渲染与八个可复现场景
   benchmark/   版本化任务、独立 verifier、指标与真实运行证据
-viewer/        Work / Chat 控制台、SSE、Trace 回放
+src/flowaudit/  审计域：AGI 分类法、规则、受限重放、REA 制品证据
+viewer/        Work / Chat / Audit 控制台、SSE、Trace 回放
   core/        前端纯函数与交互状态
   tests/       前端回归测试
 desktop/       桌面应用入口与构建脚本

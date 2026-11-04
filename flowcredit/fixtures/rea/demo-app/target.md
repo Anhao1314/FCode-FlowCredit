@@ -1,0 +1,1 @@
+# REA demo app\n\n## Authorization\n- Synthetic fixture for the real-REA CI lane; no target execution.\n\n## Declared features\n

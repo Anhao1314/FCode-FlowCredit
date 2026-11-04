@@ -22,7 +22,7 @@
 - **问题**:agent 应用爆发式增长,而它们有一个传统软件没有的攻击面——**不可信内容会变成指令**。现有评测工具给出分数,却不给出能被第三方重新执行的证据。
 - **做法**:一个治理级 Runtime 之上(哈希链事件日志、权限门控、预算、SIGKILL 崩溃恢复,全部 stdlib-only),构建审计域 `flowaudit`:AGI 九类漏洞分类法、规则即数据、PoC 在受限子进程中重放、**宿主侧 oracle 判定**、负对照必带、审计包可独立复核。
 - **证据**:它审计了自己的仓库——端到端挖出 1 个真实缺陷(审批记忆参数无关免审批,带正反对照重放),7 个自体缺陷归档为 ground truth;一份 49 条意见的外部对抗评审被逐条裁决并合入契约(`docs/design-reviews/`)。
-- **状态**:Sprint 2 进行中。**765 项 Python 测试 + 177 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
+- **状态**:Sprint 2 + REA 集成 MVP(2026-11)。**791 项 Python 测试 + 183 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
 
 ## 它和评分工具的区别
 
@@ -50,12 +50,18 @@ python audit.py audit fixtures/demo-target
 
 python demo.py all                      # 8 个治理场景,全部离线
 python audit.py audit .                 # 进阶:让审计器审计本仓库自己
+
+# 没有源码的交付物(REA 制品证据)
+python audit.py audit /Applications/EvoX.app \
+  --adapter rea --declared-features "microphone"
 ```
 
-打开 Work 控制台(规划、执行、审批、Trace 回放):
+打开 Work / Chat / 审计台:
 
 ```bash
-python viewer/server.py --repo . --port 8642   # http://127.0.0.1:8642/
+python viewer/server.py --repo . --port 8642
+# Work / Chat: http://127.0.0.1:8642/
+# 审计台:      http://127.0.0.1:8642/audit.html
 ```
 
 真实模型接入见 [Kimi 配置](flowcredit/docs/kimi.md);密钥只存本机环境,不进仓库。
@@ -82,9 +88,9 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 
 ## 审计产品状态(诚实版)
 
-- **已交付**:AGI 分类法 v1、审计方法论、被测试钉死的证据 Schema、垂直切片(见"证据")、外部评审裁决记录、审计台设计稿。
+- **已交付**:AGI 分类法 v1、审计方法论、被测试钉死的证据 Schema、垂直切片(见"证据")、外部评审裁决记录、审计台 UI(`viewer/audit.html` + 只读 `/api/audit/*`)、REA 制品证据适配器(`--adapter rea`:Go 构建信息 / bundle 解剖 / entitlements 对照 / sidecar 源码事实 / Mach-O 加载链 / 离线 OSV)、扁平 schema MCP wrapper、真实 REA CI lane。
 - **Ground truth**:`fixtures/fcode-self/` 记录本仓库 7 个已确认缺陷(含 file:line 证据),划分为 dev 集(01/02/06)与**盲测集**(04/07,不进任何规则与示例)。**用自己当第一个靶子是刻意的。**
-- **尚未实现**:动态探针全量、Jev 决策模型 shadow 接线、审计控制台 UI、容器级沙箱。本文档不提前声称它们存在。
+- **尚未实现**:动态探针全量、Jev 决策模型 shadow 接线、容器级沙箱、REA sidecar JS 图、真实干净对照、CVE/OSV 情报。审计台 UI 已交付,不再是设计稿;本文档不提前声称未落地的能力存在。
 
 ## 诚实的边界
 
@@ -106,11 +112,28 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 | **Agent 应用威胁模型(AGI 分类法)** | [threat-model](flowcredit/docs/threat-model.md) |
 | **审计方法论与交互模型** | [audit-methodology](flowcredit/docs/audit-methodology.md) |
 | **规则编写指南** | [rule-authoring](flowcredit/docs/rule-authoring.md) |
+| **REA 制品证据融合** | [integration-rea](flowcredit/docs/integration-rea.md) |
 | **能力图谱(逐条可复现)** | [capability-map](flowcredit/docs/capability-map.md) |
 | **外部设计评审裁决记录** | [design-reviews](flowcredit/docs/design-reviews/) |
 | 任务基准、指标与证据 | [runtime-benchmark](flowcredit/docs/runtime-benchmark.md) |
 | 上下文与记忆 | [context-management](flowcredit/docs/context-management.md) |
 | 技术债与重构记录 | [refactor-evaluation](flowcredit/docs/refactor-evaluation.md) |
+
+### 文档同步约定
+
+文档是产品状态的一部分，不做事后补丁。每次改代码后按这张表同步：
+
+| 改动 | 必须同步 |
+| --- | --- |
+| 新增/修改目标适配器、CLI 参数 | 根 README、`flowcredit/README.md`、`architecture-map.md`、`integration-rea.md` 的适配器矩阵与命令 |
+| 新增/修改规则 | `audit-rules/index.json` 的 `version`、规则表、`fixtures/` 靶子、`rule-authoring.md` |
+| 修改测试数量或前端测试 | 根 README、`flowcredit/README.md`、`capability-map.md`、`architecture-map.md` 的数字 |
+| 修改 viewer/审计台 | `viewer/README.md`、截图、API 表 |
+| 新增“已交付/未交付”能力 | 根 README 的“审计产品状态”和 `capability-map.md` 的诚实清单 |
+
+CI 会运行 `python flowcredit/scripts/check_docs.py`，检查相对链接、过时声明
+（如旧测试数、已落地却仍写“未实现”的界面）和当前必须出现的入口
+（`--adapter rea`、`audit.html`）。它不替代人工判断，但能阻止文档再次漂移。
 
 ## 项目结构
 
@@ -118,11 +141,12 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 flowcredit/
   src/flowagent/   Agent Runtime 内核:哈希链、门控、预算、恢复(域无关)
   src/flowaudit/   审计域:分类法、PoC 受限重放、目标适配器、报告
+  src/flowaudit/rea/  REA CLI 适配 + allow-list 事实投影
   audit-rules/     版本化规则库 + 证据 Schema(数据,非代码)
   fixtures/        已知缺陷靶子(fcode-self = 自审计 ground truth)
-  viewer/          Work / Chat 控制台、SSE、Trace 回放
+  viewer/          Work / Chat / Audit 控制台、SSE、Trace 回放
   desktop/         桌面应用入口与构建脚本(macOS arm64 已验证)
-  tests/           765 项 Python 测试;viewer/tests/ 177 项前端测试
+  tests/           791 项 Python 测试;viewer/tests/ 183 项前端测试
 archive/           v1 Node 原型(NO_GO 负结果,不参与 CI)
 ```
 

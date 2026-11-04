@@ -138,6 +138,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     _AUDIT_DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
     _AUDIT_POC_RE = re.compile(r"^POC-[0-9]{4,}(-c)?$")
+    _AUDIT_REA_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$")
 
     def _audit_root(self) -> Path | None:
         repo = type(self).repo or (Path(self.manager.runtime.repo)
@@ -163,6 +164,9 @@ class Handler(SimpleHTTPRequestHandler):
                     "target": (bundle.get("target") or {}).get("identity"),
                     "findings": len(bundle.get("findings") or []),
                     "evidence": len(bundle.get("poc_evidence_refs") or []),
+                    "rea_evidence": len(bundle.get("rea_evidence_refs") or []),
+                    "uncovered": len(bundle.get("uncovered_surfaces") or []),
+                    "artifact": (bundle.get("target") or {}).get("artifact_sha256"),
                     "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
                 })
         return {"bundles": bundles}
@@ -195,6 +199,43 @@ class Handler(SimpleHTTPRequestHandler):
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"error": "unreadable evidence"}, 500
+
+    def _audit_rea(self, name: str, filename: str) -> dict | tuple[dict, int]:
+        """Read one REA evidence/facts file named by the bundle itself.
+
+        The bundle is the allow-list: only paths it references under
+        ``rea-evidence/`` are readable. A filename is a single segment, so
+        traversal, absolute paths and symlinks outside the directory are
+        refused before any bytes are served.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or "") \
+                or not self._AUDIT_REA_FILE_RE.match(filename or ""):
+            return {"error": "not found"}, 404
+        bundle = self._audit_bundle(name)
+        if isinstance(bundle, tuple):
+            return bundle
+        allowed: set[str] = set()
+        for key in ("rea_facts_ref", "rea_control_facts_ref"):
+            ref = bundle.get(key)
+            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
+                allowed.add(ref["path"])
+        for ref in bundle.get("rea_evidence_refs") or []:
+            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
+                allowed.add(ref["path"])
+        relative = f"rea-evidence/{filename}"
+        if relative not in allowed:
+            return {"error": "not found"}, 404
+        base = (root / name / "rea-evidence").resolve()
+        path = (root / name / relative).resolve()
+        if base not in path.parents:
+            return {"error": "not found"}, 404
+        if not path.exists():
+            return {"error": "not found"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable REA evidence"}, 500
 
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -407,6 +448,15 @@ class Handler(SimpleHTTPRequestHandler):
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
             result = self._audit_evidence(parts[3], parts[4])
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/rea/"):
+            parts = [p for p in path.split("/") if p]
+            # /api/audit/rea/<audit_dir>/<filename>
+            if len(parts) != 5:
+                return self._json({"error": "bad path"}, 400)
+            result = self._audit_rea(parts[3], parts[4])
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)

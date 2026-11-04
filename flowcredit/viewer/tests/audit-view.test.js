@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderBundle, renderBundles, summarizeBundle,
+  renderBundle, renderBundles, renderReaEvidence, renderReaFacts,
+  renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
 test("四值结果各有唯一的 UI 语气,未知值不猜测", () => {
@@ -71,6 +72,100 @@ test("actor 徽章:已知角色着色,未知角色回落 operator 且转义", ()
   assert.ok(actorBadge("host").includes("at-actor-host"));
   assert.ok(actorBadge("triage·shadow").includes("at-actor-operator"), "未知角色安全回落");
   assert.ok(!actorBadge('<img>').includes("<img"));
+});
+
+test("REA 摘要:artifact、版本、证据数与未覆盖面来自 bundle", () => {
+  const sum = summarizeBundle({
+    audit_id: "a",
+    target: { identity: "t", manifest_sha256: "f".repeat(64), artifact_sha256: "e".repeat(64) },
+    findings: [], poc_evidence_refs: [],
+    rea_evidence_refs: [{ evidence_id: "ev_a" }],
+    toolchain: { ruleset_version: 3, rea: { version: "6.8.0" } },
+    uncovered_surfaces: [{ surface: "dynamic", reason: "static only" }],
+  });
+  assert.equal(sum.artifact, "e".repeat(16) + "…");
+  assert.equal(sum.reaVersion, "6.8.0");
+  assert.equal(sum.reaEvidence, 1);
+  assert.equal(sum.uncovered, 1);
+});
+
+test("REA 证据面板:链接按 bundle 的相对路径生成并转义", () => {
+  const html = renderReaEvidence({
+    rea_evidence_refs: [{
+      evidence_id: "ev_" + "a".repeat(64),
+      operation: "inspect_go_binary",
+      path: "rea-evidence/inspect_go_binary.json",
+    }],
+  }, 'audit"dir');
+  assert.ok(html.includes("inspect_go_binary"));
+  assert.ok(html.includes("/api/audit/rea/audit%22dir/inspect_go_binary.json"));
+  assert.ok(!html.includes('audit"dir'));
+});
+
+test("REA 事实:列出未声明 entitlement,且不把声明外内容当已证明", () => {
+  const html = renderReaFacts({
+    target: { artifact_sha256: "e".repeat(64) },
+    operations: {
+      inspect_go_binary: {
+        evidence_id: "ev_a",
+        facts: { go_version: "go1.26.10", module: { path: "example/app" },
+                 dependencies: [{}, {}] },
+      },
+    },
+    host: {
+      entitlements: ["audio-input", "disable-library-validation"],
+      declared_features: ["audio-input"],
+    },
+  });
+  assert.ok(html.includes("go1.26.10"));
+  assert.ok(html.includes("2 deps"));
+  assert.ok(html.includes("disable-library-validation"));
+  assert.ok(html.includes("未声明 entitlement"));
+  assert.ok(html.includes("audio-input"));
+});
+
+test("REA 事实:sidecar 摘要展示未授权 listener 与 secret 计数", () => {
+  const html = renderReaFacts({
+    target: { artifact_sha256: "e".repeat(64) },
+    operations: {},
+    host: {
+      entitlements: [], declared_features: [],
+      sidecars: [{
+        name: "demo-bridge", source_files: 3, test_files: 2,
+        listener_without_auth: [{ file: "bridge.ts", line: 1 }],
+        secret_like: [], npm_install: [],
+      }],
+    },
+  });
+  assert.ok(html.includes("demo-bridge"));
+  assert.ok(html.includes("3 source"));
+  assert.ok(html.includes("未授权 listener 1"));
+});
+
+test("REA 事实:library validation 判定来自静态加载链事实", () => {
+  const html = renderReaFacts({
+    target: { artifact_sha256: "e".repeat(64) },
+    operations: {},
+    host: {
+      entitlements: [], declared_features: [],
+      library_validation: {
+        status: "observed", entitlement_present: true, main_team_id: "TEAM",
+        loaded_count: 22, system_count: 22, non_team_signed: [], unresolved: [],
+        verdict: "no_static_justification",
+      },
+    },
+  });
+  assert.ok(html.includes("library validation"));
+  assert.ok(html.includes("TEAM"));
+  assert.ok(html.includes("静态加载链未发现必要性"));
+});
+
+test("未覆盖面:非空时逐条渲染,空时不生成区块", () => {
+  assert.equal(renderUncovered({}), "");
+  const html = renderUncovered({
+    uncovered_surfaces: [{ surface: "sidecar", reason: "not collected" }],
+  });
+  assert.ok(html.includes("sidecar") && html.includes("not collected"));
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {

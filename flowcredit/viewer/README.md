@@ -1,15 +1,19 @@
 # Fcode · flowcredit console — 对话优先的 Agent 控制台
 
-一个零依赖、零构建、可离线的 Agent 控制台。两个主功能（Kimi 桌面端同款
+一个零依赖、零构建、可离线的 Agent 控制台。三个面（Kimi 桌面端同款
 分段开关）：**对话**——回答流式吐出，可追问、重新生成、编辑上一条、挂文本
 附件、随时停止；**工作**——受治理的委托运行（审批 / 插话 / 调预算 / 续跑、
-看板账本），并只读回放任意已签名 trace。
+看板账本），并只读回放任意已签名 trace；**审计台**——只读展示
+`work/audit/<audit_id>/` 的发现账本、PoC Evidence 与 REA 制品证据。
 
 前端是原生 ES modules，没有框架、打包器或字体请求；服务端只用 Python 标准库。
 
 ```
 flowcredit/viewer/
-  index.html          ← 外壳（零依赖、零构建）
+  index.html          ← Work / Chat 外壳（零依赖、零构建）
+  audit.html          ← 审计台外壳（发现账本只读视图）
+  audit.css           ← 审计台视觉
+  audit/audit-view.js ← 审计台投影与渲染
   app.css             ← design tokens（全站唯一 :root）+ 基础基元 + 外壳布局（第一加载）
   desktop.css         ← ?desktop=1 桌面模式壳几何（第二加载）
   design.css          ← 组件视觉 / Paper & Proof 审计组件（第三加载）
@@ -30,11 +34,12 @@ flowcredit/viewer/
     ai-avatar.js      对话 AI 的头像（Q 版印豆 · 圆框 · 黑白，状态由事实推导）
   report.js           ← 自包含审计报告生成器
   icons-doodle.js     ← 图标与涂鸦
-  server.py           ← HTTP 表面：静态文件 + JSON/SSE API + 入口
+  server.py           ← HTTP 表面：静态文件 + JSON/SSE API + 审计只读 API + 入口
+  audit_jobs.py       ← 审计 CLI 作业（内存状态，证据落盘在 work/audit/）
   console_common.py   ← 路径、静态拒绝、模型目录与预算换算
   console_runtime.py  ← runtime 导入、单次运行、观察者与崩溃检查
   console_manager.py  ← 运行历史、创建、控制、续跑与持久化
-  tests/              ← 前端纯函数测试（node --test，166 项）
+  tests/              ← 前端纯函数测试（node --test，183 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）
@@ -88,6 +93,19 @@ open 'http://127.0.0.1:8642/?desktop=1'
 - API key 只存本地，API 响应只返回 `api_key_set` 与末 4 位掩码，从不回传明文；
 - 远程 provider 的 `base_url` 不可在设置页改写，避免把密钥发往任意主机；
 - Kimi 使用 `max_completion_tokens`；组织 RPM 限制通过进程内 pacing 表现为 `wait` 事件。
+
+## 审计台
+
+`/audit.html` 是只读的发现账本，不是另一个执行入口：
+
+- 左侧列出 `work/audit/<audit_id>/` 的 bundle；
+- 中间渲染 findings、PoC Evidence、负对照与 `uncovered_surfaces`；
+- REA 制品审计的 `rea-evidence/`、`facts.json` 与 `control-facts.json`
+  作为证据入口展示：目标 artifact 哈希、REA 版本、Go 构建信息、entitlements
+  与声明差异、library-validation 静态加载链判定、sidecar 摘要、未覆盖面都在页面上；
+  API 只读取 bundle 引用过的文件，不执行目标；
+- 写操作仍只发生在 CLI（`python audit.py audit ...`）或 `/audit <target>`
+  斜杠命令，前端不提供“提升 finding”的按钮。
 
 ## 委托运行
 
@@ -154,6 +172,11 @@ open 'http://127.0.0.1:8642/?desktop=1'
 | POST | `/api/chat/threads/{id}/regenerate` | 重新生成最后一条 → SSE |
 | DELETE | `/api/chat/threads/{id}` | 归档（墓碑），事件链保留 |
 | GET/POST | `/api/settings/chat-config` | 读取（脱敏）/ 保存模型配置 |
+| GET | `/api/audit/bundles` | 审计 bundle 列表（只读） |
+| GET | `/api/audit/bundle/{audit_id}` | 单个审计 bundle |
+| GET | `/api/audit/evidence/{audit_id}/{poc_id}` | 单条 PoC Evidence |
+| GET | `/api/audit/rea/{audit_id}/{filename}` | bundle 引用过的 REA Evidence/facts（allow-list） |
+| GET | `/api/audit/jobs/{job_id}` | CLI 审计作业状态（内存态） |
 
 实现要点：运行在服务进程内的线程中驱动真实 runtime；观察者线程每 ~120ms 从 SQLite
 WAL 只读连接取已提交事件，重建快照推给浏览器。静态文件一律 `Cache-Control: no-cache`，
@@ -195,7 +218,8 @@ node --test flowcredit/viewer/tests/*.test.js
 ## 数据
 
 运行产物在 `viewer/runs/{id}/`（`task.sqlite` + `trace.json` + `meta.json`），对话在
-`viewer/chat.sqlite`，两者都不入库。演示数据由 runtime 生成：
+`viewer/chat.sqlite`，两者都不入库。审计产物在 `work/audit/<audit_id>/`
+（`audit-bundle.json` + PoC Evidence + `rea-evidence/`），也不入库。演示数据由 runtime 生成：
 
 ```sh
 cd flowcredit && python demo.py all

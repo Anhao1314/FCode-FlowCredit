@@ -28,7 +28,8 @@
       "properties": {
         "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "identity": { "type": "string" },
-        "version": { "type": "string" }
+        "version": { "type": "string" },
+        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "capability_manifest": {
@@ -88,7 +89,8 @@
         "no_real_credentials": { "const": true },
         "network": { "enum": ["disabled", "allowlist"] },
         "filesystem": { "enum": ["temporary", "sandboxed"] },
-        "target_copy": { "type": "boolean" }
+        "target_copy": { "type": "boolean" },
+        "target_snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "expectation": { "enum": ["must_find", "must_not_find"] },
