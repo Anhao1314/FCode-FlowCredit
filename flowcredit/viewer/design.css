@@ -253,6 +253,15 @@ body.reduce-motion .side-gear .d-icon { transition: none; }
   max-width: min(52vw, 620px); color: var(--text-1);
 }
 .tb-chips { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; flex: 0 1 auto; font-family: var(--font-mono); }
+/* 审计台入口：安静的顶栏胶囊链接（此前无任何规则,以浏览器默认蓝下划线呈现）。 */
+.tb-audit-link {
+  flex: none; display: inline-flex; align-items: center;
+  font-size: 12px; font-weight: 550; line-height: 20px;
+  color: var(--text-2); text-decoration: none;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  padding: 3px 10px;
+}
+.tb-audit-link:hover { background: var(--active); color: var(--text-1); text-decoration: none; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--line); border-radius: var(--radius-pill);

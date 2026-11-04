@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -151,6 +152,31 @@ def make_structural_variant(workdir: pathlib.Path) -> pathlib.Path:
     text = text.replace(marker, helper + marker, 1)
     runtime.write_text(text, encoding="utf-8")
     return copy
+
+
+class AuditIdTests(unittest.TestCase):
+    """audit_id 也是落盘目录名,必须与 viewer 的目录白名单一致
+    (viewer/server.py 的 ^[a-z0-9][a-z0-9.-]{1,63}$)。"""
+
+    _DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
+
+    def test_id_matches_viewer_whitelist_for_hard_names(self) -> None:
+        cases = [
+            pathlib.Path("/tmp/EvoX.app"),          # 大写与点
+            pathlib.Path("/tmp/测试应用.app"),       # 非 ASCII 字母(isalnum 为 True)
+            pathlib.Path("/tmp/...--weird"),        # 首字符是标点
+            pathlib.Path("/tmp/" + "x" * 90),       # 超长名
+        ]
+        for target in cases:
+            audit_id = cli._audit_id(target)
+            self.assertRegex(audit_id, self._DIR_RE,
+                             f"{target.name!r} → {audit_id!r} 不符合 viewer 白名单")
+            self.assertLessEqual(len(audit_id), 64)
+
+    def test_ids_stay_unique_for_same_target(self) -> None:
+        target = pathlib.Path("/tmp/same-target")
+        ids = {cli._audit_id(target) for _ in range(20)}
+        self.assertEqual(len(ids), 20, "同靶同日多次审计必须互异(熵后缀不可截掉)")
 
 
 class NegativeControlTests(unittest.TestCase):

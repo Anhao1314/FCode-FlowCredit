@@ -36,6 +36,7 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
   border: 1px solid var(--line); }
 .at-ok { color: var(--ok); background: rgba(21,128,61,.09); border-color: rgba(21,128,61,.25); }
 .at-bad { color: var(--bad); background: rgba(185,28,28,.07); border-color: rgba(185,28,28,.25); }
+.at-warn { color: var(--warn); background: var(--warn-soft); border-color: rgba(180,83,9,.28); }
 .at-dim { color: var(--text-3); background: var(--panel); }
 
 .at-ledger { display: flex; flex-direction: column; gap: 10px; }
@@ -106,6 +107,8 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
 .at-disp-select { border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
   color: var(--text-2); font: 12px var(--font-ui); padding: 3px 6px; cursor: pointer; }
 .at-disp-select:focus { outline: var(--focus-ring); outline-offset: 1px; }
+.at-disp-status { font-size: 11px; color: var(--text-3); max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .at-chain { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-soft); }
 .at-chain h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }

@@ -7,8 +7,8 @@
    4. 目标能力清单前置——每个发现展示声明过的能力边界。
 
    与 app.js 的关系：这是独立模块、独立页面（audit.html），不向 god file
-   添加一行。纯函数（mapOutcome / groupFindings / summarizeBundle /
-   renderLedger / renderBundle / renderEvidence）全部导出，node --test
+   添加一行。纯函数（mapOutcome / outcomeBadge / groupFindings /
+   summarizeBundle / renderBundle / render* 系列）全部导出，node --test
    直接覆盖；init() 只做 fetch 与事件接线。 */
 
 import { esc } from "../core/format.js";
@@ -18,6 +18,8 @@ const OUTCOME_MAP = {
   not_reproduced: { label: "未复现(保留)", tone: "dim" },
   invalid_poc: { label: "证据无效", tone: "bad" },
   not_vulnerable_under_scope: { label: "范围内不成立", tone: "dim" },
+  // renderBundle 内部哨兵:finding 引用的 poc 证据读取失败/不存在。
+  __evidence_missing__: { label: "证据缺失", tone: "bad" },
 };
 
 export function mapOutcome(outcome) {
@@ -89,7 +91,7 @@ export function renderGoDeps(facts) {
   if (!deps.length) return "";
   const rows = deps.map((dep) => {
     const pre = dep.prerelease ? ' <span class="at-badge at-warn">pre-release</span>' : "";
-    return `<tr><td class="at-mono">${esc(dep.path)}</td><td class="at-mono">${esc(dep.version || "")}</td><td>${pre}</td></tr>`;
+    return `<tr><td class="at-mono">${esc(dep.path || "—")}</td><td class="at-mono">${esc(dep.version || "—")}</td><td>${pre}</td></tr>`;
   }).join("");
   return `<details class="at-expand"><summary>Go 依赖表 (${deps.length})</summary>
     <table class="at-table"><thead><tr><th>path</th><th>version</th><th></th></tr></thead><tbody>${rows}</tbody></table>
@@ -215,6 +217,10 @@ export function renderReaEvidence(bundle, dir = "") {
   if (!refs.length) return "";
   const rows = refs.map((ref) => {
     const filename = String(ref.path || "").split("/").pop();
+    if (!filename) {
+      // ref 缺 path 时无法构造合法 URL——如实显示而不是生成死链。
+      return `<li>${esc(ref.operation || "?")} <span class="at-mono dim">路径缺失</span></li>`;
+    }
     const href = `/api/audit/rea/${encodeURIComponent(dir)}/${encodeURIComponent(filename)}`;
     return `<li><a href="${esc(href)}" target="_blank" rel="noopener">${esc(ref.operation || filename)}</a>`
       + ` <span class="at-mono dim">${esc(String(ref.evidence_id || "").slice(0, 18))}…</span></li>`;
@@ -299,8 +305,11 @@ export function renderChain(chain) {
   const events = chain.events || [];
   if (!events.length) return "";
   const status = chain.chain_intact
-    ? '<span class="at-badge at-ok">🔗 链完整</span>'
-    : '<span class="at-badge at-bad">⚠ 链断裂</span>';
+    ? `<span class="at-badge at-ok">🔗 链完整</span>${
+        chain.verification === "link-only"
+          ? ' <span class="at-badge at-dim">仅链接校验</span>' : ""}`
+    : `<span class="at-badge at-bad">⚠ 链断裂</span>${
+        chain.tamper ? ` <span class="at-mono dim">${esc(String(chain.tamper).slice(0, 120))}</span>` : ""}`;
   const rows = events.map((event) => {
     const detail = event.payload && typeof event.payload === "object"
       ? Object.entries(event.payload)
@@ -380,8 +389,13 @@ export function renderBundle(bundle, records, options = {}) {
   const dir = options.dir || "";
   const findingRows = (bundle.findings || []).map((f) => {
     const ref = (f.poc_refs || [])[0];
-    const rec = byId.get(ref) || {};
-    const outcome = (rec.replay || {}).outcome || "finding";
+    const rec = ref ? byId.get(ref) : null;
+    // 证据缺失必须如实显示为"证据缺失",不能兜底成"已验证"
+    // (原则 1:UI 不显示强于链上证据的状态)。
+    const replay = (rec || {}).replay || {};
+    const runs = replay.runs;
+    const runsText = typeof runs === "string" ? runs : JSON.stringify(runs || {});
+    const outcome = rec ? (replay.outcome || "finding") : "__evidence_missing__";
     return `<div class="at-finding" data-poc="${esc(ref || "")}">
       <div class="at-frow">
         <span class="at-mark at-mark-ok"></span>
@@ -394,18 +408,18 @@ export function renderBundle(bundle, records, options = {}) {
       <div class="at-fdetail">
         <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
         <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
-        <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec.oracle || {}).spec || "—")}</span></div>
-        <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec.negative_control || {}).result || "—")}</span></div>
-        <div class="at-caps">${capabilityChips((rec.capability_manifest || {}).declared)}</div>
+        <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
+        <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>
+        <div class="at-caps">${capabilityChips(rec ? (rec.capability_manifest || {}).declared : undefined)}</div>
         <div class="at-kv"><span class="k">重放</span><span class="v">${
-          esc(JSON.stringify((rec.replay || {}).runs || {}))
-        } · 阈值 ${esc((rec.replay || {}).threshold || "—")}</span></div>
+          esc(runsText)
+        } · 阈值 ${esc(replay.threshold || "—")}</span></div>
       </div>
     </div>`;
   }).join("");
 
   const pendingRows = (records || [])
-    .filter((r) => (r.replay || {}).outcome !== "finding")
+    .filter((r) => r.poc_id && (r.replay || {}).outcome !== "finding")
     .map((r) => {
       const outcome = (r.replay || {}).outcome;
       return `<div class="at-cand">
@@ -452,26 +466,53 @@ export function renderBundles(entries) {
 export async function init({ fetchImpl = fetch, root = document } = {}) {
   const side = root.getElementById("at-bundles");
   const main = root.getElementById("at-main");
-  let res;
+  // 并发守卫:快速连点两个 bundle 时,只有最新一次点击允许写 main。
+  let requestSeq = 0;
+  let payload;
   try {
-    res = await fetchImpl("/api/audit/bundles");
+    const res = await fetchImpl("/api/audit/bundles");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    payload = await res.json();
   } catch {
     side.innerHTML = '<div class="at-none dim">无法连接控制台 API</div>';
     return;
   }
-  const payload = await res.json();
   side.innerHTML = renderBundles(payload.bundles);
   side.querySelectorAll(".at-bitem").forEach((el) => {
     el.addEventListener("click", async () => {
+      const seq = ++requestSeq;
       side.querySelectorAll(".at-bitem").forEach((b) => b.classList.remove("at-sel"));
       el.classList.add("at-sel");
       const dir = el.getAttribute("data-dir");
-      const bundle = await (await fetchImpl(`/api/audit/bundle/${encodeURIComponent(dir)}`)).json();
+      let bundle;
+      try {
+        const res = await fetchImpl(`/api/audit/bundle/${encodeURIComponent(dir)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        bundle = await res.json();
+      } catch (err) {
+        if (seq === requestSeq) {
+          main.innerHTML = `<div class="at-none">审计包加载失败( ${
+            esc(String((err && err.message) || err))
+          } )——包目录可能已被移除或服务不可用。</div>`;
+        }
+        return;
+      }
+      if (seq !== requestSeq) return;
       const refs = bundle.poc_evidence_refs || [];
-      const records = await Promise.all(refs.map(async (ref) => {
-        const r = await fetchImpl(`/api/audit/evidence/${encodeURIComponent(dir)}/${encodeURIComponent(ref)}`);
-        return r.json();
-      }));
+      // 证据读取失败的条目被丢弃而不是伪装成证据;对应 finding 会显示
+      // "证据缺失"徽章(原则 1:UI 不显示强于链上证据的状态)。
+      const records = (await Promise.all(refs.map(async (ref) => {
+        try {
+          const r = await fetchImpl(
+            `/api/audit/evidence/${encodeURIComponent(dir)}/${encodeURIComponent(ref)}`);
+          if (!r.ok) return null;
+          const doc = await r.json();
+          return doc && typeof doc === "object" && doc.poc_id ? doc : null;
+        } catch {
+          return null;
+        }
+      }))).filter(Boolean);
+      if (seq !== requestSeq) return;
       const current_dispositions = {};
       for (const fd of bundle.findings || []) {
         current_dispositions[fd.finding_id] = fd.operator_disposition || "";
@@ -504,20 +545,35 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         const regRes = await fetchImpl(`/api/audit/regression/${encodeURIComponent(dir)}`);
         if (regRes.ok) regression = await regRes.json();
       } catch { regression = null; }
+      if (seq !== requestSeq) return;
       main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain, specGap, regression });
       main.querySelectorAll(".at-disp-select").forEach((select) => {
         select.addEventListener("change", async () => {
           const findingId = select.getAttribute("data-finding");
           const disposition = select.value;
-          const res = await fetchImpl(
-            `/api/audit/disposition/${encodeURIComponent(dir)}/${encodeURIComponent(findingId)}`,
-            { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ disposition }) },
-          );
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
+          // 处置是操作员决定,必须给出可见结果:成功"已记录",失败回滚并显示原因。
+          let status = select.parentElement.querySelector(".at-disp-status");
+          if (!status) {
+            status = root.createElement("span");
+            status.className = "at-disp-status";
+            select.parentElement.appendChild(status);
+          }
+          status.textContent = "记录中…";
+          try {
+            const res = await fetchImpl(
+              `/api/audit/disposition/${encodeURIComponent(dir)}/${encodeURIComponent(findingId)}`,
+              { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ disposition }) },
+            );
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.error || `HTTP ${res.status}`);
+            }
+            current_dispositions[findingId] = disposition;
+            status.textContent = "已记录";
+          } catch (err) {
             select.value = current_dispositions[findingId] || "";
-            console.error("disposition failed:", err);
+            status.textContent = `记录失败:${String((err && err.message) || err)}`;
           }
         });
       });

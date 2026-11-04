@@ -306,3 +306,45 @@ test("空账本与空列表给出可读空态,而不是空白", () => {
   const ledger = renderBundle({ audit_id: "a", target: {}, findings: [], poc_evidence_refs: [] }, []);
   assert.ok(ledger.includes("没有晋升的发现"));
 });
+
+test("证据缺失:finding 引用的证据不在时显示'证据缺失',绝不兜底成'已验证'", () => {
+  const bundle = {
+    audit_id: "a", target: {}, toolchain: {},
+    findings: [{ finding_id: "F-1", root_cause_group: "g", category: "AGI-05",
+                 severity: "high", poc_refs: ["POC-9999"] }],
+    poc_evidence_refs: [],
+  };
+  const html = renderBundle(bundle, []); // 证据读取失败 → records 空
+  assert.ok(html.includes("证据缺失"), "缺证据必须有专门徽章");
+  assert.ok(!html.includes(">已验证<"), "缺证据不得渲染成已验证");
+});
+
+test("重放行:runs 已是 JSON 字符串时原样显示,不再二次 stringify", () => {
+  const bundle = {
+    audit_id: "a", target: {}, toolchain: {},
+    findings: [{ finding_id: "F-1", root_cause_group: "g", category: "AGI-05",
+                 severity: "high", poc_refs: ["POC-0001"] }],
+    poc_evidence_refs: ["POC-0001"],
+  };
+  const record = {
+    poc_id: "POC-0001",
+    replay: { outcome: "finding", runs: '{"passed":1,"total":1}', threshold: "1/1" },
+  };
+  const html = renderBundle(bundle, [record]);
+  assert.ok(html.includes("&quot;passed&quot;:1,&quot;total&quot;:1"),
+    "字符串 runs 原样显示(引号经 esc 一次转义)");
+  assert.ok(!html.includes("\\&quot;"), "不得出现二次转义(JSON.stringify 双包)");
+});
+
+test("链完整性:kernel 校验失败时显示断裂与原因;link-only 弱校验如实标注", () => {
+  const broken = renderChain({
+    chain_intact: false, verification: "kernel", count: 2,
+    tamper: "CHAIN_TAMPERED: event 2 hash mismatch",
+    events: [{ sequence: 1, type: "task_created", payload: {}, hash: "a".repeat(12), at: "t" }],
+  });
+  assert.ok(broken.includes("链断裂"), "篡改必须可见");
+  assert.ok(broken.includes("CHAIN_TAMPERED"), "篡改原因必须可见");
+  const weak = renderChain({ chain_intact: true, verification: "link-only", count: 1,
+    events: [{ sequence: 1, type: "task_created", payload: {}, hash: "b".repeat(12), at: "t" }] });
+  assert.ok(weak.includes("仅链接校验"), "弱校验不得冒充完整校验");
+});

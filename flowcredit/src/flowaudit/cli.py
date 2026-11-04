@@ -30,11 +30,17 @@ DEFAULT_RULES = Path(__file__).resolve().parents[2] / "audit-rules"
 
 
 def _audit_id(target: Path) -> str:
+    # audit_id 同时是落盘目录名,必须与 viewer 的目录白名单一致
+    # (^[a-z0-9][a-z0-9.-]{1,63}$):仅 ASCII 字母数字/点/横线,首字符为
+    # 字母数字,总长 ≤64。名字预算 = 64 − 日期(10) − 熵后缀(6) − 2 个连字符。
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    name = "".join(c if c.isalnum() or c in "-." else "-" for c in target.name.lower())
+    name = "".join(
+        c if (c.isascii() and c.isalnum()) or c in "-." else "-"
+        for c in target.name.lower())
+    name = name.lstrip("-.")[:46] or "target"
     # 同靶同日多次审计是常态(回归跟踪),audit_id 必须互异——6 位熵后缀。
     import uuid
-    return f"{name}-{date}-{uuid.uuid4().hex[:6]}"[:72]
+    return f"{name}-{date}-{uuid.uuid4().hex[:6]}"
 
 
 def _parse_declared_features(raw: str | None) -> list[str] | None:

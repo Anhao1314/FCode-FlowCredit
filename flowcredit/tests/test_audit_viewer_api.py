@@ -156,6 +156,19 @@ class AuditViewerApiTests(unittest.TestCase):
         self.assertEqual(
             bundle["findings"][0]["operator_disposition"], "accepted_risk")
 
+        # The UI's "— 无 —" option posts "" — clearing must be accepted,
+        # not rejected, or a disposition could never be unset.
+        clear = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=json.dumps({"disposition": ""}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(clear) as res:
+            result = json.loads(res.read())
+        self.assertIsNone(result["operator_disposition"])
+        bundle = json.loads(bundle_path.read_text())
+        self.assertIsNone(bundle["findings"][0]["operator_disposition"])
+
     def test_disposition_rejects_invalid_value(self) -> None:
         import urllib.error
         import urllib.request
@@ -320,6 +333,22 @@ class AuditRunTests(unittest.TestCase):
         cls.server.start()
         cls.addClassCleanup(cls.server.stop)
         cls.port = cls.server.port
+        # harness 的 repo 是真实 checkout,审计产物落在真实的 work/audit/。
+        # 记录已有包目录,类结束时只清掉本次新增的——别把测试残留留进账本。
+        cls._bundles_before = {
+            p.parent.name for p in (ROOT / "work" / "audit").glob("*/audit-bundle.json")
+        } if (ROOT / "work" / "audit").is_dir() else set()
+        cls.addClassCleanup(cls._cleanup_new_bundles)
+
+    @classmethod
+    def _cleanup_new_bundles(cls) -> None:
+        audit_root = ROOT / "work" / "audit"
+        if not audit_root.is_dir():
+            return
+        import shutil
+        for path in audit_root.glob("*/audit-bundle.json"):
+            if path.parent.name not in cls._bundles_before:
+                shutil.rmtree(path.parent, ignore_errors=True)
 
     @property
     def base(self) -> str:
