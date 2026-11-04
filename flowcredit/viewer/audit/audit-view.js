@@ -241,6 +241,33 @@ export function renderDisposition(finding, dir) {
   </div>`;
 }
 
+export function renderChain(chain) {
+  if (!chain || typeof chain !== "object") return "";
+  const events = chain.events || [];
+  if (!events.length) return "";
+  const status = chain.chain_intact
+    ? '<span class="at-badge at-ok">🔗 链完整</span>'
+    : '<span class="at-badge at-bad">⚠ 链断裂</span>';
+  const rows = events.map((event) => {
+    const detail = event.payload && typeof event.payload === "object"
+      ? Object.entries(event.payload)
+          .filter(([k]) => k !== "body_hash")
+          .map(([k, v]) => `<span class="at-chain-k">${esc(k)}</span> ${esc(typeof v === "string" ? v.slice(0, 120) : JSON.stringify(v).slice(0, 120))}`)
+          .join(" · ")
+      : "";
+    return `<div class="at-chain-ev">
+      <span class="at-chain-seq">${esc(String(event.sequence))}</span>
+      <span class="at-chain-type">${esc(event.type)}</span>
+      <span class="at-chain-detail">${detail}</span>
+      <span class="at-chain-hash at-mono dim">${esc(String(event.hash || "").slice(0, 12))}…</span>
+    </div>`;
+  }).join("");
+  return `<section class="at-chain">
+    <h2>Provenance chain ${status} <span class="dim at-mono">(${events.length} events)</span></h2>
+    <div class="at-chain-list">${rows}</div>
+  </section>`;
+}
+
 export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
@@ -305,6 +332,7 @@ export function renderBundle(bundle, records, options = {}) {
   ${renderReaEvidence(bundle, dir)}
   ${renderReaFacts(reaFacts)}
   ${renderUncovered(bundle)}
+  ${options.chain ? renderChain(options.chain) : ""}
   <div class="at-note dim">UI 只显示证据支持的状态:徽章来自 poc-evidence 的 outcome,不来自任何人的声称。</div>`;
 }
 
@@ -353,7 +381,12 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
           reaFacts = null;
         }
       }
-      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts });
+      let chain = null;
+      try {
+        const chainRes = await fetchImpl(`/api/audit/chain/${encodeURIComponent(dir)}`);
+        if (chainRes.ok) chain = await chainRes.json();
+      } catch { chain = null; }
+      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain });
       main.querySelectorAll(".at-disp-select").forEach((select) => {
         select.addEventListener("change", async () => {
           const findingId = select.getAttribute("data-finding");

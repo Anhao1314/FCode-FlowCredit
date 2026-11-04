@@ -106,3 +106,15 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
 .at-disp-select { border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
   color: var(--text-2); font: 12px var(--font-ui); padding: 3px 6px; cursor: pointer; }
 .at-disp-select:focus { outline: var(--focus-ring); outline-offset: 1px; }
+
+.at-chain { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-soft); }
+.at-chain h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.at-chain-list { display: flex; flex-direction: column; gap: 4px; }
+.at-chain-ev { display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  padding: 4px 8px; border-radius: 6px; background: var(--panel); }
+.at-chain-seq { font-family: var(--font-mono); color: var(--text-4); min-width: 20px; text-align: right; }
+.at-chain-type { font-weight: 550; color: var(--text-1); min-width: 140px; }
+.at-chain-detail { color: var(--text-3); flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.at-chain-detail .at-chain-k { color: var(--text-4); font-size: 11px; margin-right: 2px; }
+.at-chain-hash { flex: none; font-size: 10px; }

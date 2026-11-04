@@ -270,6 +270,57 @@ class Handler(SimpleHTTPRequestHandler):
         tmp.replace(bundle_path)
         return {"finding_id": finding_id, "operator_disposition": disposition}
 
+    def _audit_chain(self, name: str) -> dict | tuple[dict, int]:
+        """Read the audit session's hash-linked event chain from session.sqlite.
+
+        Every candidate proposal, finding promotion and operator action is
+        an event in the chain. The chain proves integrity (tamper detection
+        via SHA-256), not truthfulness — a tampered write before the chain
+        is created is still faithfully recorded.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        db_path = (root / name / "session.sqlite").resolve()
+        if root.resolve() not in db_path.parents or not db_path.exists():
+            return {"events": [], "chain_intact": True, "note": "no session log"}
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.execute(
+                "SELECT sequence, type, payload, prev_hash, hash, at "
+                "FROM event ORDER BY sequence ASC"
+            )
+            events = []
+            for row in cursor:
+                payload = json.loads(row["payload"]) if row["payload"] else {}
+                events.append({
+                    "sequence": row["sequence"],
+                    "type": row["type"],
+                    "payload": payload,
+                    "prev_hash": row["prev_hash"],
+                    "hash": row["hash"],
+                    "at": row["at"],
+                })
+            # Verify chain: each event's prev_hash must match the previous hash.
+            chain_intact = True
+            prev = None
+            for event in events:
+                if prev is not None and event["prev_hash"] != prev:
+                    chain_intact = False
+                    break
+                prev = event["hash"]
+            return {
+                "events": events,
+                "chain_intact": chain_intact,
+                "count": len(events),
+            }
+        except (sqlite3.Error, ValueError, KeyError) as error:
+            return {"error": f"cannot read session: {error}"}, 500
+        finally:
+            conn.close()
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -481,6 +532,12 @@ class Handler(SimpleHTTPRequestHandler):
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
             result = self._audit_evidence(parts[3], parts[4])
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/chain/"):
+            audit_dir = path[len("/api/audit/chain/"):].strip("/")
+            result = self._audit_chain(audit_dir)
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)

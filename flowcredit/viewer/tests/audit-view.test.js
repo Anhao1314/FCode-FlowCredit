@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderAuthorization, renderBundle, renderBundles, renderReaEvidence, renderReaFacts,
+  renderAuthorization, renderBundle, renderBundles, renderChain, renderReaEvidence, renderReaFacts,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
@@ -190,6 +190,36 @@ test("授权卡:operator/scope/granted_at 和目标信息来自 bundle", () => {
   assert.ok(html.includes("6.8.0"), "REA version");
   assert.ok(html.includes("v6"), "ruleset version");
   assert.ok(html.includes("授权与范围"), "section heading");
+});
+
+test("provenance chain:事件列表和链完整性状态", () => {
+  const html = renderChain({
+    chain_intact: true, count: 3,
+    events: [
+      { sequence: 1, type: "task_created", payload: { audit_id: "x" },
+        prev_hash: null, hash: "a".repeat(64), at: "2026-11-01T00:00:00Z" },
+      { sequence: 2, type: "candidate_proposed", payload: { candidate_id: "C-0001" },
+        prev_hash: "a".repeat(64), hash: "b".repeat(64), at: "2026-11-01T00:00:01Z" },
+      { sequence: 3, type: "finding_promoted", payload: { finding_id: "F-POC-0001" },
+        prev_hash: "b".repeat(64), hash: "c".repeat(64), at: "2026-11-01T00:00:02Z" },
+    ],
+  });
+  assert.ok(html.includes("task_created"), "event type");
+  assert.ok(html.includes("finding_promoted"), "promoted event");
+  assert.ok(html.includes("C-0001"), "candidate_id");
+  assert.ok(html.includes("链完整"), "chain integrity badge");
+  assert.ok(html.includes("3 events"), "event count");
+});
+
+test("provenance chain:断裂时显示警告", () => {
+  const html = renderChain({
+    chain_intact: false, count: 2,
+    events: [
+      { sequence: 1, type: "task_created", payload: {}, prev_hash: null, hash: "a".repeat(64), at: "" },
+      { sequence: 2, type: "candidate_proposed", payload: {}, prev_hash: "WRONG", hash: "b".repeat(64), at: "" },
+    ],
+  });
+  assert.ok(html.includes("链断裂"), "tamper warning");
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {

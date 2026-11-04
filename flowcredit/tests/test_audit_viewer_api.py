@@ -182,6 +182,25 @@ class AuditViewerApiTests(unittest.TestCase):
             urllib.request.urlopen(req)
         self.assertEqual(caught.exception.code, 404)
 
+    def test_audit_chain_returns_events(self) -> None:
+        import urllib.request
+
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/chain/demo-target-test") as res:
+            data = json.loads(res.read())
+        self.assertTrue(data["chain_intact"], "chain must be intact")
+        self.assertGreater(data["count"], 0, "must have events")
+        types = [e["type"] for e in data["events"]]
+        self.assertIn("task_created", types)
+
+    def test_audit_chain_missing_returns_empty(self) -> None:
+        import urllib.request
+
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/chain/nonexistent") as res:
+            data = json.loads(res.read())
+        self.assertEqual(data["events"], [])
+
     def test_rea_evidence_is_bundle_allowlisted(self) -> None:
         import urllib.error
         import urllib.request
