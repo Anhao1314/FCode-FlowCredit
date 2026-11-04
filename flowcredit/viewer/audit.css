@@ -93,3 +93,10 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
 .at-rea-ok { margin-top: 8px; color: var(--ok); font-size: 12.5px; }
 .at-uncovered li { color: var(--text-3); }
 .at-uncovered strong { color: var(--text-2); font-weight: 550; }
+
+.at-auth { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line);
+  border-radius: var(--radius-card); background: var(--raised); }
+.at-auth h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.at-auth h3 { margin: 12px 0 6px; font-size: 12px; font-weight: 550; color: var(--text-3); }
+.at-auth-target, .at-auth-toolchain { margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--line-soft); }

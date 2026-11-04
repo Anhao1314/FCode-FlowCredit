@@ -177,6 +177,48 @@ export function renderUncovered(bundle) {
   return `<section class="at-uncovered"><h2>未覆盖面</h2><ul>${rows}</ul></section>`;
 }
 
+export function renderAuthorization(bundle) {
+  const auth = bundle.authorization || {};
+  const target = bundle.target || {};
+  const toolchain = bundle.toolchain || {};
+  const rea = toolchain.rea || {};
+  const rows = [
+    ["operator", auth.operator || "—"],
+    ["scope", auth.scope || "—"],
+    ["granted_at", auth.granted_at || "—"],
+  ];
+  if (auth.time_window) rows.push(["time_window", auth.time_window]);
+  const targetRows = [
+    ["identity", target.identity || "—"],
+    ["version", target.version || "—"],
+    ["manifest_sha256", (target.manifest_sha256 || "").slice(0, 16) + "…"],
+  ];
+  if (target.artifact_sha256) {
+    targetRows.push(["artifact_sha256", target.artifact_sha256.slice(0, 16) + "…"]);
+  }
+  if (target.profile) targetRows.push(["profile", target.profile]);
+  const kv = (rows) => rows.map(([k, v]) =>
+    `<div class="at-kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
+  ).join("");
+  const reaRows = [];
+  if (rea.version) reaRows.push(["REA version", rea.version]);
+  if (rea.facts_schema) reaRows.push(["facts schema", rea.facts_schema]);
+  if (toolchain.ruleset_version) reaRows.push(["ruleset", "v" + toolchain.ruleset_version]);
+  if (toolchain.replayer) reaRows.push(["replayer", toolchain.replayer]);
+  return `<section class="at-auth">
+    <h2>授权与范围</h2>
+    ${kv(rows)}
+    <div class="at-auth-target">
+      <h3>目标</h3>
+      ${kv(targetRows)}
+    </div>
+    ${reaRows.length ? `<div class="at-auth-toolchain">
+      <h3>工具链</h3>
+      ${kv(reaRows)}
+    </div>` : ""}
+  </section>`;
+}
+
 export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
@@ -232,6 +274,7 @@ export function renderBundle(bundle, records, options = {}) {
     ${sum.reaVersion !== "—" ? `<span class="at-mono dim">REA v${esc(String(sum.reaVersion))}</span>` : ""}
     <span class="at-mono dim">规则集 v${esc(String(sum.ruleset))}</span>
   </div>
+  ${renderAuthorization(bundle)}
   <div class="at-ledger">
     ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}
     ${pendingRows}

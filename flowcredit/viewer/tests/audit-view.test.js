@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderBundle, renderBundles, renderReaEvidence, renderReaFacts,
+  renderAuthorization, renderBundle, renderBundles, renderReaEvidence, renderReaFacts,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
@@ -166,6 +166,30 @@ test("未覆盖面:非空时逐条渲染,空时不生成区块", () => {
     uncovered_surfaces: [{ surface: "sidecar", reason: "not collected" }],
   });
   assert.ok(html.includes("sidecar") && html.includes("not collected"));
+});
+
+test("授权卡:operator/scope/granted_at 和目标信息来自 bundle", () => {
+  const html = renderAuthorization({
+    authorization: { operator: "alice", scope: "static audit", granted_at: "2026-11-01T00:00:00Z",
+                     time_window: "2026-11-01 → 2026-11-02" },
+    target: { identity: "/tmp/app", version: "1.0.0",
+              manifest_sha256: "a".repeat(64), artifact_sha256: "b".repeat(64),
+              profile: "artifact" },
+    toolchain: { ruleset_version: 6, replayer: "flowaudit.poc.replay/v1",
+                 rea: { version: "6.8.0", facts_schema: "fcode.rea-facts/v1" } },
+  });
+  assert.ok(html.includes("alice"), "operator");
+  assert.ok(html.includes("static audit"), "scope");
+  assert.ok(html.includes("2026-11-01T00:00:00Z"), "granted_at");
+  assert.ok(html.includes("2026-11-01 → 2026-11-02"), "time_window");
+  assert.ok(html.includes("/tmp/app"), "target identity");
+  assert.ok(html.includes("1.0.0"), "target version");
+  assert.ok(html.includes("a".repeat(16) + "…"), "manifest short");
+  assert.ok(html.includes("b".repeat(16) + "…"), "artifact short");
+  assert.ok(html.includes("artifact"), "profile");
+  assert.ok(html.includes("6.8.0"), "REA version");
+  assert.ok(html.includes("v6"), "ruleset version");
+  assert.ok(html.includes("授权与范围"), "section heading");
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {
