@@ -42,6 +42,7 @@ from ..rea import (
     run_evidence,
     scan_runtime_installers,
     scan_sidecars,
+    scan_code_quality,
     version as rea_version,
 )
 
@@ -365,6 +366,7 @@ def prepare(
     uncovered.extend(host_uncovered)
     if kind == _APP:
         host["sidecars"] = scan_sidecars(root)
+        host["vibe_scan"] = scan_code_quality(root)
     if kind == _APP and declared_features is not None:
         host["declared_features"] = sorted(set(
             _DECLARED_ALIASES.get(item.strip().lower(), item.strip())

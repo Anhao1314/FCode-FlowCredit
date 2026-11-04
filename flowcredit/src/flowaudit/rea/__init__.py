@@ -29,6 +29,7 @@ from .macho import analyze_library_validation, parse_macho
 from .osv import load_snapshot, match_go_dependencies
 from .sidecars import scan_sidecar, scan_sidecars
 from .strings import scan_runtime_installers
+from .vibe import scan_code_quality
 
 __all__ = [
     "FACTS_SCHEMA_VERSION",
@@ -43,6 +44,7 @@ __all__ = [
     "match_go_dependencies",
     "parse_macho",
     "run_evidence",
+    "scan_code_quality",
     "scan_runtime_installers",
     "scan_sidecar",
     "scan_sidecars",

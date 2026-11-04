@@ -97,8 +97,8 @@ def check_required_surface() -> list[str]:
             if phrase not in text:
                 errors.append(f"{path.relative_to(ROOT)}: missing current surface {phrase!r}")
     rules = json.loads((ROOT / "audit-rules" / "index.json").read_text(encoding="utf-8"))
-    if int(rules.get("version", 0)) < 6:
-        errors.append("audit-rules/index.json: version must be >= 6 (REA + sidecar + OSV + runtime install rules)")
+    if int(rules.get("version", 0)) < 7:
+        errors.append("audit-rules/index.json: version must be >= 7 (REA + sidecar + OSV + runtime install + VIBE rules)")
     return errors
 
 

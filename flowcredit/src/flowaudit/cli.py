@@ -123,8 +123,19 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     ruleset = engine.load_ruleset(rules_dir)
     candidates = engine.static_scan(target_copy, ruleset)
+
+    # VIBE scan: code-quality patterns for both adapters
+    from .rea.vibe import scan_code_quality
+    from .rea.facts import _json_safe
+    vibe_facts = _json_safe(scan_code_quality(target_copy))
+
     if rea_snapshot is not None:
         candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
+
+    # VIBE rules: only for REA adapter (which produces facts.json for replay)
+    if rea_snapshot is not None:
+        vibe_facts_doc = {"host": {"vibe_scan": vibe_facts}}
+        candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     target_ref = {

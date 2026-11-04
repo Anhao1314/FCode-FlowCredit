@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "rules": [
     {
       "id": "RULE-AGI02-001",
@@ -657,6 +657,276 @@
         "docs/integration-rea.md#rules",
         "docs/threat-model.md AGI-05",
         "fixtures/rea/facts-runtime-install.json"
+      ]
+    },
+    {
+      "id": "RULE-VIBE01-001",
+      "status": "active",
+      "category": "VIBE-01",
+      "severity": "medium",
+      "title": "God file exceeds quality threshold",
+      "root_cause_group": "god-file",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.god_files",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects god-file rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty god_files; each row names a file exceeding the line threshold"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.god_files"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.god_files"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no god files"
+        },
+        "negative_control": {
+          "spec": "facts with no god files must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "fixtures/rea/facts-vulnerable.json"
+      ]
+    },
+    {
+      "id": "RULE-VIBE01-002",
+      "status": "active",
+      "category": "VIBE-01",
+      "severity": "low",
+      "title": "God function exceeds quality threshold",
+      "root_cause_group": "god-function",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.issue_files",
+        "predicate": {
+          "any": {
+            "field": "issues",
+            "any": {
+              "field": "god_functions",
+              "count_gt": 0
+            }
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects god-function rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects issue_files with non-empty god_functions"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.issue_files"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.issue_files"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no god functions"
+        },
+        "negative_control": {
+          "spec": "facts with no god functions must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
+      ]
+    },
+    {
+      "id": "RULE-VIBE03-001",
+      "status": "active",
+      "category": "VIBE-03",
+      "severity": "medium",
+      "title": "Silent exception swallowing detected",
+      "root_cause_group": "silent-catch",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.issue_files",
+        "predicate": {
+          "any": {
+            "field": "issues",
+            "any": {
+              "field": "silent_catches",
+              "count_gt": 0
+            }
+          }
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects silent-catch rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects issue_files with non-empty silent_catches"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.issue_files"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.issue_files"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no silent catches"
+        },
+        "negative_control": {
+          "spec": "facts with no silent catches must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/threat-model.md AGI-03"
+      ]
+    },
+    {
+      "id": "RULE-VIBE04-001",
+      "status": "active",
+      "category": "VIBE-04",
+      "severity": "low",
+      "title": "TODO/FIXME density exceeds quality threshold",
+      "root_cause_group": "todo-density",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.todo_hotspots",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects TODO hotspot rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty todo_hotspots; each row names a file with TODO density above threshold"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.todo_hotspots"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.todo_hotspots"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no TODO hotspots"
+        },
+        "negative_control": {
+          "spec": "facts with no TODO hotspots must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
       ]
     }
   ]

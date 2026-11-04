@@ -6,94 +6,229 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "audit_id", "authorization", "target",
-    "sessions", "toolchain", "poc_evidence_refs", "findings",
-    "uncovered_surfaces", "chain_verification"
+    "schema_version",
+    "audit_id",
+    "authorization",
+    "target",
+    "sessions",
+    "toolchain",
+    "poc_evidence_refs",
+    "findings",
+    "uncovered_surfaces",
+    "chain_verification"
   ],
   "properties": {
-    "schema_version": { "const": "fcode.audit-bundle/v1" },
-    "audit_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,63}$" },
+    "schema_version": {
+      "const": "fcode.audit-bundle/v1"
+    },
+    "audit_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{2,63}$"
+    },
     "authorization": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operator", "scope", "granted_at"],
+      "required": [
+        "operator",
+        "scope",
+        "granted_at"
+      ],
       "properties": {
-        "operator": { "type": "string" },
-        "scope": { "type": "string" },
-        "time_window": { "type": "string" },
-        "granted_at": { "type": "string" }
+        "operator": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "time_window": {
+          "type": "string"
+        },
+        "granted_at": {
+          "type": "string"
+        }
       }
     },
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["identity", "manifest_sha256"],
+      "required": [
+        "identity",
+        "manifest_sha256"
+      ],
       "properties": {
-        "identity": { "type": "string" },
-        "version": { "type": "string" },
-        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "target_profile_note": { "type": "string" },
-        "artifact_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "rea_evidence_id": { "type": "string", "pattern": "^ev_[0-9a-f]{64}$" },
-        "target_snapshot_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "profile": { "type": "string" }
+        "identity": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "target_profile_note": {
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rea_evidence_id": {
+          "type": "string",
+          "pattern": "^ev_[0-9a-f]{64}$"
+        },
+        "target_snapshot_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "profile": {
+          "type": "string"
+        }
       }
     },
     "sessions": {
-      "type": "array", "minItems": 1,
+      "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["phase", "session_ref"],
+        "required": [
+          "phase",
+          "session_ref"
+        ],
         "properties": {
-          "phase": { "enum": ["profile", "static", "dynamic", "governance", "report"] },
-          "session_ref": { "type": "string" }
+          "phase": {
+            "enum": [
+              "profile",
+              "static",
+              "dynamic",
+              "governance",
+              "report"
+            ]
+          },
+          "session_ref": {
+            "type": "string"
+          }
         }
       }
     },
     "toolchain": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["replayer", "oracle_version"],
+      "required": [
+        "replayer",
+        "oracle_version"
+      ],
       "properties": {
-        "analyst_model": { "type": "string" },
-        "triage_model": { "type": "string" },
-        "replayer": { "type": "string" },
-        "oracle_version": { "type": "string" },
-        "ruleset_version": { "type": "integer", "minimum": 1 },
+        "analyst_model": {
+          "type": "string"
+        },
+        "triage_model": {
+          "type": "string"
+        },
+        "replayer": {
+          "type": "string"
+        },
+        "oracle_version": {
+          "type": "string"
+        },
+        "ruleset_version": {
+          "type": "integer",
+          "minimum": 1
+        },
         "rea": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["version", "evidence_schema", "facts_schema"],
+          "required": [
+            "version",
+            "evidence_schema",
+            "facts_schema"
+          ],
           "properties": {
-            "version": { "type": "string" },
-            "evidence_schema": { "type": "string" },
-            "facts_schema": { "type": "string" },
-            "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            "version": {
+              "type": "string"
+            },
+            "evidence_schema": {
+              "type": "string"
+            },
+            "facts_schema": {
+              "type": "string"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
           }
         }
       }
     },
     "poc_evidence_refs": {
-      "type": "array", "minItems": 1,
-      "items": { "type": "string" }
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
     },
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["finding_id", "root_cause_group", "category", "severity", "poc_refs"],
+        "required": [
+          "finding_id",
+          "root_cause_group",
+          "category",
+          "severity",
+          "poc_refs"
+        ],
         "properties": {
-          "finding_id": { "type": "string" },
-          "root_cause_group": { "type": "string" },
-          "category": {
-            "enum": ["AGI-01", "AGI-02", "AGI-03", "AGI-04", "AGI-05",
-                     "AGI-06", "AGI-07", "AGI-08", "AGI-09"]
+          "finding_id": {
+            "type": "string"
           },
-          "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
-          "poc_refs": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-          "operator_disposition": { "enum": ["accepted_risk", "false_positive_disputed", "wont_fix"] }
+          "root_cause_group": {
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "AGI-01",
+              "AGI-02",
+              "AGI-03",
+              "AGI-04",
+              "AGI-05",
+              "AGI-06",
+              "AGI-07",
+              "AGI-08",
+              "AGI-09",
+              "VIBE-01",
+              "VIBE-02",
+              "VIBE-03",
+              "VIBE-04",
+              "VIBE-05"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          },
+          "poc_refs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "operator_disposition": {
+            "enum": [
+              "accepted_risk",
+              "false_positive_disputed",
+              "wont_fix"
+            ]
+          }
         }
       }
     },
@@ -102,10 +237,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["surface", "reason"],
+        "required": [
+          "surface",
+          "reason"
+        ],
         "properties": {
-          "surface": { "type": "string" },
-          "reason": { "type": "string" }
+          "surface": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
         }
       }
     },
@@ -114,40 +256,79 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["evidence_id", "operation", "path", "sha256"],
+        "required": [
+          "evidence_id",
+          "operation",
+          "path",
+          "sha256"
+        ],
         "properties": {
-          "evidence_id": { "type": "string", "pattern": "^ev_[0-9a-f]{64}$" },
-          "operation": { "type": "string" },
-          "path": { "type": "string" },
-          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^ev_[0-9a-f]{64}$"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
     },
     "rea_facts_ref": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "sha256"],
+      "required": [
+        "path",
+        "sha256"
+      ],
       "properties": {
-        "path": { "type": "string" },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "rea_control_facts_ref": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "sha256"],
+      "required": [
+        "path",
+        "sha256"
+      ],
       "properties": {
-        "path": { "type": "string" },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "chain_verification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["head_hash", "command"],
+      "required": [
+        "head_hash",
+        "command"
+      ],
       "properties": {
-        "head_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "command": { "type": "string" }
+        "head_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "command": {
+          "type": "string"
+        }
       }
     }
   }
