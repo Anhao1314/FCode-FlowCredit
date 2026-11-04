@@ -298,7 +298,13 @@ body { margin: 0; }
 #app.intake-mode #composer-open,
 #app.intake-mode .run-chip,
 #app.intake-mode .composer-bar .c-btn.static { display: none; }
-  /* Moonshot stage专属变量（非全局令牌，仅stage-mode使用） */
+
+/* Moonshot stage 专属变量（非全局令牌，仅 stage-mode 使用）。
+   必须有 :root 包裹——裸声明是非法 CSS，会被解析器整段丢弃，
+   所有 var(--moonshot-mono) 字体声明随之失效回退 sans（首页标题字形
+   互相碰撞的根因）。 */
+:root {
   --moonshot-black: #0a0a0a;
   --moonshot-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
 
