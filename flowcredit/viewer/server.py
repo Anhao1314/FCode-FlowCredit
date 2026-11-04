@@ -237,6 +237,39 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return {"error": "unreadable REA evidence"}, 500
 
+    _DISPOSITIONS = ("accepted_risk", "false_positive_disputed", "wont_fix")
+
+    def _audit_disposition(self, name: str, finding_id: str,
+                           disposition: str) -> dict | tuple[dict, int]:
+        """Set operator_disposition on one finding in the pinned bundle.
+
+        This is a host decision recorded as data, not a model output. The
+        finding's status and PoC outcome are untouched — only the operator's
+        judgment field changes. The file is written atomically.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        if disposition not in self._DISPOSITIONS:
+            return {"error": f"invalid disposition; must be one of {self._DISPOSITIONS}"}, 400
+        bundle_path = (root / name / "audit-bundle.json").resolve()
+        if root.resolve() not in bundle_path.parents or not bundle_path.exists():
+            return {"error": "not found"}, 404
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable bundle"}, 500
+        for finding in bundle.get("findings") or []:
+            if finding.get("finding_id") == finding_id:
+                finding["operator_disposition"] = disposition
+                break
+        else:
+            return {"error": "finding not found"}, 404
+        tmp = bundle_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(bundle_path)
+        return {"finding_id": finding_id, "operator_disposition": disposition}
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -691,6 +724,17 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"error": "unauthorized"}, 401)
         if not self._mutation_guard():
             return
+        if path.startswith("/api/audit/disposition/"):
+            parts = [p for p in path.split("/") if p]
+            # /api/audit/disposition/<audit_dir>/<finding_id>
+            if len(parts) != 5:
+                return self._json({"error": "bad path"}, 400)
+            body = self._read_body()
+            result = self._audit_disposition(parts[3], parts[4],
+                                             str(body.get("disposition") or ""))
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
         return dispatch_post(self, path)
 
     def do_DELETE(self) -> None:  # noqa: N802

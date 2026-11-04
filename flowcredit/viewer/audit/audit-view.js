@@ -219,9 +219,32 @@ export function renderAuthorization(bundle) {
   </section>`;
 }
 
+export function renderDisposition(finding, dir) {
+  const current = finding.operator_disposition || "";
+  const labels = {
+    "": "— 无 —",
+    accepted_risk: "接受风险",
+    false_positive_disputed: "误报争议",
+    wont_fix: "不修复",
+  };
+  const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix"]
+    .map((value) => {
+      const selected = value === current ? " selected" : "";
+      return `<option value="${esc(value)}"${selected}>${esc(labels[value] || value)}</option>`;
+    })
+    .join("");
+  return `<div class="at-disp" data-finding="${esc(finding.finding_id || "")}" data-dir="${esc(dir)}">
+    <label class="at-disp-label">operator</label>
+    <select class="at-disp-select" data-finding="${esc(finding.finding_id || "")}">
+      ${options}
+    </select>
+  </div>`;
+}
+
 export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
+  const dir = options.dir || "";
   const findingRows = (bundle.findings || []).map((f) => {
     const ref = (f.poc_refs || [])[0];
     const rec = byId.get(ref) || {};
@@ -233,6 +256,7 @@ export function renderBundle(bundle, records, options = {}) {
         <span class="at-cat">${esc(f.category)}</span>
         <span class="at-sev">${esc(f.severity)}</span>
         ${outcomeBadge(outcome)}
+        ${renderDisposition(f, dir)}
       </div>
       <div class="at-fdetail">
         <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
@@ -259,7 +283,6 @@ export function renderBundle(bundle, records, options = {}) {
     }).join("");
 
   const reaFacts = options.reaFacts || null;
-  const dir = options.dir || "";
   return `
   <div class="at-bhead">
     <h1>发现账本</h1>
@@ -313,6 +336,10 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         const r = await fetchImpl(`/api/audit/evidence/${encodeURIComponent(dir)}/${encodeURIComponent(ref)}`);
         return r.json();
       }));
+      const current_dispositions = {};
+      for (const fd of bundle.findings || []) {
+        current_dispositions[fd.finding_id] = fd.operator_disposition || "";
+      }
       let reaFacts = null;
       const factsPath = (bundle.rea_facts_ref || {}).path;
       if (typeof factsPath === "string" && factsPath) {
@@ -327,6 +354,22 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         }
       }
       main.innerHTML = renderBundle(bundle, records, { dir, reaFacts });
+      main.querySelectorAll(".at-disp-select").forEach((select) => {
+        select.addEventListener("change", async () => {
+          const findingId = select.getAttribute("data-finding");
+          const disposition = select.value;
+          const res = await fetchImpl(
+            `/api/audit/disposition/${encodeURIComponent(dir)}/${encodeURIComponent(findingId)}`,
+            { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ disposition }) },
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            select.value = current_dispositions[findingId] || "";
+            console.error("disposition failed:", err);
+          }
+        });
+      });
     });
   });
 }

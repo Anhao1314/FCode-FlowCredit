@@ -100,3 +100,9 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
 .at-auth h3 { margin: 12px 0 6px; font-size: 12px; font-weight: 550; color: var(--text-3); }
 .at-auth-target, .at-auth-toolchain { margin-top: 10px; padding-top: 10px;
   border-top: 1px dashed var(--line-soft); }
+
+.at-disp { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.at-disp-label { font-size: 11px; color: var(--text-4); }
+.at-disp-select { border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  color: var(--text-2); font: 12px var(--font-ui); padding: 3px 6px; cursor: pointer; }
+.at-disp-select:focus { outline: var(--focus-ring); outline-offset: 1px; }

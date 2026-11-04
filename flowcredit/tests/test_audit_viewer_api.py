@@ -137,6 +137,51 @@ class AuditViewerApiTests(unittest.TestCase):
             # specific code.
             self.assertIn(caught.exception.code, (400, 404), path)
 
+    def test_disposition_updates_finding(self) -> None:
+        import urllib.request
+
+        body = json.dumps({"disposition": "accepted_risk"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req) as res:
+            result = json.loads(res.read())
+        self.assertEqual(result["operator_disposition"], "accepted_risk")
+
+        # Read back: the bundle file should now have the disposition
+        bundle_path = (pathlib.Path(self.tmp.name) / "work" / "audit"
+                       / "demo-target-test" / "audit-bundle.json")
+        bundle = json.loads(bundle_path.read_text())
+        self.assertEqual(
+            bundle["findings"][0]["operator_disposition"], "accepted_risk")
+
+    def test_disposition_rejects_invalid_value(self) -> None:
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps({"disposition": "not_a_real_disposition"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(req)
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_disposition_rejects_unknown_finding(self) -> None:
+        import urllib.error
+        import urllib.request
+
+        body = json.dumps({"disposition": "accepted_risk"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-9999",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(req)
+        self.assertEqual(caught.exception.code, 404)
+
     def test_rea_evidence_is_bundle_allowlisted(self) -> None:
         import urllib.error
         import urllib.request
