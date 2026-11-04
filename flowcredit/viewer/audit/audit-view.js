@@ -83,6 +83,56 @@ export function bundleItemHtml(entry, selected) {
     + `</span></button>`;
 }
 
+export function renderGoDeps(facts) {
+  const goOp = ((facts || {}).operations || {}).inspect_go_binary;
+  const deps = goOp && goOp.facts && Array.isArray(goOp.facts.dependencies) ? goOp.facts.dependencies : [];
+  if (!deps.length) return "";
+  const rows = deps.map((dep) => {
+    const pre = dep.prerelease ? ' <span class="at-badge at-warn">pre-release</span>' : "";
+    return `<tr><td class="at-mono">${esc(dep.path)}</td><td class="at-mono">${esc(dep.version || "")}</td><td>${pre}</td></tr>`;
+  }).join("");
+  return `<details class="at-expand"><summary>Go 依赖表 (${deps.length})</summary>
+    <table class="at-table"><thead><tr><th>path</th><th>version</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+  </details>`;
+}
+
+export function renderEntitlementDiff(facts) {
+  const host = (facts || {}).host || {};
+  const entitlements = Array.isArray(host.entitlements) ? host.entitlements : [];
+  const declared = Array.isArray(host.declared_features) ? host.declared_features : [];
+  if (!entitlements.length && !declared.length) return "";
+  const allKeys = [...new Set([...entitlements, ...declared])].sort();
+  const rows = allKeys.map((key) => {
+    const hasEnt = entitlements.includes(key);
+    const hasDecl = declared.includes(key);
+    const status = hasEnt && hasDecl
+      ? '<span class="at-badge at-ok">declared</span>'
+      : hasEnt ? '<span class="at-badge at-bad">undeclared</span>'
+      : '<span class="at-badge at-dim">declared only</span>';
+    return `<tr><td class="at-mono">${esc(key)}</td><td>${status}</td></tr>`;
+  }).join("");
+  return `<details class="at-expand"><summary>Entitlements 对照表 (${entitlements.length} observed / ${declared.length} declared)</summary>
+    <table class="at-table"><thead><tr><th>key</th><th>status</th></tr></thead><tbody>${rows}</tbody></table>
+  </details>`;
+}
+
+export function renderSidecarDetail(facts) {
+  const sidecars = ((facts || {}).host || {}).sidecars;
+  if (!Array.isArray(sidecars) || !sidecars.length) return "";
+  const rows = sidecars.map((s) => {
+    const flags = [];
+    if ((s.listener_without_auth || []).length) flags.push(`<span class="at-badge at-bad">未授权 listener ×${s.listener_without_auth.length}</span>`);
+    if ((s.secret_like || []).length) flags.push(`<span class="at-badge at-warn">secret-like ×${s.secret_like.length}</span>`);
+    if ((s.npm_install || []).length) flags.push(`<span class="at-badge at-warn">npm ×${s.npm_install.length}</span>`);
+    if ((s.dangerous_calls || []).length) flags.push(`<span class="at-badge at-dim">dangerous_calls ×${s.dangerous_calls.length}</span>`);
+    const flagHtml = flags.length ? flags.join(" ") : '<span class="at-badge at-ok">clean</span>';
+    return `<tr><td>${esc(s.name)}</td><td>${esc(String(s.source_files ?? 0))} src / ${esc(String(s.test_files ?? 0))} test</td><td>${flagHtml}</td><td>${s.runtime_bundled ? "runtime bundled" : "—"}</td></tr>`;
+  }).join("");
+  return `<details class="at-expand"><summary>Sidecar 详情 (${sidecars.length})</summary>
+    <table class="at-table"><thead><tr><th>name</th><th>files</th><th>flags</th><th>runtime</th></tr></thead><tbody>${rows}</tbody></table>
+  </details>`;
+}
+
 export function renderReaFacts(facts) {
   if (!facts || typeof facts !== "object") return "";
   const target = facts.target || {};
@@ -154,6 +204,9 @@ export function renderReaFacts(facts) {
     ${extras}
     ${validationRow}
     ${sidecarRows ? `<div class="at-kv"><span class="k">sidecars</span><span class="v">${esc(sidecars.map((item) => item.name || "?").join(", "))}</span></div>${sidecarRows}` : ""}
+    ${renderGoDeps(facts)}
+    ${renderEntitlementDiff(facts)}
+    ${renderSidecarDetail(facts)}
   </section>`;
 }
 

@@ -128,3 +128,14 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
 .at-sg-subject { font-weight: 500; color: var(--text-1); min-width: 0; flex: 1; }
 .at-sg-detail { color: var(--text-4); font-size: 11px; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
+
+.at-expand { margin-top: 10px; }
+.at-expand summary { cursor: pointer; font: 500 12px var(--font-ui); color: var(--text-3);
+  padding: 4px 0; }
+.at-expand summary:hover { color: var(--text-1); }
+.at-expand[open] summary { color: var(--text-1); }
+.at-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.at-table th { text-align: left; padding: 4px 8px; color: var(--text-4); font-weight: 500;
+  border-bottom: 1px solid var(--line-soft); }
+.at-table td { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); }
+.at-table td:first-child { word-break: break-all; }

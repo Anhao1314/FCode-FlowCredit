@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderAuthorization, renderBundle, renderBundles, renderChain, renderReaEvidence, renderReaFacts, renderSpecGap,
+  renderAuthorization, renderBundle, renderBundles, renderChain, renderGoDeps, renderEntitlementDiff, renderSidecarDetail, renderReaEvidence, renderReaFacts, renderSpecGap,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
@@ -244,6 +244,39 @@ test("spec-gap report:conforms 与 undetermined 判定", () => {
 test("spec-gap report:空报告不渲染", () => {
   assert.equal(renderSpecGap({ judgments: [] }), "");
   assert.equal(renderSpecGap(null), "");
+});
+
+test("Go 依赖表:展示依赖列表和 pre-release 标记", () => {
+  const html = renderGoDeps({
+    operations: { inspect_go_binary: { facts: { dependencies: [
+      { path: "example/rc", version: "v1.0.0-rc1", prerelease: true },
+      { path: "example/stable", version: "v1.2.3", prerelease: false },
+    ]}}},
+  });
+  assert.ok(html.includes("example/rc"), "dep path");
+  assert.ok(html.includes("pre-release"), "prerelease badge");
+  assert.ok(html.includes("v1.2.3"), "stable version");
+});
+
+test("entitlements 对照表:undeclared 高亮", () => {
+  const html = renderEntitlementDiff({
+    host: { entitlements: ["audio", "library-validation"],
+            declared_features: ["audio"] },
+  });
+  assert.ok(html.includes("audio"), "entitlement key");
+  assert.ok(html.includes("undeclared"), "undeclared badge");
+  assert.ok(html.includes(">declared<"), "declared badge");
+});
+
+test("sidecar 详情表:展示 flags", () => {
+  const html = renderSidecarDetail({
+    host: { sidecars: [
+      { name: "demo-bridge", source_files: 3, test_files: 2, runtime_bundled: false,
+        listener_without_auth: [{}], secret_like: [], npm_install: [], dangerous_calls: [] },
+    ]},
+  });
+  assert.ok(html.includes("demo-bridge"), "sidecar name");
+  assert.ok(html.includes("未授权 listener"), "unauth flag");
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {
