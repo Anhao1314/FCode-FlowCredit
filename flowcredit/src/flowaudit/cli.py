@@ -129,9 +129,6 @@ def cmd_audit(args: argparse.Namespace) -> int:
     from .rea.facts import _json_safe
     vibe_facts = _json_safe(scan_code_quality(target_copy))
 
-    if rea_snapshot is not None:
-        candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
-
     # Write vibe facts so rea_fact_evidence scenario can read them during replay.
     # For REA audits the adapter already wrote facts.json to the snapshot; for
     # repo audits we write it to the target copy here.
@@ -160,8 +157,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
             ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
     if rea_snapshot is not None:
+        # REA adapter already includes vibe_scan in its facts — no duplicate scan
         candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
-    candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
+    else:
+        # Repo adapter: VIBE rules match against the separate vibe facts document
+        candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     target_ref = {

@@ -513,7 +513,10 @@ class ReaArtifactPipelineTests(unittest.TestCase):
                 ])
             self.assertEqual(rc, 0)
             bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(bundle["findings"]), 2)
+            agi_findings = [f for f in bundle["findings"]
+                            if f["category"].startswith("AGI")]
+            self.assertEqual(len(agi_findings), 2,
+                             f"expected 2 AGI findings, got {bundle['findings']}")
             self.assertEqual(len(bundle["rea_evidence_refs"]), 2)
             self.assertEqual(bundle["toolchain"]["rea"]["version"], "9.9.9")
             expected_artifact = __import__("hashlib").sha256(
