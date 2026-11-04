@@ -281,9 +281,12 @@ class Handler(SimpleHTTPRequestHandler):
         root = self._audit_root()
         if root is None or not self._AUDIT_DIR_RE.match(name or ""):
             return {"error": "not found"}, 404
-        db_path = (root / name / "session.sqlite").resolve()
-        if root.resolve() not in db_path.parents or not db_path.exists():
-            return {"events": [], "chain_intact": True, "note": "no session log"}
+        audit_dir = (root / name).resolve()
+        if root.resolve() not in audit_dir.parents or not audit_dir.is_dir():
+            return {"error": "not found"}, 404
+        db_path = audit_dir / "session.sqlite"
+        if not db_path.exists():
+            return {"events": [], "chain_intact": True, "count": 0, "note": "no session log"}
         import sqlite3
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row

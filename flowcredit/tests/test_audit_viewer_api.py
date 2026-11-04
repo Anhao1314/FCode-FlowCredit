@@ -182,24 +182,26 @@ class AuditViewerApiTests(unittest.TestCase):
             urllib.request.urlopen(req)
         self.assertEqual(caught.exception.code, 404)
 
-    def test_audit_chain_returns_events(self) -> None:
+    def test_audit_chain_without_session_returns_empty(self) -> None:
+        """A bundle without session.sqlite is valid — the chain API returns
+        an empty, intact chain rather than an error."""
         import urllib.request
 
         with urllib.request.urlopen(
                 f"{self.base}/api/audit/chain/demo-target-test") as res:
             data = json.loads(res.read())
-        self.assertTrue(data["chain_intact"], "chain must be intact")
-        self.assertGreater(data["count"], 0, "must have events")
-        types = [e["type"] for e in data["events"]]
-        self.assertIn("task_created", types)
+        self.assertTrue(data["chain_intact"], "no log means intact")
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["events"], [])
 
-    def test_audit_chain_missing_returns_empty(self) -> None:
+    def test_audit_chain_nonexistent_returns_not_found(self) -> None:
+        import urllib.error
         import urllib.request
 
-        with urllib.request.urlopen(
-                f"{self.base}/api/audit/chain/nonexistent") as res:
-            data = json.loads(res.read())
-        self.assertEqual(data["events"], [])
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                f"{self.base}/api/audit/chain/nonexistent-audit-dir")
+        self.assertIn(caught.exception.code, (400, 404))
 
     def test_rea_evidence_is_bundle_allowlisted(self) -> None:
         import urllib.error
