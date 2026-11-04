@@ -287,6 +287,36 @@ def _control_rea_osv(facts: dict) -> tuple[bool, str]:
     )
 
 
+def _oracle_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
+    """Generic VIBE oracle: selected rows exist = finding; empty = clear.
+
+    All VIBE rules use the same shape: trigger matches when the selector
+    resolves to a non-empty list. The host oracle confirms by checking
+    the pinned facts, not the model's claim.
+    """
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        hits = [item for item in selected if item]
+        return bool(hits), (
+            f"selected {len(hits)} quality-issue rows"
+            if hits else "no quality-issue rows were selected"
+        )
+    return bool(selected), (
+        f"selected value: {str(selected)[:200]}"
+        if selected else "no value was selected"
+    )
+
+
+def _control_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        return not selected, (
+            "control projection has no quality-issue rows"
+            if not selected else "control still has quality-issue rows"
+        )
+    return not selected, "control projection is empty"
+
+
 def _oracle_rea_runtime_install(facts: dict) -> tuple[bool, str]:
     selected = facts.get("selected")
     hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
@@ -317,6 +347,10 @@ _ORACLE_POC = {
     ("rea_fact_evidence", "RULE-AGI05-102"): _oracle_rea_sidecar_npm,
     ("rea_fact_evidence", "RULE-AGI05-103"): _oracle_rea_osv,
     ("rea_fact_evidence", "RULE-AGI05-104"): _oracle_rea_runtime_install,
+    ("rea_fact_evidence", "RULE-VIBE01-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-002"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE03-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE04-001"): _oracle_rea_vibe_generic,
 }
 _ORACLE_CONTROL = {
     "fcode02_remember_scope": _control_fcode02,
@@ -330,6 +364,10 @@ _ORACLE_CONTROL = {
     ("rea_fact_evidence", "RULE-AGI05-102"): _control_rea_sidecar_npm,
     ("rea_fact_evidence", "RULE-AGI05-103"): _control_rea_osv,
     ("rea_fact_evidence", "RULE-AGI05-104"): _control_rea_runtime_install,
+    ("rea_fact_evidence", "RULE-VIBE01-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-002"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE03-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE04-001"): _control_rea_vibe_generic,
 }
 
 

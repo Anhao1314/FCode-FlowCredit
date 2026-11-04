@@ -132,10 +132,36 @@ def cmd_audit(args: argparse.Namespace) -> int:
     if rea_snapshot is not None:
         candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
 
-    # VIBE rules: only for REA adapter (which produces facts.json for replay)
+    # Write vibe facts so rea_fact_evidence scenario can read them during replay.
+    # For REA audits the adapter already wrote facts.json to the snapshot; for
+    # repo audits we write it to the target copy here.
+    vibe_facts_doc = {"host": {"vibe_scan": vibe_facts}}
+    if rea_snapshot is None:
+        facts_file = target_copy / "facts.json"
+        facts_file.write_text(json.dumps(
+            {"schema_version": "fcode.rea-facts/v1",
+             "target": {"identity": str(target)},
+             "host": {"vibe_scan": vibe_facts}},
+            ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        control_file = target_copy / "control-facts.json"
+        neutralized = json.loads(json.dumps(vibe_facts, default=str))
+        neutralized["god_files"] = []
+        neutralized["todo_hotspots"] = []
+        for issue in neutralized.get("issue_files", []):
+            if isinstance(issue, dict) and "issues" in issue:
+                issues = issue["issues"]
+                for key in ("god_functions", "silent_catches"):
+                    if key in issues:
+                        issues[key] = []
+        control_file.write_text(json.dumps(
+            {"schema_version": "fcode.rea-facts/v1",
+             "target": {"identity": str(target)},
+             "host": {"vibe_scan": neutralized}},
+            ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
     if rea_snapshot is not None:
-        vibe_facts_doc = {"host": {"vibe_scan": vibe_facts}}
-        candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
+        candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
+    candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     target_ref = {
