@@ -332,6 +332,14 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
     document.getElementById("app")?.classList.remove("stage-mode");
   }
   main.innerHTML = html;
+  // 离开审计面就清掉 #/audit hash:URL 必须始终反映当前 surface,否则用户
+  // 刷新/分享时会被旧深链拽回审计台。renderMain 是视图变更的唯一入口,
+  // 「新对话」等不经过 renderMode 的路径也在这里被覆盖。
+  const previousView = main.dataset.view;
+  if (previousView === "audit" && mode !== "audit"
+      && auditHashTarget(location.hash) !== null) {
+    history.replaceState(null, "", location.pathname + location.search);
+  }
   main.dataset.view = mode;
   store.mode = mode;
   paintNavActive();
@@ -806,6 +814,19 @@ async function renderAudit() {
   const item = document.querySelector(
     `#at-bundles .at-bitem[data-dir="${CSS.escape(preselect)}"]`);
   if (item) item.click();
+  else healAuditDeepLink();
+}
+
+/* 死链自愈:深链指向已删除/不存在的包时,URL 退回审计根、清除选中态、
+   详情回到占位——URL 永远不宣传一条打不开的链接。 */
+function healAuditDeepLink() {
+  writeAuditHash("");
+  document.querySelectorAll("#at-bundles .at-bitem.at-sel")
+    .forEach(b => b.classList.remove("at-sel"));
+  const detail = document.getElementById("at-main");
+  if (detail) {
+    detail.innerHTML = '<div class="at-none dim">选择左侧一次审计,查看它的发现与证据。</div>';
+  }
 }
 
 /* 运行轨迹一律走 API，而不是 `runs/<id>/trace.json` 这个静态路径：静态路径只在
@@ -5890,6 +5911,7 @@ window.addEventListener("hashchange", () => {
   const item = document.querySelector(
     `#at-bundles .at-bitem[data-dir="${CSS.escape(target)}"]`);
   if (item) item.click();
+  else healAuditDeepLink();
 });
 
 /* ================================================================= 侧栏复刻 · 第二批接线
