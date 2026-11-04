@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
-  renderAuthorization, renderBundle, renderBundles, renderChain, renderReaEvidence, renderReaFacts,
+  renderAuthorization, renderBundle, renderBundles, renderChain, renderReaEvidence, renderReaFacts, renderSpecGap,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
 
@@ -220,6 +220,30 @@ test("provenance chain:断裂时显示警告", () => {
     ],
   });
   assert.ok(html.includes("链断裂"), "tamper warning");
+});
+
+test("spec-gap report:conforms 与 undetermined 判定", () => {
+  const html = renderSpecGap({
+    report_id: "spec-gap-demo",
+    judgments: [
+      { judgment_id: "SG-0001", subject: "workspace-write 下写 /tmp",
+        verdict: "conforms", basis: { doc_refs: ["README.md:46"] } },
+      { judgment_id: "SG-0002", subject: "session 归属校验",
+        verdict: "undetermined",
+        missing_spec: { question: "是否校验 session 归属？", searched_refs: ["docs/"], result: "未找到规范" } },
+    ],
+  });
+  assert.ok(html.includes("SG-0001"), "judgment id");
+  assert.ok(html.includes("conforms"), "conforms badge");
+  assert.ok(html.includes("undetermined"), "undetermined badge");
+  assert.ok(html.includes("workspace-write"), "subject");
+  assert.ok(html.includes("1 conforms"), "conforms count");
+  assert.ok(html.includes("1 undetermined"), "undetermined count");
+});
+
+test("spec-gap report:空报告不渲染", () => {
+  assert.equal(renderSpecGap({ judgments: [] }), "");
+  assert.equal(renderSpecGap(null), "");
 });
 
 test("空账本与空列表给出可读空态,而不是空白", () => {

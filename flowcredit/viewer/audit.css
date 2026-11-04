@@ -118,3 +118,13 @@ html, body { background: #fbfbfb; color: rgba(0, 0, 0, .88); }
   text-overflow: ellipsis; white-space: nowrap; }
 .at-chain-detail .at-chain-k { color: var(--text-4); font-size: 11px; margin-right: 2px; }
 .at-chain-hash { flex: none; font-size: 10px; }
+
+.at-sg { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-soft); }
+.at-sg h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.at-sg h2 .at-badge { margin-left: 6px; font-size: 11px; }
+.at-sg-list { display: flex; flex-direction: column; gap: 4px; }
+.at-sg-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px;
+  padding: 4px 8px; border-radius: 6px; background: var(--panel); }
+.at-sg-subject { font-weight: 500; color: var(--text-1); min-width: 0; flex: 1; }
+.at-sg-detail { color: var(--text-4); font-size: 11px; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }

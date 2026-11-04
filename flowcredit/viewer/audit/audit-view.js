@@ -268,6 +268,34 @@ export function renderChain(chain) {
   </section>`;
 }
 
+export function renderSpecGap(report) {
+  if (!report || typeof report !== "object") return "";
+  const judgments = report.judgments || [];
+  if (!judgments.length) return "";
+  const conforms = judgments.filter((j) => j.verdict === "conforms");
+  const undetermined = judgments.filter((j) => j.verdict === "undetermined");
+  const rows = judgments.map((j) => {
+    const tone = j.verdict === "conforms" ? "ok" : "dim";
+    const badge = `<span class="at-badge at-${tone}">${esc(j.verdict)}</span>`;
+    const detail = j.verdict === "conforms"
+      ? (j.basis ? `<span class="dim">${esc((j.basis.doc_refs || []).join(", "))}</span>` : "")
+      : (j.missing_spec ? `<span class="dim">${esc(j.missing_spec.question || "")}</span>` : "");
+    return `<div class="at-sg-row">
+      <span class="at-mono">${esc(j.judgment_id)}</span>
+      <span class="at-sg-subject">${esc(j.subject)}</span>
+      ${badge}
+      <span class="at-sg-detail">${detail}</span>
+    </div>`;
+  }).join("");
+  return `<section class="at-sg">
+    <h2>Spec-gap report
+      <span class="at-badge at-ok">${conforms.length} conforms</span>
+      ${undetermined.length ? `<span class="at-badge at-dim">${undetermined.length} undetermined</span>` : ""}
+    </h2>
+    <div class="at-sg-list">${rows}</div>
+  </section>`;
+}
+
 export function renderBundle(bundle, records, options = {}) {
   const sum = summarizeBundle(bundle);
   const byId = new Map((records || []).map((r) => [r.poc_id, r]));
@@ -333,6 +361,7 @@ export function renderBundle(bundle, records, options = {}) {
   ${renderReaFacts(reaFacts)}
   ${renderUncovered(bundle)}
   ${options.chain ? renderChain(options.chain) : ""}
+  ${options.specGap ? renderSpecGap(options.specGap) : ""}
   <div class="at-note dim">UI 只显示证据支持的状态:徽章来自 poc-evidence 的 outcome,不来自任何人的声称。</div>`;
 }
 
@@ -386,7 +415,12 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
         const chainRes = await fetchImpl(`/api/audit/chain/${encodeURIComponent(dir)}`);
         if (chainRes.ok) chain = await chainRes.json();
       } catch { chain = null; }
-      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain });
+      let specGap = null;
+      try {
+        const sgRes = await fetchImpl(`/api/audit/spec-gap/${encodeURIComponent(dir)}`);
+        if (sgRes.ok) specGap = await sgRes.json();
+      } catch { specGap = null; }
+      main.innerHTML = renderBundle(bundle, records, { dir, reaFacts, chain, specGap });
       main.querySelectorAll(".at-disp-select").forEach((select) => {
         select.addEventListener("change", async () => {
           const findingId = select.getAttribute("data-finding");

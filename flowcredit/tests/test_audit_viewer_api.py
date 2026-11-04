@@ -203,6 +203,41 @@ class AuditViewerApiTests(unittest.TestCase):
                 f"{self.base}/api/audit/chain/nonexistent-audit-dir")
         self.assertIn(caught.exception.code, (400, 404))
 
+    def test_spec_gap_present(self) -> None:
+        import urllib.request
+
+        report_path = (pathlib.Path(self.tmp.name) / "work" / "audit"
+                       / "demo-target-test" / "spec-gap-report.json")
+        report_path.write_text(json.dumps({
+            "schema_version": "fcode.spec-gap-report/v1",
+            "report_id": "spec-gap-demo",
+            "audit_id": "demo-target-test",
+            "target": {"identity": "demo", "artifact_sha256": "a" * 64,
+                       "session_log_sha256": "b" * 64},
+            "generated_at": "2026-11-01T00:00:00Z",
+            "judgments": [{"judgment_id": "SG-0001", "subject": "s",
+                           "verdict": "conforms",
+                           "basis": {"doc_refs": ["r"]},
+                           "evidence_refs": [{"kind": "dsh_event", "session_id": "s",
+                                              "seq": 0, "event_type": "e",
+                                              "log_path": "p", "log_sha256": "c" * 64,
+                                              "log_format": "jsonl"}]},
+            ]}), encoding="utf-8")
+        with urllib.request.urlopen(
+                f"{self.base}/api/audit/spec-gap/demo-target-test") as res:
+            report = json.loads(res.read())
+        self.assertEqual(report["schema_version"], "fcode.spec-gap-report/v1")
+        self.assertEqual(len(report["judgments"]), 1)
+
+    def test_spec_gap_missing_returns_404(self) -> None:
+        import urllib.error
+        import urllib.request
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                f"{self.base}/api/audit/spec-gap/demo-target-test")
+        self.assertEqual(caught.exception.code, 404)
+
     def test_rea_evidence_is_bundle_allowlisted(self) -> None:
         import urllib.error
         import urllib.request

@@ -324,6 +324,25 @@ class Handler(SimpleHTTPRequestHandler):
         finally:
             conn.close()
 
+    def _audit_spec_gap(self, name: str) -> dict | tuple[dict, int]:
+        """Read the spec-gap report if it exists alongside the bundle.
+
+        The spec-gap report records conforms/undetermined judgments —
+        documentation-vs-observation conclusions that are not audit-bundle
+        findings. It is generated separately via
+        ``python audit.py spec-gap-report --input … --out …``.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        path = (root / name / "spec-gap-report.json").resolve()
+        if root.resolve() not in path.parents or not path.exists():
+            return {"error": "no spec-gap report"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable spec-gap report"}, 500
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -535,6 +554,12 @@ class Handler(SimpleHTTPRequestHandler):
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
             result = self._audit_evidence(parts[3], parts[4])
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/spec-gap/"):
+            audit_dir = path[len("/api/audit/spec-gap/"):].strip("/")
+            result = self._audit_spec_gap(audit_dir)
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
