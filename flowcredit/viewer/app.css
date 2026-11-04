@@ -298,3 +298,7 @@ body { margin: 0; }
 #app.intake-mode #composer-open,
 #app.intake-mode .run-chip,
 #app.intake-mode .composer-bar .c-btn.static { display: none; }
+  /* Moonshot stage专属变量（非全局令牌，仅stage-mode使用） */
+  --moonshot-black: #0a0a0a;
+  --moonshot-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+

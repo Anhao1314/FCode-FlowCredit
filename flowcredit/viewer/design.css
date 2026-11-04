@@ -2274,3 +2274,84 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   .project-result-foot { flex-wrap: wrap; }
   .project-result-foot .grow { display: none; }
 }
+
+/* ================================================================ Moonshot stage（原 moonshot.css，v7 收敛迁入）
+   职责：#app.stage-mode 开屏舞台全套——打字机标题/轨道场景/光标、
+   stage-dock 与 stage-chips 槽位、reduce-motion 分支。
+   变量 --moonshot-mono/--moonshot-black 已迁 app.css :root。
+   ================================================================ */
+
+/* ================================================================ 2 · MOONSHOT STAGE
+   Formerly moonshot.css — stage-mode visuals (typewriter title, orbit
+   scene, stage dock/prompts/chips, reduce-motion branches).
+   ================================================================ */
+
+#app.stage-mode .workspace,
+#app.stage-mode .center,
+#app.stage-mode .main { background: var(--canvas); }
+#app.stage-mode .main-inner {
+  box-sizing: border-box; max-width: 1060px; padding: 0 40px 28px;
+}
+.moonshot-stage {
+  width: min(840px, 100%); min-height: min(700px, calc(100svh - 64px));
+  margin: 0 auto; padding-top: clamp(64px, 11vh, 126px);
+  align-items: stretch; justify-content: flex-start; text-align: left;
+}
+.moonshot-stage-top { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 236px; align-items: center; gap: 24px; }
+.moonshot-stage-copy { min-width: 0; }
+.moonshot-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 22px; color: var(--text-3); font: 10px/16px var(--moonshot-mono); letter-spacing: .08em; }
+.moonshot-pixel { width: 7px; height: 7px; background: var(--text-1); box-shadow: 10px 0 0 var(--line-strong); margin-right: 10px; }
+.moonshot-kicker .stage-badge { margin: 0 0 0 3px; padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 3px; background: transparent; color: var(--text-2); font: 10px/15px var(--moonshot-mono); }
+.moonshot-title { display: block; margin: 0; color: var(--text-1); font: 400 clamp(40px, 4.4vw, 58px)/1.1 var(--moonshot-mono); letter-spacing: -.065em; }
+.moonshot-title-line { display: block; width: fit-content; white-space: nowrap; clip-path: inset(0 100% 0 0); animation: moonshot-type .8s steps(10, end) .08s forwards; }
+.moonshot-title-line + .moonshot-title-line { animation-delay: .5s; }
+.moonshot-cursor { display: inline-block; box-sizing: border-box; width: .45em; height: .76em; margin-left: .13em; background: var(--text-1); vertical-align: -.02em; animation: moonshot-cursor 1s steps(1, end) 1.3s infinite; }
+.moonshot-stage .stage-note { max-width: 520px; margin: 18px 0 0; color: var(--text-2); font: 14px/23px var(--font-ui); }
+.moonshot-scene { position: relative; align-self: center; height: 180px; color: var(--text-3); opacity: .78; pointer-events: none; }
+.moonshot-scene svg { display: block; width: 100%; height: 152px; }
+.moonshot-scene > span { display: block; margin-top: -4px; text-align: center; font: 8px/14px var(--moonshot-mono); letter-spacing: .09em; }
+.moonshot-orbits { fill: none; stroke: var(--line-strong); stroke-width: .8; stroke-dasharray: 1 5; transform-origin: 172px 100px; animation: moonshot-orbit 48s linear infinite; }
+.moonshot-moon { fill: #151515; }
+.moonshot-moon path { fill: var(--canvas); opacity: .25; }
+.moonshot-pixels { fill: var(--text-3); }
+.moonshot-stage .stage-dock { width: 100%; margin-top: 38px; align-self: stretch; }
+.moonshot-stage .composer { max-width: none; }
+.stage-prompts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.stage-prompt { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 42px; padding: 9px 11px; border: 0; border-radius: 10px; background: transparent; color: var(--text-2); font: 12px/18px var(--font-ui); text-align: left; cursor: pointer; transition: background .15s, color .15s; }
+.stage-prompt:hover { background: var(--panel); color: var(--text-1); }
+.stage-prompt-no { color: var(--text-4); font: 10px/16px var(--moonshot-mono); }
+.stage-prompt-arrow { margin-left: auto; color: var(--text-4); }
+.moonshot-stage .stage-chips { align-self: flex-start; margin-top: 10px; }
+.moonshot-stage .stage-chip { border-color: var(--line); border-radius: 8px; background: transparent; color: var(--text-2); }
+.moonshot-stage .stage-chip:hover { background: var(--panel); border-color: var(--line-strong); color: var(--text-1); }
+.moonshot-stage .stage-foot { max-width: none; margin: 18px 0 0; color: var(--text-3); text-align: left; font-size: 11px; }
+.moonshot-stage-foot { display: flex; justify-content: space-between; gap: 20px; margin-top: auto; padding-top: 36px; color: var(--text-4); font: 9px/16px var(--moonshot-mono); letter-spacing: .06em; }
+.moonshot-stage-foot span:first-child { color: var(--text-3); font-family: var(--font-ui); letter-spacing: .12em; }
+@keyframes moonshot-type { to { clip-path: inset(0); } }
+@keyframes moonshot-cursor { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+@keyframes moonshot-orbit { to { transform: rotate(360deg); } }
+body.reduce-motion .moonshot-title-line,
+body.reduce-motion .moonshot-cursor,
+body.reduce-motion .moonshot-orbits { animation: none !important; }
+body.reduce-motion .moonshot-title-line { clip-path: none; }
+@media (prefers-reduced-motion: reduce) {
+  .moonshot-title-line, .moonshot-cursor, .moonshot-orbits { animation: none !important; }
+  .moonshot-title-line { clip-path: none; }
+}
+@media (max-width: 900px) {
+  #app.stage-mode .main-inner { padding: 0 26px 22px; }
+  .moonshot-stage { min-height: calc(100svh - 44px); padding-top: 64px; }
+  .moonshot-stage-top { grid-template-columns: minmax(0, 1fr) 180px; }
+  .moonshot-scene { opacity: .52; }
+}
+@media (max-width: 640px) {
+  #app.stage-mode .main-inner { padding: 0 16px 18px; }
+  .moonshot-stage { padding-top: 52px; }
+  .moonshot-stage-top { display: block; }
+  .moonshot-title { font-size: clamp(34px, 10vw, 46px); }
+  .moonshot-scene { position: absolute; right: -60px; top: -42px; width: 220px; opacity: .16; }
+  .moonshot-stage .stage-dock { margin-top: 32px; }
+  .stage-prompts { grid-template-columns: 1fr; gap: 2px; }
+  .stage-prompt { min-height: 38px; }
+  .moonshot-stage-foot span:last-child { display: none; }
+}
