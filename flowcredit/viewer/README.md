@@ -18,10 +18,8 @@ flowcredit/viewer/
   desktop.css         ← ?desktop=1 桌面模式壳几何（第二加载）
   design.css          ← 组件视觉 / Paper & Proof 审计组件（第三加载）
   chat.css            ← 对话消息 / 气泡 / 代码块 / 附件 / 设置卡片（第四加载）
-  kimi.css            ← 过渡视图层：对话皮肤、侧栏功能件、run-card（待迁移）
-  moonshot.css        ← 开屏舞台（打字机标题/轨道场景/reduce-motion）
-  workspace.css       ← 过渡视图层：壳观感定稿 + 响应式四段（待迁移）
-  thread.css          ← 统一任务线程：Codex 式阅读列、工具行、审批、计划（最后加载）
+  thread.css          ← 合并壳层 v7：sidebar/composer/menus → moonshot stage
+                        → shell/responsive → task thread（最后加载）
   app.js              ← 页面逻辑（对话 / 委托 / 回放 / 运行管理）
   app/
     task-thread.js    运行 trace → 统一任务线程（纯投影 + 单条渲染，Node 可测）
@@ -46,9 +44,10 @@ flowcredit/viewer/
 ```
 
 样式栈按 tokens → layout → components → views 分层，加载顺序固定为
-`app.css → desktop.css → design.css → chat.css → kimi.css → moonshot.css →
-workspace.css → thread.css`：令牌只在 `app.css :root` 定义一次，其余文件只消费不改写；
-`kimi.css` 与 `workspace.css` 是过渡层（其规则正按职责迁往前三层，迁完删除）。
+`app.css → desktop.css → design.css → chat.css → thread.css`：令牌只在
+`app.css :root` 定义一次，其余文件只消费不改写。`kimi.css`/`moonshot.css`/
+`workspace.css` 已合并进 `thread.css`（v7 收敛），后续步骤把其中的规则按
+职责迁往前四层后删除对应段落。
 设计语言分两面：外壳与对话面走黑白灰克制皮肤，审计底稿与证据面走
 Paper & Proof（`../docs/design-system.md`）。
 

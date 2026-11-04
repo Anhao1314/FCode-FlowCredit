@@ -350,7 +350,7 @@ Task ──< Plan ──< Step/Todo
 | P1 | **两套 `desktop/`，功能互有缺失** | 根：release 打包 + token 鉴权；`flowcredit/desktop/`：冒烟测试 + provider 环境隔离。451 行差异 | 用户不知道该改哪套；两份 README 各自指向自己那份 |
 | P2 | **`sft/ → demo/` 反向边** | `sft/export.py:35`、`sft/evaluate.py:17-18` | 训练管线无法脱离演示层单独复用 |
 | P2 | **`tools/workspace.py` 与 `tools/general/` 职责重叠** | 共享工具 vs 通用域工具，靠约定区分 | 新增领域时不知道工具该放哪 |
-| P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
+| P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | CSS 已收敛（9→6 文件），JS 拆分待做 |
 | P2 | **审计目标适配器覆盖仍不完整** | 已落地 `repo` 与 `rea`（artifact）；desktop-app / http / mcp 仍在 `targets/__init__.py` 标注为计划 | 对外表述要与适配器矩阵一致；REA 只覆盖静态制品事实，动态/远程目标仍缺 |
 | P3 | **生成物入库** | `flowcredit/artifacts/` 388 个文件 | clone 体积；但作为 benchmark 证据可以接受 |
 | P3 | **`archive/` 1.7 MB** | 旧 Node 原型 | 历史价值 vs 仓库重量 |
