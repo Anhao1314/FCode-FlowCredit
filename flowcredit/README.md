@@ -92,7 +92,7 @@ python viewer/server.py --repo . --port 8642
 
 ```bash
 python audit.py audit fixtures/demo-target
-# 浏览器打开 http://127.0.0.1:8642/audit.html
+# 浏览器打开 http://127.0.0.1:8642/ → 侧栏「审计台」(或直接 #/audit)
 ```
 
 制品审计（没有源码的 `.app` / 二进制 / JS 树）用 REA 证据：

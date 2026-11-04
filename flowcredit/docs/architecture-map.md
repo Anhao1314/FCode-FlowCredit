@@ -434,7 +434,7 @@ flowaudit/
   jsonschema_lite.py  零依赖 schema 校验
 audit-rules/  JSON 规则即数据（index + schema + examples）
 fixtures/     demo-target（MiniAgent 靶子）/ fcode-self（7 个自体缺陷 ground truth）
-viewer/       audit.html / audit.css / audit/audit-view.js / audit_jobs.py
+viewer/       audit/audit-view.js(统一壳 #/audit surface) / audit_jobs.py
 docs/         audit-methodology · capability-map · threat-model
               · rule-authoring · integration-rea · sprint2-acceptance · tech-debt
 ```

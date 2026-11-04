@@ -44,7 +44,7 @@
 | 状态机建模 | `core/contracts.py` 显式迁移表,存储层强制 | `test_illegal_transition_is_rejected` |
 | 测试设计 | 791 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 183 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
 | 契约即测试 | 证据 Schema 用 stdlib 迷你校验器 enforced;8 类篡改用例(自报 PASS/非宿主 oracle/改环境标志…)全部被拒 | `python -m unittest tests.test_audit_contracts` |
-| 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台 `audit.html` + `/api/audit/*` 已落地 | `python viewer/server.py --repo .` 后打开 `/audit.html` |
+| 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台为统一壳内 surface(`#/audit`)+ `/api/audit/*` 已落地 | `python viewer/server.py --repo .` 后从侧栏「审计台」进入,旧 `/audit.html` 链接 302 到 `#/audit` |
 | 文档能力 | `docs/`:架构、威胁模型、审计方法论、规则指南、外部评审裁决记录(`design-reviews/`) | 随便打开一篇 |
 | AI 协作工程 | 人掌握 Design(评审裁决记录可查),AI 执行杠杆;对抗性外部评审 49 条逐条裁决归档 | `docs/design-reviews/2026-10-31-kimi.md` |
 

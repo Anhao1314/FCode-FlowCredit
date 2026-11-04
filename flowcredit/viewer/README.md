@@ -10,10 +10,8 @@
 
 ```
 flowcredit/viewer/
-  index.html          ← Work / Chat 外壳（零依赖、零构建）
-  audit.html          ← 审计台外壳（发现账本只读视图）
-  audit.css           ← 审计台视觉
-  audit/audit-view.js ← 审计台投影与渲染
+  index.html          ← 唯一外壳（零依赖、零构建；对话 / 运行 / 功能页 / 审计台）
+  audit/audit-view.js ← 审计台投影与渲染（统一壳 #/audit surface，纯函数模块）
   app.css             ← design tokens（全站唯一 :root）+ 基础基元 + 外壳布局（第一加载）
   desktop.css         ← ?desktop=1 桌面模式壳几何（第二加载）
   design.css          ← 组件视觉 / Paper & Proof 审计组件（第三加载）
@@ -95,7 +93,8 @@ open 'http://127.0.0.1:8642/?desktop=1'
 
 ## 审计台
 
-`/audit.html` 是只读的发现账本，不是另一个执行入口：
+审计台是统一壳内的一个 surface（侧栏「审计台」，深链 `#/audit/<dir>`；旧
+`/audit.html` 链接由服务端 302 接管），是只读的发现账本，不是另一个执行入口：
 
 - 左侧列出 `work/audit/<audit_id>/` 的 bundle；
 - 中间渲染 findings、PoC Evidence、负对照与 `uncovered_surfaces`；

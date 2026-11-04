@@ -43,6 +43,8 @@ export const WORK_NAV = [
     title: "委托汇总与成本账本", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "reviews", label: "判断记录", icon: "clipboard-list",
     title: "你在判断面里做过的选择", kimi: "FCode 自有（Kimi 无对应槽位）" },
+  { open: "audit", label: "审计台", icon: "shield-check",
+    title: "发现账本:审计器产出的缺陷与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "scheduled", label: "定时任务", icon: "calendar",
     title: "把重复的委托排上日程", kimi: "cron（Kimi Work 的 Scheduled）" },
   { open: "canvas", label: "Canvas", icon: "cube", reserved: true,
@@ -67,6 +69,7 @@ export const CHAT_NAV = [
 
 export const CHAT_MORE_NAV = [
   { open: "ledger", label: "看板 · 账本", icon: "layout-grid", title: "委托汇总与成本账本" },
+  { open: "audit", label: "审计台", icon: "shield-check", title: "发现账本:审计器产出的缺陷与证据" },
 ];
 
 /* 预留槽位的索引：open 键 → 条目。页面用它在预留页上印出"对应 Kimi 的什么、

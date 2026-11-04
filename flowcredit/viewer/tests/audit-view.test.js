@@ -348,3 +348,11 @@ test("链完整性:kernel 校验失败时显示断裂与原因;link-only 弱校�
     events: [{ sequence: 1, type: "task_created", payload: {}, hash: "b".repeat(12), at: "t" }] });
   assert.ok(weak.includes("仅链接校验"), "弱校验不得冒充完整校验");
 });
+
+test("DISPOSITION_LABELS:三档处置与清除的单一标签来源", async () => {
+  const { DISPOSITION_LABELS } = await import("../audit/audit-view.js");
+  assert.equal(DISPOSITION_LABELS.accepted_risk, "接受风险");
+  assert.equal(DISPOSITION_LABELS.false_positive_disputed, "误报争议");
+  assert.equal(DISPOSITION_LABELS.wont_fix, "不修复");
+  assert.equal(DISPOSITION_LABELS[""], "— 无 —");
+});

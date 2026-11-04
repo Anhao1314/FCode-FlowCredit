@@ -279,7 +279,74 @@ class Handler(SimpleHTTPRequestHandler):
                 tmp.replace(bundle_path)
         except (OSError, ValueError):
             return {"error": "unreadable bundle"}, 500
+        self._audit_chain_disposition_event(name, bundle, finding_id, disposition)
         return {"finding_id": finding_id, "operator_disposition": disposition or None}
+
+    def _audit_disposition_summary(self) -> list[dict]:
+        """操作员对审计发现的处置汇总(判断记录页的「审计处置」区段)。
+
+        与 run 判断(review_decided 事件)语义不同、并列展示,不并入四类
+        计数。损坏的 bundle 跳过——一份坏文件不能藏起其余历史。
+        """
+        root = self._audit_root()
+        if root is None or not root.is_dir():
+            return []
+        rows: list[dict] = []
+        for path in sorted(root.glob("*/audit-bundle.json")):
+            if not self._AUDIT_DIR_RE.match(path.parent.name):
+                continue
+            try:
+                bundle = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            target = str((bundle.get("target") or {}).get("identity") or "")
+            for finding in bundle.get("findings") or []:
+                disposition = finding.get("operator_disposition")
+                if not disposition:
+                    continue
+                rows.append({
+                    "dir": path.parent.name,
+                    "audit_id": bundle.get("audit_id"),
+                    "finding_id": finding.get("finding_id"),
+                    "disposition": disposition,
+                    "category": finding.get("category"),
+                    "severity": finding.get("severity"),
+                    "target": target,
+                })
+        rows.sort(key=lambda row: str(row.get("audit_id") or ""))
+        return rows
+
+    def _audit_chain_disposition_event(self, name: str, bundle: dict,
+                                       finding_id: str, disposition: str) -> None:
+        """处置落签名链:bundle 写完之后追加一条 operator 事件。
+
+        bundle 的渲染读取不需要链,所以失败只降级(处置仍在 bundle 里,
+        只是少了防篡改轨迹),不影响端点结果。没有 session.sqlite 的包
+        (纯 cli-batch 产物)同样静默跳过。
+        """
+        if getattr(self.manager, "runtime", None) is None:
+            # 静态模式(runtime 未起)也要能落链:与 console_manager 同法,
+            # 从 viewer 旁边的源码检出导入 flowaudit/flowagent。
+            src = VIEWER_DIR.parent / "src"
+            if str(src) not in sys.path and (src / "flowaudit" / "__init__.py").exists():
+                sys.path.insert(0, str(src))
+        try:
+            from flowagent.core.store import TaskStore
+            from flowaudit.session import AuditSession
+        except ImportError:
+            return
+        root = self._audit_root()
+        if root is None:
+            return
+        db_path = root / name / "session.sqlite"
+        if not db_path.exists():
+            return
+        audit_id = str(bundle.get("audit_id") or name)
+        try:
+            session = AuditSession.attach(TaskStore(db_path), f"audit-{audit_id}")
+            session.record_disposition(finding_id, disposition)
+        except Exception:  # noqa: BLE001 — 链事件是增强,bundle 写入已成功
+            pass
 
     def _audit_chain(self, name: str) -> dict | tuple[dict, int]:
         """Read the audit session's hash-linked event chain from session.sqlite.
@@ -483,6 +550,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._reject_unauthorized(path)
         if path.startswith("/api/"):
             return self._api_get(path)
+        if path == "/audit.html":
+            # 审计台已并入统一壳(#/audit surface);独立页退役,旧链接不断。
+            self.send_response(302)
+            self.send_header("Location", "/#/audit")
+            self.end_headers()
+            return
         if forbidden_static_path(path):
             self.send_error(404)
             return
@@ -654,13 +727,13 @@ class Handler(SimpleHTTPRequestHandler):
                 values = query.get(name) or [""]
                 return str(values[0] or "").strip()
 
-            return self._json(
-                mgr.review_profile(
-                    module=param("module"),
-                    template=param("template"),
-                    outcome=param("outcome"),
-                )
+            profile = mgr.review_profile(
+                module=param("module"),
+                template=param("template"),
+                outcome=param("outcome"),
             )
+            profile["audit_dispositions"] = self._audit_disposition_summary()
+            return self._json(profile)
         if path.startswith("/api/runs/"):
             rest = path[len("/api/runs/") :]
             run_id, _, action = rest.partition("/")

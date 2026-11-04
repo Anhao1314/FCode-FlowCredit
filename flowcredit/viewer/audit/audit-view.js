@@ -22,6 +22,26 @@ const OUTCOME_MAP = {
   __evidence_missing__: { label: "证据缺失", tone: "bad" },
 };
 
+// 操作员处置的单一标签来源:审计台下拉与工作台判断记录页共用。
+export const DISPOSITION_LABELS = {
+  "": "— 无 —",
+  accepted_risk: "接受风险",
+  false_positive_disputed: "误报争议",
+  wont_fix: "不修复",
+};
+
+// 统一壳的审计 surface 外壳:bundle 列表 + 详情双栏,由 app.js 的
+// renderAudit() 注入 #main 后调用 init()。独立 audit.html 已退役,
+// 这两个 id 只在这里出现一次。
+export function auditShellHtml() {
+  return `<div class="at-wrap">
+    <aside class="at-side" id="at-bundles"><div class="at-none dim">加载中…</div></aside>
+    <main class="at-main" id="at-main">
+      <div class="at-none dim">选择左侧一次审计,查看它的发现与证据。</div>
+    </main>
+  </div>`;
+}
+
 export function mapOutcome(outcome) {
   return OUTCOME_MAP[outcome] || { label: outcome || "未知", tone: "dim" };
 }
@@ -280,16 +300,10 @@ export function renderAuthorization(bundle) {
 
 export function renderDisposition(finding, dir) {
   const current = finding.operator_disposition || "";
-  const labels = {
-    "": "— 无 —",
-    accepted_risk: "接受风险",
-    false_positive_disputed: "误报争议",
-    wont_fix: "不修复",
-  };
   const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix"]
     .map((value) => {
       const selected = value === current ? " selected" : "";
-      return `<option value="${esc(value)}"${selected}>${esc(labels[value] || value)}</option>`;
+      return `<option value="${esc(value)}"${selected}>${esc(DISPOSITION_LABELS[value] || value)}</option>`;
     })
     .join("");
   return `<div class="at-disp" data-finding="${esc(finding.finding_id || "")}" data-dir="${esc(dir)}">
@@ -463,9 +477,13 @@ export function renderBundles(entries) {
     || '<div class="at-none dim">还没有审计包——先运行 python -m flowaudit.cli audit &lt;target&gt;</div>';
 }
 
-export async function init({ fetchImpl = fetch, root = document } = {}) {
-  const side = root.getElementById("at-bundles");
-  const main = root.getElementById("at-main");
+export async function init({ fetchImpl = fetch, root = document, host = null,
+                             onSelect = null } = {}) {
+  // 统一壳传 host=#main 元素;host 未给时回退 root(document)。
+  const scope = host || root;
+  const side = scope.querySelector("#at-bundles");
+  const main = scope.querySelector("#at-main");
+  if (!side || !main) return;
   // 并发守卫:快速连点两个 bundle 时,只有最新一次点击允许写 main。
   let requestSeq = 0;
   let payload;
@@ -484,6 +502,8 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
       side.querySelectorAll(".at-bitem").forEach((b) => b.classList.remove("at-sel"));
       el.classList.add("at-sel");
       const dir = el.getAttribute("data-dir");
+      // 壳侧挂钩:统一壳用它写 #/audit/<dir>;独立用法不传即无感。
+      if (onSelect) { try { onSelect(dir); } catch { /* hash 写失败不阻断渲染 */ } }
       let bundle;
       try {
         const res = await fetchImpl(`/api/audit/bundle/${encodeURIComponent(dir)}`);
@@ -554,7 +574,7 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
           // 处置是操作员决定,必须给出可见结果:成功"已记录",失败回滚并显示原因。
           let status = select.parentElement.querySelector(".at-disp-status");
           if (!status) {
-            status = root.createElement("span");
+            status = document.createElement("span");
             status.className = "at-disp-status";
             select.parentElement.appendChild(status);
           }
@@ -571,6 +591,15 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
             }
             current_dispositions[findingId] = disposition;
             status.textContent = "已记录";
+            // 处置已落链:立即刷新链区段,操作员应该马上看到自己的事件进链,
+            // 而不是等下次开包才发现。
+            try {
+              const chainRes = await fetchImpl(`/api/audit/chain/${encodeURIComponent(dir)}`);
+              if (chainRes.ok) {
+                const chainEl = main.querySelector(".at-chain");
+                if (chainEl) chainEl.outerHTML = renderChain(await chainRes.json());
+              }
+            } catch { /* 链刷新失败不影响处置结果 */ }
           } catch (err) {
             select.value = current_dispositions[findingId] || "";
             status.textContent = `记录失败:${String((err && err.message) || err)}`;
@@ -581,7 +610,6 @@ export async function init({ fetchImpl = fetch, root = document } = {}) {
   });
 }
 
-// 页面入口:仅当作为页面脚本加载时自动接线;node --test 导入纯函数时跳过。
-if (typeof document !== "undefined" && document.getElementById("at-bundles")) {
-  init();
-}
+/* 自动启动守卫已随独立 audit.html 退役:统一壳由 app.js 的 renderAudit()
+   在 surface 渲染后显式调用 init({ host, onSelect });纯函数导入无副作用,
+   node --test 直接覆盖。 */

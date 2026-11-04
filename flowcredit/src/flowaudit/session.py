@@ -116,6 +116,20 @@ class AuditSession:
     def operator_note(self, text: str) -> None:
         self._commit("session_note", {"text": text[:600], "actor": "operator"})
 
+    def record_disposition(self, finding_id: str, disposition: str) -> None:
+        """操作员对一条晋升发现的处置,随签名链落档。
+
+        bundle JSON 里同步保存一份(operator_disposition 字段)供渲染端
+        免读链;链上的这条事件让它获得防篡改的审计轨迹——处置是主机
+        决定,不是模型输出,所以事件由 viewer 在写 bundle 后追加。
+        disposition 为空串表示清除,同样要留痕。
+        """
+        self._commit("finding_disposition_set", {
+            "finding_id": finding_id,
+            "disposition": disposition or "",
+            "actor": "operator",
+        })
+
     # ------------------------------------------------------------------ ledger
 
     def ledgers(self) -> dict:

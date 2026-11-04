@@ -19,7 +19,7 @@ PoC 记录都按 SHA-256 固定在审计包里。
 ```bash
 python audit.py audit fixtures/demo-target
 python audit.py audit /Applications/EvoX.app --adapter rea --declared-features "microphone"
-python viewer/server.py --repo . --port 8642   # /audit.html
+python viewer/server.py --repo . --port 8642   # / → 侧栏「审计台」(#/audit)
 ```
 
 详见 [architecture-map](architecture-map.md)、[audit-methodology](audit-methodology.md)

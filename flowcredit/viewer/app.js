@@ -22,12 +22,14 @@ import { chatMessageHtml } from "./core/chat-view.js";
 import { aiAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
-import { bindLatestScroll, bindWorkspaceNavigation, modeForDeepLink } from "./core/work-surface.js";
+import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget, modeForDeepLink } from "./core/work-surface.js";
 import {
   WORK_NAV, CHAT_NAV, CHAT_MORE_NAV, chatRowsHtml, chatSectionHtml, modeChrome,
   navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
   runRowsHtml, taskSectionHtml,
 } from "./core/side-nav.js";
+/* 审计台 surface:纯渲染模块原样复用,app.js 只加接线不改它(render* 全部留在 audit-view)。 */
+import { auditShellHtml, init as initAuditSurface, DISPOSITION_LABELS } from "./audit/audit-view.js";
 
 /* =================================================================== 边界声明
    本轮结构重构只允许改“生成 DOM 的渲染函数”。
@@ -336,10 +338,10 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   setStageMode(mode === "empty");
   document.getElementById("app")?.classList.toggle("chat-mode", mode === "chat");
   renderProjectComposer();
-  // composer 只属于对话语境：功能页（账本 / 判断记录 / 定时任务 / 设置）不显示输入框
+  // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）不显示输入框
   const composerWrap = document.querySelector(".composer-wrap");
   if (composerWrap) composerWrap.hidden = (mode === "reviews" || mode === "scheduled"
-    || mode === "ledger" || mode === "settings");
+    || mode === "ledger" || mode === "audit" || mode === "settings");
   const scroller = document.querySelector(".main");
   if (scroll === "top" && scroller) scroller.scrollTop = 0;
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -352,6 +354,7 @@ const MODE_ENTRY = {
   ledger: () => openLedger(),
   settings: () => openSettingsPage(),
   reviews: () => renderReviews(),
+  audit: () => renderAudit(),
   scheduled: () => renderScheduledPage(),
   // Kimi Work 侧的 4 个槽位：结构在侧栏里复刻到位，能力本身没有实现。
   // 打开的是**明确标注的预留页**，不是伪装成可用的空页。
@@ -763,6 +766,48 @@ function openLedger() {
   renderLedger();
 }
 
+/* ================= 审计台（统一壳 surface:发现账本) =================
+   渲染全部复用 audit/audit-view.js 的纯函数模块;这里只做壳层接线:
+   进入 surface → 注入双栏外壳 → init({ host, onSelect }) → deep link 预选。
+   收尾动作抄 openLedger(关浮层/断开实时流/清 store),hash 只在审计面内维护。 */
+function writeAuditHash(dir) {
+  const next = dir ? `#/audit/${dir}` : "#/audit";
+  if (location.hash !== next) history.replaceState(null, "", next);
+}
+
+async function renderAudit() {
+  setMoreNav(true);
+  if (intake.active) closeIntake(false);
+  if (settingsOpen) closeSettingsPage(false);
+  if (activeSession()) detachLive();
+  store.key = null;
+  store.trace = null;
+  renderNav();
+  renderTabs();
+  document.getElementById("tb-title").textContent = "审计台 · 发现账本";
+  document.getElementById("tb-chips").innerHTML = "";
+  const badge = document.getElementById("chain-badge");
+  if (badge) {
+    badge.className = "chain-pill";
+    badge.innerHTML = `<span class="dot"></span><span>未加载</span>`;
+  }
+  const scroller = document.querySelector(".main");
+  if (scroller) scroller.scrollTop = 0;
+  // deep link 必须在写 hash 之前捕获——writeAuditHash("") 会把 #/audit/<dir> 抹掉
+  const preselect = auditHashTarget(location.hash) || "";
+  renderMain(auditShellHtml(), { mode: "audit" });
+  if (!preselect) writeAuditHash("");
+  await initAuditSurface({
+    host: document.getElementById("main"),
+    onSelect: (dir) => writeAuditHash(dir),
+  });
+  // deep link(#/audit/<dir>):包列表就绪后点击对应条目;期间用户切走则放弃。
+  if (store.mode !== "audit" || !preselect) return;
+  const item = document.querySelector(
+    `#at-bundles .at-bitem[data-dir="${CSS.escape(preselect)}"]`);
+  if (item) item.click();
+}
+
 /* 运行轨迹一律走 API，而不是 `runs/<id>/trace.json` 这个静态路径：静态路径只在
    运行目录恰好位于 viewer 检出内（本地开发默认）时才取得到，桌面版把运行放在
    Application Support，于是重启后点开任何已结束的运行都是 404。服务端从运行目录
@@ -979,8 +1024,25 @@ async function renderReviews() {
     + cards.map(pair => '<div class="rev-card"><span class="rev-num">' + (pair[1] ?? 0) + '</span><span class="rev-k">' + pair[0] + '</span></div>').join("")
     + '</div>'
     + ((d.recent || []).length ? '<div class="rev-list">' + rows + '</div>'
-      : '<div class="empty">还没有判断记录——在任一运行的「判断面」里做出选择后，这里会开始积累。</div>'),
+      : '<div class="empty">还没有判断记录——在任一运行的「判断面」里做出选择后，这里会开始积累。</div>')
+    + auditDispositionSection(d.audit_dispositions),
     { mode: "reviews" });
+}
+
+/* 审计处置区段:与 run 判断语义不同(三档处置 vs 四类判断),并列展示
+   不并计数。标签单一来源 = audit-view 的 DISPOSITION_LABELS。 */
+function auditDispositionSection(entries) {
+  const list = Array.isArray(entries) ? entries.filter(e => e && e.disposition) : [];
+  const rows = list.map(item => '<div class="rev-row">'
+    + '<span class="rev-dec">' + esc(DISPOSITION_LABELS[item.disposition] || item.disposition) + '</span>'
+    + '<span class="rev-what">' + esc(item.category || "") + ' · ' + esc(item.finding_id || "")
+    + (item.audit_id ? ' <span class="rev-at">→ 审计台 ' + esc(item.audit_id) + '</span>' : '')
+    + '</span></div>').join("");
+  if (!list.length) return "";
+  return '<section class="page-head" style="margin-top:18px"><p class="eyebrow">AUDIT DISPOSITIONS</p>'
+    + '<h2 class="page-title" style="font-size:16px">审计处置</h2>'
+    + '<p class="page-meta">你在审计台里对发现做出的三档处置（接受风险 / 误报争议 / 不修复），按审计聚合。</p></section>'
+    + '<div class="rev-list">' + rows + '</div>';
 }
 
 /* ================= 定时任务（Scheduled，v1 前端骨架） ================= */
@@ -5095,7 +5157,8 @@ function bindGlobalActions() {
       document.getElementById("foot-menu").hidden = true;
       document.getElementById("user-btn")?.setAttribute("aria-expanded", "false");
     }
-    const navOpen = event.target.closest(".nav-item[data-open]");
+    // 侧栏 nav-item 与顶栏审计台按钮共用 data-open → renderMode 一条路。
+    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     if (event.target.closest("#nav-more")) { setMoreNav(!moreOpen()); return; }
     if (event.target.closest("[data-new-task]")) { newTask(); return; }
@@ -5778,6 +5841,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const params = new URLSearchParams(location.search);
   const runParam = params.get("run");
   const param = params.get("trace");
+  // #/audit 深链优先:审计面自成一体,不依赖 runHistory 就绪。
+  if (auditHashTarget(location.hash) !== null) {
+    renderMode("audit");
+    return;
+  }
   if (runParam || param) setUiMode(modeForDeepLink(location.search));
   if (runParam) {
     // 运行直链：运行中 → 接入 SSE；已结束 → 拉 trace 回放。
@@ -5806,6 +5874,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     newChat();
     setUiMode(uiMode);
   }
+});
+
+/* #/audit 深链的统一入口:chat 完成卡片的链接、地址栏直达、前进后退都走这里。
+   不在审计面 → 进审计面(renderAudit 内部按 hash 预选包);已在审计面 →
+   只切换选中的包。选包的 replaceState 不触发本监听(无 hashchange 事件)。 */
+window.addEventListener("hashchange", () => {
+  const target = auditHashTarget(location.hash);
+  if (target === null) return;
+  if (store.mode !== "audit") { renderMode("audit"); return; }
+  if (!target) return;
+  const current = document.querySelector("#at-bundles .at-bitem.at-sel")
+    ?.getAttribute("data-dir") || "";
+  if (target === current) return;
+  const item = document.querySelector(
+    `#at-bundles .at-bitem[data-dir="${CSS.escape(target)}"]`);
+  if (item) item.click();
 });
 
 /* ================================================================= 侧栏复刻 · 第二批接线

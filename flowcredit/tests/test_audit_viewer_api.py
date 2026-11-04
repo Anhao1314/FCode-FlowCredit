@@ -17,6 +17,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))
+sys.path.insert(0, str(ROOT / "src"))
 
 from server_harness import ConsoleServer  # noqa: E402
 
@@ -82,6 +83,21 @@ class AuditViewerApiTests(unittest.TestCase):
         audit_dir.mkdir(parents=True)
         (audit_dir / "audit-bundle.json").write_text(json.dumps(BUNDLE), encoding="utf-8")
         (audit_dir / "POC-0001.json").write_text(json.dumps(EVIDENCE), encoding="utf-8")
+        # 与真实审计一致的 session.sqlite:处置端点要把 operator 事件落到这条链。
+        from flowaudit.session import AuditSession
+        AuditSession.start(audit_dir, BUNDLE["audit_id"],
+                           operator="ci", target_identity="demo")
+        # 一份没有 session.sqlite 的包(纯 cli-batch 产物):链端点对它的
+        # 契约是"空而完整",不是报错。
+        no_session_dir = root / "work" / "audit" / "no-session-test"
+        no_session_dir.mkdir()
+        (no_session_dir / "audit-bundle.json").write_text(json.dumps({
+            "schema_version": "fcode.audit-bundle/v1",
+            "audit_id": "no-session-test",
+            "target": {"identity": "demo", "manifest_sha256": "a" * 64},
+            "findings": [],
+            "poc_evidence_refs": [],
+        }), encoding="utf-8")
         rea_dir = audit_dir / "rea-evidence"
         rea_dir.mkdir()
         (rea_dir / "facts.json").write_text(json.dumps({
@@ -110,7 +126,8 @@ class AuditViewerApiTests(unittest.TestCase):
         import urllib.request
         with urllib.request.urlopen(f"{self.base}/api/audit/bundles") as res:
             payload = json.loads(res.read())
-        self.assertEqual(len(payload["bundles"]), 1)
+        # demo-target-test + no-session-test(链端点契约用的空会话包)
+        self.assertEqual(len(payload["bundles"]), 2)
         self.assertEqual(payload["bundles"][0]["audit_id"], "demo-target-test")
 
         with urllib.request.urlopen(f"{self.base}/api/audit/bundle/demo-target-test") as res:
@@ -195,13 +212,62 @@ class AuditViewerApiTests(unittest.TestCase):
             urllib.request.urlopen(req)
         self.assertEqual(caught.exception.code, 404)
 
+    def test_disposition_lands_on_session_chain(self) -> None:
+        """处置写 bundle 之后还要落签名链(finding_disposition_set 事件)。
+
+        这是处置的防篡改轨迹:bundle JSON 可以被绕过 API 的写手改掉,
+        链上的事件不会跟着改,verify_chain 会揪出来。
+        """
+        import urllib.request
+
+        body = json.dumps({"disposition": "wont_fix"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req) as res:
+            self.assertEqual(json.loads(res.read())["operator_disposition"], "wont_fix")
+
+        with urllib.request.urlopen(f"{self.base}/api/audit/chain/demo-target-test") as res:
+            chain = json.loads(res.read())
+        events = [e for e in chain["events"] if e["type"] == "finding_disposition_set"]
+        self.assertEqual(len(events), 1)
+        detail = events[0]["payload"].get("detail") or events[0]["payload"]
+        self.assertEqual(detail.get("finding_id"), "F-POC-0001")
+        self.assertEqual(detail.get("disposition"), "wont_fix")
+        self.assertEqual(detail.get("actor"), "operator")
+        self.assertTrue(chain["chain_intact"], "处置事件本身不能破坏链")
+
+    def test_review_profile_aggregates_audit_dispositions(self) -> None:
+        """判断记录页的「审计处置」区段:与 run 判断并列,不并入四类计数。"""
+        import urllib.request
+
+        # 先落一个处置,让汇总有东西可读
+        body = json.dumps({"disposition": "accepted_risk"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        urllib.request.urlopen(req)
+
+        with urllib.request.urlopen(f"{self.base}/api/review-profile") as res:
+            profile = json.loads(res.read())
+        rows = profile.get("audit_dispositions") or []
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["audit_id"], "demo-target-test")
+        self.assertEqual(row["finding_id"], "F-POC-0001")
+        self.assertEqual(row["disposition"], "accepted_risk")
+        # 四类判断计数不被处置污染
+        self.assertNotIn("accepted_risk", json.dumps(profile.get("counts") or {}))
+
     def test_audit_chain_without_session_returns_empty(self) -> None:
         """A bundle without session.sqlite is valid — the chain API returns
         an empty, intact chain rather than an error."""
         import urllib.request
 
         with urllib.request.urlopen(
-                f"{self.base}/api/audit/chain/demo-target-test") as res:
+                f"{self.base}/api/audit/chain/no-session-test") as res:
             data = json.loads(res.read())
         self.assertTrue(data["chain_intact"], "no log means intact")
         self.assertEqual(data["count"], 0)
@@ -302,15 +368,26 @@ class AuditViewerApiTests(unittest.TestCase):
             csp = res.headers.get("Content-Security-Policy", "")
             self.assertIn("script-src 'self'", csp)
             self.assertEqual(res.headers.get("X-Content-Type-Options"), "nosniff")
-        with urllib.request.urlopen(f"{self.base}/audit.html") as res:
+        with urllib.request.urlopen(f"{self.base}/") as res:
             self.assertIn("default-src 'self'", res.headers.get("Content-Security-Policy", ""))
 
-    def test_audit_html_has_no_inline_script(self) -> None:
+    def test_audit_html_redirects_into_unified_shell(self) -> None:
+        """审计台并入统一壳后,旧独立页链接 302 到 #/audit,不断链。"""
+        import urllib.error
         import urllib.request
-        with urllib.request.urlopen(f"{self.base}/audit.html") as res:
-            html = res.read().decode("utf-8")
-        self.assertNotIn("<script>window", html)
-        self.assertIn('src="boot.js?v=1"', html)
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            opener.open(f"{self.base}/audit.html")
+        except urllib.error.HTTPError as caught:
+            self.assertEqual(caught.code, 302)
+            self.assertEqual(caught.headers.get("Location"), "/#/audit")
+        else:
+            self.fail("audit.html must redirect, not serve")
 
 
 class AuditRunTests(unittest.TestCase):

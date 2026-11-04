@@ -4,7 +4,7 @@ import { applyChatEvent, createChatStreamRegistry } from "../core/chat-streams.j
 
 /* /audit <target> 斜杠命令:在唯一对话框里触发审计管线。
    解析是纯函数,node --test 直接覆盖;执行走 POST /api/audit/run,
-   轮询 /api/audit/jobs/<id>,结果指向发现账本(audit.html)。 */
+   轮询 /api/audit/jobs/<id>,完成后给统一壳内的审计面深链(#/audit/<dir>)。 */
 export function parseAuditCommand(text) {
   const match = /^\s*\/audit\s+(\S[\s\S]*)$/.exec(text || "");
   return match ? match[1].trim() : null;
@@ -14,7 +14,8 @@ export function auditStatusText(job) {
   if (!job) return "审计任务不存在";
   if (job.status === "running") return `⏳ 审计进行中(job ${job.job_id})…完成后在审计台查看发现`;
   if (job.status === "done") {
-    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:/audit.html`;
+    const target = job.audit_id ? `/#/audit/${encodeURIComponent(job.audit_id)}` : "/#/audit";
+    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:[打开审计台](${target})`;
   }
   if (job.status === "failed") return `❌ 审计失败:${job.error || "unknown"}`;
   return `审计状态:${job.status}`;
@@ -646,7 +647,8 @@ export function createChatUI(deps) {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         assistant.text = auditStatusText({ status: "running", job_id: data.job_id });
         renderChat({ forceBottom: true });
-        for (let poll = 0; poll < 90; poll++) {
+        // 轮询上限对齐子进程 900s 超时(460×2s),避免长审计卡片提前停在"进行中"。
+        for (let poll = 0; poll < 460; poll++) {
           await new Promise(resolve => setTimeout(resolve, 2000));
           const jobRes = await fetch(`/api/audit/jobs/${encodeURIComponent(data.job_id)}`);
           const job = await jobRes.json();

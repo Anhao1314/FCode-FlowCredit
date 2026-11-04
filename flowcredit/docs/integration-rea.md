@@ -341,7 +341,7 @@ npm install -g @evomap/evolver
 `verify-bundle --evidence <dir>` 除了 PoC 记录，还会校验每个 REA Evidence
 文件的 SHA-256 与 `evidence_id`，以及 facts/control 文件的 SHA-256。
 
-审计台 `/audit.html` 展示 `target.artifact_sha256`、`toolchain.rea`、
+审计台(工作台侧栏「审计台」,即 `#/audit` surface)展示 `target.artifact_sha256`、`toolchain.rea`、
 `rea_evidence_refs`、facts 摘要与 `uncovered_surfaces`。`/api/audit/rea/`
 只读取 bundle 引用过的文件，未引用的文件与路径穿越一律 404。
 

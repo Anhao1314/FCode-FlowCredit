@@ -119,5 +119,26 @@ class OperatorNoteTests(unittest.TestCase):
             self.assertEqual(note[0]["payload"]["detail"]["actor"], "operator")
 
 
+class DispositionChainTests(unittest.TestCase):
+    def test_record_disposition_enters_the_chain_and_stays_verifiable(self) -> None:
+        """处置落链:事件带 finding_id/disposition/actor,清空处置同样留痕,
+        且全链 verify 仍然通过(处置不是绕过链的后门)。"""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            session = AuditSession.start(pathlib.Path(tmp), "a-1",
+                                         operator="yimingyang",
+                                         target_identity="demo")
+            session.record_disposition("F-0001", "accepted_risk")
+            session.record_disposition("F-0001", "")  # 清除也是一次留痕
+            events = session.store.events(session.task_id)
+            marks = [e for e in events if e["type"] == "finding_disposition_set"]
+            self.assertEqual(len(marks), 2)
+            self.assertEqual(marks[0]["payload"]["detail"]["disposition"], "accepted_risk")
+            self.assertEqual(marks[1]["payload"]["detail"]["disposition"], "")
+            self.assertEqual(marks[0]["payload"]["detail"]["actor"], "operator")
+            session.verify()  # 链完整性:两次处置之后整条链仍可重算
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,15 @@ export function modeForDeepLink(search) {
   return params.get("run") || params.get("trace") ? "work" : null;
 }
 
+/* 审计台 hash 深链:#/audit(审计根,返回 "")或 #/audit/<dir>(指定包,返回 dir);
+   其他 hash 返回 null。dir 规则与 viewer 服务端的目录白名单一致
+   (^[a-z0-9][a-z0-9.-]{1,63}$),越界值当 null 处理,不进渲染。 */
+export function auditHashTarget(hash) {
+  const match = /^#\/audit(?:\/([a-z0-9][a-z0-9.-]{1,63}))?$/.exec(String(hash || ""));
+  if (!match) return null;
+  return match[1] || "";
+}
+
 export function bindLatestScroll() {
   const scroller = document.querySelector(".main");
   const button = document.getElementById("scroll-latest");
