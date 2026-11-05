@@ -21,6 +21,7 @@ import {
   fmtCountdown,
 } from "./app/approval-card.js";
 import { createThreadSurface } from "./app/thread-surface.js";
+import { createRunActions } from "./app/run-actions.js";
 import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
@@ -1333,140 +1334,15 @@ function setComposerRunning(running) {
    审批卡纯渲染（动词映射 / diff / 影响区）已迁入 app/approval-card.js
    （拆分切片 3a）；这里只剩会话侧的接线。 */
 
-/* 审批与提问都在线程里就地重绘：节点由统一投影生成，这里只触发一次补丁。 */
-function paintApproval() {
-  const s = activeSession();
-  if (!s || !s.trace) return;
-  paintThread(s, s.trace, { live: !(s.finished || (s.trace.terminal && s.trace.terminal.status)) });
-}
-
-async function answerQuestion(skip) {
-  const s = activeSession();
-  if (!s || !s.pending || s.pending.kind !== "question" || s.answering) return;
-  const pending = s.pending;
-  const input = document.querySelector("[data-question-input]");
-  const text = skip ? "" : String(input ? input.value : "").trim();
-  if (!skip && !text) { await answerQuestion(true); return; }
-  s.answering = true;
-  paintApproval();
-  try {
-    const response = await fetch(`/api/runs/${encodeURIComponent(s.id)}/answer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(skip
-        ? { questionId: pending.id, skip: true }
-        : { questionId: pending.id, text }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-    s.answering = false;
-    toast(skip ? "已跳过 · 模型自行判断" : "已提交回答 · 运行继续");
-  } catch (error) {
-    s.answering = false;
-    paintApproval();
-    toast("回答未送达：" + error.message);
-  }
-}
-
-async function decideApproval(allow, remember = false) {
-  const s = activeSession();
-  if (!s || !s.pending || s.pending.kind === "question" || s.deciding) return;
-  const pending = s.pending;
-  s.deciding = decisionForPending(pending, allow, remember);
-  paintApproval();
-  try {
-    const response = await fetch(`/api/runs/${encodeURIComponent(s.id)}/decision`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approvalId: pending.id, allow, remember }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-    toast(allow ? (remember ? "本会话已授权 · 运行继续" : "已允许 · 运行继续") : "已拒绝 · 运行将终止");
-  } catch (error) {
-    s.deciding = null;
-    paintApproval();
-    toast("决定未送达：" + error.message);
-  }
-}
-
-/* ------------------------------------- LOGIC LAYER — 计划/预算指令与 API */
-
-/* 计划与预算的编辑态都进同一条线程；这里只触发一次条目补丁。 */
-function paintPlan() {
-  const s = activeSession();
-  if (!s || !s.trace) return;
-  paintThread(s, s.trace, { live: !(s.finished || (s.trace.terminal && s.trace.terminal.status)) });
-}
-
-function paintBudget() {
-  paintPlan();
-}
-
-async function queuePlan(action, todoId) {
-  const s = activeSession();
-  if (!s || !s.running) return;
-  const note = action === "skip" ? "操作员跳过" : "操作员提前";
-  try {
-    const response = await fetch(`/api/runs/${encodeURIComponent(s.id)}/plan`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, todoId, note }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-    const label = action === "skip" ? `已排队：跳过 ${todoId}` : `已排队：提前 ${todoId}`;
-    s.planQueued = { label, events: (s.trace.events || []).length };
-    s.planConfirm = null;
-    paintPlan();
-    toast(label + " · 下一轮生效");
-  } catch (error) {
-    toast("计划指令未送达：" + error.message);
-  }
-}
-
-async function queueBudget() {
-  const s = activeSession();
-  if (!s || !s.running) return;
-  const read = key => Number((document.querySelector(`[data-budget="${key}"]`) || {}).value || 0);
-  const limits = lastBudget(s.trace) ? lastBudget(s.trace).limits : {};
-  const payload = {
-    maxCalls: read("maxCalls"),
-    maxReads: read("maxReads"),
-    maxCostMicrousd: read("maxCostMicrousd"),
-  };
-  if (
-    !payload.maxCalls || payload.maxCalls < (limits.max_calls || 0) ||
-    !payload.maxReads || payload.maxReads < (limits.max_reads || 0) ||
-    !payload.maxCostMicrousd || payload.maxCostMicrousd < (limits.max_cost_microusd || 0)
-  ) {
-    toast("上限只能调高，且必须是整数");
-    return;
-  }
-  try {
-    const response = await fetch(`/api/runs/${encodeURIComponent(s.id)}/budget`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-    s.budgetEditing = false;
-    s.budgetQueued = { events: (s.trace.events || []).length };
-    paintBudget();
-    toast("预算调整已排队 · 下一轮生效");
-  } catch (error) {
-    toast("预算调整未送达：" + error.message);
-  }
-}
+/* 审批决定/问题回答/计划与预算指令在 app/run-actions.js（拆分切片 3c）；
+   这里经工厂接线，注入会话读取、线程补丁与 toast。 */
+const {
+  paintApproval, answerQuestion, decideApproval,
+  paintPlan, paintBudget, queuePlan, queueBudget,
+} = createRunActions({
+  activeSession, paintThread, toast,
+  fetchImpl: (...args) => fetch(...args),
+});
 
 function createSession(id, objective, template, confirmedModel = "") {
   return {
