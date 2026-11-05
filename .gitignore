@@ -6,3 +6,8 @@ __pycache__/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Playwright E2E 产物
+viewer/test-results/
+viewer/playwright-report/
+viewer/node_modules/
