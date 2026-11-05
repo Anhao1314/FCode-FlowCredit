@@ -287,20 +287,34 @@ def _control_rea_osv(facts: dict) -> tuple[bool, str]:
     )
 
 
+def _vibe_row_label(item) -> str:
+    """VIBE 证据行的可读标识：优先 path/file/name，带上行号或行数。"""
+    if isinstance(item, dict):
+        for key in ("path", "file", "name"):
+            value = item.get(key)
+            if value:
+                extra = item.get("line") or item.get("lines")
+                return f"{value}:{extra}" if extra else str(value)
+    return str(item)[:80]
+
+
 def _oracle_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
     """Generic VIBE oracle: selected rows exist = finding; empty = clear.
 
     All VIBE rules use the same shape: trigger matches when the selector
     resolves to a non-empty list. The host oracle confirms by checking
-    the pinned facts, not the model's claim.
+    the pinned facts, not the model's claim. The reason carries the first
+    few row identifiers so the evidence record names *which* files/lines
+    triggered the rule — a count alone is not reviewable.
     """
     selected = facts.get("selected")
     if isinstance(selected, list):
         hits = [item for item in selected if item]
-        return bool(hits), (
-            f"selected {len(hits)} quality-issue rows"
-            if hits else "no quality-issue rows were selected"
-        )
+        if not hits:
+            return False, "no quality-issue rows were selected"
+        preview = "; ".join(_vibe_row_label(item) for item in hits[:6])
+        suffix = f" … (+{len(hits) - 6})" if len(hits) > 6 else ""
+        return True, f"selected {len(hits)} quality-issue rows: {preview}{suffix}"
     return bool(selected), (
         f"selected value: {str(selected)[:200]}"
         if selected else "no value was selected"

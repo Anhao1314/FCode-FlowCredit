@@ -424,6 +424,7 @@ export function renderBundle(bundle, records, options = {}) {
         <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
         <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
         <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>
+        ${(rec || {}).notes ? `<div class="at-kv"><span class="k">证据摘要</span><span class="v">${esc(String(rec.notes).slice(0, 600))}</span></div>` : ""}
         <div class="at-caps">${capabilityChips(rec ? (rec.capability_manifest || {}).declared : undefined)}</div>
         <div class="at-kv"><span class="k">重放</span><span class="v">${
           esc(runsText)
