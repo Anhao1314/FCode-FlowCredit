@@ -46,7 +46,7 @@ def run(name: str, argv: list[str], cwd: Path = PROJECT_ROOT, timeout: int = 900
             env={"PATH": __import__("os").environ["PATH"], "PYTHONPATH": "src", "HOME": __import__("os").environ.get("HOME", "")},
         )
         ok = proc.returncode == 0
-        tail = "\n".join((proc.stdout + "\n" + proc.stderr).splitlines()[-(30 if ok else 60):])
+        tail = "\n".join((proc.stdout + "\n" + proc.stderr).splitlines()[-(40 if ok else 140):])
         return ok, tail, time.monotonic() - started
     except subprocess.TimeoutExpired:
         return False, f"TIMEOUT after {timeout}s", time.monotonic() - started
@@ -136,8 +136,39 @@ def check_audit() -> tuple[bool, dict]:
 
 
 def check_e2e() -> tuple[bool, dict]:
-    ok, tail, seconds = run("e2e", ["npm", "exec", "--", "playwright", "test"], cwd=PROJECT_ROOT / "viewer", timeout=1200)
-    return ok, {"tail": tail, "seconds": round(seconds, 1)}
+    # playwright 的 [WebServer] 日志与结果行交叠,直接捕获会把结果淹没在
+    # 请求日志里——落盘后按结果行提取失败摘要。
+    started = time.monotonic()
+    out_path = OUT_DIR / "e2e-output.txt"
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    import os
+
+    env = dict(os.environ)
+    try:
+        with out_path.open("w", encoding="utf-8") as sink:
+            proc = subprocess.run(
+                ["npm", "exec", "--", "playwright", "test"],
+                cwd=PROJECT_ROOT / "viewer", stdout=sink, stderr=subprocess.STDOUT,
+                timeout=1200, env=env,
+            )
+        ok = proc.returncode == 0
+        text = out_path.read_text(encoding="utf-8", errors="replace")
+        if ok:
+            summary = next((l for l in text.splitlines() if " passed" in l), "")
+            return True, {"tail": summary, "seconds": round(time.monotonic() - started, 1)}
+        # 失败:取 ✘ 行与其后首个 Error 摘要
+        lines = text.splitlines()
+        keep = []
+        for i, line in enumerate(lines):
+            if "✘" in line or line.strip().startswith("Error:"):
+                keep.extend(lines[i:i + 6])
+                if len(keep) > 60:
+                    break
+        return False, {"tail": "\n".join(keep[:60]) or text[-2000:], "seconds": round(time.monotonic() - started, 1)}
+    except subprocess.TimeoutExpired:
+        return False, {"tail": "TIMEOUT after 1200s", "seconds": round(time.monotonic() - started, 1)}
+    except FileNotFoundError as error:
+        return False, {"tail": f"command not found: {error}", "seconds": round(time.monotonic() - started, 1)}
 
 
 CHECK_FUNCS = {

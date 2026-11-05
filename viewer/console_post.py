@@ -10,6 +10,8 @@ from console_post_chat import (
     post_chat_send,
     post_intake,
     post_chat_config,
+    post_chat_memory,
+    post_chat_memory_delete,
 )
 from console_post_runs import (
     post_run_answer,
@@ -48,6 +50,8 @@ _STATIC = {
     "/api/intake": post_intake,
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
+    "/api/chat/memory": post_chat_memory,
+    "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
 }

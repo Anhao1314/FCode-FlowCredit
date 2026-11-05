@@ -617,6 +617,10 @@ class Handler(SimpleHTTPRequestHandler):
                 "models": mgr.chat.chat_models(),
                 "default": mgr.chat.default_model(),
             })
+        if path == "/api/chat/memory":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            return self._json({"memories": mgr.chat.memory.list()})
         if path == "/api/settings/chat-config":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)

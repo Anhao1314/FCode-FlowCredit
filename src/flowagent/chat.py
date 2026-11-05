@@ -223,6 +223,10 @@ class ChatService:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = TaskStore(db_path)
         self.receipts = ReceiptStore(self.store)
+        #: 操作员长期记忆：与 chat.sqlite 并排的独立库，零 schema 耦合。
+        from .chat_memory import MemoryStore
+
+        self.memory = MemoryStore(db_path.with_name(f"{db_path.stem}-memory.sqlite"))
         #: 工具沙箱的根（对话可读写的目录）。None 表示不提供工具。
         self._workspace_root = Path(workspace_root) if workspace_root else None
         self._tool_ctx = None
@@ -912,7 +916,8 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         return "".join(parts)
 
     def _prompt_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+        system = CHAT_SYSTEM_PROMPT + self.memory.context_block()
+        messages = [{"role": "system", "content": system}]
         active = self._replay(thread_id)[-MAX_HISTORY_MESSAGES:]
         # 只给最近一条带工具历史的 assistant 回填 tool_calls/tool 消息：
         # 更早的轮次只留最终文本，避免上下文被历史工具输出撑爆。

@@ -2333,6 +2333,8 @@ const {
   leaveChat: (...a) => leaveChat(...a),
   renderMode, toast, shownTrace, renderRail,
   copyDiagnostics, reverify, toggleNotify,
+  refreshChatMemory: (...a) => refreshChatMemory(...a),
+  deleteChatMemory: (...a) => deleteChatMemory(...a),
   desktopBridge, notifyReady,
   syncChatConfig: (...a) => syncChatConfig(...a),
   saveChatConfig: (...a) => saveChatConfig(...a),
@@ -2382,6 +2384,7 @@ const SLASH_COMMANDS = [
   { cmd: "/stop", desc: "在轮次边界停止当前运行", run: () => stopRun() },
   { cmd: "/allow", desc: "批准挂起的审批请求", run: () => decideApproval(true) },
   { cmd: "/deny", desc: "拒绝挂起的审批请求", run: () => decideApproval(false) },
+  { cmd: "/remember", desc: "把一句话存进长期记忆（如：/remember 口径基准是 CNY）", run: arg => rememberChatMemory(arg) },
   { cmd: "/help", desc: "快捷键与命令说明", run: () => toast("⌘K 面板 · ⌘N 新建对话 · ⌘, 设置 · ⌘. 停止 · ⌘↵ 允许 · ⌘⌫ 拒绝 · ↑↓ 历史") },
   { cmd: "/clear", desc: "清空输入框", run: () => { const ta = document.getElementById("composer-ta"); ta.value = ""; autosize(ta); } },
 ];
@@ -2414,9 +2417,11 @@ function updateSlashMenu() {
   const menu = slashMenuEl();
   const value = ta.value;
   if (!value.startsWith("/")) { menu.hidden = true; slashItems = []; return; }
-  const query = value.slice(1).trim().toLowerCase();
+  // 只按命令词匹配（输入 /remember 一句话 时菜单保持开启）——
+  // 此前用整段输入匹配，参数一打菜单就关，Enter 会把命令当普通消息发出
+  const word = value.slice(1).trim().toLowerCase().split(/\s+/)[0] || "";
   slashItems = SLASH_COMMANDS.filter(c =>
-    c.cmd.slice(1).startsWith(query) || c.desc.toLowerCase().includes(query));
+    c.cmd.slice(1).startsWith(word) || c.desc.toLowerCase().includes(word));
   if (!slashItems.length) { menu.hidden = true; return; }
   slashIndex = Math.min(slashIndex, slashItems.length - 1);
   menu.innerHTML = slashItems.map((c, i) => `<div class="slash-item${i === slashIndex ? " active" : ""}" data-slash="${esc(c.cmd.slice(1))}">
@@ -2427,11 +2432,13 @@ function updateSlashMenu() {
 function runSlash(name) {
   const command = SLASH_COMMANDS.find(c => c.cmd === "/" + name);
   const ta = document.getElementById("composer-ta");
+  // 带参命令（如 /remember 一句话）：命令词后面的剩余文本作为参数
+  const rest = command ? ta.value.slice(command.cmd.length).trim() : "";
   ta.value = "";
   autosize(ta);
   slashMenuEl().hidden = true;
   slashItems = [];
-  if (command) command.run();
+  if (command) command.run(rest);
 }
 
 function pushHistory(text) {
@@ -2532,6 +2539,7 @@ const {
 
 const {
   loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
+  rememberChatMemory, refreshChatMemory, deleteChatMemory,
   detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
   renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
   stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,

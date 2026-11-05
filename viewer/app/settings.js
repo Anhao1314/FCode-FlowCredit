@@ -150,6 +150,7 @@ export function createSettings(deps) {
     anchor?.setAttribute("aria-current", "page");
     renderSettings();
     d.syncChatConfig();
+    d.refreshChatMemory();
     document.getElementById("settings-content").scrollTop = 0;
 
     activateSettingsSection(settingsSection, "auto");
@@ -232,6 +233,8 @@ export function createSettings(deps) {
         refreshSettingsStats().then(() => d.toast("记忆统计已刷新"));
         return;
       }
+      const memDel = target.closest("[data-mem-del]");
+      if (memDel) { d.deleteChatMemory(memDel.dataset.memDel); return; }
       if (target.closest("#settings-reset")) {
         if (!settingsResetArmed) {
           settingsResetArmed = true;

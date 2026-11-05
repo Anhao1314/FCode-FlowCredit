@@ -238,3 +238,32 @@ def post_chat_regenerate(handler, thread_id: str):
         return None
     events = chat.regenerate(thread_id=thread_id, message_id=message_id, model=model)
     return handler._stream_chat(events)
+
+
+def post_chat_memory(handler):
+    """操作员长期记忆：/remember 或设置页写入（M1 只收操作员明示内容）。"""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    text = body.get("text")
+    if not isinstance(text, str):
+        return handler._json({"error": "text must be a string"}, 400)
+    try:
+        entry = chat.memory.remember(text, source="operator")
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"memory": entry, "count": chat.memory.count()})
+
+
+def post_chat_memory_delete(handler):
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    entry_id = body.get("id")
+    if not isinstance(entry_id, str) or not entry_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    if not chat.memory.forget(entry_id):
+        return handler._json({"error": "memory not found"}, 404)
+    return handler._json({"ok": True, "count": chat.memory.count()})
