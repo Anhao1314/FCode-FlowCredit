@@ -252,10 +252,8 @@ const chat = {
   mirrors: new Map(),   // messageId -> { runId, trace, live, es } — the run's own facts
 };
 let runHistory = [];    // /api/runs
-let runFilter = "";     // 运行记录搜索词
 let toolContracts = null; // /api/tools，工具契约（含版本与 effect）
 let modules = [];         // /api/modules，域模块（金融研究 / 审计 / 量化…）
-let olderOpen = false;  // 「更早」分组是否展开
 
 /* 模型与思考强度选择（对齐 kimi.com composer 的模型徽章形态）。
    选择只作用于“下一个新委托”；运行中的徽章只读展示该 run 实际模型。 */
@@ -519,28 +517,8 @@ let ledgerConfirmId = null;
    - 工作侧栏照 Kimi Work（AppSidebar）：平坦导航 + 置顶 + Projects + 任务。
    - 对话侧栏照 kimi.com 网页版：主入口 + More 折叠 + 置顶 + Projects + 对话。
    导航条目全部走 data-open，两个面板各放一份也不会互相抢 active。 */
-let navCounts = {};
 
 /* ================= Projects（运行分组，v1 单设备存储） ================= */
-let projects = JSON.parse(localStorage.getItem("fa.projects") || "[]");
-let runProjects = JSON.parse(localStorage.getItem("fa.runProjects") || "{}");
-let projectFilter = null;
-const saveProjects = () => {
-  localStorage.setItem("fa.projects", JSON.stringify(projects));
-  localStorage.setItem("fa.runProjects", JSON.stringify(runProjects));
-};
-
-const projectRunCount = pid => Object.values(runProjects).filter(x => x === pid).length;
-
-function renderProjects() {
-  const html = projectSectionHtml(projects, {
-    filter: projectFilter,
-    countOf: projectRunCount,
-  });
-  const host = document.getElementById("chat-projects");
-  if (host) host.innerHTML = html;
-}
-
 /* 置顶分组（Kimi 的 pinned-list），没有置顶就整段不渲染。
    运行用服务端 run.pinned（/api/runs/{id}/meta）；对话目前没有可变 meta，
    本机置顶（fa.pins），语义在文档里写明。 */
@@ -562,28 +540,6 @@ function toggleChatPin(threadId) {
 function newTask() {
   // 统一侧栏只有一套列表:新建任务 = 新对话(工作模式已退役)。
   newChat();
-}
-
-function addProject(button) {
-  if (!button) return;
-  const input = document.createElement("input");
-  input.className = "proj-new-input";
-  input.placeholder = "项目名称，回车保存";
-  button.replaceWith(input);
-  input.focus();
-  let settled = false;
-  const commit = () => {
-    if (settled) return;
-    settled = true;
-    const name = (input.value || "").trim();
-    if (name) { projects.push({ id: "prj-" + Date.now().toString(36), name }); saveProjects(); }
-    renderProjects();
-  };
-  input.addEventListener("keydown", event => {
-    if (event.key === "Enter") commit();
-    if (event.key === "Escape") { settled = true; renderProjects(); }
-  });
-  input.addEventListener("blur", commit);
 }
 
 function quickStartGo(step) {
@@ -787,69 +743,11 @@ async function deleteRun(id) {
   toast("委托已删除");
 }
 
-function runGroupOf(created) {
-  const when = new Date(created || "");
-  if (Number.isNaN(when.getTime())) return 2;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (when.getTime() >= today) return 0;
-  if (when.getTime() >= today - 86400000) return 1;
-  return 2;
-}
-
-function runTimeText(created) {
-  const when = new Date(created || "");
-  if (Number.isNaN(when.getTime())) return "—";
-  if (runGroupOf(created) === 2) {
-    return `${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
-  }
-  return when.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
 function setFoot(text, cls = "") {
   const label = document.getElementById("foot-text");
   if (label) label.textContent = text;
   const dotEl = document.getElementById("foot-dot");
   if (dotEl) dotEl.className = "fdot" + (cls ? " " + cls : "");
-}
-
-const STATUS_MARK = {
-  ok: '<svg viewBox="0 0 12 12"><path d="M2.3 6.5c1.2.9 2.1 1.9 2.8 2.9 1.1-2.3 2.4-4 4.1-5.4"/></svg>',
-  bad: '<svg viewBox="0 0 12 12"><path d="M3 3.1c2 1.9 4 3.9 5.9 5.9"/><path d="M9 3c-2 2-3.9 4-5.8 6"/></svg>',
-  warn: '<svg viewBox="0 0 12 12"><path d="M2.4 8.2c1.3-1.5 2.5-2.2 3.3-1.8 1 .5.2 1.9 1.2 2.1.8.1 1.6-.6 2.5-1.7"/></svg>',
-  live: '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="2.4" fill="currentColor" stroke="none"/></svg>',
-};
-
-function runRowHtml(run) {
-  const active = store.key === "run:" + run.id;
-  const running = run.status === "running";
-  const cls = running ? "live" : stateClass(run.status);
-  const meta = running ? "运行中" : runTimeText(run.created);
-  const pinMark = run.pinned ? `<span class="pin-mark" title="已固定">${doodleSvg("star")}</span>` : "";
-  const bits = [tplTitle(run.template)];
-  if (running) bits.push(`第 ${run.rounds || 0} 轮`);
-  else if (run.rounds) bits.push(`${run.rounds} 轮`);
-  if (!running && run.cost && run.cost.costMicrousd !== undefined) {
-    bits.push(`${num(run.cost.costMicrousd)} µ`);
-  }
-  const sub = bits.filter(Boolean).join(" · ");
-  const mark = `<span class="smark ${cls}">${STATUS_MARK[cls] || STATUS_MARK.warn}</span>`;
-  return `<div class="session run-row${active ? " active" : ""}${run.pinned ? " pinned" : ""}" data-run="${esc(run.id)}" tabindex="0" title="${esc(run.objective)}${run.rounds ? " · " + run.rounds + " 轮" : ""}">
-    <div class="r-top">
-      ${mark}
-      <span class="slabel" data-name>${esc(runLabel(run))}</span>
-      ${pinMark}
-      <span class="smeta">${meta}</span>
-      <button class="row-more" data-more="${esc(run.id)}" title="更多">${doodleSvg("ellipsis")}</button>
-    </div>
-    <div class="r-sub">${esc(sub)}</div>
-    <div class="row-menu" data-menu="${esc(run.id)}" hidden>
-      <button data-row-act="pin">${run.pinned ? "取消固定" : "固定"}</button>
-      <button data-row-act="rename">重命名</button>
-      <button data-row-act="project">移动到项目…</button>
-      <button data-row-act="delete">删除</button>
-    </div>
-  </div>`;
 }
 
 function closeRowMenus() {
@@ -969,63 +867,6 @@ function renderScheduledPage() {
       renderScheduledPage();
     });
   }
-}
-
-function updateRunCounts() {
-  navCounts = { ledger: runHistory.length };
-  renderSidebarNav();
-  for (const el of document.querySelectorAll("[data-task-count]")) {
-    el.textContent = String(runHistory.length);
-  }
-}
-
-function renderRuns() {
-  // 统一侧栏重建后运行行只有一个宿主 #chat-tasks（原 #run-nav/#work-tasks
-  // 在 pane-work 里,已随面板删除）。
-  const chatTasks = document.getElementById("chat-tasks");
-  if (!chatTasks) return;
-  updateRunCounts();
-  const query = runFilter.trim().toLowerCase();
-  let runs = runHistory
-    .filter(run => !query || `${run.name || ""} ${run.objective} ${run.id}`.toLowerCase().includes(query));
-  if (projectFilter) {
-    runs = runs.filter(run => runProjects[run.id] === projectFilter);
-  }
-  // 置顶的运行由「置顶」分组渲染（Kimi 的 pinned-list），主列表不再重复
-  runs = runs.filter(run => !run.pinned);
-
-  if (!runs.length) {
-    const emptyHtml = query
-      ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
-      : `<div class="section-empty">任务会出现在这里</div>`;
-    chatTasks.innerHTML = emptyHtml;
-    return;
-  }
-
-  let html = "";
-  if (query) {
-    html += `<div class="side-head-label">${runs.length} 条结果</div>`;
-    html += runs.map(runRowHtml).join("");
-  } else {
-    const groups = [
-      { label: "今天", items: [] },
-      { label: "昨天", items: [] },
-      { label: "更早", items: [] },
-    ];
-    for (const run of runs) groups[runGroupOf(run.created)].items.push(run);
-    for (const group of groups) {
-      if (!group.items.length) continue;
-      html += `<div class="side-head-label"><span>${group.label}</span><span class="grp-count">${group.items.length}</span></div>`;
-      const visible = group.label === "更早" && !olderOpen ? group.items.slice(0, 5) : group.items;
-      html += visible.map(runRowHtml).join("");
-      if (group.label === "更早" && group.items.length > 5) {
-        html += olderOpen
-          ? `<button class="side-more" data-collapse-older>收起</button>`
-          : `<button class="side-more" data-more-older>显示全部 ${group.items.length} 条</button>`;
-      }
-    }
-  }
-  chatTasks.innerHTML = html;
 }
 
 /* ------------------------------- RENDER LAYER — 证据面板内容与事件列表 */
@@ -4555,18 +4396,21 @@ const {
   renderNav, renderSidebarNav, paintNavActive, paintMoreNav, setMoreNav, moreOpen,
   renderPinned, renderQuickStart, markQuickStart, dismissQuickStart,
   paintSections, toggleSection, mountShell: mountSidebarShell,
+  renderRuns, renderProjects, addProject, createProject, assignRunProject,
+  getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
 } = createSidebar({
   renderChats: (...args) => renderChats(...args),
-  renderProjects: () => renderProjects(),
-  renderRuns: () => renderRuns(),
   getRunHistory: () => runHistory,
   getChatThreads: () => chatThreads,
   getModelCatalog: () => modelCatalog,
   getLedgerOpen: () => ledgerOpen,
-  getNavCounts: () => navCounts,
+  getActiveKey: () => store.key,
   isChatPinned,
   stateClass,
   hydrateDoodles,
+  doodleSvg,
+  tplTitle,
+  runLabel,
 });
 
 const {
@@ -4944,7 +4788,7 @@ function bindGlobalActions() {
       input.focus();
       const commit = () => {
         const name = (input.value || "").trim();
-        if (name) { projects.push({ id: "prj-" + Date.now().toString(36), name }); saveProjects(); }
+        if (name) createProject(name);
         renderProjects();
       };
       input.addEventListener("keydown", e => {
@@ -4962,11 +4806,9 @@ function bindGlobalActions() {
       if (pid === "new") {
         const name = (prompt("项目名称") || "").trim();
         if (!name) return;
-        pid = "prj-" + Date.now().toString(36);
-        projects.push({ id: pid, name });
+        pid = createProject(name);
       }
-      if (runRow) runProjects[runRow.dataset.run] = pid;
-      saveProjects();
+      if (runRow) assignRunProject(runRow.dataset.run, pid);
       closeRowMenus();
       renderProjects();
       renderRuns();
@@ -5132,10 +4974,11 @@ function bindNavigation() {
         else { rowAct.dataset.confirm = "1"; rowAct.textContent = "确认删除？"; }
       }
       else if (act === "project") {
-        const pid = runProjects[row.dataset.run];
+        const pid = getRunProject(row.dataset.run);
+        const projectList = getProjects();
         menu.innerHTML = '<div class="row-menu-title">移动到项目</div>'
-          + (projects.length
-            ? projects.map(prj => '<button data-proj-assign="' + esc(prj.id) + '">' + esc(prj.name)
+          + (projectList.length
+            ? projectList.map(prj => '<button data-proj-assign="' + esc(prj.id) + '">' + esc(prj.name)
               + (pid === prj.id ? ' ✓' : '') + '</button>').join("")
             : '<div class="dim" style="padding:4px 10px">还没有项目</div>')
           + '<button data-proj-assign="new">＋ 新建项目…</button>';
@@ -5143,8 +4986,8 @@ function bindNavigation() {
       }
       return;
     }
-    if (event.target.closest("[data-more-older]")) { olderOpen = true; renderRuns(); return; }
-    if (event.target.closest("[data-collapse-older]")) { olderOpen = false; renderRuns(); return; }
+    if (event.target.closest("[data-more-older]")) { setOlderOpen(true); renderRuns(); return; }
+    if (event.target.closest("[data-collapse-older]")) { setOlderOpen(false); renderRuns(); return; }
     const row = event.target.closest("[data-run]");
     if (!row) return;
     if (event.target.closest(".row-menu") || event.target.closest(".rename-input")) return;
@@ -5156,7 +4999,7 @@ function bindNavigation() {
     if (el) el.addEventListener("click", event => {
       const row = event.target.closest("[data-proj]");
       if (!row) return;
-      projectFilter = projectFilter === row.dataset.proj ? null : row.dataset.proj;
+      setProjectFilter(getProjectFilter() === row.dataset.proj ? null : row.dataset.proj);
       renderProjects();
       renderRuns();
       renderChats();

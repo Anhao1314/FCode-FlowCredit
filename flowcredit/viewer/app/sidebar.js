@@ -12,7 +12,8 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, MORE_NAV, navItemsHtml, pinnedSectionHtml } from "../core/side-nav.js";
+import { SIDEBAR_NAV, MORE_NAV, navItemsHtml, pinnedSectionHtml, projectSectionHtml } from "../core/side-nav.js";
+import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
   const d = deps;
@@ -22,9 +23,9 @@ export function createSidebar(deps) {
   function renderSidebarNav() {
     // 统一侧栏（适配重建）:4 个真实 surface 扁平排布,4 个预留槽位进「更多」。
     const nav = document.getElementById("side-nav-items");
-    if (nav) nav.innerHTML = navItemsHtml(SIDEBAR_NAV, d.getNavCounts());
+    if (nav) nav.innerHTML = navItemsHtml(SIDEBAR_NAV, navCounts);
     const more = document.getElementById("more-nav");
-    if (more) more.innerHTML = navItemsHtml(MORE_NAV, d.getNavCounts());
+    if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
     paintMoreNav();
   }
 
@@ -44,8 +45,8 @@ export function createSidebar(deps) {
     renderSidebarNav();
     paintNavActive();
     d.renderChats();
-    d.renderProjects();
-    d.renderRuns();
+    renderProjects();
+    renderRuns();
     renderPinned();
     renderQuickStart();
     // 侧栏内容全部是注入的，图标槽位要在注入之后再水合一次
@@ -175,6 +176,196 @@ export function createSidebar(deps) {
     paintSections();
   }
 
+  /* ============================================================ 运行行与项目段
+     渲染与展示状态都在模块内（projects/runProjects/projectFilter/runFilter/
+     olderOpen/navCounts）；app.js 通过与运行历史/项目相关的动作 API 读写
+     （renderRuns、renderProjects、addProject、createProject、assignRunProject、
+     setProjectFilter、getProjects、getRunProject、setOlderOpen）。 */
+
+  let projects = JSON.parse(localStorage.getItem("fa.projects") || "[]");
+  let runProjects = JSON.parse(localStorage.getItem("fa.runProjects") || "{}");
+  let projectFilter = null;
+  let runFilter = "";
+  let olderOpen = false;
+  let navCounts = {};
+
+  const saveProjects = () => {
+    localStorage.setItem("fa.projects", JSON.stringify(projects));
+    localStorage.setItem("fa.runProjects", JSON.stringify(runProjects));
+  };
+
+  const projectRunCount = pid => Object.values(runProjects).filter(x => x === pid).length;
+
+  function renderProjects() {
+    const html = projectSectionHtml(projects, {
+      filter: projectFilter,
+      countOf: projectRunCount,
+    });
+    const host = document.getElementById("chat-projects");
+    if (host) host.innerHTML = html;
+  }
+
+  function createProject(name) {
+    const id = "prj-" + Date.now().toString(36);
+    projects.push({ id, name });
+    saveProjects();
+    return id;
+  }
+
+  function assignRunProject(runId, pid) {
+    if (!runId) return;
+    runProjects[runId] = pid;
+    saveProjects();
+  }
+
+  function getProjects() { return projects; }
+
+  function getRunProject(runId) { return runProjects[runId]; }
+
+  function getProjectFilter() { return projectFilter; }
+
+  function setProjectFilter(pid) { projectFilter = pid; }
+
+  function setOlderOpen(open) { olderOpen = !!open; }
+
+  function addProject(button) {
+    if (!button) return;
+    const input = document.createElement("input");
+    input.className = "proj-new-input";
+    input.placeholder = "项目名称，回车保存";
+    button.replaceWith(input);
+    input.focus();
+    let settled = false;
+    const commit = () => {
+      if (settled) return;
+      settled = true;
+      const name = (input.value || "").trim();
+      if (name) createProject(name);
+      renderProjects();
+    };
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") commit();
+      if (event.key === "Escape") { settled = true; renderProjects(); }
+    });
+    input.addEventListener("blur", commit);
+  }
+
+  /* 运行行的状态点图标（治理事实：PASS/DENIED/UNKNOWN）。 */
+  const STATUS_MARK = {
+    ok: '<svg viewBox="0 0 12 12"><path d="M2.3 6.5c1.2.9 2.1 1.9 2.8 2.9 1.1-2.3 2.4-4 4.1-5.4"/></svg>',
+    bad: '<svg viewBox="0 0 12 12"><path d="M3 3.1c2 1.9 4 3.9 5.9 5.9"/><path d="M9 3c-2 2-3.9 4-5.8 6"/></svg>',
+    warn: '<svg viewBox="0 0 12 12"><path d="M2.4 8.2c1.3-1.5 2.5-2.2 3.3-1.8 1 .5.2 1.9 1.2 2.1.8.1 1.6-.6 2.5-1.7"/></svg>',
+    live: '<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="2.4" fill="currentColor" stroke="none"/></svg>',
+  };
+
+  function runGroupOf(created) {
+    const when = new Date(created || "");
+    if (Number.isNaN(when.getTime())) return 2;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (when.getTime() >= today) return 0;
+    if (when.getTime() >= today - 86400000) return 1;
+    return 2;
+  }
+
+  function runTimeText(created) {
+    const when = new Date(created || "");
+    if (Number.isNaN(when.getTime())) return "—";
+    if (runGroupOf(created) === 2) {
+      return `${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
+    }
+    return when.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
+  function runRowHtml(run) {
+    const active = d.getActiveKey() === "run:" + run.id;
+    const running = run.status === "running";
+    const cls = running ? "live" : d.stateClass(run.status);
+    const meta = running ? "运行中" : runTimeText(run.created);
+    const pinMark = run.pinned ? `<span class="pin-mark" title="已固定">${d.doodleSvg("star")}</span>` : "";
+    const bits = [d.tplTitle(run.template)];
+    if (running) bits.push(`第 ${run.rounds || 0} 轮`);
+    else if (run.rounds) bits.push(`${run.rounds} 轮`);
+    if (!running && run.cost && run.cost.costMicrousd !== undefined) {
+      bits.push(`${num(run.cost.costMicrousd)} µ`);
+    }
+    const sub = bits.filter(Boolean).join(" · ");
+    const mark = `<span class="smark ${cls}">${STATUS_MARK[cls] || STATUS_MARK.warn}</span>`;
+    return `<div class="session run-row${active ? " active" : ""}${run.pinned ? " pinned" : ""}" data-run="${esc(run.id)}" tabindex="0" title="${esc(run.objective)}${run.rounds ? " · " + run.rounds + " 轮" : ""}">
+    <div class="r-top">
+      ${mark}
+      <span class="slabel" data-name>${esc(d.runLabel(run))}</span>
+      ${pinMark}
+      <span class="smeta">${meta}</span>
+      <button class="row-more" data-more="${esc(run.id)}" title="更多">${d.doodleSvg("ellipsis")}</button>
+    </div>
+    <div class="r-sub">${esc(sub)}</div>
+    <div class="row-menu" data-menu="${esc(run.id)}" hidden>
+      <button data-row-act="pin">${run.pinned ? "取消固定" : "固定"}</button>
+      <button data-row-act="rename">重命名</button>
+      <button data-row-act="project">移动到项目…</button>
+      <button data-row-act="delete">删除</button>
+    </div>
+  </div>`;
+  }
+
+  function updateRunCounts() {
+    const runs = d.getRunHistory();
+    navCounts = { ledger: runs.length };
+    renderSidebarNav();
+    for (const el of document.querySelectorAll("[data-task-count]")) {
+      el.textContent = String(runs.length);
+    }
+  }
+
+  function renderRuns() {
+    // 统一侧栏重建后运行行只有一个宿主 #chat-tasks。
+    const chatTasks = document.getElementById("chat-tasks");
+    if (!chatTasks) return;
+    updateRunCounts();
+    const query = runFilter.trim().toLowerCase();
+    let runs = d.getRunHistory()
+      .filter(run => !query || `${run.name || ""} ${run.objective} ${run.id}`.toLowerCase().includes(query));
+    if (projectFilter) {
+      runs = runs.filter(run => runProjects[run.id] === projectFilter);
+    }
+    // 置顶的运行由「置顶」分组渲染，主列表不再重复
+    runs = runs.filter(run => !run.pinned);
+
+    if (!runs.length) {
+      const emptyHtml = query
+        ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
+        : `<div class="section-empty">任务会出现在这里</div>`;
+      chatTasks.innerHTML = emptyHtml;
+      return;
+    }
+
+    let html = "";
+    if (query) {
+      html += `<div class="side-head-label">${runs.length} 条结果</div>`;
+      html += runs.map(runRowHtml).join("");
+    } else {
+      const groups = [
+        { label: "今天", items: [] },
+        { label: "昨天", items: [] },
+        { label: "更早", items: [] },
+      ];
+      for (const run of runs) groups[runGroupOf(run.created)].items.push(run);
+      for (const group of groups) {
+        if (!group.items.length) continue;
+        html += `<div class="side-head-label"><span>${group.label}</span><span class="grp-count">${group.items.length}</span></div>`;
+        const visible = group.label === "更早" && !olderOpen ? group.items.slice(0, 5) : group.items;
+        html += visible.map(runRowHtml).join("");
+        if (group.label === "更早" && group.items.length > 5) {
+          html += olderOpen
+            ? `<button class="side-more" data-collapse-older>收起</button>`
+            : `<button class="side-more" data-more-older>显示全部 ${group.items.length} 条</button>`;
+        }
+      }
+    }
+    chatTasks.innerHTML = html;
+  }
+
   /* ================================================================= 外壳接线
      Kimi 3.2.20 侧栏里三样交互，逐条对应它的实现：
      拖拽调宽（.side-resizer）、滚动遮罩淡入（.side-scroll-top-mask.is-visible）、
@@ -281,6 +472,8 @@ export function createSidebar(deps) {
     paintMoreNav, setMoreNav, moreOpen,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,
+    renderRuns, renderProjects, addProject, createProject, assignRunProject,
+    getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
     paintScrollMasks, mountShell,
   };
 }

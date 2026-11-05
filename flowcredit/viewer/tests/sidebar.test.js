@@ -124,6 +124,10 @@ function harness(overrides = {}) {
     isChatPinned: id => state.pinned.has(id),
     stateClass: status => (status === "succeeded" ? "ok" : "bad"),
     hydrateDoodles() {},
+    getActiveKey: () => state.activeKey || null,
+    doodleSvg: () => "<svg></svg>",
+    tplTitle: key => key || "",
+    runLabel: run => run.name || run.objective || run.id,
   });
 
   return { sidebar, els, doc, navItems, state, storage: globalThis.localStorage };
@@ -222,4 +226,54 @@ test("paintScrollMasks:scrollTop>1 才点亮顶部遮罩", () => {
   list.scrollTop = 40;
   sidebar.paintScrollMasks();
   assert.equal(mask.classList.contains("is-visible"), true);
+});
+test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
+  const { sidebar, els, state } = harness();
+  const tasks = makeEl();
+  els["chat-tasks"] = tasks;
+  const now = new Date().toISOString();
+  state.runs = [
+    { id: "r1", status: "succeeded", created: now, template: "general", rounds: 2,
+      objective: "A", pinned: false },
+  ];
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /r1/);
+  assert.match(tasks.innerHTML, /今天/);
+
+  // 项目过滤：assign 到项目后过滤，未匹配则空态
+  const pid = sidebar.createProject("项目甲");
+  sidebar.assignRunProject("r1", pid);
+  sidebar.setProjectFilter(pid);
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /r1/);
+  sidebar.setProjectFilter("prj-other");
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /任务会出现在这里|没有匹配/);
+  sidebar.setProjectFilter(null);
+
+  // 空列表空态
+  state.runs = [];
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /任务会出现在这里/);
+});
+
+test("createProject/assignRunProject:写入 localStorage 并可查询", () => {
+  const { sidebar, storage } = harness();
+  const pid = sidebar.createProject("项目乙");
+  assert.match(pid, /^prj-/);
+  sidebar.assignRunProject("r9", pid);
+  assert.deepEqual(JSON.parse(storage.getItem("fa.projects")).map(p => p.name), ["项目乙"]);
+  assert.equal(sidebar.getRunProject("r9"), pid);
+  assert.equal(JSON.parse(storage.getItem("fa.runProjects")).r9, pid);
+});
+
+test("renderProjects:过滤态与运行计数来自 runProjects", () => {
+  const { sidebar, els } = harness();
+  const host = makeEl();
+  els["chat-projects"] = host;
+  const pid = sidebar.createProject("含运行项目");
+  sidebar.assignRunProject("r1", pid);
+  sidebar.assignRunProject("r2", pid);
+  sidebar.renderProjects();
+  assert.match(host.innerHTML, /含运行项目/);
 });
