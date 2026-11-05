@@ -37,14 +37,7 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
   // 失败运行不得伪造成功答案
   await expect(page.locator('#thread [data-thread-item="answer"]')).toHaveCount(0);
 
-  // 2. 运行视图的 + 面板加来源(状态跨视图保留;+ 面板只在运行视图可达)
-  await page.locator("#composer-open").click();
-  await page.locator("[data-attach-sum='sources']").click();
-  await page.locator("[data-attach-source-input]").fill("http://127.0.0.1:9/probe");
-  await page.locator("[data-attach-source-add]").click();
-  await expect(page.locator(".attach-source .src-url").first()).toHaveText(/127\.0\.0\.1/);
-
-  // 3. ⌘K → 新委托 → 需求确认(通用模板一条消息即就绪)
+  // 2. ⌘K → 新委托 → 需求确认(通用模板一条消息即就绪)
   await page.keyboard.press("ControlOrMeta+k");
   await page.locator("#palette-input").fill("新委托");
   await page.locator("#palette-input").press("Enter");
@@ -61,6 +54,17 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
     await page.waitForTimeout(300);
   }
   await expect(start).toBeEnabled({ timeout: 20_000 });
+
+  // 3. intake 内直接打开 + 面板加来源(回归断言:+ 按钮在 intake 可达——
+  //    曾被 CSS 与 paintChatChrome 双重隐藏,调研委托因此永远过不了守卫)
+  await expect(page.locator("#composer-open")).toBeVisible();
+  await page.locator("#composer-open").click();
+  await page.locator("[data-attach-sum='sources']").click();
+  await page.locator("[data-attach-source-input]").fill("http://127.0.0.1:9/probe");
+  await page.locator("[data-attach-source-add]").click();
+  await expect(page.locator(".attach-source .src-url").first()).toHaveText(/127\.0\.0\.1/);
+  await page.locator("#composer-open").click(); // 收起面板
+  await page.waitForTimeout(250);               // 收起动画 150ms
   await start.click();
 
   // 4. 运行接流:线程投影出目标条目与状态条目(live 断言到此为止——

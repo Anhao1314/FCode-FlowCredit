@@ -245,6 +245,10 @@ export function createIntake(deps) {
     if (d.getSettingsOpen()) d.closeSettingsPage(false);
     d.attach.open = false;
     d.renderAttachPanel();
+    // paintChatChrome 在 chat 语境用内联样式藏掉 + 按钮；intake 草稿明确
+    // 指向 + 面板（来源/预算），这里对称恢复，否则调研委托过不了来源守卫。
+    const plus = document.getElementById("composer-open");
+    if (plus) plus.style.display = "";
     intake.active = true;
     intake.messages = [];
     intake.spec = {};

@@ -18,7 +18,7 @@ function makeLocalStorage() {
 function makeEl(init = {}) {
   return {
     hidden: false, innerHTML: "", textContent: "", value: "", placeholder: "",
-    dataset: {}, disabled: false, listeners: {},
+    dataset: {}, disabled: false, listeners: {}, style: {},
     classList: {
       _set: new Set(),
       add(c) { this._set.add(c); }, remove(c) { this._set.delete(c); },

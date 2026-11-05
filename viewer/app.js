@@ -2738,6 +2738,8 @@ function bindComposer() {
       attach.sources.push(url);
       attach.sourcesDraft = "";
       renderAttachPanel();
+      // intake 草稿的“来源 n/5”读的是同一份状态;面板里增删后草稿要跟着重绘
+      if (intake.active) renderIntake();
       return;
     }
     const removeBtn = event.target.closest("[data-attach-source-remove]");
@@ -2745,6 +2747,7 @@ function bindComposer() {
       event.stopPropagation();
       attach.sources.splice(Number(removeBtn.dataset.attachSourceRemove), 1);
       renderAttachPanel();
+      if (intake.active) renderIntake();
       return;
     }
     event.stopPropagation(); // 面板内部点击不关闭
