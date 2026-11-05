@@ -26,6 +26,8 @@ import { createLiveSessions } from "./app/live-sessions.js";
 import { createIntake } from "./app/intake.js";
 import { createSettings } from "./app/settings.js";
 import { createComposerPanel } from "./app/composer-panel.js";
+import { createCommandPalette } from "./app/command-palette.js";
+import { doodleSvg, hydrateDoodles } from "./core/doodles.js";
 import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
@@ -2356,137 +2358,20 @@ function toast(message) {
   }, 1700);
 }
 
-/* ------------------- MIXED — 命令动作闭包（不改）+ 命令面板渲染 */
-
-let palItems = [];
-let palActive = 0;
-
-function setAllRounds(open) {
-  for (const el of document.querySelectorAll(".th-item.th-tool")) {
-    el.dataset.open = String(!!open);
-    el.dataset.user = "1";
-    el.classList.toggle("open", !!open);
-    const toggle = el.querySelector("[data-thread-toggle]");
-    if (toggle) toggle.setAttribute("aria-expanded", String(!!open));
-  }
-  toast(open ? "已展开全部工具调用" : "已折叠全部工具调用");
-}
-
-function focusComposer() {
-  const ta = document.getElementById("composer-ta");
-  if (!ta) return;
-  if (ta.disabled) { toast("有运行中的任务，先停止再派新任务"); return; }
-  ta.focus();
-}
-
-function paletteActions() {
-  const s = activeSession();
-  const actions = [
-    { ic: "＋", label: "新委托 · 需求选择", run: () => startIntake("") },
-    { ic: "✎", label: "聚焦任务输入框", run: focusComposer },
-  ];
-  if (s && s.running) actions.push({ ic: "■", label: "停止当前运行", run: stopRun });
-  if (currentRun() && !(s && s.running)) actions.push({ ic: "↻", label: "重试当前运行", run: retryCurrent });
-  const trace = shownTrace();
-  if (trace) {
-    actions.push({ ic: "⧉", label: "复制运行诊断", run: copyDiagnostics });
-    actions.push({ ic: "↓", label: "导出 trace JSON", run: exportTrace });
-    if (!(store.key || "").startsWith("run:")) {
-      actions.push({ ic: "⟲", label: "重放当前场景", run: replay });
-    }
-    if (trace.terminal && trace.terminal.status) {
-      actions.push({ ic: "⎘", label: "签发审计报告", run: openReport });
-    }
-    actions.push({ ic: "✓", label: "重新验证签名链", run: reverify });
-    actions.push({ ic: "▾", label: "展开全部轮次", run: () => setAllRounds(true) });
-    actions.push({ ic: "▸", label: "折叠全部轮次", run: () => setAllRounds(false) });
-  }
-  actions.push({ ic: "＋", label: "打开 trace JSON 文件…", run: () => document.getElementById("pick").click() });
-  actions.push({ ic: "◔", label: notifyOn ? "关闭完成通知" : "开启完成通知", run: toggleNotify });
-  return actions;
-}
-
-function paletteMatches() {
-  const query = (document.getElementById("palette-input").value || "").trim().toLowerCase();
-  const out = [];
-  const push = (group, item) => out.push({ group, ...item });
-  for (const item of paletteActions()) {
-    if (!query || item.label.toLowerCase().includes(query)) push("动作", item);
-  }
-  const runs = runHistory
-    .slice()
-    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
-    .filter(run => !query || `${runLabel(run)} ${run.objective}`.toLowerCase().includes(query))
-    .slice(0, 6);
-  for (const run of runs) push("运行", {
-    label: runLabel(run),
-    hint: run.status === "running" ? "运行中" : (run.rounds ? run.rounds + " 轮" : ""),
-    run: () => selectRun(run.id),
-  });
-  return out;
-}
-
-function renderPalette() {
-  palItems = paletteMatches();
-  if (palActive >= palItems.length) palActive = Math.max(0, palItems.length - 1);
-  const list = document.getElementById("palette-list");
-  let html = "";
-  let lastGroup = "";
-  palItems.forEach((item, index) => {
-    if (item.group !== lastGroup) {
-      html += `<div class="pal-group">${esc(item.group)}</div>`;
-      lastGroup = item.group;
-    }
-    html += `<button class="pal-item${index === palActive ? " active" : ""}" data-idx="${index}">
-      <span class="pal-ic">${esc(item.ic || "")}</span>
-      <span class="pal-label">${esc(item.label)}</span>
-      ${item.hint ? `<span class="pal-hint">${esc(item.hint)}</span>` : ""}
-    </button>`;
-  });
-  list.innerHTML = html || `<div class="pal-empty">没有匹配项</div>`;
-  highlightPalette();
-}
-
-function highlightPalette() {
-  const list = document.getElementById("palette-list");
-  for (const button of list.querySelectorAll(".pal-item")) {
-    button.classList.toggle("active", Number(button.dataset.idx) === palActive);
-  }
-  const active = list.querySelector(".pal-item.active");
-  if (active) active.scrollIntoView({ block: "nearest" });
-}
-
-function openPalette() {
-  const overlay = document.getElementById("palette");
-  if (!overlay) return;
-  overlay.hidden = false;
-  const input = document.getElementById("palette-input");
-  input.value = "";
-  palActive = 0;
-  renderPalette();
-  input.focus();
-}
-
-function closePalette() {
-  const overlay = document.getElementById("palette");
-  if (overlay) overlay.hidden = true;
-}
-
-function togglePalette() {
-  const overlay = document.getElementById("palette");
-  if (!overlay) return;
-  if (overlay.hidden) openPalette();
-  else closePalette();
-}
-
-function runPaletteItem(index) {
-  const item = palItems[index];
-  if (!item) return;
-  closePalette();
-  setTimeout(() => {
-    try { item.run(); } catch (error) { toast("执行失败：" + error.message); }
-  }, 0);
-}
+/* ⌘K 命令面板（app/command-palette.js，拆分切片 4d）。
+   动作清单按语境组装与键盘游标都在模块里;slash 菜单与输入历史
+   与 composer 键盘状态机共享游标,仍在本文件。 */
+const {
+  setAllRounds, focusComposer, renderPalette, openPalette, closePalette,
+  togglePalette, runPaletteItem, activeIndex, setActiveIndex, paletteNav,
+  resetPaletteActive,
+} = createCommandPalette({
+  activeSession, currentRun, stopRun, retryCurrent, copyDiagnostics, exportTrace,
+  openReport, reverify, replay, selectRun, startIntake, toggleNotify,
+  shownTrace, store, toast, runLabel,
+  getNotifyOn: () => notifyOn,
+  getRunHistory: () => runHistory,
+});
 
 /* -------------------- MIXED — 命令匹配/执行（不改）+ 菜单渲染 */
 /* Codex 式入口：输入框以 / 开头弹出命令面板，↑↓ 选择，Tab 补全，Enter 执行。 */
@@ -2555,39 +2440,6 @@ function pushHistory(text) {
   while (promptHistory.length > 50) promptHistory.shift();
   try { localStorage.setItem("fa.history", JSON.stringify(promptHistory)); } catch { /* quota */ }
   historyIndex = -1;
-}
-
-/* 取手绘图标：mode=false 静止 / true 动画 / "draw" 只描边一次（不沸腾） */
-function doodleSvg(name, mode = false) {
-  if (!name) return "";
-  /* 印章线稿优先：家族语言统一（见 brand/seal-icons.js） */
-  const seal = window.SEAL_ICONS && window.SEAL_ICONS.still && window.SEAL_ICONS.still[name];
-  if (seal) return seal;
-  const set = window.DOODLE_ICONS || {};
-  const animated = set.animated && set.animated[name];
-  if (mode === "draw" && animated) {
-    return animated.replace('class="d-icon d-icon-anim ', 'class="d-icon d-icon-anim draw-only ');
-  }
-  if (mode && animated) return animated;
-  return (set.still && set.still[name]) || "";
-}
-
-/* 内联手绘图标：data-doodle 槽位在启动/重绘后填充 */
-function hydrateDoodles(root = document) {
-  const set = window.DOODLE_ICONS || {};
-  const seal = window.SEAL_ICONS && window.SEAL_ICONS.still || {};
-  for (const slot of root.querySelectorAll("[data-doodle]")) {
-    if (slot.dataset.hydrated === "1") continue;
-    const name = slot.dataset.doodle;
-    /* 印章线稿优先：同名接管，家族语言统一 */
-    if (seal[name]) { slot.innerHTML = seal[name]; slot.dataset.hydrated = "1"; continue; }
-    const useAnimated = slot.dataset.doodleAnim === "1";
-    const svg = (useAnimated && set.animated && set.animated[name])
-      || (set.still && set.still[name]) || "";
-    if (!svg) continue;
-    slot.innerHTML = svg;
-    slot.dataset.hydrated = "1";
-  }
 }
 
 /* ================================================================ Chat
@@ -3203,11 +3055,11 @@ function bindGlobalActions() {
 
 function bindNavigation() {
   const palInput = document.getElementById("palette-input");
-  palInput.addEventListener("input", () => { palActive = 0; renderPalette(); });
+  palInput.addEventListener("input", () => { resetPaletteActive(); });
   palInput.addEventListener("keydown", event => {
-    if (event.key === "ArrowDown") { event.preventDefault(); palActive = Math.min(palItems.length - 1, palActive + 1); highlightPalette(); }
-    else if (event.key === "ArrowUp") { event.preventDefault(); palActive = Math.max(0, palActive - 1); highlightPalette(); }
-    else if (event.key === "Enter") { event.preventDefault(); runPaletteItem(palActive); }
+    if (event.key === "ArrowDown") { event.preventDefault(); paletteNav(1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); paletteNav(-1); }
+    else if (event.key === "Enter") { event.preventDefault(); runPaletteItem(activeIndex()); }
     else if (event.key === "Escape") { event.preventDefault(); closePalette(); }
   });
   document.getElementById("palette").addEventListener("click", event => {
@@ -3219,7 +3071,7 @@ function bindNavigation() {
     const item = event.target.closest("[data-idx]");
     if (!item) return;
     const index = Number(item.dataset.idx);
-    if (palActive !== index) { palActive = index; highlightPalette(); }
+    setActiveIndex(index);
   });
   document.getElementById("approval-menu").addEventListener("click", event => {
     const button = event.target.closest("[data-approval-mode]");
