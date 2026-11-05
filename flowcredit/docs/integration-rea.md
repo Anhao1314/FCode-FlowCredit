@@ -195,6 +195,11 @@ any · all · not · field
 | `RULE-AGI05-102` | AGI-05 | sidecar 源码在运行时调用 npm install/exec | 宿主检查 `npm_install` 非空；控制投影移除 |
 | `RULE-AGI05-103` | AGI-05 | Go 依赖命中离线 OSV 记录 | 宿主检查 `vulnerabilities` 非空；控制投影移除 |
 | `RULE-AGI05-104` | AGI-05 | 主二进制包含运行时全局 npm 安装命令 | 宿主检查 `runtime_installers` 非空；控制投影移除 |
+| `RULE-VIBE02-001` | VIBE-02 | 同名公开常量跨文件取值分歧 | 宿主重读 `constant_conflicts`；控制投影清空 |
+| `RULE-VIBE02-002` | VIBE-02 | 同文件魔法值重复 ≥5 次 | 宿主重读 `literal_sprawl`；控制投影清空 |
+| `RULE-VIBE05-001` | VIBE-05 | 注释中的 AI 对话残留 | 只扫注释不扫字符串；宿主重读 `ai_residue` |
+| `RULE-VIBE05-002` | VIBE-05 | 跨文件重复函数体（复制粘贴分叉） | 宿主重读 `duplicate_functions`（body hash 跨文件一致，≥6 行） |
+| `RULE-VIBE05-003` | VIBE-05 | 生产源码中的占位实现桩 | 宿主重读 `placeholder_stubs`（pass/…/NotImplementedError） |
 
 负对照是**同一批事实的清理投影**（`control-facts.json`），不是第二个真实
 目标；报告会把这一点写进 `uncovered_surfaces`/notes。P1 会增加真实干净

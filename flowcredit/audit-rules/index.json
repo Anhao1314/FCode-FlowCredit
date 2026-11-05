@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "rules": [
     {
       "id": "RULE-AGI02-001",
@@ -927,6 +927,331 @@
       },
       "references": [
         "docs/integration-rea.md#rules"
+      ]
+    },
+    {
+      "id": "RULE-VIBE02-001",
+      "status": "active",
+      "category": "VIBE-02",
+      "severity": "medium",
+      "title": "Same constant name defined with different values across files",
+      "root_cause_group": "constant-conflict",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.constant_conflicts",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects constant-name conflicts",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty constant_conflicts; each row names one constant defined with different literal values in different files"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.constant_conflicts"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.constant_conflicts"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "facts with no conflicting constants must not produce a finding"
+        },
+        "negative_control": {
+          "spec": "facts with no conflicting constants must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/audit-methodology.md"
+      ]
+    },
+    {
+      "id": "RULE-VIBE02-002",
+      "status": "active",
+      "category": "VIBE-02",
+      "severity": "low",
+      "title": "Magic literal repeated many times in one file",
+      "root_cause_group": "magic-value-sprawl",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.literal_sprawl",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects repeated-literal rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty literal_sprawl; each row names a file and a literal repeated at least five times"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.literal_sprawl"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.literal_sprawl"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "facts with no repeated literals must not produce a finding"
+        },
+        "negative_control": {
+          "spec": "facts with no repeated literals must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/audit-methodology.md"
+      ]
+    },
+    {
+      "id": "RULE-VIBE05-001",
+      "status": "active",
+      "category": "VIBE-05",
+      "severity": "low",
+      "title": "AI chat residue in comments or strings",
+      "root_cause_group": "ai-chat-residue",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.ai_residue",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects chat-residue rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty ai_residue; each row names a file, line and the assistant-style phrase found there"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.ai_residue"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.ai_residue"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "facts with no chat residue must not produce a finding"
+        },
+        "negative_control": {
+          "spec": "facts with no chat residue must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/audit-methodology.md"
+      ]
+    },
+    {
+      "id": "RULE-VIBE05-002",
+      "status": "active",
+      "category": "VIBE-05",
+      "severity": "medium",
+      "title": "Duplicate function body across files (copy-paste divergence)",
+      "root_cause_group": "duplicate-implementation",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.duplicate_functions",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects duplicate-function rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty duplicate_functions; each row names one function whose body is identical across two or more files"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.duplicate_functions"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.duplicate_functions"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "facts with no cross-file duplicate bodies must not produce a finding"
+        },
+        "negative_control": {
+          "spec": "facts with no cross-file duplicate bodies must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/audit-methodology.md"
+      ]
+    },
+    {
+      "id": "RULE-VIBE05-003",
+      "status": "active",
+      "category": "VIBE-05",
+      "severity": "medium",
+      "title": "Placeholder implementation left in production source",
+      "root_cause_group": "placeholder-stub",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.placeholder_stubs",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects placeholder-stub rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty placeholder_stubs; each row names a non-test function whose body is only pass, ellipsis or NotImplementedError"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.placeholder_stubs"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.placeholder_stubs"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "facts with no placeholder stubs must not produce a finding"
+        },
+        "negative_control": {
+          "spec": "facts with no placeholder stubs must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules",
+        "docs/audit-methodology.md"
       ]
     }
   ]

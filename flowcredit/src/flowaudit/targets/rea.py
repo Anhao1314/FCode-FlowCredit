@@ -312,6 +312,17 @@ def _neutralise(facts: dict[str, Any]) -> dict[str, Any]:
         host["declared_features"] = sorted(set(entitlements))
     host["vulnerabilities"] = []
     host["runtime_installers"] = []
+    # VIBE 事实：负对照把每类质量事实清零（god file / 常量分歧 / AI 残留…）
+    vibe = host.get("vibe_scan")
+    if isinstance(vibe, dict):
+        for key in ("god_files", "todo_hotspots", "literal_sprawl",
+                    "constant_conflicts", "duplicate_functions",
+                    "placeholder_stubs", "ai_residue"):
+            vibe[key] = []
+        for issue in vibe.get("issue_files") or []:
+            if isinstance(issue, dict) and isinstance(issue.get("issues"), dict):
+                for sub in ("god_functions", "silent_catches"):
+                    issue["issues"][sub] = []
     for sidecar in host.get("sidecars") or []:
         if not isinstance(sidecar, dict):
             continue

@@ -148,8 +148,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
             ensure_ascii=False, sort_keys=True), encoding="utf-8")
         control_file = target_copy / "control-facts.json"
         neutralized = json.loads(json.dumps(vibe_facts, default=str))
-        neutralized["god_files"] = []
-        neutralized["todo_hotspots"] = []
+        # 负对照：把每类 VIBE 事实清零——oracle 若"总是报"会在这里露馅。
+        for key in ("god_files", "todo_hotspots", "literal_sprawl",
+                    "constant_conflicts", "duplicate_functions",
+                    "placeholder_stubs", "ai_residue"):
+            neutralized[key] = []
         for issue in neutralized.get("issue_files", []):
             if isinstance(issue, dict) and "issues" in issue:
                 issues = issue["issues"]

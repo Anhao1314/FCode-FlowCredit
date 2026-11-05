@@ -42,7 +42,15 @@ Runtime 的零依赖约束(`pyproject.toml` 的 `dependencies = []`)是 CI 强�
 
 `version` 字段单调整数递增;规则只增不删,废弃的规则置 `"deprecated": true` 保留在库里——审计报告的历史结论要能追溯到当时的规则集。
 
-当前版本 6 新增 `RULE-AGI05-104`（主二进制运行时全局 npm 安装命令），
-连同版本 5 的离线 OSV、版本 4 的三条 sidecar 规则、版本 3 的 pre-release
+当前版本 8 新增 VIBE-02 / VIBE-05 五条规则：
+- **VIBE-02 一致性缺陷**：`RULE-VIBE02-001` 同名常量跨文件取值分歧、
+  `RULE-VIBE02-002` 同文件魔法值散落（≥5 次）
+- **VIBE-05 AI 指纹**：`RULE-VIBE05-001` 注释里的 AI 对话残留、
+  `RULE-VIBE05-002` 跨文件重复函数体（复制粘贴分叉）、
+  `RULE-VIBE05-003` 生产源码中的占位实现桩（pass/NotImplementedError）
+
+版本 7 新增 VIBE-01/03/04（god file/函数、静默吞异常、TODO 密度），
+版本 6 新增 `RULE-AGI05-104`（主二进制运行时全局 npm 安装命令），
+版本 5 的离线 OSV、版本 4 的三条 sidecar 规则、版本 3 的 pre-release
 依赖 / entitlements 规则；配套事实契约与使用方式见
 [docs/integration-rea.md](../docs/integration-rea.md)。
