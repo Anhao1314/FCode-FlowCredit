@@ -464,7 +464,16 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
    scrollport explicit; .main owns scrolling and never extends beneath it. */
 .composer-wrap { position: relative; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
 .composer-box { border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow-stage); }
-.composer-box:focus-within { border-color: rgba(0,0,0,.32); box-shadow: 0 0 0 3px rgba(0,0,0,.035), var(--shadow-stage); }
+.composer-box:focus-within {
+  /* 聚焦反馈保持在容器上：边框轻微加深 + 3px 柔环。此前 .32 接近黑色，
+     配合下面的输入框焦点环会叠成"黑边框"观感（用户反馈）。 */
+  border-color: rgba(0, 0, 0, .22);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .03), var(--shadow-stage);
+}
+/* Chrome 对 textarea 的鼠标聚焦同样匹配 :focus-visible，全局焦点环会在
+   输入框内圈再画一圈 2px 黑框，与容器焦点态重复。聚焦反馈由
+   .composer-box:focus-within 承担；其他输入控件的焦点环不受影响。 */
+.composer-ta:focus-visible { outline: none; }
 .composer-ta, html.desktop-app .composer-ta { min-height: 52px; padding: 14px 16px 2px; font-size: 15px; line-height: 24px; }
 .composer-bar, html.desktop-app .composer-bar { padding: 7px 9px 9px; }
 .c-btn, .c-icon, .send { height: 34px; }
