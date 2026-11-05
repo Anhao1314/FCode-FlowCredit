@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  MORE_NAV, SIDEBAR_NAV, chatRowsHtml, chatSectionHtml, modeChrome,
+  MORE_NAV, SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
   navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
   runRowsHtml, statusDotHtml, taskSectionHtml,
 } from "../core/side-nav.js";
@@ -119,15 +119,6 @@ test("快速开始：三步由真实状态推导，全部完成后收敛，dismi
   assert.match(done, /quickstart-done-text/);
 
   assert.equal(quickStartHtml({ dismissed: true }), "");
-});
-
-test("chrome：flavor 徽章只属于工作侧栏，按钮文案分开", () => {
-  const work = modeChrome("work");
-  const chat = modeChrome("chat");
-  assert.equal(work.flavor, "WORK");
-  assert.equal(chat.flavor, "");
-  assert.equal(work.newLabel, "新建任务");
-  assert.equal(chat.newLabel, "新对话");
 });
 
 test("状态点沿用治理事实的类名", () => {

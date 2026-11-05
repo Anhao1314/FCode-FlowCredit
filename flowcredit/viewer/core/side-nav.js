@@ -213,15 +213,6 @@ export function quickStartHtml(state) {
 
 /* 侧栏版本：header 的 flavor 徽章只在工作侧栏出现（Kimi Work 的 sidebar-flavor-badge）；
    对话侧栏（网页版）header 只有 logo 与折叠钮。 */
-export function modeChrome(mode) {
-  const work = mode === "work";
-  return {
-    flavor: work ? "WORK" : "",
-    newLabel: work ? "新建任务" : "新对话",
-    newTitle: work ? "新建任务（⌘K）" : "新对话（⌘K）",
-  };
-}
-
 export function panelHeadHtml(count, label) {
   return "<span>" + esc(label) + '</span><span class="side-count">' + num(count || 0) + "</span>";
 }

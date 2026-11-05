@@ -278,31 +278,6 @@ export function createChatUI(deps) {
     restoreSendButton();
   }
 
-  function openWorkHome() {
-    d.invalidateView();
-    openChatSeq += 1;
-    detachChatChrome();
-    if (d.intake.active) d.closeIntake(false);
-    if (d.getSettingsOpen()) d.closeSettingsPage(false);
-    d.setLedgerOpen(false);
-    if (d.activeSession()) d.detachLive();
-    d.setChromeState({ rail: false });
-    d.store.key = null;
-    d.store.trace = null;
-    chat.active = false;
-    chat.streaming = false;
-    chat.editing = null;
-    d.renderNav();
-    d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-    paintChatChrome(false);
-    document.getElementById("tb-title").textContent = "FCode";
-    document.getElementById("tb-chips").innerHTML = "";
-    const ta = document.getElementById("composer-ta");
-    if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = d.WORK_PLACEHOLDER; ta.focus(); }
-    renderChatAttachChips();
-    paintSendState();
-  }
-
   function switchToChat() {
     if (chat.current && (chat.current.messages || []).length) {
       chat.active = true;
@@ -318,52 +293,19 @@ export function createChatUI(deps) {
     } else newChat();
   }
 
-  function setUiMode(mode) {
+  // 统一壳只有一个侧栏,工作模式已退役(2026-11-02 收敛):setUiMode 只负责
+  // 把聊天状态摆正(openChat/初始化调用)。侧栏/顶栏文案是静态的,无需投影。
+  function setUiMode() {
     d.invalidateView();
     openChatSeq += 1;
-    if (d.getUiMode() !== mode) {
-      d.setUiModeValue(mode);
-      try { localStorage.setItem("fa.uiMode", mode); } catch { /* quota */ }
-    }
-    d.setSidebarMode(mode);
     const app = document.getElementById("app");
-    app.classList.toggle("mode-chat", mode === "chat");
-    app.classList.toggle("mode-work", mode === "work");
-    const chatTab = document.getElementById("mode-chat"), workTab = document.getElementById("mode-work");
-    if (chatTab) {
-      chatTab.classList.toggle("active", mode === "chat");
-      chatTab.setAttribute("aria-selected", mode === "chat" ? "true" : "false");
-    }
-    if (workTab) {
-      workTab.classList.toggle("active", mode === "work");
-      workTab.setAttribute("aria-selected", mode === "work" ? "true" : "false");
-    }
-    const paneChat = document.getElementById("pane-chat"), paneWork = document.getElementById("pane-work");
-    if (paneChat) paneChat.hidden = mode !== "chat";
-    if (paneWork) paneWork.hidden = mode !== "work";
-    const chrome = d.modeChrome(mode);
-    const newLabel = document.getElementById("new-label");
-    if (newLabel) newLabel.textContent = chrome.newLabel;
-    const flavor = document.getElementById("side-flavor");
-    if (flavor) { flavor.textContent = chrome.flavor; flavor.hidden = !chrome.flavor; }
-    const newBtn = document.getElementById("new-run");
-    if (newBtn) newBtn.title = chrome.newTitle;
+    app.classList.add("mode-chat");
+    app.classList.remove("mode-work");
     d.renderNav();
     d.paintSections();
-    if (mode === "chat") {
-      if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
-      if (chat.current && (chat.current.messages || []).length) switchToChat();
-      else if (!chat.active) newChat();
-    } else {
-      const view = document.getElementById("main")?.dataset.view;
-      if (view === "empty" && !chat.active) {
-        d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-        const ta = document.getElementById("composer-ta");
-        if (ta) ta.placeholder = d.WORK_PLACEHOLDER;
-        return;
-      }
-      if (d.activeSession()) d.selectRun(d.activeSession().id); else openWorkHome();
-    }
+    if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
+    if (chat.current && (chat.current.messages || []).length) switchToChat();
+    else if (!chat.active) newChat();
   }
 
   function resetForChat() {
@@ -805,7 +747,7 @@ export function createChatUI(deps) {
 
   return {
     loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-    detachChatChrome, openWorkHome, switchToChat, setUiMode, newChat, openChat, renderChat,
+    detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
     renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
     stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
     regenerateChat, copyChatMessage, delegateChatMessage,

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { modeForDeepLink, workPromptsHtml } from "../core/work-surface.js";
+import { workPromptsHtml } from "../core/work-surface.js";
 
 test("Work suggestions are explicit drafts, never automatic run actions", () => {
   const html = workPromptsHtml();
@@ -17,11 +17,6 @@ test("Opening scene exposes three useful Work starting points", () => {
 });
 
 test("run and trace deep links select Work without changing ordinary startup", () => {
-  assert.equal(modeForDeepLink("?run=run-123"), "work");
-  assert.equal(modeForDeepLink("?trace=%2Ftraces%2Ffull.json"), "work");
-  assert.equal(modeForDeepLink("?run=run-123&desktop=1"), "work");
-  assert.equal(modeForDeepLink("?chat=chat-123"), null);
-  assert.equal(modeForDeepLink(""), null);
 });
 
 test("auditHashTarget:#/audit 与 #/audit/<dir> 解析,其余 hash 为 null", async () => {

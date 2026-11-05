@@ -22,13 +22,6 @@ export function bindWorkspaceNavigation({ openPalette, setMobileNavigation }) {
   document.querySelector(".sidebar-scrim")?.addEventListener("click", () => setMobileNavigation(false));
 }
 
-/* Run and trace links open Work content, so the sidebar must not retain the
- * persisted Chat mode while the main pane shows a run. */
-export function modeForDeepLink(search) {
-  const params = new URLSearchParams(String(search || ""));
-  return params.get("run") || params.get("trace") ? "work" : null;
-}
-
 /* 审计台 hash 深链:#/audit(审计根,返回 "")或 #/audit/<dir>(指定包,返回 dir);
    其他 hash 返回 null。dir 规则与 viewer 服务端的目录白名单一致
    (^[a-z0-9][a-z0-9.-]{1,63}$),越界值当 null 处理,不进渲染。 */

@@ -12,7 +12,7 @@ import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
 import { createRunEvidence } from "./app/run-evidence.js";
-import { createProjectWork, directWorkRunSpec, isProjectTrace, parseVerificationCommand, projectDraftRows } from "./app/project-work.js";
+import { createProjectWork, isProjectTrace, parseVerificationCommand, projectDraftRows } from "./app/project-work.js";
 import { createChatConfig } from "./app/chat-config.js";
 import { createChatUI } from "./app/chat-ui.js";
 import {
@@ -22,11 +22,11 @@ import { chatMessageHtml } from "./core/chat-view.js";
 import { aiAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
-import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget, modeForDeepLink } from "./core/work-surface.js";
+import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
-  SIDEBAR_NAV, MORE_NAV, chatRowsHtml, chatSectionHtml, modeChrome,
+  SIDEBAR_NAV, MORE_NAV, chatRowsHtml, chatSectionHtml,
   navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
-  runRowsHtml, taskSectionHtml,
+  runRowsHtml,
 } from "./core/side-nav.js";
 /* 审计台 surface:纯渲染模块原样复用,app.js 只加接线不改它(render* 全部留在 audit-view)。 */
 import { auditShellHtml, init as initAuditSurface, DISPOSITION_LABELS } from "./audit/audit-view.js";
@@ -307,7 +307,7 @@ function saveProjectContext() {
 function renderProjectComposer() {
   const host = document.getElementById("project-composer");
   if (!host) return;
-  host.hidden = sidebarMode !== "work" || chat.active;
+  host.hidden = true;  // 工作模式退役后项目直接执行入口不再出现（chat 走 intake 的「添加项目」）
   host.innerHTML = projectWork.projectComposerHtml(attach.project, attach.projectEditing);
 }
 
@@ -519,7 +519,6 @@ let ledgerConfirmId = null;
    - 对话侧栏照 kimi.com 网页版：主入口 + More 折叠 + 置顶 + Projects + 对话。
    导航条目全部走 data-open，两个面板各放一份也不会互相抢 active。 */
 let navCounts = {};
-let sidebarMode = "chat";   // setUiMode 每次都会同步；侧栏渲染只读它
 
 function navCountOf(open) {
   if (open === "ledger") return runHistory.length;
@@ -602,10 +601,8 @@ function renderProjects() {
     filter: projectFilter,
     countOf: projectRunCount,
   });
-  for (const id of ["chat-projects", "work-projects"]) {
-    const host = document.getElementById(id);
-    if (host) host.innerHTML = html;
-  }
+  const host = document.getElementById("chat-projects");
+  if (host) host.innerHTML = html;
 }
 
 /* 置顶分组（Kimi 的 pinned-list），没有置顶就整段不渲染。
@@ -623,12 +620,8 @@ function toggleChatPin(threadId) {
 }
 
 function renderPinned() {
-  // 任务：复用运行行本身（带行内菜单，能取消置顶）
-  const runs = runHistory.filter(run => run.pinned);
-  const host = document.getElementById("work-pinned");
-  if (host) host.innerHTML = pinnedSectionHtml(runs, { rowHtml: runRowHtml });
-
-  // 对话：本机置顶，行上带 ★ 开关
+  // 置顶运行行原宿主在 pane-work（已随侧栏重建删除），不再渲染；
+  // 对话置顶保持在本机，行上带 ★ 开关。
   const threads = chatThreads.filter(thread => isChatPinned(thread.id));
   const chatHost = document.getElementById("chat-pinned");
   if (chatHost) {
@@ -1136,11 +1129,10 @@ function updateRunCounts() {
 }
 
 function renderRuns() {
-  const runNav = document.getElementById("run-nav");
+  // 统一侧栏重建后运行行只有一个宿主 #chat-tasks（原 #run-nav/#work-tasks
+  // 在 pane-work 里,已随面板删除）。
   const chatTasks = document.getElementById("chat-tasks");
-  if (!runNav && !chatTasks) return;
-  const tasks = document.getElementById("work-tasks");
-  if (tasks) tasks.innerHTML = taskSectionHtml(runHistory.length);
+  if (!chatTasks) return;
   updateRunCounts();
   const query = runFilter.trim().toLowerCase();
   let runs = runHistory
@@ -1155,8 +1147,7 @@ function renderRuns() {
     const emptyHtml = query
       ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
       : `<div class="section-empty">任务会出现在这里</div>`;
-    if (runNav) runNav.innerHTML = emptyHtml;
-    if (chatTasks) chatTasks.innerHTML = emptyHtml;
+    chatTasks.innerHTML = emptyHtml;
     return;
   }
 
@@ -1183,9 +1174,7 @@ function renderRuns() {
       }
     }
   }
-  runNav.innerHTML = html;
-  // 收敛:任务列表同时镜像进对话侧栏——唯一对话框也能看到运行状态。
-  if (chatTasks) chatTasks.innerHTML = html;
+  chatTasks.innerHTML = html;
 }
 
 /* ------------------------------- RENDER LAYER — 证据面板内容与事件列表 */
@@ -1442,7 +1431,6 @@ const DEMO_SCENARIOS = new Set([
 function renderStageChips() {
   const slot = document.getElementById("stage-chips");
   if (!slot) return;
-  if (sidebarMode === "work") { slot.innerHTML = ""; return; }
   const source = (templates && templates.length)
     ? templates.map(t => [t.key, (t.title || t.key).split("：")[0]])
     : SCENARIOS.map(([key, label]) => [key, label]);
@@ -3190,58 +3178,6 @@ function saveQueueEdit(s, msg) {
   })();
 }
 
-let projectStarting = false;
-
-async function startProjectRun(text) {
-  if (projectStarting) return;
-  const hasProject = !!attach.project.path.trim();
-  let spec;
-  try { spec = { ...directWorkRunSpec(attach.project), ...delegationSpecExtras() }; }
-  catch (error) {
-    attach.projectEditing = true;
-    renderProjectComposer();
-    toast(error.message);
-    return;
-  }
-  const ta = document.getElementById("composer-ta");
-  const button = document.getElementById("send");
-  projectStarting = true;
-  if (button) button.disabled = true;
-  try {
-    const response = await fetch("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        objective: text,
-        template: "general-research",
-        approval: approvalMode,
-        spec,
-        ...(modelChoice.key !== "mock" ? { model: modelChoice.key, effort: modelChoice.effort || "medium" } : {}),
-      }),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-    const run = await response.json();
-    ta.value = "";
-    autosize(ta);
-    attach.projectEditing = false;
-    attach.open = false;
-    renderProjectComposer();
-    renderAttachPanel();
-    toast(hasProject ? "任务已开始 · 正在隔离副本中执行" : "任务已开始");
-    openLive(run.id, text, run.template, modelChoice.key);
-    refreshRuns({ force: true });
-  } catch (error) {
-    toast("任务启动失败：" + error.message);
-    ta.focus();
-  } finally {
-    projectStarting = false;
-    if (!activeSession()?.running) paintSendState();
-  }
-}
-
 async function sendTask() {
   const ta = document.getElementById("composer-ta");
   const text = (ta.value || "").trim();
@@ -3250,7 +3186,6 @@ async function sendTask() {
     toast("回放模式：用 python3 viewer/server.py 启动后才能派任务");
     return;
   }
-  if (sidebarMode === "work") return startProjectRun(text);
   ta.value = "";
   autosize(ta);
   startIntake(text);
@@ -4533,7 +4468,7 @@ function focusComposer() {
 function paletteActions() {
   const s = activeSession();
   const actions = [
-    { ic: "＋", label: sidebarMode === "work" ? "新任务 · 直接执行" : "新委托 · 需求选择", run: () => sidebarMode === "work" ? focusComposer() : startIntake("") },
+    { ic: "＋", label: "新委托 · 需求选择", run: () => startIntake("") },
     { ic: "✎", label: "聚焦任务输入框", run: focusComposer },
   ];
   if (s && s.running) actions.push({ ic: "■", label: "停止当前运行", run: stopRun });
@@ -4642,7 +4577,7 @@ function runPaletteItem(index) {
 /* -------------------- MIXED — 命令匹配/执行（不改）+ 菜单渲染 */
 /* Codex 式入口：输入框以 / 开头弹出命令面板，↑↓ 选择，Tab 补全，Enter 执行。 */
 const SLASH_COMMANDS = [
-  { cmd: "/new", desc: "新建任务", run: () => sidebarMode === "work" ? focusComposer() : startIntake("") },
+  { cmd: "/new", desc: "新建任务", run: () => startIntake("") },
   { cmd: "/ledger", desc: "打开工作台账本", run: () => renderMode("ledger") },
   { cmd: "/report", desc: "签发当前运行的审计报告", run: () => openReport() },
   { cmd: "/stop", desc: "在轮次边界停止当前运行", run: () => stopRun() },
@@ -4761,39 +4696,30 @@ const {
   getChatModelTouched: () => chatModelTouched,
 });
 
-const WORK_STAGE_NOTE = "给想法一个运行空间。你定义目标，FCode 负责规划、执行与交付。";
 const WORK_STAGE_FOOTNOTE = "模型提议，主机守门。每次工具调用都过权限与预算，每一步都有证据。";
-const WORK_PLACEHOLDER = "描述你想实现的事，FCode 从这一步开始…";
-// 收敛(2026-11-02):唯一对话框交互。work 模式退居深视图(运行线程等),
-// 不再作为可切换的前端模式;uiMode 恒为 chat。
-let uiMode = "chat";
 
 const {
   loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-  detachChatChrome, openWorkHome, switchToChat, setUiMode, newChat, openChat, renderChat,
+  detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
   renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
   stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
   regenerateChat, copyChatMessage, delegateChatMessage,
 } = createChatUI({
   chat, chatModelChoice, esc, chatSectionHtml, chatRowsHtml, isChatPinned, toast, intake,
   store, activeSession, detachLive, setChromeState, closeIntake, closeSettingsPage,
-  renderNav, renderMain, stageEmptyHtml, autosize, paintSections, modeChrome, selectRun,
+  renderNav, renderMain, stageEmptyHtml, autosize, paintSections, selectRun,
   prepareCardRuns: (...args) => prepareCardRuns(...args),
   aiAvatarHtml, chatMessageHtml,
   withRunStatus: (...args) => withRunStatus(...args),
   chatCardHtml: (...args) => chatCardHtml(...args),
   nearMainBottom, scrollMainBottom, hydrateDoodles, parseSseFrame, renderMarkdown,
   copyText, startIntake, threadOrigin, adoptDefaultChatModel, loadChatModels,
-  WORK_STAGE_NOTE, WORK_PLACEHOLDER,
   getHealth: () => health,
   getChatThreads: () => chatThreads,
   setChatThreads: value => { chatThreads = value; },
   getChatConfig: () => chatConfig,
   getSettingsOpen: () => settingsOpen,
   setLedgerOpen: value => { ledgerOpen = value; },
-  getUiMode: () => uiMode,
-  setUiModeValue: value => { uiMode = value; },
-  setSidebarMode: value => { sidebarMode = value; },
   getViewEpoch: () => viewGate.sequence,
   invalidateView: () => viewGate.invalidate(),
 });
@@ -5306,7 +5232,7 @@ function bindNavigation() {
   // 运行行出现在两处（主列表 + 置顶段），事件委托绑在侧栏容器上
   const sidebarContainer = document.querySelector(".sidebar");
   sidebarContainer.addEventListener("click", event => {
-    const moreBtn = event.target.closest("#run-nav [data-more], #work-pinned [data-more]");
+    const moreBtn = event.target.closest("[data-more]");
     if (moreBtn) {
       event.stopPropagation();
       const row = moreBtn.closest("[data-run]");
@@ -5353,11 +5279,10 @@ function bindNavigation() {
     if (event.target.closest(".row-menu") || event.target.closest(".rename-input")) return;
     selectRun(row.dataset.run);
   });
-  // Projects 段落在两个侧栏面板各渲染一份，事件由侧栏统一委托
-  for (const host of ["chat-projects", "work-projects"]) {
-    const el = document.getElementById(host);
-    if (!el) continue;
-    el.addEventListener("click", event => {
+  // Projects 段落只有一个宿主（统一侧栏），事件仍由侧栏统一委托
+  {
+    const el = document.getElementById("chat-projects");
+    if (el) el.addEventListener("click", event => {
       const row = event.target.closest("[data-proj]");
       if (!row) return;
       projectFilter = projectFilter === row.dataset.proj ? null : row.dataset.proj;
@@ -5367,7 +5292,7 @@ function bindNavigation() {
     });
   }
   sidebarContainer.addEventListener("keydown", event => {
-    const row = event.target.closest("#run-nav [data-run], #work-pinned [data-run]");
+    const row = event.target.closest("[data-run]");
     if (!row || event.target !== row) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -5375,7 +5300,7 @@ function bindNavigation() {
     }
   });
   sidebarContainer.addEventListener("dblclick", event => {
-    const label = event.target.closest("#run-nav [data-name], #work-pinned [data-name]");
+    const label = event.target.closest("[data-name]");
     if (!label) return;
     const row = label.closest("[data-run]");
     if (!row) return;
@@ -5513,12 +5438,7 @@ function bindMainInteractions() {
       setTemplate(key);
       const template = (templates || []).find(t => t.key === key);
       const objective = (template && template.objective) || "";
-      if (sidebarMode === "work") {
-        const ta = document.getElementById("composer-ta");
-        ta.value = objective;
-        autosize(ta);
-        focusComposer();
-      } else startIntake(objective);
+      startIntake(objective);
       return;
     }
     const intakeChoice = event.target.closest("[data-intake-choice]");
@@ -5565,7 +5485,7 @@ function bindMainInteractions() {
     const originChip = event.target.closest("[data-origin-thread]");
     if (originChip) {
       const threadId = originChip.dataset.originThread;
-      if (threadId) { setUiMode("chat"); openChat(threadId); }
+      if (threadId) { setUiMode(); openChat(threadId); }
       return;
     }
     const threadToggle = event.target.closest("[data-thread-toggle]");
@@ -5861,7 +5781,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderMode("audit");
     return;
   }
-  if (runParam || param) setUiMode(modeForDeepLink(location.search));
   if (runParam) {
     // 运行直链：运行中 → 接入 SSE；已结束 → 拉 trace 回放。
     // selectRun 需要 runHistory 判定状态，先等一次运行列表。
@@ -5887,7 +5806,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
   } else {
     newChat();
-    setUiMode(uiMode);
+    setUiMode();
   }
 });
 
