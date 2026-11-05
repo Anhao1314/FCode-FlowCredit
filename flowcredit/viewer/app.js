@@ -24,7 +24,7 @@ import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget, modeForDeepLink } from "./core/work-surface.js";
 import {
-  WORK_NAV, CHAT_NAV, CHAT_MORE_NAV, chatRowsHtml, chatSectionHtml, modeChrome,
+  SIDEBAR_NAV, MORE_NAV, chatRowsHtml, chatSectionHtml, modeChrome,
   navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
   runRowsHtml, taskSectionHtml,
 } from "./core/side-nav.js";
@@ -527,12 +527,11 @@ function navCountOf(open) {
 }
 
 function renderSidebarNav() {
-  const workNav = document.getElementById("work-nav");
-  if (workNav) workNav.innerHTML = navItemsHtml(WORK_NAV.filter(item => !item.reserved), navCounts);
-  const chatNav = document.getElementById("chat-top-nav");
-  if (chatNav) chatNav.innerHTML = navItemsHtml(CHAT_NAV, navCounts);
+  // 统一侧栏（适配重建）:4 个真实 surface 扁平排布,4 个预留槽位进「更多」。
+  const nav = document.getElementById("side-nav");
+  if (nav) nav.innerHTML = navItemsHtml(SIDEBAR_NAV, navCounts);
   const more = document.getElementById("more-nav");
-  if (more) more.innerHTML = navItemsHtml(CHAT_MORE_NAV, navCounts);
+  if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
   paintMoreNav();
 }
 
@@ -540,7 +539,11 @@ function paintNavActive() {
   const open = document.getElementById("main")?.dataset.view || "";
   for (const el of document.querySelectorAll(".nav-item[data-open]")) {
     const isLedger = el.dataset.open === "ledger";
-    el.classList.toggle("active", isLedger ? ledgerOpen : el.dataset.open === open);
+    // 账本高亮的特例只服务「从账本点开运行」这一个态:view 是 run 且
+    // ledgerOpen 才保留高亮。ledgerOpen 是会话标志,不随视图变化清零,
+    // 只看它会让离开账本后判断记录/定时任务页仍高亮账本(重建验收抓到)。
+    const ledgerActive = open === "ledger" || (ledgerOpen && open === "run");
+    el.classList.toggle("active", isLedger ? ledgerActive : el.dataset.open === open);
   }
 }
 
@@ -559,9 +562,10 @@ function renderNav() {
   paintScrollMasks();
 }
 
-/* 侧栏「更多」：对话侧栏把二级入口收进来（kimi.com 的 next-sidebar__more-list）；
-   工作侧栏是平坦列表，不参与折叠。 */
-const MORE_KEY = "fa.sideMore";
+/* 侧栏「更多」：只装 4 个预留槽位（kimi.com 的 next-sidebar__more-list 手法）。
+   适配重建后功能面全部提到第一屏;v2 键不继承旧 IA 的持久化状态——旧状态
+   曾被 openLedger/renderAudit 强制写成"展开",按新结构应为默认收起。 */
+const MORE_KEY = "fa.sideMore.v2";
 
 function moreOpen() {
   try { return localStorage.getItem(MORE_KEY) === "1"; } catch { return false; }
@@ -688,8 +692,8 @@ function markQuickStart(key) {
    - 新建项目 = Projects 标题右侧的「＋」（网页版叫 create-label）
    - 段落折叠 = section-title-button 的 chevron（NextSidebarSection 的 collapsible） */
 function newTask() {
-  if (sidebarMode === "work") openWorkHome();
-  else newChat();
+  // 统一侧栏只有一套列表:新建任务 = 新对话(工作模式已退役)。
+  newChat();
 }
 
 function addProject(button) {
@@ -752,7 +756,6 @@ function clearNavActive() {
 /* ------------------ MIXED — trace 成本回填逻辑（不改）+ 账本渲染模板 */
 
 function openLedger() {
-  setMoreNav(true);
   leaveChat();
   if (intake.active) closeIntake(false);
   if (settingsOpen) closeSettingsPage(false);
@@ -784,7 +787,6 @@ function writeAuditHash(dir) {
 }
 
 async function renderAudit() {
-  setMoreNav(true);
   if (intake.active) closeIntake(false);
   if (settingsOpen) closeSettingsPage(false);
   if (activeSession()) detachLive();
@@ -5247,9 +5249,7 @@ function bindGlobalActions() {
       paintSendState();
       return;
     }
-    if (event.target.closest("#new-run")) { if (uiMode === "work") openWorkHome(); else newChat(); return; }
-    if (event.target.closest("#mode-chat")) { setUiMode("chat"); return; }
-    if (event.target.closest("#mode-work")) { setUiMode("work"); return; }
+    if (event.target.closest("#new-run")) { newChat(); return; }
     if (event.target.closest("#send")) {
       if (chat.active && chat.streaming) { stopChat(); return; }
       composerSubmit();
@@ -5679,7 +5679,7 @@ function bindShell() {
     else setChromeState({ sidebar: !app.classList.contains("side-collapsed") });
   });
   document.querySelector(".sidebar").addEventListener("click", event => {
-    if (innerWidth <= 900 && event.target.closest("[data-run], [data-chat-id], [data-open], #new-run, #mode-work, #mode-chat")) {
+    if (innerWidth <= 900 && event.target.closest("[data-run], [data-chat-id], [data-open], #new-run")) {
       setMobileNavigation(false);
     }
   });
@@ -5724,19 +5724,13 @@ function bindShell() {
     const s = activeSession();
     if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); togglePalette(); return; }
     if (mod && e.key.toLowerCase() === "n") {
+      // 工作模式已收敛退役（uiMode 恒为 chat）:⌘N 只有"新对话"一种语义。
       e.preventDefault();
-      if (e.shiftKey) { setUiMode("work"); openWorkHome(); }
-      else { setUiMode("chat"); newChat(); }
+      newChat();
       return;
     }
     if (mod && e.key === ",") { e.preventDefault(); toggleSettingsPage(); return; }
-    // Kimi 桌面的两个模式各有一个数字快捷键（工具提示里就写着 ⌘1 / ⌘2），
-    // 侧栏折叠是 ⌘B（网页版 chat 同一套）。
-    if (mod && (e.key === "1" || e.key === "2")) {
-      e.preventDefault();
-      setUiMode(e.key === "1" ? "work" : "chat");
-      return;
-    }
+    // ⌘1/⌘2 的工作/对话切换随 pane-work 一起退役——侧栏只剩一套列表。
     if (mod && e.key.toLowerCase() === "b") {
       e.preventDefault();
       const shell = document.getElementById("app");

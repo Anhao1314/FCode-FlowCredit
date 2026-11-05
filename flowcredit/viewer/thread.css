@@ -505,13 +505,7 @@ html.desktop-app .side-head {
 .side-fold { width: 32px; height: 32px; border-radius: 8px; color: var(--k-label-3); }
 .side-fold:hover { background: var(--k-fill-1); }
 .brand-mark { width: 32px; height: 32px; border-radius: 8px; }
-.side-flavor {
-  height: 18px; padding: 0 6px; border-radius: 5px;
-  background: var(--k-flavor); color: var(--k-white);
-  /* Kimi 的 .sidebar-flavor-badge：11/600、行高 18、字距 .06em、强制大写。
-     此前缺 text-transform、字距写成 .02em——中文标签看不出，但数值不是它的。 */
-  font: 600 11px/18px var(--font-ui); letter-spacing: .06em; text-transform: uppercase;
-}
+/* .side-flavor 徽章已随适配重建删除（侧栏只剩一套列表，不再有 work/chat 标签）。 */
 .side-head .kbtn { color: var(--k-label-3); }
 .side-head .kbtn:hover { background: var(--k-fill-1); color: var(--text-1); }
 

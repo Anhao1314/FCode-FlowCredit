@@ -75,14 +75,14 @@ html.desktop-app .stage-chips { max-width: min(768px, 100%); }
 /* 折叠宽屏时滚动条不贴字：side-list 右留白 2px（覆盖本文件上方更早的 padding:0）。 */
 html.desktop-app .side-list { padding: 0 2px; }
 /* design.css 直接在 <svg> 上写 color: var(--text-3)，压过 span 上的规则
-   （图标 stroke=currentColor，谁定 svg 的 color 谁赢）。只修工作侧：
-   对话侧没有对应实测值。 */
-#pane-work .nav-item svg,
-#pane-work .nav-item .d-icon,
-#pane-work .nav-item.active svg,
-#pane-work .nav-item.active .d-icon { color: var(--text-1); }
-#pane-work .nav-item:hover svg,
-#pane-work .nav-item:hover .d-icon { color: var(--text-1); }
+   （图标 stroke=currentColor，谁定 svg 的 color 谁赢）。规则原本只修工作侧
+   （pane-work 已随适配重建删除），现在作用于统一侧栏的功能导航。 */
+#side-nav .nav-item svg,
+#side-nav .nav-item .d-icon,
+#side-nav .nav-item.active svg,
+#side-nav .nav-item.active .d-icon { color: var(--text-1); }
+#side-nav .nav-item:hover svg,
+#side-nav .nav-item:hover .d-icon { color: var(--text-1); }
 
 /* ---------- 段落折叠（原 kimi.css，body[data-hide~] 状态载体与 JS 契约不变） ----------
    grid 行 1fr→0fr + 透明度补间（Kimi 的 .sidebar-reveal 手法），不是 display:none。

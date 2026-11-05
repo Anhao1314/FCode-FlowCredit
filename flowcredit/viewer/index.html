@@ -23,21 +23,23 @@
         <span class="side-tip" role="tooltip"><span class="side-tip-label">折叠侧栏</span><kbd class="side-tip-key">⌘B</kbd></span>
       </button>
       <img class="brand-mark" src="brand/logo.svg" alt="FCode" width="32" height="32">
-      <span class="side-flavor" id="side-flavor">WORK</span>
       <span class="grow"></span>
     </div>
 
     <button class="side-new" id="new-run" title="新对话">
       <span data-doodle="kimi-plus"></span>
       <span id="new-label">新对话</span>
-      <kbd class="nav-shortcut" aria-hidden="true">⌘K</kbd>
+      <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
     </button>
     <button class="side-search" id="side-search" type="button" title="搜索与命令（⌘K）">
       <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
     </button>
 
-    <!-- 对话侧栏 = kimi.com 网页版（桌面版点「对话」会 closePage 回到网页 chat）：
-         固定新建对话 → 顶部主入口 → More 折叠 → 置顶 → Projects → 对话列表。
+    <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
+         结构：功能导航（4 个真实 surface 扁平排布）→ 更多（4 个预留槽位，
+         默认收起）→ 置顶 → Projects → 对话 → 任务。
+         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达，
+         四个功能面也不再拆散在「顶部两项 + 更多两项」。
          折叠区只包"行"（.side-block-inner = Kimi 的 .sidebar-reveal-content），
          段标题留在外面——第一版把标题一起包了进去，折叠后标题被裁掉，
          [data-section-toggle] 点不到，该段再也展不开（浏览器验收抓到的真 bug）。
@@ -45,8 +47,8 @@
     <div class="side-list" id="pane-chat">
       <div class="side-scroll-top-mask"></div>
       <div class="side-nav">
-        <nav id="chat-top-nav"></nav>
-        <button class="nav-item" id="nav-more" type="button" aria-expanded="false" aria-controls="more-nav" title="更多">
+        <nav id="side-nav" aria-label="功能导航"></nav>
+        <button class="nav-item" id="nav-more" type="button" aria-expanded="false" aria-controls="more-nav" title="更多（预留槽位）">
           <span data-doodle="ellipsis"></span><span>更多</span>
           <span class="chev" aria-hidden="true">▾</span>
         </button>
@@ -57,17 +59,6 @@
       <div id="chat-chats"></div>
       <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
       <div id="chat-tasks"></div>
-    </div>
-
-    <!-- 工作侧栏 = Kimi Work 的 AppSidebar：平坦导航（看板/判断/定时）→ 置顶 →
-         Projects（＋：新建项目）→ 任务（＋、状态点、空态）。 -->
-    <div class="side-list" id="pane-work" hidden>
-      <div class="side-scroll-top-mask"></div>
-      <nav class="side-nav" id="work-nav"></nav>
-      <div id="work-pinned"></div>
-      <div id="work-projects"></div>
-      <div id="work-tasks"></div>
-      <div class="side-block-inner"><nav class="nav" id="run-nav"></nav></div>
     </div>
 
     <div class="side-foot">
