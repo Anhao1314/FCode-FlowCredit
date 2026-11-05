@@ -125,75 +125,10 @@ html.desktop-app .side-new { height: 40px; }
 .run-chip .pdot { background: var(--accent); animation: kimiPulse 1.2s ease-in-out infinite alternate; }
 button.run-chip:hover { border-color: var(--accent); color: var(--text-1); }
 
-/* ================================================================ 菜单 / 浮层
-   Kimi 的 .kimi-menu 实测（模型浮窗 290 宽）：r16、无外边框、0.5px 内描边
-   + 0 4px 16px 软阴影；进入动画从触发芯片最近的角 0.85 缩放到位（.15s，
-   cubic-bezier(0,0,.2,1)）。浮窗与触发芯片水平对齐、垂直间隙 4px。
-   #model-menu / #approval-menu 的锚点定位已迁往 desktop.css「composer 菜单锚点」
-   节（id 特异性与加载顺序无关，迁移前后生效值一致）；本节只留视觉。 */
-.tpl-menu, .foot-menu, .row-menu {
-  border: 0; border-radius: 16px; background: #FFFFFF; padding: 8px;
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, .13), 0 4px 16px rgba(0, 0, 0, .10);
-}
-.tpl-item { border-radius: 8px; padding: 8px 10px; }
-.tpl-item:hover, .tpl-item.active { background: #F5F5F5; }
-.tpl-item .t { font-size: 14px; line-height: 20px; }
-.tpl-item .d { color: var(--text-3); font-size: 12px; line-height: 18px; }
-.tpl-note { border-top-color: var(--line-soft); color: var(--text-3); }
-
-#model-menu .tpl-item .t { white-space: nowrap; }
-#model-menu .tpl-item .m { max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
-#model-menu .model-item .check { color: var(--accent); }
-#model-menu .model-effort { border: 0; border-radius: 8px; background: #F5F5F5; }
-
-/* 会话标签条在隐藏时仍被 CSS 拉成 flex（1040×7 的透明带），会盖住向上展开的
-   浮窗顶部。与其逐个修浮窗，不如让 [hidden] 真的消失。 */
-.tabs[hidden] { display: none !important; }
-
-.palette-scrim { background: rgba(0, 0, 0, .24); backdrop-filter: blur(2px); }
-.palette-box { border-radius: 14px; }
-.pal-item { border-radius: 8px; padding: 8px 10px; }
-.pal-item:hover, .pal-item.active { background: #F5F5F5; }
-
-/* Docked composer: the panel opens upward as an overlay (Kimi's + menu never
-   pushes the page or clips off the bottom). The stage composer keeps the
-   connected downward sheet because it has room below it. */
-.attach-panel {
-  top: auto; bottom: calc(100% + 8px);
-  border: 1px solid var(--line); border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .10);
-  transform-origin: bottom center;
-  animation: kimiPanelUp .15s var(--ease);
-}
-#app.stage-mode .attach-panel {
-  top: 100%; bottom: auto;
-  border-radius: 0 0 24px 24px;
-  border-top: 1px solid var(--line-strong);
-  transform-origin: top center;
-  animation: attachIn .15s var(--ease);
-}
-#app:not(.stage-mode) .composer-box.open-attach {
-  border-radius: 24px;
-  border-color: rgba(0, 0, 0, .09);
-}
-@keyframes kimiPanelUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-.attach-group { border-color: var(--line); border-radius: 10px; background: #F5F5F5; }
-.attach-doc { border-radius: 8px; }
-.attach-doc:hover { background: rgba(0, 0, 0, .045); }
-.attach-doc.checked { background: rgba(23, 131, 255, .10); }
-.attach-caption { color: var(--text-3); letter-spacing: .02em; text-transform: none; font-weight: 500; }
-
-/* 菜单进入：Kimi 的 fade/scale 曲线（0.15s） */
-.tpl-menu:not([hidden]), .foot-menu:not([hidden]), .row-menu:not([hidden]) {
-  animation: kimiFade .15s var(--ease) both;
-}
-@keyframes kimiMenuIn {
-  from { opacity: 0; transform: scale(.85); }
-  to { opacity: 1; transform: scale(1); }
-}
+/* ================================================================ 菜单 / 浮层（已迁出）
+   视觉、进入动画与关键帧（kimiPanelUp/kimiMenuIn）已迁 design.css
+   「菜单与浮层」段（P0 切片 3）。动效关键帧 kimiPulse/kimiPop/kimiFade
+   仍留在下方「动效」段。 */
 
 /* ================================================================ 对话 → 已迁出
    对话视图皮肤（列几何/气泡/markdown/思考块/代码/操作行/附件/typing/等待
