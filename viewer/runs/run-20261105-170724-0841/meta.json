@@ -1,0 +1,27 @@
+{
+  "id": "run-20261105-170724-0841",
+  "template": "full",
+  "objective": "验证线程渲染冒烟：读文档并给出结论",
+  "created": "2026-11-05T17:07:24+00:00",
+  "status": "succeeded",
+  "rounds": 9,
+  "events": 49,
+  "tracePath": "runs/run-20261105-170724-0841/trace.json",
+  "verified": true,
+  "name": "",
+  "pinned": false,
+  "approval": "off",
+  "taskId": "task-run-20261105-170724-0841",
+  "cost": {
+    "calls": 9,
+    "reads": 9,
+    "costMicrousd": 4500,
+    "tokens": 9000,
+    "maxCalls": 12,
+    "maxCostMicrousd": 20000
+  },
+  "spec": null,
+  "model": "mock",
+  "effort": "",
+  "error": ""
+}
