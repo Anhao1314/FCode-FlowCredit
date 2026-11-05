@@ -49,7 +49,7 @@
 │ viewer/                  Work 控制台：HTTP + SSE + 零构建前端          │
 │ benchmark/               19 个版本化任务，复用生产 Loop                │
 │ flowaudit/cli.py         审计命令行（audit / verify-bundle）            │
-│ chat*.py                 对话分支（只回答，不执行工具）                 │
+│ chat*.py                 对话分支（只读工具循环；写操作转委托）          │
 │ sft/                     trace → SFT 数据 / 策略评测                   │
 │ review*.py               运行后人工复核（追加签名，不改写）             │
 └───────────────────────────────┬────────────────────────────────────────┘
@@ -241,7 +241,7 @@ core  →  tools / providers  →  runtime  →  demo
 - `demo/{local,deepseek,oracle,api}.py`：真实模型实验入口，与 demo 共用内核。
 - `benchmark/tasks.py`（293）：19 个任务，动作是**模型提案**而不是直接工具调用。
 - `benchmark/verifier.py`（184）：从文件、进程、事件、收据独立判分，不信任被测运行的自述。
-- `chat*.py`（1,809）：对话面；关键区别是 chat 只回答、不执行工具，但仍计预算、进事件链。
+- `chat*.py`（1,809）：对话面；可选只读工具循环（ls_workspace/read_file，经同一权限门与预算），写操作仍走提案转委托；全部计预算、进事件链。
 
 ### 4.9 `viewer/`
 

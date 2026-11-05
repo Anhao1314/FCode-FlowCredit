@@ -402,3 +402,25 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 }
 .chat-empty .ai-avatar { margin: 0 auto 10px; display: flex; width: 64px; height: 64px; }
 .ai-avatar .ai-avatar-ring { pointer-events: none; }
+
+/* ================================================================ 对话内工具卡
+   Agentic chat：模型调用只读工具时，卡片按 blocks 顺序嵌在回答里。
+   状态点只有三态（运行中/完成/失败），不写形容词。 */
+.chat-blocks { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.chat-tool { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.chat-tool-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 12.5px; }
+.chat-tool-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); flex: none; }
+.chat-tool.running .chat-tool-dot { background: var(--warn); }
+.chat-tool.ok .chat-tool-dot { background: var(--ok); }
+.chat-tool.error .chat-tool-dot { background: var(--bad); }
+.chat-tool-name { font-family: var(--font-mono); font-weight: 550; color: var(--text-1); }
+.chat-tool-args { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.chat-tool-state { flex: none; font-size: 11px; color: var(--text-3); }
+.chat-tool-detail { border-top: 1px dashed var(--line-soft); padding: 6px 10px 8px; }
+.chat-tool-detail summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); }
+.chat-tool-detail summary:hover { color: var(--text-1); }
+.chat-tool-result { margin: 6px 0 0; padding: 8px; border-radius: 6px; background: var(--raised);
+  font: 11px/1.55 var(--font-mono); color: var(--text-2); white-space: pre-wrap;
+  word-break: break-all; max-height: 240px; overflow: auto; }
+.chat-tool-meta { margin-top: 6px; font: 10.5px var(--font-mono); color: var(--text-4); }

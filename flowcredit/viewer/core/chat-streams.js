@@ -92,7 +92,36 @@ export function applyChatEvent(threadRef, assistant, event) {
       return { paint: true };
     case "delta":
       assistant.text = (assistant.text || "") + String(event.text || "");
+      // 有序 blocks：与文本交错的工具卡靠它渲染（旧消息没有 blocks）。
+      if (!Array.isArray(assistant.blocks)) assistant.blocks = [];
+      const lastBlock = assistant.blocks[assistant.blocks.length - 1];
+      if (lastBlock && lastBlock.type === "text") lastBlock.text += String(event.text || "");
+      else assistant.blocks.push({ type: "text", text: String(event.text || "") });
       return { paint: true };
+    case "tool_call": {
+      if (!Array.isArray(assistant.blocks)) assistant.blocks = [];
+      const call = {
+        type: "tool", call_id: event.call_id, name: event.name,
+        arguments: event.arguments || "{}", round: event.round,
+        status: "running",
+      };
+      assistant.blocks.push(call);
+      if (!Array.isArray(assistant.tool_calls)) assistant.tool_calls = [];
+      assistant.tool_calls.push(call);
+      return { render: true };
+    }
+    case "tool_result": {
+      if (!Array.isArray(assistant.blocks)) assistant.blocks = [];
+      for (const block of assistant.blocks) {
+        if (block.type !== "tool" || block.call_id !== event.call_id) continue;
+        block.status = event.status || "ok";
+        if (event.error) block.error = event.error;
+        if (event.result !== undefined) block.result = event.result;
+        if (event.result_hash) block.result_hash = event.result_hash;
+        if (event.trust) block.trust = event.trust;
+      }
+      return { render: true };
+    }
     case "done":
       if (event.message) {
         assistant.id = event.message.id || assistant.id;
@@ -100,6 +129,8 @@ export function applyChatEvent(threadRef, assistant, event) {
         assistant.reasoning = event.message.reasoning || assistant.reasoning;
         assistant.usage = event.message.usage || {};
         assistant.receipt_ref = event.message.receipt_ref || "";
+        if (Array.isArray(event.message.blocks)) assistant.blocks = event.message.blocks;
+        if (Array.isArray(event.message.tool_calls)) assistant.tool_calls = event.message.tool_calls;
         assistant.status = "ok";
       }
       assistant.waiting = 0;

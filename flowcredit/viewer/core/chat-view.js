@@ -11,6 +11,7 @@
 import { esc, num } from "./format.js";
 import { renderMarkdown } from "./chat-format.js";
 import { aiAvatarHtml, avatarStateFor } from "./ai-avatar.js";
+import { toolBlocksHtml } from "./tool-card.js";
 
 export function chatMessageHtml(message, editingId = null, extraHtml = "") {
   const id = esc(message.id);
@@ -63,8 +64,14 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
   // 对话 AI 的头像（core/ai-avatar.js）：状态由这条消息自己决定；
   // 只有锚定的运行真的 succeeded 才换成「已完成」的脸。
   const avatar = aiAvatarHtml(avatarStateFor(message), 28);
+  // Agentic chat：有 blocks 的消息按「文本 → 工具卡 → 文本」顺序渲染；
+  // 旧消息没有 blocks，保持单段 Markdown。
+  const hasBlocks = Array.isArray(message.blocks) && message.blocks.length > 0;
+  const body = hasBlocks
+    ? toolBlocksHtml(message.blocks, renderMarkdown)
+    : `<div class="chat-md">${renderMarkdown(message.text)}</div>`;
   return `<div class="chat-msg assistant${streaming ? " streaming" : ""}${message.status === "cancelled" ? " cancelled" : ""}" data-msg-id="${id}"${streaming ? ' data-streaming="1"' : ""}>
-    <div class="chat-msg-row">${avatar}<div class="chat-md">${renderMarkdown(message.text)}</div></div>
+    <div class="chat-msg-row">${avatar}<div class="chat-blocks">${body}</div></div>
     ${wait}${typing}${reasoning}${error}${usage}${stopped}${extraHtml}
     <div class="chat-msg-actions">${actions.join("")}</div>
   </div>`;

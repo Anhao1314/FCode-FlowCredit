@@ -491,8 +491,15 @@ export function createChatUI(deps) {
     const node = document.querySelector(`.chat-msg[data-msg-id="${String(assistant.id)}"]`);
     if (!node) { renderChat(); return; }
     const stick = d.nearMainBottom();
-    const body = node.querySelector(".chat-md");
-    if (body) body.innerHTML = d.renderMarkdown(assistant.text);
+    const bodies = node.querySelectorAll(".chat-md");
+    const body = bodies[bodies.length - 1];
+    if (body) {
+      const blocks = Array.isArray(assistant.blocks) ? assistant.blocks : null;
+      const lastText = blocks && blocks.length
+        ? [...blocks].reverse().find(block => block.type === "text")
+        : null;
+      body.innerHTML = d.renderMarkdown(lastText ? lastText.text : assistant.text);
+    }
     const typing = node.querySelector(".chat-typing");
     if (typing && assistant.text) typing.remove();
     let wait = node.querySelector(".chat-wait");
