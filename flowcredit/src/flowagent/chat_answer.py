@@ -16,8 +16,10 @@ import time
 from typing import Any, Iterator
 
 from .chat_tools import (
+    APPROVAL_TOOLS,
     MAX_CALLS_PER_ROUND,
     MAX_RESULT_CHARS,
+    approval_preview,
     execute_chat_tool,
 )
 from .chat_usage import AnswerAccounting
@@ -47,8 +49,14 @@ def _preview(value: Any, limit: int = MAX_RESULT_CHARS) -> Any:
 
 
 class AnswerStream:
-    def __init__(self, service, thread, user_message: dict[str, Any], model: str | None) -> None:
+    def __init__(self, service, thread, user_message: dict[str, Any], model: str | None,
+                 approval: str | None = None) -> None:
         self.service = service
+        #: 审批档位：off/consequential/all（与 run 同语义）。默认 consequential。
+        self.approval_mode = approval if approval in ("off", "consequential", "all") \
+            else "consequential"
+        #: 本回合内"记住"的已批工具名（consequential/all 下免重复审批）。
+        self.remembered: set[str] = set()
         self.thread = thread
         self.thread_id = thread.id
         self.user_message = user_message
@@ -212,7 +220,9 @@ class AnswerStream:
         })
 
     def _tool_loop(self, messages: list[dict], tool_ctx) -> Iterator[dict[str, Any]]:
-        registry, permissions, tool_defs = tool_ctx
+        registry = tool_ctx["registry"]
+        permissions = tool_ctx["permissions"]
+        tool_defs = tool_ctx["tool_defs"]
         max_rounds = _max_tool_rounds()
         for round_index in range(1, max_rounds + 1):
             if round_index > 1:
@@ -272,8 +282,100 @@ class AnswerStream:
                     "arguments": arguments, "round": round_index,
                     "assistant_id": self.assistant_id,
                 }
+                # 参数先解析：坏参数在审批/执行前就被拒（可修复错误）。
+                try:
+                    parsed = json.loads(arguments or "{}")
+                    if not isinstance(parsed, dict):
+                        raise ValueError("arguments must be an object")
+                except ValueError as error:
+                    error_info = {"code": "TOOL_ARGUMENTS_INVALID", "message": str(error)}
+                    block.update(status="error", error=error_info)
+                    self._append_chain("chat_tool_result", {
+                        "call_id": call_id, "name": name, "round": round_index,
+                        "status": "error", "error": error_info,
+                    })
+                    yield {"type": "tool_result", "call_id": call_id, "status": "error",
+                           "error": error_info, "round": round_index,
+                           "assistant_id": self.assistant_id}
+                    tool_messages.append({
+                        "role": "tool", "tool_call_id": call_id,
+                        "content": f"ERROR {error_info['code']}: {error_info['message']}",
+                    })
+                    continue
+                # 门控前移：未注册/不在允许清单的工具在审批前就被拒——
+                # 审批只服务"允许执行"的调用，不为死请求停留。
+                gate = permissions.gate(name, parsed)
+                if not gate.allowed:
+                    error_info = {"code": gate.code or "TOOL_DENIED",
+                                  "message": gate.reason or "tool call refused by the host gate"}
+                    block.update(status="error", error=error_info)
+                    self._append_chain("chat_tool_result", {
+                        "call_id": call_id, "name": name, "round": round_index,
+                        "status": "error", "error": error_info,
+                    })
+                    yield {"type": "tool_result", "call_id": call_id, "status": "error",
+                           "error": error_info, "round": round_index,
+                           "assistant_id": self.assistant_id}
+                    tool_messages.append({
+                        "role": "tool", "tool_call_id": call_id,
+                        "content": f"ERROR {error_info['code']}: {error_info['message']}",
+                    })
+                    continue
+                # 写工具按档位审批：consequential 只审写工具，all 全审；
+                # 本回合内 remember 过的工具名免重复审批。
+                needs_approval = (
+                    self.approval_mode == "all"
+                    or (self.approval_mode == "consequential" and name in APPROVAL_TOOLS)
+                ) and name not in self.remembered
+                if needs_approval:
+                    preview = approval_preview(tool_ctx, name, parsed)
+                    approval_id = f"ap-{round_index}-{position}-{call_id[:8]}"
+                    self._append_chain("chat_tool_approval", {
+                        "call_id": call_id, "name": name, "round": round_index,
+                        "arguments": arguments, "preview": _preview(preview, 2000),
+                        "mode": self.approval_mode,
+                    })
+                    yield {
+                        "type": "tool_approval", "approval_id": approval_id,
+                        "call_id": call_id, "name": name, "arguments": arguments,
+                        "preview": _preview(preview, 2000), "round": round_index,
+                        "mode": self.approval_mode,
+                        "assistant_id": self.assistant_id,
+                    }
+                    decision = self.service.request_tool_approval(
+                        self.thread_id, approval_id,
+                        {"call_id": call_id, "name": name, "arguments": arguments,
+                         "preview": preview},
+                        timeout=300.0,
+                    )
+                    self._append_chain("chat_tool_decision", {
+                        "approval_id": approval_id, "call_id": call_id,
+                        "allow": bool(decision.get("allow")),
+                        "remember": bool(decision.get("remember")),
+                        "reason": str(decision.get("reason") or ""),
+                    })
+                    if not decision.get("allow"):
+                        error_info = {
+                            "code": "OPERATOR_DENIED",
+                            "message": str(decision.get("reason") or "操作员拒绝了这个工具调用"),
+                        }
+                        block.update(status="denied", error=error_info)
+                        self._append_chain("chat_tool_result", {
+                            "call_id": call_id, "name": name, "round": round_index,
+                            "status": "denied", "error": error_info,
+                        })
+                        yield {"type": "tool_result", "call_id": call_id, "status": "error",
+                               "error": error_info, "round": round_index,
+                               "assistant_id": self.assistant_id}
+                        tool_messages.append({
+                            "role": "tool", "tool_call_id": call_id,
+                            "content": f"ERROR {error_info['code']}: {error_info['message']}",
+                        })
+                        continue
+                    if decision.get("remember"):
+                        self.remembered.add(name)
                 observation, error = execute_chat_tool(
-                    registry, permissions, self.accounting.budget, name, arguments,
+                    registry, permissions, self.accounting.budget, name, parsed,
                 )
                 if error is not None:
                     block.update(status="error", error=error)

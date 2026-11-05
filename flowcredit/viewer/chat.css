@@ -424,3 +424,10 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   font: 11px/1.55 var(--font-mono); color: var(--text-2); white-space: pre-wrap;
   word-break: break-all; max-height: 240px; overflow: auto; }
 .chat-tool-meta { margin-top: 6px; font: 10.5px var(--font-mono); color: var(--text-4); }
+
+.chat-tool.awaiting { border-color: rgba(180, 83, 9, .45); }
+.chat-tool.awaiting .chat-tool-dot { background: var(--warn); }
+.chat-tool.awaiting .chat-tool-state { color: var(--warn); font-weight: 550; }
+.chat-tool-approval { border-top: 2px solid var(--warn); background: rgba(180, 83, 9, .06); padding: 8px 10px 10px; }
+.chat-tool-approval-head { font-size: 12px; font-weight: 550; color: var(--warn); margin-bottom: 6px; }
+.chat-tool-approval-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

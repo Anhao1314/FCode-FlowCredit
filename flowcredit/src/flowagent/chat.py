@@ -223,9 +223,12 @@ class ChatService:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = TaskStore(db_path)
         self.receipts = ReceiptStore(self.store)
-        #: 只读工具沙箱的根（对话可查看的目录）。None 表示不提供工具。
+        #: 工具沙箱的根（对话可读写的目录）。None 表示不提供工具。
         self._workspace_root = Path(workspace_root) if workspace_root else None
         self._tool_ctx = None
+        #: 写工具的逐调用审批注册表：approval_id → {thread_id, payload, decision}
+        self._approvals: dict[str, dict[str, Any]] = {}
+        self._approvals_cv = threading.Condition()
         self._lock = threading.RLock()
         self._db_path = db_path
         # User settings live next to the chat database (Application Support in
@@ -251,7 +254,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
     # -------------------------------------------------------------- helpers
 
     def _tool_context(self):
-        """(registry, permissions, openai_tools) 或 None（未配置工作区/构建失败）。
+        """{registry, permissions, tool_defs, sandbox} 或 None（未配置/构建失败）。
 
         只在第一次需要时构建；构建失败按"无工具"降级，不阻断对话。
         """
@@ -266,10 +269,68 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             )
             registry = build_chat_registry(self._workspace_root)
             permissions = build_chat_permissions(registry)
-            self._tool_ctx = (registry, permissions, to_openai_tools(registry))
+            self._tool_ctx = {
+                "registry": registry,
+                "permissions": permissions,
+                "tool_defs": to_openai_tools(registry),
+                "sandbox": self._workspace_root,
+            }
         except Exception:  # noqa: BLE001 — 工具不可用不应阻断纯文本对话
             self._tool_ctx = False
         return self._tool_ctx or None
+
+    # --------------------------------------------------- 写工具审批通道
+
+    def request_tool_approval(self, thread_id: str, approval_id: str,
+                              payload: dict[str, Any],
+                              timeout: float = 300.0) -> dict[str, Any]:
+        """注册一个待批工具调用并阻塞等待操作员决定（或超时）。
+
+        approval_id 由调用方（工具循环）生成，SSE 事件与注册表共用同一个
+        id——操作员的 POST 靠它找到待批项。返回 {"allow", "remember",
+        "reason"}。线程 id 不匹配或被取消（流断开）按拒绝处理。
+        """
+        with self._approvals_cv:
+            self._approvals[approval_id] = {
+                "thread_id": thread_id, "payload": payload, "decision": None,
+            }
+        deadline = time.monotonic() + max(1.0, float(timeout))
+        decision = None
+        while decision is None:
+            with self._approvals_cv:
+                record = self._approvals.get(approval_id)
+                if record is None:
+                    break  # 已被取消
+                if record["decision"] is not None:
+                    decision = record["decision"]
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._approvals_cv.wait(remaining)
+        with self._approvals_cv:
+            self._approvals.pop(approval_id, None)
+        return decision or {"allow": False, "remember": False, "reason": "timeout"}
+
+    def decide_tool(self, thread_id: str, approval_id: str,
+                    allow: bool, remember: bool = False) -> dict[str, Any] | None:
+        """操作员对某个待批调用的决定；返回被决定的记录（供 404 判别）。"""
+        with self._approvals_cv:
+            record = self._approvals.get(approval_id)
+            if record is None or record["thread_id"] != thread_id:
+                return None
+            record["decision"] = {"allow": bool(allow), "remember": bool(remember)}
+            self._approvals_cv.notify_all()
+        return dict(record["decision"])
+
+    def cancel_thread_approvals(self, thread_id: str) -> None:
+        """流断开/取消时，撤销该线程的所有待批调用（按拒绝处理）。"""
+        with self._approvals_cv:
+            for record in self._approvals.values():
+                if record["thread_id"] == thread_id and record["decision"] is None:
+                    record["decision"] = {"allow": False, "remember": False,
+                                          "reason": "stream cancelled"}
+            self._approvals_cv.notify_all()
 
     def limits(self) -> BudgetLimits:
         return BudgetLimits(
@@ -894,10 +955,11 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         thread: Task,
         user_message: dict[str, Any],
         model: str | None,
+        approval: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         from .chat_answer import AnswerStream
 
-        yield from AnswerStream(self, thread, user_message, model).events()
+        yield from AnswerStream(self, thread, user_message, model, approval).events()
 
     def send(
         self,
@@ -906,6 +968,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         text: str,
         attachments: Any = None,
         model: str | None = None,
+        approval: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         clean_text = str(text or "").strip()
         clean_attachments = self._normalise_attachments(attachments)
@@ -933,7 +996,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "seq": thread.sequence,
             "at": "",
         }
-        yield from self._answer(thread, user_message, model)
+        yield from self._answer(thread, user_message, model, approval)
 
     def edit(
         self,

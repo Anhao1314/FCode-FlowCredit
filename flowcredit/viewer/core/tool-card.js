@@ -45,6 +45,33 @@ function resultText(block) {
   return text.length > 4000 ? `${text.slice(0, 4000)}\n…` : text;
 }
 
+const AWAITING_LABEL = { consequential: "关键审批", all: "逐步审批" };
+
+function approvalHtml(block) {
+  const approval = block.approval || {};
+  const preview = approval.preview || {};
+  const lines = [];
+  if (typeof preview.diff === "string" && preview.diff) {
+    lines.push(`<pre class="chat-tool-result">${esc(preview.diff)}</pre>`);
+  }
+  if (preview.path) lines.push(`<div class="chat-tool-meta">路径 ${esc(preview.path)}${preview.content_chars !== undefined ? ` · ${esc(String(preview.content_chars))} 字符` : ""}</div>`);
+  if (preview.arguments) lines.push(`<pre class="chat-tool-result">${esc(JSON.stringify(preview.arguments, null, 2))}</pre>`);
+  if (preview.preview_error) lines.push(`<div class="chat-tool-meta">预览失败：${esc(preview.preview_error)}</div>`);
+  const mode = AWAITING_LABEL[approval.mode] || "审批";
+  return `<div class="chat-tool-approval">
+    <div class="chat-tool-approval-head">${esc(mode)} · 这个调用需要你确认</div>
+    ${lines.join("")}
+    <div class="chat-tool-approval-actions">
+      <button class="chat-act strong" type="button"
+        data-tool-allow="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">允许</button>
+      <button class="chat-act" type="button"
+        data-tool-remember="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">允许并不再询问（本回合）</button>
+      <button class="chat-act" type="button"
+        data-tool-deny="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">拒绝</button>
+    </div>
+  </div>`;
+}
+
 export function toolCardHtml(block) {
   const status = block.status || "running";
   const label = STATE_LABEL[status] || status;
@@ -54,6 +81,7 @@ export function toolCardHtml(block) {
     block.result_hash ? `hash ${esc(String(block.result_hash).slice(0, 12))}…` : "",
     block.trust || "",
   ].filter(Boolean).join(" · ");
+  const approval = status === "awaiting" ? approvalHtml(block) : "";
   return `<div class="chat-tool ${esc(status)}" data-tool-call="${esc(block.call_id || "")}">
     <div class="chat-tool-head">
       <span class="chat-tool-dot" aria-hidden="true"></span>
@@ -61,6 +89,7 @@ export function toolCardHtml(block) {
       <span class="chat-tool-args">${esc(args)}</span>
       <span class="chat-tool-state">${esc(label)}</span>
     </div>
+    ${approval}
     ${body || meta ? `<details class="chat-tool-detail">
       <summary>参数与结果</summary>
       ${body ? `<pre class="chat-tool-result">${esc(body)}</pre>` : ""}

@@ -4822,6 +4822,29 @@ function bindGlobalActions() {
     // 侧栏 nav-item 与顶栏审计台按钮共用 data-open → renderMode 一条路。
     const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
+    // 对话内写工具的逐调用审批（agentic chat）
+    const toolAct = event.target.closest("[data-tool-allow], [data-tool-deny], [data-tool-remember]");
+    if (toolAct) {
+      event.stopPropagation();
+      const approvalId = toolAct.dataset.toolApproval;
+      const threadId = chat.current && chat.current.id;
+      if (!approvalId || !threadId) return;
+      const allow = toolAct.hasAttribute("data-tool-allow");
+      const remember = toolAct.hasAttribute("data-tool-remember");
+      const card = toolAct.closest(".chat-tool");
+      if (card) {
+        for (const button of card.querySelectorAll(".chat-tool-approval-actions button")) {
+          button.disabled = true;
+        }
+      }
+      fetch(`/api/chat/threads/${encodeURIComponent(threadId)}/tool-decision`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approvalId, allow, remember }),
+      }).catch(() => {
+        if (card) for (const b of card.querySelectorAll(".chat-tool-approval-actions button")) b.disabled = false;
+      });
+      return;
+    }
     if (event.target.closest("#nav-more")) { setMoreNav(!moreOpen()); return; }
     if (event.target.closest("[data-new-task]")) { newTask(); return; }
     if (event.target.closest("[data-proj-add]")) { addProject(event.target.closest("[data-proj-add]")); return; }

@@ -91,10 +91,32 @@ def post_chat_send(handler):
     model = _model_or_error(handler, chat, body)
     if model is _INVALID_MODEL:
         return None
+    approval = body.get("approval")
+    if approval is not None and approval not in ("off", "consequential", "all"):
+        return handler._json({"error": "approval must be off/consequential/all"}, 400)
     events = chat.send(
         thread_id=thread_id, text=text, attachments=body.get("attachments"), model=model,
+        approval=approval,
     )
     return handler._stream_chat(events)
+
+
+def post_chat_tool_decision(handler, thread_id: str):
+    """写工具的逐调用审批：允许/拒绝（可记住本回合）。"""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    approval_id = body.get("approvalId")
+    if not isinstance(approval_id, str) or not approval_id:
+        return handler._json({"error": "approvalId is required"}, 400)
+    allow = bool(body.get("allow"))
+    remember = bool(body.get("remember"))
+    decision = chat.decide_tool(thread_id, approval_id, allow, remember)
+    if decision is None:
+        return handler._json({"error": "approval not found"}, 404)
+    return handler._json({"ok": True, "decision": decision})
+
 
 
 def post_chat_confirm(handler, thread_id: str):

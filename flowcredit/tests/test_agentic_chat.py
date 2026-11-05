@@ -14,6 +14,7 @@ import pathlib
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -127,26 +128,92 @@ class AgentLoopTests(unittest.TestCase):
             self.assertIn("chat_tool_started", types)
             self.assertIn("chat_tool_result", types)
 
-    def test_write_tool_is_refused_by_the_gate(self) -> None:
+    def _wait_pending(self, service, deadline=5.0) -> str:
+        """等待一个待批调用出现，返回 (approval_id, thread_id)。"""
+        end = time.monotonic() + deadline
+        while time.monotonic() < end:
+            with service._approvals_cv:
+                for approval_id, record in service._approvals.items():
+                    if record["decision"] is None:
+                        return approval_id, record["thread_id"]
+            time.sleep(0.05)
+        raise AssertionError("no pending approval appeared")
+
+    def test_write_tool_executes_after_approval(self) -> None:
+        """写工具：consequential 档默认审批；允许后执行并落 git。"""
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             (root / "ws").mkdir()
             service = _service(root, root / "ws")
             old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
             os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps(
-                [{"name": "write_file", "arguments": {"path": "x.txt", "content": "x"}}])
+                [{"name": "write_file",
+                  "arguments": {"path": "x.txt", "content": "written by agent"}}])
+            collected: list[dict] = []
+            worker = threading.Thread(
+                target=lambda: collected.extend(
+                    service.send(thread_id=None, text="写个文件", model="mock")))
             try:
-                events = list(service.send(thread_id=None, text="写个文件", model="mock"))
+                worker.start()
+                approval_id, thread_id = self._wait_pending(service)
+                decision = service.decide_tool(thread_id, approval_id, allow=True)
+                self.assertEqual(decision["allow"], True)
+                worker.join(10)
+                self.assertFalse(worker.is_alive(), "允许后流应结束")
+
+                kinds = [e["type"] for e in collected]
+                self.assertIn("tool_approval", kinds)
+                self.assertIn("tool_result", kinds)
+                result = next(e for e in collected if e["type"] == "tool_result")
+                self.assertEqual(result["status"], "ok")
+                self.assertTrue((root / "ws" / "x.txt").exists(), "允许后写工具必须执行")
+                # 链上有审批证据
+                chain = [e["type"] for e in service.store.events(thread_id)]
+                self.assertIn("chat_tool_approval", chain)
+                self.assertIn("chat_tool_decision", chain)
             finally:
                 if old is None:
                     os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
                 else:
                     os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
-            result = next(e for e in events if e["type"] == "tool_result")
-            self.assertEqual(result["status"], "error")
-            self.assertIn("TOOL_NOT_REGISTERED", result["error"]["code"])
-            self.assertFalse((root / "ws" / "x.txt").exists(),
-                             "拒绝必须发生在执行之前")
+                service.cancel_thread_approvals(thread_id if "thread_id" in dir() else "")
+
+    def test_write_tool_denial_blocks_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "ws").mkdir()
+            service = _service(root, root / "ws")
+            old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
+            os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps(
+                [{"name": "write_file",
+                  "arguments": {"path": "y.txt", "content": "should not land"}}])
+            collected: list[dict] = []
+            thread_box: dict[str, str] = {}
+            worker = threading.Thread(target=lambda: [
+                (thread_box.setdefault("thread_id", e.get("thread_id") or ""),
+                 collected.append(e))
+                for e in service.send(thread_id=None, text="写个文件", model="mock")
+            ])
+            try:
+                worker.start()
+                approval_id, thread_id = self._wait_pending(service)
+                service.decide_tool(thread_id, approval_id, allow=False)
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+
+                result = next(e for e in collected if e["type"] == "tool_result")
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["error"]["code"], "OPERATOR_DENIED")
+                self.assertFalse((root / "ws" / "y.txt").exists(),
+                                 "拒绝后不得写入")
+                chain = [e["type"] for e in service.store.events(thread_id)]
+                self.assertIn("chat_tool_decision", chain)
+            finally:
+                if old is None:
+                    os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
+                else:
+                    os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
+                service.cancel_thread_approvals(thread_box.get("thread_id", ""))
 
     def test_prompt_replays_tool_history_on_next_turn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

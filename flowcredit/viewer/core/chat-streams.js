@@ -110,6 +110,19 @@ export function applyChatEvent(threadRef, assistant, event) {
       assistant.tool_calls.push(call);
       return { render: true };
     }
+    case "tool_approval": {
+      if (!Array.isArray(assistant.blocks)) assistant.blocks = [];
+      for (const block of assistant.blocks) {
+        if (block.type !== "tool" || block.call_id !== event.call_id) continue;
+        block.status = "awaiting";
+        block.approval = {
+          approval_id: event.approval_id,
+          preview: event.preview || null,
+          mode: event.mode || "consequential",
+        };
+      }
+      return { render: true };
+    }
     case "tool_result": {
       if (!Array.isArray(assistant.blocks)) assistant.blocks = [];
       for (const block of assistant.blocks) {
