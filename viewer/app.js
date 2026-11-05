@@ -24,6 +24,7 @@ import { createThreadSurface } from "./app/thread-surface.js";
 import { createRunActions } from "./app/run-actions.js";
 import { createLiveSessions } from "./app/live-sessions.js";
 import { createIntake } from "./app/intake.js";
+import { createSettings } from "./app/settings.js";
 import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
@@ -1362,7 +1363,8 @@ const {
   renderTabs, renderMain, render, refreshRuns,
   liveApply, liveShell,
   paintThread, paintApproval, paintQueuedMsgs,
-  setComposerRunning, notify, toast,
+  setComposerRunning, toast,
+  notify: (...a) => notify(...a),
   updateStatusline, shownTrace, openReport,
   loadReviewProfile, loadProjectDelivery,
   verifyChain, setChainBadge, renderRail,
@@ -1408,7 +1410,7 @@ const {
   getModelBudget: () => modelBudget,
   setModelBudget: value => { modelBudget = value; },
   getSettingsOpen: () => settingsOpen,
-  closeSettingsPage,
+  closeSettingsPage: (...a) => closeSettingsPage(...a),
   leaveChat: (...args) => leaveChat(...args),
   fetchImpl: (...args) => fetch(...args),
 });
@@ -2624,275 +2626,42 @@ async function toggleNotify() {
   toast("完成通知已开启");
 }
 
-/* --------------- MIXED — 本机偏好状态（不改）+ 设置页 DOM 同步与渲染 */
+let settingsOpen = false;   // 多个 surface 读写（quickStart/openLedger/chat-ui/键盘），归本文件
 
-let settingsOpen = false;
-let settingsSection = "appearance";
-const settingsScroll = { main: 0, rail: 0 };
-let memoryStats = null;
-let settingsResetArmed = false;
-let settingsResetTimer = null;
-let toolsLoaded = false;
-
-function applyMotion() {
-  document.body.classList.toggle("reduce-motion", !motionOn);
-  const toggle = document.getElementById("settings-motion");
-  if (toggle) toggle.setAttribute("aria-checked", motionOn ? "true" : "false");
-}
-
-function setMotion(on) {
-  motionOn = !!on;
-  localStorage.setItem(MOTION_KEY, motionOn ? "1" : "0");
-  applyMotion();
-  toast(motionOn ? "界面动效已开启" : "界面动效已关闭");
-}
-
-function notificationStateText() {
-  if (!("Notification" in window)) return "此浏览器不支持系统通知";
-  if (notifyOn && Notification.permission === "granted") return "已开启 · 浏览器已授权";
-  if (notifyOn) return "已开启 · 等待浏览器授权";
-  return "关闭 · 完成时只更新页面";
-}
-
-function syncSettings() {
-  const modes = document.getElementById("settings-modes");
-  if (modes) {
-    for (const button of modes.querySelectorAll("[data-set-approval]")) {
-      const active = button.dataset.setApproval === approvalMode;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-checked", active ? "true" : "false");
-    }
-  }
-  const motion = document.getElementById("settings-motion");
-  if (motion) motion.setAttribute("aria-checked", motionOn ? "true" : "false");
-  const notifyToggle = document.getElementById("settings-notify");
-  if (notifyToggle) notifyToggle.setAttribute("aria-checked", notifyOn ? "true" : "false");
-  const notifyState = document.getElementById("settings-notify-state");
-  if (notifyState) notifyState.textContent = notificationStateText();
-
-  for (const button of document.querySelectorAll("[data-set-filter]")) {
-    button.classList.toggle("active", button.dataset.setFilter === railFilter);
-  }
-
-  const state = document.getElementById("settings-state");
-  if (state) {
-    const online = !!(health && health.live);
-    state.textContent = online ? "live · local" : "offline";
-    state.classList.toggle("on", online);
-  }
-
-  const cases = memoryStats && memoryStats.cases;
-  const facts = memoryStats && memoryStats.facts;
-  const setText = (id, value) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  };
-  setText("settings-cases", cases ? `${cases.active} / ${cases.total}` : "—");
-  setText("settings-facts", facts ? `${facts.active} / ${facts.total}` : "—");
-  setText("settings-artifacts", memoryStats && memoryStats.artifacts
-    ? `${memoryStats.artifacts.active} / ${memoryStats.artifacts.total}`
-    : "—");
-  setText("settings-runs", String(runHistory.length));
-  setText("settings-tools", toolContracts ? `${toolContracts.length} 个工具 · 契约已加载` : "—");
-  setText("settings-chain", store.check
-    ? (store.check.ok ? `链验证通过 · ${store.check.events} events` : `链断裂 · ${store.check.reason}`)
-    : "当前没有加载运行");
-  setText("settings-repo", health && health.repo ? `${health.repo}/flowcredit/viewer/runs` : "—");
-}
-
-function renderSettings() {
-  const modes = document.getElementById("settings-modes");
-  if (modes && modes.dataset.ready !== "1") {
-    modes.innerHTML = APPROVAL_MODES.map(([key, title, desc]) =>
-      `<button class="set-mode" type="button" role="radio" data-set-approval="${esc(key)}" aria-checked="false">
-        <span class="set-dot"></span>
-        <b>${esc(title)}</b>
-        <small>${esc(desc)}</small>
-      </button>`).join("");
-    modes.dataset.ready = "1";
-  }
-  syncSettings();
-}
-
-async function refreshSettingsStats() {
-  if (health && health.live) {
-    try {
-      const response = await fetch("/api/memory", { cache: "no-store" });
-      if (response.ok) memoryStats = await response.json();
-    } catch { /* the page shows — offline */ }
-    if (!toolContracts && !toolsLoaded) {
-      toolsLoaded = true;
-      try {
-        const response = await fetch("/api/tools", { cache: "no-store" });
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data.tools)) toolContracts = data.tools;
-        }
-      } catch { toolsLoaded = false; }
-    }
-  }
-  syncSettings();
-}
-
-function activateSettingsSection(name, behavior = motionOn ? "smooth" : "auto") {
-  settingsSection = name;
-  for (const button of document.querySelectorAll("#settings-nav [data-set-section]")) {
-    button.classList.toggle("active", button.dataset.setSection === name);
-  }
-  const section = document.getElementById(`set-${name}`);
-  if (section) section.scrollIntoView({ block: "start", behavior });
-}
-
-function openSettingsPage() {
-  if (settingsOpen) return;
-  leaveChat();
-  if (intake.active) closeIntake(false);
-  settingsOpen = true;
-  settingsScroll.main = document.querySelector(".main")?.scrollTop || 0;
-  settingsScroll.rail = document.getElementById("rail-body").scrollTop;
-  document.getElementById("workspace").classList.add("settings-open");
-  document.getElementById("app").classList.add("settings-open");
-  document.getElementById("settings-page").hidden = false;
-  document.getElementById("settings-back").textContent = "×";
-  document.getElementById("settings-back").title = "关闭设置 (Esc)";
-  const anchor = document.getElementById("settings-mobile") || document.getElementById("settings-btn");
-  anchor?.setAttribute("aria-current", "page");
-  renderSettings();
-  syncChatConfig();
-  document.getElementById("settings-content").scrollTop = 0;
-
-  activateSettingsSection(settingsSection, "auto");
-  refreshSettingsStats();
-  document.getElementById("settings-back").focus({ preventScroll: true });
-}
-
-function closeSettingsPage(returnFocus = true) {
-  if (!settingsOpen) return;
-  settingsOpen = false;
-  store.mode = document.getElementById("main")?.dataset.view || "run";
-  document.getElementById("workspace").classList.remove("settings-open");
-  document.getElementById("app").classList.remove("settings-open");
-  document.getElementById("settings-page").hidden = true;
-  (document.getElementById("settings-mobile") || document.getElementById("settings-btn"))?.removeAttribute("aria-current");
-  requestAnimationFrame(() => {
-    const scroller = document.querySelector(".main");
-    if (scroller) scroller.scrollTop = settingsScroll.main;
-    document.getElementById("rail-body").scrollTop = settingsScroll.rail;
-  });
-  if (returnFocus) (document.getElementById("settings-mobile") || document.getElementById("settings-btn"))?.focus({ preventScroll: true });
-}
-
-function toggleSettingsPage() {
-  if (settingsOpen) closeSettingsPage(true);
-  else renderMode("settings");
-}
-
-function disarmSettingsReset() {
-  settingsResetArmed = false;
-  clearTimeout(settingsResetTimer);
-  const button = document.getElementById("settings-reset");
-  if (button) {
-    button.textContent = "恢复本机默认";
-    button.classList.remove("confirm");
-  }
-}
-
-function resetSettingsPreferences() {
-  disarmSettingsReset();
-  setApprovalMode("consequential");
-  motionOn = true;
-  localStorage.setItem(MOTION_KEY, "1");
-  applyMotion();
-  notifyOn = false;
-  localStorage.setItem(NOTIFY_KEY, "0");
-  railFilter = "key";
-  localStorage.setItem("fa.railFilter", railFilter);
-  const trace = shownTrace();
-  if (trace) renderRail(trace, store.check);
-  syncSettings();
-  toast("本机偏好已恢复默认");
-}
-
-function bindSettings() {
-  document.getElementById("settings-page").addEventListener("click", async event => {
-    const target = event.target;
-    if (target.closest("#settings-back") || target.closest("#settings-done")) { closeSettingsPage(true); return; }
-    if (target.closest("#settings-motion")) { setMotion(!motionOn); return; }
-    if (target.closest("#settings-notify")) { await toggleNotify(); syncSettings(); return; }
-    const section = target.closest("[data-set-section]");
-    if (section) { activateSettingsSection(section.dataset.setSection); return; }
-    const filter = target.closest("[data-set-filter]");
-    if (filter) {
-      railFilter = filter.dataset.setFilter;
-      localStorage.setItem("fa.railFilter", railFilter);
-      const trace = shownTrace();
-      if (trace) renderRail(trace, store.check);
-      syncSettings();
-      return;
-    }
-    if (target.closest("#settings-clear")) {
-      promptHistory.length = 0;
-      historyIndex = -1;
-      try { localStorage.removeItem("fa.history"); } catch { /* quota */ }
-      syncSettings();
-      toast("输入历史已清空");
-      return;
-    }
-    if (target.closest("#settings-refresh-memory")) {
-      refreshSettingsStats().then(() => toast("记忆统计已刷新"));
-      return;
-    }
-    if (target.closest("#settings-reset")) {
-      if (!settingsResetArmed) {
-        settingsResetArmed = true;
-        const button = document.getElementById("settings-reset");
-        button.textContent = "再次点击确认";
-        button.classList.add("confirm");
-        clearTimeout(settingsResetTimer);
-        settingsResetTimer = setTimeout(disarmSettingsReset, 3000);
-        return;
-      }
-      resetSettingsPreferences();
-      return;
-    }
-    if (target.closest("#settings-diag")) {
-      if (!shownTrace()) { toast("先打开一条运行再复制诊断"); return; }
-      copyDiagnostics();
-      return;
-    }
-    if (target.closest("#settings-reverify")) {
-      if (!shownTrace()) { toast("当前没有加载运行"); return; }
-      reverify();
-      setTimeout(refreshSettingsStats, 600);
-      return;
-    }
-    const approval = target.closest("[data-set-approval]");
-    if (approval) {
-      setApprovalMode(approval.dataset.setApproval);
-      syncSettings();
-      return;
-    }
-    const save = target.closest("[data-chatcfg-save]");
-    if (save) { saveChatConfig(save.dataset.chatcfgSave); return; }
-    const clearKey = target.closest("[data-chatcfg-clearkey]");
-    if (clearKey) { clearChatConfigKey(clearKey.dataset.chatcfgClearkey); return; }
-    const defaultPick = target.closest("[data-chatcfg-default]");
-    if (defaultPick && !defaultPick.disabled) { setDefaultChatModel(defaultPick.dataset.chatcfgDefault); return; }
-  });
-}
-
-function notify(title, body) {
-  const bridge = desktopBridge();
-  if (bridge && bridge.notify) {
-    bridge.notify(title, body);
-    return;
-  }
-  if (!notifyReady() || !document.hidden) return;
-  try {
-    const note = new Notification(title, { body, silent: true });
-    note.onclick = () => { window.focus(); note.close(); };
-  } catch { /* 通知失败不影响运行 */ }
-}
+/* 设置页（app/settings.js，拆分切片 4b）。偏好变量本体仍在本文件
+   （被多个 surface 读写），经 getter/setter 注入;chat-config 的解构
+   在本接线点之后,用箭头延迟读取。 */
+const {
+  applyMotion, syncSettings, openSettingsPage, closeSettingsPage,
+  toggleSettingsPage, bindSettings, notify,
+} = createSettings({
+  APPROVAL_MODES, MOTION_KEY, NOTIFY_KEY, store,
+  getMotionOn: () => motionOn,
+  setMotionOn: v => { motionOn = v; },
+  getNotifyOn: () => notifyOn,
+  setNotifyOn: v => { notifyOn = v; },
+  getRailFilter: () => railFilter,
+  setRailFilter: v => { railFilter = v; },
+  getApprovalMode: () => approvalMode,
+  setApprovalMode,
+  getToolContracts: () => toolContracts,
+  setToolContracts: v => { toolContracts = v; },
+  getRunHistory: () => runHistory,
+  getHealth: () => health,
+  getSettingsOpen: () => settingsOpen,
+  setSettingsOpen: v => { settingsOpen = v; },
+  intake, closeIntake: (...a) => closeIntake(...a),
+  leaveChat: (...a) => leaveChat(...a),
+  renderMode, toast, shownTrace, renderRail,
+  copyDiagnostics, reverify, toggleNotify,
+  desktopBridge, notifyReady,
+  syncChatConfig: (...a) => syncChatConfig(...a),
+  saveChatConfig: (...a) => saveChatConfig(...a),
+  clearChatConfigKey: (...a) => clearChatConfigKey(...a),
+  setDefaultChatModel: (...a) => setDefaultChatModel(...a),
+  clearPromptHistory: () => { promptHistory.length = 0; historyIndex = -1; },
+  fetchImpl: (...args) => fetch(...args),
+});
 
 /* --------------------------------------------------- RENDER LAYER — toast */
 
