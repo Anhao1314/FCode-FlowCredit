@@ -21,6 +21,8 @@ from .chat_tools import (
     MAX_RESULT_CHARS,
     approval_preview,
     execute_chat_tool,
+    remember_key,
+    run_command_verdict,
 )
 from .chat_usage import AnswerAccounting
 from .core.contracts import AgentError
@@ -321,12 +323,21 @@ class AnswerStream:
                         "content": f"ERROR {error_info['code']}: {error_info['message']}",
                     })
                     continue
-                # 写工具按档位审批：consequential 只审写工具，all 全审；
-                # 本回合内 remember 过的工具名免重复审批。
-                needs_approval = (
-                    self.approval_mode == "all"
-                    or (self.approval_mode == "consequential" and name in APPROVAL_TOOLS)
-                ) and name not in self.remembered
+                # 按档位审批：off 不审（门控+预算仍生效）；consequential 审
+                # 写工具与非只读 run_command、fetch_url；all 全审。
+                # 「不再询问」粒度：run_command 按精确 argv、fetch_url 按域名，
+                # 其余按工具名——防止批准一条命令等于放行任意命令。
+                rkey = remember_key(name, parsed)
+                needs_approval = self.approval_mode != "off" \
+                    and rkey not in self.remembered \
+                    and (self.approval_mode == "all"
+                         or name in APPROVAL_TOOLS
+                         or name == "fetch_url")
+                if needs_approval and name == "run_command":
+                    # 可证只读的命令（ls/cat/grep…）在 consequential 档免审批。
+                    verdict = run_command_verdict(tool_ctx, parsed)
+                    if verdict.get("readonly"):
+                        needs_approval = False
                 if needs_approval:
                     preview = approval_preview(tool_ctx, name, parsed)
                     approval_id = f"ap-{round_index}-{position}-{call_id[:8]}"
@@ -373,7 +384,7 @@ class AnswerStream:
                         })
                         continue
                     if decision.get("remember"):
-                        self.remembered.add(name)
+                        self.remembered.add(rkey)
                 observation, error = execute_chat_tool(
                     registry, permissions, self.accounting.budget, name, parsed,
                 )

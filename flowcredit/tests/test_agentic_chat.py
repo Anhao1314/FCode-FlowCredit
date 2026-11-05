@@ -128,16 +128,17 @@ class AgentLoopTests(unittest.TestCase):
             self.assertIn("chat_tool_started", types)
             self.assertIn("chat_tool_result", types)
 
-    def _wait_pending(self, service, deadline=5.0) -> str:
-        """等待一个待批调用出现，返回 (approval_id, thread_id)。"""
-        end = time.monotonic() + deadline
-        while time.monotonic() < end:
-            with service._approvals_cv:
-                for approval_id, record in service._approvals.items():
-                    if record["decision"] is None:
-                        return approval_id, record["thread_id"]
-            time.sleep(0.05)
-        raise AssertionError("no pending approval appeared")
+def _wait_pending(service, deadline=5.0):
+    """等待一个待批调用出现，返回 (approval_id, thread_id)。模块级供各测试类共用。"""
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        with service._approvals_cv:
+            for approval_id, record in service._approvals.items():
+                if record["decision"] is None:
+                    return approval_id, record["thread_id"]
+        time.sleep(0.05)
+    raise AssertionError("no pending approval appeared")
+
 
     def test_write_tool_executes_after_approval(self) -> None:
         """写工具：consequential 档默认审批；允许后执行并落 git。"""
@@ -155,7 +156,7 @@ class AgentLoopTests(unittest.TestCase):
                     service.send(thread_id=None, text="写个文件", model="mock")))
             try:
                 worker.start()
-                approval_id, thread_id = self._wait_pending(service)
+                approval_id, thread_id = _wait_pending(service)
                 decision = service.decide_tool(thread_id, approval_id, allow=True)
                 self.assertEqual(decision["allow"], True)
                 worker.join(10)
@@ -196,7 +197,7 @@ class AgentLoopTests(unittest.TestCase):
             ])
             try:
                 worker.start()
-                approval_id, thread_id = self._wait_pending(service)
+                approval_id, thread_id = _wait_pending(service)
                 service.decide_tool(thread_id, approval_id, allow=False)
                 worker.join(10)
                 self.assertFalse(worker.is_alive())
@@ -255,3 +256,242 @@ class AgentLoopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+class RunCommandGranularityTests(unittest.TestCase):
+    """Phase 3b: run_command 按精确 argv 审批，可证只读免审。"""
+
+    def _send_scripted(self, service, command, args):
+        old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
+        os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps(
+            [{"name": "run_command", "arguments": {"command": command, "args": args}}])
+        collected: list[dict] = []
+        thread_box: dict[str, str] = {}
+        worker = threading.Thread(target=lambda: [
+            (thread_box.setdefault("thread_id", e.get("thread_id") or ""),
+             collected.append(e))
+            for e in service.send(thread_id=None, text="跑个命令", model="mock")
+        ])
+        return old, collected, thread_box, worker
+
+    def _restore(self, old):
+        if old is None:
+            os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
+        else:
+            os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
+
+    def test_readonly_command_auto_executes_without_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "ws").mkdir()
+            service = _service(root, root / "ws")
+            old, collected, box, worker = self._send_scripted(
+                service, "ls", ["-la"])
+            try:
+                worker.start()
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+                kinds = [e["type"] for e in collected]
+                self.assertNotIn("tool_approval", kinds, "可证只读命令不该进审批")
+                self.assertIn("tool_result", kinds)
+                result = next(e for e in collected if e["type"] == "tool_result")
+                self.assertEqual(result["status"], "ok")
+            finally:
+                self._restore(old)
+                service.cancel_thread_approvals(box.get("thread_id", ""))
+
+    def test_consequential_command_requires_approval_and_denial_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "ws" / "scripts").mkdir(parents=True)
+            (root / "ws" / "scripts" / "x.py").write_text("print('x')\n", encoding="utf-8")
+            service = _service(root, root / "ws")
+            old, collected, box, worker = self._send_scripted(
+                service, "python3", ["scripts/x.py"])
+            try:
+                worker.start()
+                approval_id, thread_id = _wait_pending(service)
+                service.decide_tool(thread_id, approval_id, allow=False)
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+                result = next(e for e in collected if e["type"] == "tool_result")
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["error"]["code"], "OPERATOR_DENIED")
+                chain = [e["type"] for e in service.store.events(thread_id)]
+                self.assertIn("chat_tool_approval", chain)
+                # 审批卡数据带完整 argv 与 cwd
+                approval_event = next(e for e in collected if e["type"] == "tool_approval")
+                self.assertIn("python3", approval_event["preview"]["argv"])
+                self.assertTrue(approval_event["preview"]["cwd"])
+            finally:
+                self._restore(old)
+                service.cancel_thread_approvals(box.get("thread_id", ""))
+
+    def test_remember_is_per_argv_not_per_tool(self) -> None:
+        """run_command 的「不再询问」按精确 argv 记：批准 `python3 x.py`
+        不等于放行 `python3 other.py`——不同 argv 仍要走审批。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "ws").mkdir()
+            (root / "ws" / "scripts").mkdir(parents=True)
+            (root / "ws" / "scripts" / "x.py").write_text("print('x')\n", encoding="utf-8")
+            (root / "ws" / "scripts" / "other.py").write_text("print('other')\n", encoding="utf-8")
+            service = _service(root, root / "ws")
+            old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
+            thread_box: dict[str, str] = {}
+            collected: list[dict] = []
+
+            def _scripted(argv_args):
+                os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps(
+                    [{"name": "run_command",
+                      "arguments": {"command": "python3", "args": argv_args}}])
+                worker = threading.Thread(target=lambda: [
+                    (thread_box.setdefault("thread_id", e.get("thread_id") or ""),
+                     collected.append(e))
+                    for e in service.send(thread_id=thread_box.get("thread_id"),
+                                          text="跑个命令", model="mock",
+                                          approval="consequential")
+                ])
+                return worker
+
+            try:
+                # 第一条：python3 scripts/x.py → 审批 → 允许并记住
+                worker = _scripted(["scripts/x.py"])
+                worker.start()
+                approval_id, thread_id = _wait_pending(service)
+                service.decide_tool(thread_id, approval_id, allow=True, remember=True)
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+                first_result = next(e for e in collected if e["type"] == "tool_result")
+                self.assertEqual(first_result["status"], "ok")
+
+                # 第二条：python3 scripts/other.py（不同 argv）→ 仍需审批 → 拒绝
+                worker2 = _scripted(["scripts/other.py"])
+                worker2.start()
+                approval_id2, _ = _wait_pending(service)
+                service.decide_tool(thread_id, approval_id2, allow=False)
+                worker2.join(10)
+                self.assertFalse(worker2.is_alive())
+                second_result = next(e for e in collected[::-1]
+                                     if e["type"] == "tool_result")
+                self.assertEqual(second_result["status"], "error")
+                self.assertEqual(second_result["error"]["code"], "OPERATOR_DENIED")
+
+                # 链上两次审批都有记录
+                chain = [e["type"] for e in service.store.events(thread_id)]
+                self.assertEqual(chain.count("chat_tool_approval"), 2)
+                self.assertEqual(chain.count("chat_tool_decision"), 2)
+            finally:
+                if old is None:
+                    os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
+                else:
+                    os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
+                service.cancel_thread_approvals(thread_box.get("thread_id", ""))
+
+
+
+class FetchUrlTests(unittest.TestCase):
+    def test_fetch_url_requires_approval_and_allow_executes(self) -> None:
+        """fetch_url：consequential 档逐调用审批；允许后执行（公网 URL 沙箱放行，
+        拒绝私网）。离线环境没有外网——用本地 HTTP 服务器当抓取目标。"""
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                payload = b"hello from web"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        # fetch 的 SSRF 策略拒绝私网——本机 127.0.0.1 属私网，会被拒。
+        # 这正是要测的：审批放行 ≠ 绕过 SSRF。
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                (root / "ws").mkdir()
+                service = _service(root, root / "ws")
+                old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
+                os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps(
+                    [{"name": "fetch_url",
+                      "arguments": {"url": f"http://127.0.0.1:{server.server_port}/x"}}])
+                collected: list[dict] = []
+                thread_box: dict[str, str] = {}
+                worker = threading.Thread(target=lambda: [
+                    (thread_box.setdefault("thread_id", e.get("thread_id") or ""),
+                     collected.append(e))
+                    for e in service.send(thread_id=None, text="抓取网页", model="mock")
+                ])
+                try:
+                    worker.start()
+                    approval_id, thread_id = _wait_pending(service)
+                    # 审批卡的域名信息
+                    with service._approvals_cv:
+                        payload = service._approvals[approval_id]["payload"]
+                    self.assertTrue(payload.get("preview", {}).get("host"))
+                    service.decide_tool(thread_id, approval_id, allow=True)
+                    worker.join(15)
+                    self.assertFalse(worker.is_alive())
+                    result = next(e for e in collected if e["type"] == "tool_result")
+                    # SSRF 策略在执行时拒绝私网——审批放行不等于绕过沙箱
+                    self.assertEqual(result["status"], "error")
+                    self.assertEqual(result["error"]["code"], "FETCH_HOST_DENIED")
+                finally:
+                    if old is None:
+                        os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
+                    else:
+                        os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
+                    service.cancel_thread_approvals(thread_box.get("thread_id", ""))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_fetch_url_remember_is_per_host(self) -> None:
+        from flowagent.chat_tools import remember_key
+        key_a = remember_key("fetch_url", {"url": "https://example.com/a"})
+        key_b = remember_key("fetch_url", {"url": "https://example.com/b"})
+        key_c = remember_key("fetch_url", {"url": "https://other.org/a"})
+        self.assertEqual(key_a, key_b, "同域免审")
+        self.assertNotEqual(key_a, key_c, "跨域要重新审批")
+
+
+class EditPreviewBugTests(unittest.TestCase):
+    def test_edit_approval_preview_contains_real_diff(self) -> None:
+        """回归：_tool_context 曾把裸 Path 当 sandbox，edit 审批卡只有 preview_error。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "ws").mkdir()
+            service = _service(root, root / "ws")
+            old = os.environ.get("FCODE_CHAT_MOCK_TOOLS")
+            os.environ["FCODE_CHAT_MOCK_TOOLS"] = json.dumps([
+                {"name": "edit_file", "arguments": {
+                    "path": "README.md", "old_text": "hello agent", "new_text": "hi agent"}}])
+            collected: list[dict] = []
+            thread_box: dict[str, str] = {}
+            worker = threading.Thread(target=lambda: [
+                (thread_box.setdefault("thread_id", e.get("thread_id") or ""),
+                 collected.append(e))
+                for e in service.send(thread_id=None, text="改一下 README", model="mock")
+            ])
+            try:
+                worker.start()
+                approval_id, thread_id = _wait_pending(service)
+                with service._approvals_cv:
+                    preview = service._approvals[approval_id]["payload"].get("preview") or {}
+                self.assertIn("diff", preview, "edit 审批卡必须带真实 diff")
+                self.assertIn("hi agent", preview["diff"])
+                service.decide_tool(thread_id, approval_id, allow=True)
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+                content = (root / "ws" / "README.md").read_text(encoding="utf-8")
+                self.assertIn("hi agent", content)
+            finally:
+                if old is None:
+                    os.environ.pop("FCODE_CHAT_MOCK_TOOLS", None)
+                else:
+                    os.environ["FCODE_CHAT_MOCK_TOOLS"] = old
+                service.cancel_thread_approvals(thread_box.get("thread_id", ""))

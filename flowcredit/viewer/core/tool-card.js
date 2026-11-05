@@ -47,16 +47,37 @@ function resultText(block) {
 
 const AWAITING_LABEL = { consequential: "关键审批", all: "逐步审批" };
 
-function approvalHtml(block) {
-  const approval = block.approval || {};
-  const preview = approval.preview || {};
+function previewLines(preview) {
   const lines = [];
   if (typeof preview.diff === "string" && preview.diff) {
     lines.push(`<pre class="chat-tool-result">${esc(preview.diff)}</pre>`);
+    if (preview.additions !== undefined) {
+      lines.push(`<div class="chat-tool-meta">+${esc(String(preview.additions))} / −${esc(String(preview.removals ?? 0))}${preview.created ? " · 新建文件" : ""}${preview.truncated ? " · diff 已截断" : ""}</div>`);
+    }
+  }
+  if (preview.argv) {
+    const badge = preview.whitelist === "refused"
+      ? '<span class="chat-tool-approval-badge refused">白名单外</span>'
+      : (preview.readonly ? '<span class="chat-tool-approval-badge">可证只读</span>' : "");
+    lines.push(`<div class="chat-tool-meta"><span class="chat-tool-cmd">${esc(preview.argv)}</span> ${badge}</div>`);
+    if (preview.cwd) lines.push(`<div class="chat-tool-meta">cwd ${esc(preview.cwd)}</div>`);
+    if (preview.whitelist === "refused" && preview.reason) {
+      lines.push(`<div class="chat-tool-meta">将被拒绝：${esc(preview.reason)}</div>`);
+    }
+  }
+  if (preview.url) {
+    lines.push(`<div class="chat-tool-meta">域名 <span class="chat-tool-approval-badge">${esc(preview.host || "?")}</span> · ${esc(preview.url)}</div>`);
   }
   if (preview.path) lines.push(`<div class="chat-tool-meta">路径 ${esc(preview.path)}${preview.content_chars !== undefined ? ` · ${esc(String(preview.content_chars))} 字符` : ""}</div>`);
   if (preview.arguments) lines.push(`<pre class="chat-tool-result">${esc(JSON.stringify(preview.arguments, null, 2))}</pre>`);
   if (preview.preview_error) lines.push(`<div class="chat-tool-meta">预览失败：${esc(preview.preview_error)}</div>`);
+  return lines;
+}
+
+function approvalHtml(block) {
+  const approval = block.approval || {};
+  const preview = approval.preview || {};
+  const lines = previewLines(preview);
   const mode = AWAITING_LABEL[approval.mode] || "审批";
   return `<div class="chat-tool-approval">
     <div class="chat-tool-approval-head">${esc(mode)} · 这个调用需要你确认</div>

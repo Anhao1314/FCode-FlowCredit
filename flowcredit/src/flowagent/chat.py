@@ -267,13 +267,18 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             from .chat_tools import (
                 build_chat_registry, build_chat_permissions, to_openai_tools,
             )
+            from .tools.general.sandbox import WorkspaceSandbox
+            # build_chat_registry 内部自建沙箱；这里传根路径，实例另建一份
+            # 给 ctx（审批预览用 edit_preview/diff_preview）。
+            sandbox = WorkspaceSandbox(self._workspace_root)
             registry = build_chat_registry(self._workspace_root)
             permissions = build_chat_permissions(registry)
             self._tool_ctx = {
                 "registry": registry,
                 "permissions": permissions,
                 "tool_defs": to_openai_tools(registry),
-                "sandbox": self._workspace_root,
+                "sandbox": sandbox,
+                "sandbox_root": str(self._workspace_root),
             }
         except Exception:  # noqa: BLE001 — 工具不可用不应阻断纯文本对话
             self._tool_ctx = False
@@ -921,8 +926,9 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             if message["role"] == "user":
                 content = message["text"] + self._attachment_block(message.get("attachments") or [])
                 messages.append({"role": "user", "content": content})
-            elif message["status"] == "ok" and message["text"]:
-                messages.append({"role": "assistant", "content": message["text"]})
+                continue
+            # 带工具历史的 assistant：先回放 tool_calls + tool 结果，再回放
+            # 最终文本——与真实时序一致（tool 结果必须紧跟 tool_calls）。
             if message is last_tool_assistant:
                 calls = list(message.get("tool_calls") or [])[:8]
                 messages.append({
@@ -940,6 +946,8 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                         "tool_call_id": str(call.get("call_id") or ""),
                         "content": str(call.get("content") or "")[:2000],
                     })
+            if message["status"] == "ok" and message["text"]:
+                messages.append({"role": "assistant", "content": message["text"]})
         return messages
 
     # --------------------------------------------------------------- streaming
