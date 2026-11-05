@@ -392,3 +392,20 @@ html.desktop-app .nav-item--reserved .nav-reserved {
 html.desktop-app .side-nav .nav-item { height: 36px; padding: 8px; gap: 6px; border-radius: 12px; margin: 0; }
 html.desktop-app .side-nav .nav-item:hover { background: var(--k-fill-1); color: var(--text-1); }
 html.desktop-app .side-nav .nav-item.active { background: var(--k-fill-2); border-color: transparent; }
+
+
+/* ================================================================ 统一侧栏 · 终稿桌面变体
+   与 design.css「统一侧栏 · 终稿层」配套（P0 切片 4a）。追加在文件末尾，
+   保持 thread.css 时代的文件级层叠（同特异性时后者胜）。 */
+
+html.desktop-app .sidebar { padding: 12px 10px 10px; background: #f7f7f7; }
+html.desktop-app .side-head { height: 38px; margin: 0 0 10px; padding: 0 2px; gap: 8px; }
+html.desktop-app .side-new { height: 40px; margin: 0 0 6px; border: 0; border-radius: 10px; background: #111; color: #fff; box-shadow: none; }
+html.desktop-app .side-new:hover { background: #292929; border-color: transparent; box-shadow: none; }
+html.desktop-app .side-new .nav-shortcut { background: rgba(255,255,255,.12); color: rgba(255,255,255,.64); }
+html.desktop-app .side-nav .nav-item { height: 35px; border-radius: 8px; font-size: 13px; }
+html.desktop-app .side-section { margin-top: 16px; }
+html.desktop-app .chat-row { height: 32px; font-size: 13px; }
+html.desktop-app .section-empty { line-height: 19px; }
+html.desktop-app .side-foot .side-user { height: 36px; border-radius: 8px; font-size: 12px; }
+html.desktop-app .sidebar-quickstart { border: 1px solid var(--line); background: transparent; }

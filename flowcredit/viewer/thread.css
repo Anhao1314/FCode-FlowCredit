@@ -415,34 +415,8 @@ button { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
-/* Navigation: one obvious creation action, search, quiet history. */
-.sidebar, html.desktop-app .sidebar { padding: 12px 10px 10px; background: #f7f7f7; }
-.sidebar-frame { border-right: 1px solid var(--line); }
-.side-head, html.desktop-app .side-head { height: 38px; margin: 0 0 10px; padding: 0 2px; gap: 8px; }
-.brand-mark { width: 28px; height: 28px; border-radius: 7px; }
-.side-flavor { border-radius: 3px; font-family: var(--moonshot-mono); font-size: 9px; letter-spacing: .1em; }
-.side-fold { width: 30px; height: 30px; }
-.mode-switch, html.desktop-app .mode-switch { height: 36px; margin-bottom: 10px; padding: 3px; border-radius: 10px; background: rgba(0,0,0,.045); }
-.mode-opt, html.desktop-app .mode-opt { height: 30px; font-size: 13px; border-radius: 8px; }
-.mode-opt.active { box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-.side-new, html.desktop-app .side-new { height: 40px; margin: 0 0 6px; border: 0; border-radius: 10px; background: #111; color: #fff; box-shadow: none; }
-.side-new:hover, html.desktop-app .side-new:hover { background: #292929; border-color: transparent; box-shadow: none; }
-.side-new .nav-shortcut, html.desktop-app .side-new .nav-shortcut { background: rgba(255,255,255,.12); color: rgba(255,255,255,.64); }
-.side-search { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; margin: 0 0 10px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; color: var(--text-3); font-size: 12px; text-align: left; cursor: pointer; }
-.side-search:hover { background: rgba(0,0,0,.045); color: var(--text-1); }
-.side-search .d-icon, .side-search svg { width: 15px; height: 15px; }
-.side-search kbd { margin-left: auto; color: var(--text-4); font: 10px var(--font-mono); }
-.side-list { scrollbar-width: thin; scrollbar-color: transparent transparent; }
-.side-list:hover { scrollbar-color: rgba(0,0,0,.12) transparent; }
-.side-nav .nav-item, html.desktop-app .side-nav .nav-item { height: 35px; border-radius: 8px; font-size: 13px; }
-.side-nav .nav-item.active { background: rgba(0,0,0,.06); }
-.side-section, html.desktop-app .side-section { margin-top: 16px; }
-.chat-row, html.desktop-app .chat-row { height: 32px; font-size: 13px; }
-.run-row { border-radius: 8px; }
-.section-empty, html.desktop-app .section-empty { line-height: 19px; }
-.side-user, html.desktop-app .side-foot .side-user { height: 36px; border-radius: 8px; font-size: 12px; }
-.sidebar-quickstart, html.desktop-app .sidebar-quickstart { border: 1px solid var(--line); background: transparent; }
-.sidebar-scrim { display: none; }
+/* 导航/sidebar 的生效值已迁 design.css「统一侧栏 · 终稿」与 desktop.css
+   同名章节（P0 切片 4）；死选择器 .side-flavor/.mode-* 随之删除。 */
 
 /* 顶栏毛玻璃已迁 desktop.css；tb-title 生效值已归一 design.css「顶栏」节。 */
 .tb-chips:empty { display: none; }
@@ -452,7 +426,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .chain-pill { height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; font-size: 11px; color: var(--text-3); }
 .chain-pill:hover { background: var(--panel); }
 /* conn-pill/conn-banner 状态件已收编 design.css「连接状态件」节。 */
-.workspace-menu { display: none; }
 .statusline { height: 25px; padding: 0 20px; border-color: var(--line); color: var(--text-3); font-size: 10px; }
 .tabs { padding: 5px 20px 0; background: var(--canvas); }
 
@@ -547,15 +520,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 
 /* rail ≤1180 浮层规则已迁 desktop.css「rail 双形态」节。 */
 @media (max-width: 900px) {
-  .sidebar-frame, .app.side-collapsed .sidebar-frame { width: 0; }
-  .sidebar, .app.side-collapsed .sidebar { width: min(282px, 86vw); padding: 12px 10px 10px; transform: translateX(-102%); opacity: 1; pointer-events: none; box-shadow: 16px 0 50px rgba(0,0,0,.12); }
-  .app.mobile-nav-open .sidebar { transform: translateX(0); pointer-events: auto; }
-  .app.mobile-nav-open .sidebar > *, .app.mobile-nav-open .side-head > * { visibility: visible; }
-  .app.mobile-nav-open .sidebar-scrim { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0,0,0,.2); }
-  .app.mobile-nav-open .sidebar-frame { z-index: 60; }
-  .workspace-menu { display: inline-flex; align-items: center; justify-content: center; }
   html.desktop-app #app.stage-mode .topbar { display: flex; }
-  .app.side-collapsed #sidebar-toggle { position: static; visibility: visible; }
   .topbar { padding: 0 12px; }
   .tb-title { max-width: 48vw; }
   #main[data-view="run"], #app.chat-mode .main-inner { padding: 16px 18px 42px; }
