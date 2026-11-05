@@ -25,6 +25,7 @@ import { createRunActions } from "./app/run-actions.js";
 import { createLiveSessions } from "./app/live-sessions.js";
 import { createIntake } from "./app/intake.js";
 import { createSettings } from "./app/settings.js";
+import { createComposerPanel } from "./app/composer-panel.js";
 import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
@@ -1399,7 +1400,10 @@ const {
   intakeChoose, intakeFreeText, intakeBack, startIntakeRun,
 } = createIntake({
   APPROVAL_MODES, store, attach,
-  approvalTitle, isGeneralTemplate, renderAttachPanel, delegationSpecExtras,
+  approvalTitle,
+  isGeneralTemplate: (...a) => isGeneralTemplate(...a),
+  renderAttachPanel: (...a) => renderAttachPanel(...a),
+  delegationSpecExtras: (...a) => delegationSpecExtras(...a),
   autosize, hydrateDoodles, renderMode, renderMain, stageEmptyHtml,
   select, activeSession, openLive, refreshRuns, setComposerRunning, toast,
   getHealth: () => health,
@@ -1727,356 +1731,29 @@ function renderApprovalMenu() {
   </button>`).join("") + `<div class="tpl-note">审批只发生在轮次边界，不打断工具执行；拒绝会终止运行并写入签名链。档位对新任务生效。</div>`;
 }
 
-/* ---------- 模型与思考强度选择器（composer 徽章） ---------- */
-
-function saveModelChoice() {
-  localStorage.setItem("fa.model", JSON.stringify(modelChoice));
-}
-
-function adoptDefaultWorkModel(defaultKey) {
-  if (modelChoice.touched || !defaultKey) return;
-  const entry = modelCatalog.find(model => model.key === defaultKey && model.available);
-  if (!entry || modelChoice.key === entry.key) return;
-  modelChoice.key = entry.key;
-  saveModelChoice();
-  paintModelBadge();
-}
-
-function liveRunEffortLabel(trace) {
-  const rounds = (trace || {}).rounds || [];
-  for (let i = rounds.length - 1; i >= 0; i--) {
-    const effort = ((rounds[i].receipt || {}).metadata || {}).reasoning_effort;
-    if (effort && EFFORT_LABEL[effort]) return EFFORT_LABEL[effort];
-  }
-  return "";
-}
-
-function paintModelBadge() {
-  const labelEl = document.getElementById("model-label");
-  const btn = document.getElementById("model-btn");
-  if (!labelEl || !btn) return;
-  const s = activeSession();
-  if (s && s.running && !s.finished) {
-    const label = sessionModelLabel(s) || "运行中";
-    const effort = liveRunEffortLabel(s.trace);
-    labelEl.textContent = `${label}${effort ? " · " + effort : ""}`;
-    btn.classList.add("readonly");
-    btn.title = "当前运行实际使用的模型（只读）；选择器只对新委托生效";
-    return;
-  }
-  btn.classList.remove("readonly");
-  if (!health || !health.live) {
-    labelEl.textContent = "未连接 runtime";
-    btn.title = "静态回放模式：composer 已整体禁用";
-    return;
-  }
-  if (chat.active) {
-    if (chatModels.length && chatModelChoice.key !== "mock"
-        && !chatModels.some(m => m.key === chatModelChoice.key && m.available)) {
-      chatModelChoice.key = "mock";
-      saveChatModelChoice();
-    }
-    const chatEntry = chatModels.find(m => m.key === chatModelChoice.key)
-      || chatModels.find(m => m.key === "mock");
-    labelEl.textContent = !chatEntry || chatEntry.key === "mock"
-      ? "offline-mock"
-      : chatEntry.model;
-    btn.title = "选择对话模型；在设置页填写 API 配置";
-    return;
-  }
-  if (modelChoice.key !== "mock" && !modelCatalog.some(m => m.key === modelChoice.key && m.available)) {
-    // 记忆的选择已不可用：回到 mock（菜单里保留 reason 供查看）
-    modelChoice.key = "mock";
-    saveModelChoice();
-  }
-  const entry = modelCatalog.find(m => m.key === modelChoice.key);
-  labelEl.textContent = !entry || entry.key === "mock"
-    ? "offline-mock"
-    : `${entry.model}${entry.supportsEffort ? " · " + (EFFORT_LABEL[modelChoice.effort] || "中") : ""}`;
-  btn.title = "选择模型与思考强度";
-}
-
-
-/* ---------- “+”附加面板：真实委托输入，非装饰入口 ---------- */
-
-/* 通用委托模板（general-work）：附加面板换成“来源 URL”，不显示财务语料 */
-function isGeneralTemplate() {
-  const tpl = templates.find(t => t.key === tplKey);
-  return !!(tpl && tpl.module && tpl.module !== "finance-research");
-}
-
-function effectiveDraftBudget() {
-  const template = templates.find(t => t.key === tplKey) || {};
-  if (isGeneralTemplate() && attach.project.path.trim()) {
-    return { max_calls: 24, max_reads: 64, max_cost_microusd: 500000, max_tokens: 120000 };
-  }
-  const entry = (modelBudget.models || []).find(m => m.key === modelChoice.key);
-  return (entry && entry.budget) || template.limits || {};
-}
-
-function renderAttachPanel() {
-  const panel = document.getElementById("attach-panel");
-  const box = document.getElementById("composer-box");
-  if (!panel) return;
-  const btn = document.getElementById("composer-open");
-  if (btn) {
-    btn.classList.toggle("open", attach.open);
-    btn.setAttribute("aria-expanded", attach.open ? "true" : "false");
-    btn.title = attach.open ? "收起附加面板" : "资料 / 工具 / 预算";
-  }
-  box?.classList.toggle("open-attach", attach.open);
-  if (attach.open) {
-    clearTimeout(Number(panel.dataset.closeTimer || 0));
-    panel.classList.remove("closing");
-    panel.hidden = false;
-  } else if (!panel.hidden) {
-    // × 收起：先播 150ms 连体段收起动画，再真正 display:none
-    clearTimeout(Number(panel.dataset.closeTimer || 0));
-    panel.classList.add("closing");
-    panel.dataset.closeTimer = String(setTimeout(() => {
-      panel.hidden = true;
-      panel.classList.remove("closing");
-    }, 150));
-    return;
-  } else {
-    return;
-  }
-
-  const limits = effectiveDraftBudget();
-  const budget = attach.budget || {
-    maxCalls: limits.max_calls || 0,
-    maxReads: limits.max_reads || 0,
-    maxCostMicrousd: limits.max_cost_microusd || 0,
-  };
-  const raised = attach.budget && (
-    budget.maxCalls > (limits.max_calls || 0)
-    || budget.maxReads > (limits.max_reads || 0)
-    || budget.maxCostMicrousd > (limits.max_cost_microusd || 0)
-  );
-  const general = isGeneralTemplate();
-  const sourceRows = attach.sources.map((url, index) => `
-    <div class="attach-source">
-      <span class="src-index">${index + 1}</span>
-      <span class="src-url">${esc(url)}</span>
-      <button class="src-remove" data-attach-source-remove="${index}" title="移除此来源">×</button>
-    </div>`).join("");
-  const sourcesGroup = `
-    <section class="attach-group">
-      <header><span>资料来源（URL）</span><span class="attach-note">${attach.sources.length}/5 · fetch_url 仅访问这些地址</span></header>
-      ${sourceRows || '<div class="attach-empty">调研模式需要来源；脚本模式（"写脚本并运行"）可留空</div>'}
-      ${attach.sources.length < 5 ? `
-      <div class="attach-source-add">
-        <input type="url" placeholder="https://example.com/page" data-attach-source-input value="${esc(attach.sourcesDraft)}">
-        <button data-attach-source-add>添加</button>
-      </div>` : ""}
-      <div class="attach-rule">SSRF 防护在工具实现内强制：私网/环回地址一律拒绝，解析后校验实际连接 IP</div>
-    </section>`;
-  const mcpServers = attach.mcp.servers || [];
-  const mcpGroup = mcpServers.length ? `
-    <section class="attach-group">
-      <header><span>MCP 导入</span><span class="attach-note">${mcpServers.filter(x => x.connected).length}/${mcpServers.length} 个 server 在线</span></header>
-      ${mcpServers.map(server => `
-        <div class="attach-tool">
-          <div class="tool-line">
-            <span class="name">${esc(server.server)}</span>
-            <span class="effect">${server.connected ? `${server.tools.length} 工具` : "不可用"}</span>
-          </div>
-          <div class="summary">${server.connected
-            ? esc(server.tools.join("  ·  ") || "无已导入工具")
-            : esc(server.reason || "未连接")}</div>
-          ${(server.refused || []).length ? `<div class="params">拒收 ${server.refused.length} 个：${esc(server.refused.map(r => r.tool).join(", "))}</div>` : ""}
-        </div>`).join("")}
-      <div class="attach-rule">导入即注册：门控/预算/收据同等生效；未标 readonly 的都过审批</div>
-    </section>` : "";
-  const docs = attach.corpus.map(doc => `
-    <label class="attach-doc${attach.scope.has(doc.id) ? " checked" : ""}">
-      <input type="checkbox" data-attach-doc="${esc(doc.id)}"${attach.scope.has(doc.id) ? " checked" : ""}>
-      <span class="doc-name">${esc(doc.title)}</span>
-      <span class="doc-kind">${esc(doc.kind)}</span>
-      <span class="doc-period">${esc(doc.period)}</span>
-    </label>`).join("");
-  const tools = attach.tools.map(tool => {
-    const required = Object.entries(tool.parameters || {})
-      .filter(([, schema]) => schema && schema.required)
-      .map(([name]) => name)
-      .join(", ");
-    return `<div class="attach-tool">
-      <div class="tool-line"><span class="name">${esc(tool.name)}</span><span class="effect">${esc(tool.effect)}</span></div>
-      <div class="summary">${esc(tool.summary)}</div>
-      ${required ? `<div class="params">必填：${esc(required)}</div>` : '<div class="params">无必填参数</div>'}
-    </div>`;
-  }).join("");
-  const tplItems = templateGroups().map(group =>
-    group.items.map(t => `
-      <button class="attach-tpl${t.key === tplKey ? " active" : ""}" data-attach-tpl="${esc(t.key)}">
-        <span class="t">${esc(t.title.split("：")[0])}</span>
-        <span class="d">${esc(t.story)}</span>
-        ${t.key === tplKey ? '<span class="tick">✓ 当前</span>' : ""}
-      </button>`).join("")
-  ).join("");
-  const curTpl = String((templates.find(t => t.key === tplKey) || {}).title || tplKey).split("：")[0];
-  const groups = [
-    { key: "tpl", label: "委托模板", note: "决定授权、预算与故障注入",
-      summary: esc(curTpl),
-      body: `<div class="attach-tpls">${tplItems}</div>` },
-    ...(general ? [{ key: "project", label: "本地项目 / 修 Bug", note: "真实仓库的隔离副本",
-      summary: attach.project.path.trim() ? attach.project.path.trim().split("/").pop() : "未选择",
-      body: projectWork.projectAttachBody(attach.project) }] : []),
-    general
-      ? { key: "sources", label: "外部来源", note: "fetch_url 可访问",
-          summary: attach.sources.length ? `${attach.sources.length} 个来源` : "未添加",
-          body: sourcesGroup }
-      : { key: "sources", label: "资料选择", note: "不选 = 全语料（默认）",
-          summary: attach.scope.size ? `已限定 ${attach.scope.size} 份` : "全语料（默认）",
-          body: `<div class="attach-docs">${docs || '<div class="attach-empty">正在读取语料库…</div>'}</div>`
-            + (attach.scope.size ? `<div class="attach-selected">已限定 ${attach.scope.size} 份：任务创建后读取范围真实受限</div>` : "") },
-    { key: "tools", label: "工具注册表", note: "全部经门控与预算",
-      summary: `${attach.tools.length} 个已注册工具`,
-      body: `<div class="attach-tools">${tools || '<div class="attach-empty">正在读取注册表…</div>'}</div>${general ? mcpGroup : ""}<div class="attach-rule">工具由主机注册；任何调用须经门控与预算</div>` },
-    { key: "budget", label: "预算微调", note: raised ? "已上调" : "默认 = 按模型价格适配的调用容量",
-      summary: `${budget.maxCalls} calls · ${budget.maxReads} reads · ${num(budget.maxCostMicrousd)} µ`,
-      body: `<div class="attach-budget">
-        <label>calls <input type="number" min="1" inputmode="numeric" data-attach-budget="maxCalls" value="${Number(budget.maxCalls)}"></label>
-        <label>reads <input type="number" min="1" inputmode="numeric" data-attach-budget="maxReads" value="${Number(budget.maxReads)}"></label>
-        <label>µUSD <input type="number" min="1" inputmode="numeric" data-attach-budget="maxCostMicrousd" value="${Number(budget.maxCostMicrousd)}"></label>
-      </div>
-      <div class="attach-warning${raised ? " on" : ""}">${raised ? "上调将放宽治理上限；实际计费仍以收据为准" : "下调立即收紧；实际计费仍以收据为准"}</div>` },
-  ];
-  // 手风琴：四组默认收成单行摘要（当前配置一览），单开展开——对齐 kimi 的
-  // 空间纪律：+ 菜单只占浮层，从不占据页面流。
-  panel.innerHTML = groups.map(g => {
-    const open = attach.openGroup === g.key;
-    return `<section class="attach-group${open ? " open" : ""}">
-      <button class="attach-sum" data-attach-sum="${g.key}" aria-expanded="${open}">
-        <span class="sum-label">${esc(g.label)}</span>
-        <span class="sum-value">${g.summary}</span>
-        <span class="chev">${open ? "▾" : "▸"}</span>
-      </button>
-      ${open ? `<div class="attach-body">${g.body}</div>` : ""}
-    </section>`;
-  }).join("");
-}
-
-async function refreshAttachData() {
-  if (!health || !health.live || !tplKey) return;
-  const key = tplKey;
-  const jobs = [];
-  if (modelBudget.template !== key || !modelBudget.models) {
-    jobs.push(fetch(`/api/models?template=${encodeURIComponent(key)}`, { cache: "no-store" })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && Array.isArray(data.models) && tplKey === key) {
-          modelBudget = { template: key, models: data.models };
-        }
-      }).catch(() => {}));
-  }
-  if (attach.loadedTemplate !== key || !attach.corpus.length || !attach.tools.length) {
-    jobs.push(Promise.all([
-      fetch(`/api/corpus?template=${encodeURIComponent(key)}`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/api/templates/${encodeURIComponent(key)}/tools`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([corpus, tools]) => {
-      if (tplKey !== key) return;
-      attach.corpus = corpus && Array.isArray(corpus.documents) ? corpus.documents : [];
-      attach.tools = tools && Array.isArray(tools.tools) ? tools.tools : [];
-      const ids = new Set(attach.corpus.map(doc => doc.id));
-      attach.scope = new Set([...attach.scope].filter(id => ids.has(id)));
-      attach.loadedTemplate = key;
-    }));
-  }
-  const generalNow = templates.find(t => t.key === key);
-  if (generalNow && generalNow.module && generalNow.module !== "finance-research" && !attach.mcp.loaded) {
-    jobs.push(fetch("/api/mcp", { cache: "no-store" })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && Array.isArray(data.servers)) attach.mcp = { servers: data.servers, loaded: true };
-      }).catch(() => { attach.mcp.loaded = true; }));
-  }
-  await Promise.all(jobs);
-  renderAttachPanel();
-  if (intake.active) renderIntake();
-}
-
-function readAttachBudgetInputs() {
-  const values = {};
-  document.querySelectorAll("[data-attach-budget]").forEach(input => {
-    values[input.dataset.attachBudget] = Number(input.value);
-  });
-  if (!values.maxCalls || !values.maxReads || !values.maxCostMicrousd) return;
-  attach.budget = {
-    maxCalls: values.maxCalls,
-    maxReads: values.maxReads,
-    maxCostMicrousd: values.maxCostMicrousd,
-  };
-  const raised = attach.budget.maxCalls > effectiveDraftBudget().max_calls
-    || attach.budget.maxReads > effectiveDraftBudget().max_reads
-    || attach.budget.maxCostMicrousd > effectiveDraftBudget().max_cost_microusd;
-  const warning = document.querySelector(".attach-warning");
-  if (warning) {
-    warning.classList.toggle("on", raised);
-    warning.textContent = raised
-      ? "上调将放宽治理上限；实际计费仍以收据为准"
-      : "下调立即收紧；实际计费仍以收据为准";
-  }
-}
-
-function delegationSpecExtras() {
-  const spec = {};
-  if (isGeneralTemplate()) {
-    if (attach.sources.length) spec.sources = [...attach.sources];
-    if (attach.project.path.trim()) {
-      const verification = parseVerificationCommand(attach.project.verification);
-      if (!verification) throw new Error("请填写项目独立验证命令，例如 pytest -q");
-      spec.mode = "open";
-      spec.project = { path: attach.project.path.trim() };
-      spec.verification = verification;
-      spec.reportPath = "FCODE_RESULT.md";
-    }
-  } else {
-    const allIds = new Set(attach.corpus.map(doc => doc.id));
-    if (attach.scope.size && attach.scope.size !== allIds.size) {
-      spec.scope = [...attach.scope];
-    }
-  }
-  if (attach.budget) spec.budget = { ...attach.budget };
-  return spec;
-}
-
-/* 浮窗默认向上展开（Kimi 的锚点规则）；但舞台态 composer 贴近页面下沿时，
-   向上会顶出画布顶部——最上面几行就点不到了。量一次：放不下就向下展开。 */
-function placeModelMenu() {
-  const menu = document.getElementById("model-menu");
-  if (!menu) return;
-  menu.classList.remove("drop-down");
-  const rect = menu.getBoundingClientRect();
-  if (rect.top < 8) menu.classList.add("drop-down");
-}
-
-function renderModelMenu() {
-  const menu = document.getElementById("model-menu");
-  if (!menu) return;
-  const items = modelCatalog.map(m => {
-    const current = m.available && m.key === modelChoice.key;
-    return `<button class="tpl-item model-item${current ? " active" : ""}${m.available ? "" : " disabled"}" data-model-pick="${esc(m.key)}"${m.available ? "" : " disabled"}>
-      <span class="t"><span>${esc(m.label)}${current ? '<span class="check">✓</span>' : ""}</span><span class="m">${esc(m.model)}</span></span>
-      <span class="d">${m.available ? (m.key === "mock" ? "离线确定性 mock · 演示与回归" : m.supportsEffort ? "云端模型 · 支持思考强度" : "本地推理") : esc(m.reason)}</span>
-    </button>`;
-  }).join("");
-  // 思考强度块对"当前选中的模型"生效——菜单数据源是服务端枚举的
-  // provider 清单，任何 supportsEffort 的条目（kimi 或主机声明的端点）
-  // 选中时都能调档，不再写死单一 provider。
-  const selected = modelCatalog.find(m => m.key === modelChoice.key);
-  const effortHost = selected && selected.available && selected.supportsEffort
-    ? selected : modelCatalog.find(m => m.key === "kimi" && m.available && m.supportsEffort);
-  const effortBlock = effortHost ? `<div class="model-effort">
-    <span class="me-head">思考强度${effortHost.key !== modelChoice.key ? ` · ${esc(effortHost.label)}` : ""}</span>
-    <div class="me-opts">${EFFORT_LEVELS.map(level =>
-      `<button class="me-opt${modelChoice.key === effortHost.key && modelChoice.effort === level ? " active" : ""}" data-effort-pick="${level}">${EFFORT_LABEL[level]}</button>`
-    ).join("")}</div>
-    <span class="me-note">不选 = 用 provider 默认档（Kimi 为低）；选了就按档位发送</span>
-  </div>` : "";
-  menu.innerHTML = items + effortBlock + `<div class="tpl-note">模型由操作者选择；门控 / 预算 / 审计对任何模型同等生效</div>`;
-  if (!menu.hidden) placeModelMenu();
-}
+/* 模型选择器与“+”附加面板（app/composer-panel.js，拆分切片 4c）。
+   状态本体（attach/chat/chatModelChoice/modelChoice）按引用注入，
+   let 型目录经 getter 注入。 */
+const {
+  saveModelChoice, adoptDefaultWorkModel, liveRunEffortLabel, paintModelBadge,
+  isGeneralTemplate, effectiveDraftBudget, renderAttachPanel, refreshAttachData,
+  readAttachBudgetInputs, delegationSpecExtras, placeModelMenu, renderModelMenu,
+} = createComposerPanel({
+  attach, chat, chatModelChoice, saveChatModelChoice,
+  EFFORT_LEVELS, EFFORT_LABEL,
+  templateGroups, projectWork, sessionModelLabel, activeSession,
+  renderIntake,
+  getIntake: () => intake,
+  getHealth: () => health,
+  getTemplates: () => templates,
+  getTplKey: () => tplKey,
+  getModelCatalog: () => modelCatalog,
+  getModelChoice: () => modelChoice,
+  getModelBudget: () => modelBudget,
+  setModelBudget: value => { modelBudget = value; },
+  getChatModels: () => chatModels,
+  fetchImpl: (...args) => fetch(...args),
+});
 
 async function initLive() {
   setApprovalMode(approvalMode);
