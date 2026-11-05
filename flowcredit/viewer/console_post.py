@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from console_post_chat import (
     post_chat_confirm,
+    post_chat_tool_decision,
     post_chat_edit,
     post_chat_regenerate,
     post_chat_send,
@@ -52,6 +53,7 @@ _STATIC = {
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,
+    "/tool-decision": post_chat_tool_decision,
     "/edit": post_chat_edit,
     "/regenerate": post_chat_regenerate,
 }

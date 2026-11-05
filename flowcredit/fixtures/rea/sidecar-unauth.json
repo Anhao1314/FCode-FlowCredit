@@ -1,0 +1,18 @@
+{
+  "schema_version": "fcode.rea-facts/v1",
+  "target": {"identity": "fixtures/rea/sidecar-unauth.json", "version": "1.0.0",
+             "artifact_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+  "operations": {},
+  "host": {
+    "entitlements": [],
+    "declared_features": [],
+    "sidecars": [{
+      "name": "demo-bridge", "path": "demo-bridge",
+      "listeners": [{"file": "bridge.ts", "line": 12}],
+      "auth_markers": [],
+      "listener_without_auth": [{"file": "bridge.ts", "line": 12}],
+      "secret_like": [], "npm_install": []
+    }]
+  },
+  "uncovered": []
+}

@@ -42,6 +42,7 @@ import re
 import secrets
 import socketserver
 import sys
+import threading
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -138,6 +139,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     _AUDIT_DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
     _AUDIT_POC_RE = re.compile(r"^POC-[0-9]{4,}(-c)?$")
+    _AUDIT_REA_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$")
 
     def _audit_root(self) -> Path | None:
         repo = type(self).repo or (Path(self.manager.runtime.repo)
@@ -153,6 +155,10 @@ class Handler(SimpleHTTPRequestHandler):
         bundles = []
         if root.exists():
             for path in sorted(root.glob("*/audit-bundle.json")):
+                if not self._AUDIT_DIR_RE.match(path.parent.name):
+                    # 目录名不合规的包无法通过 bundle/evidence/disposition 的
+                    # 同一白名单——列出只会得到"可见但打不开"的死条目。
+                    continue
                 try:
                     bundle = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
@@ -163,6 +169,9 @@ class Handler(SimpleHTTPRequestHandler):
                     "target": (bundle.get("target") or {}).get("identity"),
                     "findings": len(bundle.get("findings") or []),
                     "evidence": len(bundle.get("poc_evidence_refs") or []),
+                    "rea_evidence": len(bundle.get("rea_evidence_refs") or []),
+                    "uncovered": len(bundle.get("uncovered_surfaces") or []),
+                    "artifact": (bundle.get("target") or {}).get("artifact_sha256"),
                     "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
                 })
         return {"bundles": bundles}
@@ -195,6 +204,268 @@ class Handler(SimpleHTTPRequestHandler):
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"error": "unreadable evidence"}, 500
+
+    def _audit_rea(self, name: str, filename: str) -> dict | tuple[dict, int]:
+        """Read one REA evidence/facts file named by the bundle itself.
+
+        The bundle is the allow-list: only paths it references under
+        ``rea-evidence/`` are readable. A filename is a single segment, so
+        traversal, absolute paths and symlinks outside the directory are
+        refused before any bytes are served.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or "") \
+                or not self._AUDIT_REA_FILE_RE.match(filename or ""):
+            return {"error": "not found"}, 404
+        bundle = self._audit_bundle(name)
+        if isinstance(bundle, tuple):
+            return bundle
+        allowed: set[str] = set()
+        for key in ("rea_facts_ref", "rea_control_facts_ref"):
+            ref = bundle.get(key)
+            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
+                allowed.add(ref["path"])
+        for ref in bundle.get("rea_evidence_refs") or []:
+            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
+                allowed.add(ref["path"])
+        relative = f"rea-evidence/{filename}"
+        if relative not in allowed:
+            return {"error": "not found"}, 404
+        base = (root / name / "rea-evidence").resolve()
+        path = (root / name / relative).resolve()
+        if base not in path.parents:
+            return {"error": "not found"}, 404
+        if not path.exists():
+            return {"error": "not found"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable REA evidence"}, 500
+
+    _DISPOSITIONS = ("accepted_risk", "false_positive_disputed", "wont_fix")
+    # 处置写回是读-改-写整个 bundle;ThreadingHTTPServer 下并发 POST 会互相
+    # 覆盖,用一把进程内锁串行化(处置是罕见的操作员动作,全局锁足够)。
+    _disposition_lock = threading.Lock()
+
+    def _audit_disposition(self, name: str, finding_id: str,
+                           disposition: str) -> dict | tuple[dict, int]:
+        """Set operator_disposition on one finding in the pinned bundle.
+
+        This is a host decision recorded as data, not a model output. The
+        finding's status and PoC outcome are untouched — only the operator's
+        judgment field changes. The file is written atomically. The empty
+        string is the UI's "— 无 —" option: it clears a previous disposition
+        rather than being rejected.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        if disposition not in self._DISPOSITIONS and disposition != "":
+            return {"error": f"invalid disposition; must be one of ('', {', '.join(self._DISPOSITIONS)})"}, 400
+        bundle_path = (root / name / "audit-bundle.json").resolve()
+        if root.resolve() not in bundle_path.parents or not bundle_path.exists():
+            return {"error": "not found"}, 404
+        try:
+            with self._disposition_lock:
+                bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+                for finding in bundle.get("findings") or []:
+                    if finding.get("finding_id") == finding_id:
+                        finding["operator_disposition"] = disposition or None
+                        break
+                else:
+                    return {"error": "finding not found"}, 404
+                tmp = bundle_path.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
+                tmp.replace(bundle_path)
+        except (OSError, ValueError):
+            return {"error": "unreadable bundle"}, 500
+        self._audit_chain_disposition_event(name, bundle, finding_id, disposition)
+        return {"finding_id": finding_id, "operator_disposition": disposition or None}
+
+    def _audit_disposition_summary(self) -> list[dict]:
+        """操作员对审计发现的处置汇总(判断记录页的「审计处置」区段)。
+
+        与 run 判断(review_decided 事件)语义不同、并列展示,不并入四类
+        计数。损坏的 bundle 跳过——一份坏文件不能藏起其余历史。
+        """
+        root = self._audit_root()
+        if root is None or not root.is_dir():
+            return []
+        rows: list[dict] = []
+        for path in sorted(root.glob("*/audit-bundle.json")):
+            if not self._AUDIT_DIR_RE.match(path.parent.name):
+                continue
+            try:
+                bundle = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            target = str((bundle.get("target") or {}).get("identity") or "")
+            for finding in bundle.get("findings") or []:
+                disposition = finding.get("operator_disposition")
+                if not disposition:
+                    continue
+                rows.append({
+                    "dir": path.parent.name,
+                    "audit_id": bundle.get("audit_id"),
+                    "finding_id": finding.get("finding_id"),
+                    "disposition": disposition,
+                    "category": finding.get("category"),
+                    "severity": finding.get("severity"),
+                    "target": target,
+                })
+        rows.sort(key=lambda row: str(row.get("audit_id") or ""))
+        return rows
+
+    def _audit_chain_disposition_event(self, name: str, bundle: dict,
+                                       finding_id: str, disposition: str) -> None:
+        """处置落签名链:bundle 写完之后追加一条 operator 事件。
+
+        bundle 的渲染读取不需要链,所以失败只降级(处置仍在 bundle 里,
+        只是少了防篡改轨迹),不影响端点结果。没有 session.sqlite 的包
+        (纯 cli-batch 产物)同样静默跳过。
+        """
+        if getattr(self.manager, "runtime", None) is None:
+            # 静态模式(runtime 未起)也要能落链:与 console_manager 同法,
+            # 从 viewer 旁边的源码检出导入 flowaudit/flowagent。
+            src = VIEWER_DIR.parent / "src"
+            if str(src) not in sys.path and (src / "flowaudit" / "__init__.py").exists():
+                sys.path.insert(0, str(src))
+        try:
+            from flowagent.core.store import TaskStore
+            from flowaudit.session import AuditSession
+        except ImportError:
+            return
+        root = self._audit_root()
+        if root is None:
+            return
+        db_path = root / name / "session.sqlite"
+        if not db_path.exists():
+            return
+        audit_id = str(bundle.get("audit_id") or name)
+        try:
+            session = AuditSession.attach(TaskStore(db_path), f"audit-{audit_id}")
+            session.record_disposition(finding_id, disposition)
+        except Exception:  # noqa: BLE001 — 链事件是增强,bundle 写入已成功
+            pass
+
+    def _audit_chain(self, name: str) -> dict | tuple[dict, int]:
+        """Read the audit session's hash-linked event chain from session.sqlite.
+
+        Every candidate proposal, finding promotion and operator action is
+        an event in the chain. Verification is delegated to the kernel's
+        TaskStore — the same code that wrote the chain recomputes every
+        event hash, checks linkage, sequence continuity and the head — so a
+        tampered hash with intact linkage is still reported broken. When
+        the kernel is unavailable the endpoint falls back to a link-only
+        check and says so (`verification: "link-only"`).
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        audit_dir = (root / name).resolve()
+        if root.resolve() not in audit_dir.parents or not audit_dir.is_dir():
+            return {"error": "not found"}, 404
+        db_path = audit_dir / "session.sqlite"
+        if not db_path.exists():
+            return {"events": [], "chain_intact": True, "count": 0,
+                    "verification": "none", "note": "no session log"}
+        # 审计会话的 task_id 固定为 audit-{audit_id};audit_id 以 bundle 里
+        # 记录的为准(目录名与 audit_id 可能不同,例如显式 --out 的历史包)。
+        audit_id = name
+        bundle_path = audit_dir / "audit-bundle.json"
+        try:
+            audit_id = str(json.loads(
+                bundle_path.read_text(encoding="utf-8")).get("audit_id") or name)
+        except (OSError, ValueError):
+            pass
+        task_id = f"audit-{audit_id}"
+        runtime = getattr(self.manager, "runtime", None) if self.manager else None
+        if runtime is not None and getattr(runtime, "TaskStore", None) is not None:
+            events = None
+            try:
+                store = runtime.TaskStore(db_path)
+                events = store.events(task_id)
+                store.verify_chain(task_id)
+                return {"events": events, "chain_intact": True,
+                        "verification": "kernel", "count": len(events)}
+            except Exception as error:  # noqa: BLE001 — AgentError → 篡改证据
+                if isinstance(events, list):
+                    return {"events": events, "chain_intact": False,
+                            "verification": "kernel", "count": len(events),
+                            "tamper": str(error)}
+                return {"error": f"cannot read session: {error}"}, 500
+        # kernel 不可用:退化为纯链接检查,如实标注弱校验。
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.execute(
+                "SELECT sequence, type, payload, prev_hash, hash, at "
+                "FROM event ORDER BY sequence ASC"
+            )
+            events = []
+            for row in cursor:
+                payload = json.loads(row["payload"]) if row["payload"] else {}
+                events.append({
+                    "sequence": row["sequence"],
+                    "type": row["type"],
+                    "payload": payload,
+                    "prev_hash": row["prev_hash"],
+                    "hash": row["hash"],
+                    "at": row["at"],
+                })
+            # Verify chain: each event's prev_hash must match the previous hash.
+            chain_intact = True
+            prev = None
+            for event in events:
+                if prev is not None and event["prev_hash"] != prev:
+                    chain_intact = False
+                    break
+                prev = event["hash"]
+            return {
+                "events": events,
+                "chain_intact": chain_intact,
+                "verification": "link-only",
+                "count": len(events),
+            }
+        except (sqlite3.Error, ValueError, KeyError) as error:
+            return {"error": f"cannot read session: {error}"}, 500
+        finally:
+            conn.close()
+
+    def _audit_spec_gap(self, name: str) -> dict | tuple[dict, int]:
+        """Read the spec-gap report if it exists alongside the bundle.
+
+        The spec-gap report records conforms/undetermined judgments —
+        documentation-vs-observation conclusions that are not audit-bundle
+        findings. It is generated separately via
+        ``python audit.py spec-gap-report --input … --out …``.
+        """
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        path = (root / name / "spec-gap-report.json").resolve()
+        if root.resolve() not in path.parents or not path.exists():
+            return {"error": "no spec-gap report"}, 404
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"error": "unreadable spec-gap report"}, 500
+
+    def _audit_regression(self, name: str) -> dict | tuple[dict, int]:
+        """Read regression.json (known/new/fixed/regressed) for one audit."""
+        root = self._audit_root()
+        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
+            return {"error": "not found"}, 404
+        path = (root / name / "regression.json").resolve()
+        if root.resolve() not in path.parents or not path.exists():
+            return {"prior_audit_id": None, "known": [], "new": [],
+                    "fixed": [], "regressed": []}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"prior_audit_id": None, "known": [], "new": [],
+                    "fixed": [], "regressed": []}
 
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -279,6 +550,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._reject_unauthorized(path)
         if path.startswith("/api/"):
             return self._api_get(path)
+        if path == "/audit.html":
+            # 审计台已并入统一壳(#/audit surface);独立页退役,旧链接不断。
+            self.send_response(302)
+            self.send_header("Location", "/#/audit")
+            self.end_headers()
+            return
         if forbidden_static_path(path):
             self.send_error(404)
             return
@@ -410,6 +687,33 @@ class Handler(SimpleHTTPRequestHandler):
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
+        if path.startswith("/api/audit/regression/"):
+            audit_dir = path[len("/api/audit/regression/"):].strip("/")
+            result = self._audit_regression(audit_dir)
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/spec-gap/"):
+            audit_dir = path[len("/api/audit/spec-gap/"):].strip("/")
+            result = self._audit_spec_gap(audit_dir)
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/chain/"):
+            audit_dir = path[len("/api/audit/chain/"):].strip("/")
+            result = self._audit_chain(audit_dir)
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
+        if path.startswith("/api/audit/rea/"):
+            parts = [p for p in path.split("/") if p]
+            # /api/audit/rea/<audit_dir>/<filename>
+            if len(parts) != 5:
+                return self._json({"error": "bad path"}, 400)
+            result = self._audit_rea(parts[3], parts[4])
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
         if path.startswith("/api/audit/jobs/"):
             from audit_jobs import job_status
             job = job_status(path[len("/api/audit/jobs/"):].strip("/"))
@@ -423,13 +727,13 @@ class Handler(SimpleHTTPRequestHandler):
                 values = query.get(name) or [""]
                 return str(values[0] or "").strip()
 
-            return self._json(
-                mgr.review_profile(
-                    module=param("module"),
-                    template=param("template"),
-                    outcome=param("outcome"),
-                )
+            profile = mgr.review_profile(
+                module=param("module"),
+                template=param("template"),
+                outcome=param("outcome"),
             )
+            profile["audit_dispositions"] = self._audit_disposition_summary()
+            return self._json(profile)
         if path.startswith("/api/runs/"):
             rest = path[len("/api/runs/") :]
             run_id, _, action = rest.partition("/")
@@ -641,6 +945,17 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"error": "unauthorized"}, 401)
         if not self._mutation_guard():
             return
+        if path.startswith("/api/audit/disposition/"):
+            parts = [p for p in path.split("/") if p]
+            # /api/audit/disposition/<audit_dir>/<finding_id>
+            if len(parts) != 5:
+                return self._json({"error": "bad path"}, 400)
+            body = self._read_body()
+            result = self._audit_disposition(parts[3], parts[4],
+                                             str(body.get("disposition") or ""))
+            if isinstance(result, tuple):
+                return self._json(result[0], result[1])
+            return self._json(result)
         return dispatch_post(self, path)
 
     def do_DELETE(self) -> None:  # noqa: N802

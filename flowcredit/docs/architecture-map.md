@@ -49,7 +49,7 @@
 │ viewer/                  Work 控制台：HTTP + SSE + 零构建前端          │
 │ benchmark/               19 个版本化任务，复用生产 Loop                │
 │ flowaudit/cli.py         审计命令行（audit / verify-bundle）            │
-│ chat*.py                 对话分支（只回答，不执行工具）                 │
+│ chat*.py                 对话分支（只读工具循环；写操作转委托）          │
 │ sft/                     trace → SFT 数据 / 策略评测                   │
 │ review*.py               运行后人工复核（追加签名，不改写）             │
 └───────────────────────────────┬────────────────────────────────────────┘
@@ -121,15 +121,15 @@ core  →  tools / providers  →  runtime  →  demo
 | `providers/` | 13 | 2,829 | 模型接入，只产出提案 | 不执行、不写库 |
 | `memory/` | 6 | 1,586 | 派生记忆：上下文 / 案例 / 事实 / 工件 | 只依赖 core，与 tools 平级 |
 | `domains/` | 4 | 391 | 领域插件契约与注册 | 内核从不 import 具体领域 |
-| `flowaudit/` | 23 | 2,454 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
+| `flowaudit/` | 33 | 5,235 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
 | `demo/` | 13 | 2,801 | 装配 + 8 场景 + 终端渲染 | **唯一装配点** |
 | `benchmark/` | 8 | 1,304 | 19 任务评测 | 适配器只喂提案 |
 | `sft/` | 6 | 1,173 | trace → 训练数据 / 策略评测 | 依赖 demo（违规） |
 | `trajectory/` | 3 | 261 | 录制、导出、独立重校验 | 观察者，不参与决策 |
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
-| **合计** | **~139** | **26,282** | | |
+| **合计** | **~149** | **29,392** | | |
 
-外围：`tests/` 82 个文件、17,581 行、765 个测试；`viewer/` Python 3,852 行 + JS 14,392 行（含 177 个前端测试）；`docs/` 36 篇。
+外围：`tests/` 87 个文件、18,528 行、791 个测试；`viewer/` Python 3,902 行 + JS 14,576 行（含 183 个前端测试）；`docs/` 38 篇。
 
 ---
 
@@ -222,7 +222,8 @@ core  →  tools / providers  →  runtime  →  demo
 | `vulns/engine.py` | AGI 九类漏洞分类法 + 规则引擎；规则是数据（`audit-rules/*.json`），引擎只解释 |
 | `poc/replay.py` + `replay_worker.py` | PoC 在受限子进程重放：剥离凭据、`HOME`/`TMPDIR` 指向审计目录、`sys.addaudithook` 拦 socket/subprocess |
 | `poc/scenarios/*` | 内置场景（含 fcode-self 的真实缺陷与负对照） |
-| `targets/repo.py` | **唯一已实现**的目标适配器；desktop-app / http / mcp 在 `__init__.py` 里标注为 Sprint 2+ 计划 |
+| `targets/repo.py` + `targets/rea.py` | 已实现的两个目标适配器：源码树（repo）与交付物（REA artifact）；desktop-app / http / mcp 仍在 `__init__.py` 里标注为后续计划 |
+| `rea/` | REA CLI 适配与 allow-list 事实投影；原始 Evidence 与 facts 按 SHA-256 固定，供规则与宿主 oracle 使用 |
 | `analyst.py` / `online.py` | 模型只做候选提议与分诊；在线调用受 `config/online-policy.json` 额度约束 |
 | `report/` + `bundle.py` | 发现 + 审计自身的哈希链；审计包可独立 `verify-bundle` |
 | `session.py` / `episodes.py` | 静态 / 动态分会话，共享 `audit_id` 与不可变目标清单 |
@@ -240,7 +241,7 @@ core  →  tools / providers  →  runtime  →  demo
 - `demo/{local,deepseek,oracle,api}.py`：真实模型实验入口，与 demo 共用内核。
 - `benchmark/tasks.py`（293）：19 个任务，动作是**模型提案**而不是直接工具调用。
 - `benchmark/verifier.py`（184）：从文件、进程、事件、收据独立判分，不信任被测运行的自述。
-- `chat*.py`（1,809）：对话面；关键区别是 chat 只回答、不执行工具，但仍计预算、进事件链。
+- `chat*.py`（1,809）：对话面；可选只读工具循环（ls_workspace/read_file，经同一权限门与预算），写操作仍走提案转委托；全部计预算、进事件链。
 
 ### 4.9 `viewer/`
 
@@ -257,7 +258,7 @@ core  →  tools / providers  →  runtime  →  demo
 
 **前端（14,392 行）：**
 
-`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 177 项。
+`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 183 项。
 
 ---
 
@@ -349,8 +350,8 @@ Task ──< Plan ──< Step/Todo
 | P1 | **两套 `desktop/`，功能互有缺失** | 根：release 打包 + token 鉴权；`flowcredit/desktop/`：冒烟测试 + provider 环境隔离。451 行差异 | 用户不知道该改哪套；两份 README 各自指向自己那份 |
 | P2 | **`sft/ → demo/` 反向边** | `sft/export.py:35`、`sft/evaluate.py:17-18` | 训练管线无法脱离演示层单独复用 |
 | P2 | **`tools/workspace.py` 与 `tools/general/` 职责重叠** | 共享工具 vs 通用域工具，靠约定区分 | 新增领域时不知道工具该放哪 |
-| P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | 前端复杂度未真正治理 |
-| P2 | **审计目标适配器只有 `repo`** | `targets/__init__.py` 把其余三个标注为 Sprint 2+ 计划，但 PR 描述与 README 的措辞像是四个都已落地 | 对外表述要先于代码收敛，否则重演"描述超前于实现" |
+| P2 | **`app.js` 仍 5,903 行** | 作者自己的 `docs/refactor-evaluation.md` 写"部分解决" | CSS 已收敛（9→6 文件），JS 拆分待做 |
+| P2 | **审计目标适配器覆盖仍不完整** | 已落地 `repo` 与 `rea`（artifact）；desktop-app / http / mcp 仍在 `targets/__init__.py` 标注为计划 | 对外表述要与适配器矩阵一致；REA 只覆盖静态制品事实，动态/远程目标仍缺 |
 | P3 | **生成物入库** | `flowcredit/artifacts/` 388 个文件 | clone 体积；但作为 benchmark 证据可以接受 |
 | P3 | **`archive/` 1.7 MB** | 旧 Node 原型 | 历史价值 vs 仓库重量 |
 
@@ -422,8 +423,9 @@ PR #4：34 commits，+9,120 行，CI（Ubuntu/macOS × 3.11/3.13）四组全绿�
 flowaudit/
   vulns/      AGI 九类漏洞分类法 + 规则引擎
   poc/        detect → generate → 独立重放 → finding
-              （replay / replay_worker / 4 个场景）
-  targets/    repo 目标适配器（desktop-app / http / mcp 为 Sprint 2+ 计划）
+              （replay / replay_worker / 场景，含 rea_fact_evidence）
+  rea/        REA CLI 适配 + allow-list 事实投影（原始 Evidence 固定）
+  targets/    repo 源码树 + rea 交付物（desktop-app / http / mcp 为计划）
   report/     发现 + 审计自身的哈希链
   session.py  静态 / 动态分会话，共享 audit_id
   spec_gap.py 规格缺口报告
@@ -432,9 +434,9 @@ flowaudit/
   jsonschema_lite.py  零依赖 schema 校验
 audit-rules/  JSON 规则即数据（index + schema + examples）
 fixtures/     demo-target（MiniAgent 靶子）/ fcode-self（7 个自体缺陷 ground truth）
-viewer/       audit.html / audit.css / audit/audit-view.js / audit_jobs.py
+viewer/       audit/audit-view.js(统一壳 #/audit surface) / audit_jobs.py
 docs/         audit-methodology · capability-map · threat-model
-              · rule-authoring · sprint2-acceptance · tech-debt
+              · rule-authoring · integration-rea · sprint2-acceptance · tech-debt
 ```
 
 目标依赖方向（PR 描述称由 AST 测试强制）：
@@ -447,7 +449,7 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 
 **对内核的影响**：PR 同时改动了 `tools/workspace.py`、`tools/registry.py`、`memory/context.py`、`runtime/harness.py`、`runtime/loop.py`，都是加法且 fail-closed（观测加 `trust` 标记、旧事件缺省 `EXTERNAL_UNTRUSTED`、摘要策略非法则拒绝注册）。§7 的依赖边与 §8 的条目已按合入后的工作树重跑。从分层角度看，审计域没有破坏内核，反而验证了 `DomainModule` 这个扩展点是够用的。
 
-**它自己承认的边界**（`docs/sprint2-acceptance.md`）：Sprint 2 进行中；目标适配器只有 repo；在线模型只在审计域内、受 `online-policy.json` 额度约束。
+**它自己承认的边界**（`docs/sprint2-acceptance.md` 是历史验收记录）：Sprint 2 已收尾并进入 REA 集成 MVP；目标适配器为 `repo` + `rea`（artifact），desktop-app / http / mcp 仍计划；审计台 UI 已落地；在线模型只在审计域内、受 `online-policy.json` 额度约束。
 
 ---
 
@@ -455,8 +457,8 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 
 ```bash
 cd flowcredit
-python3.12 -m unittest discover -s tests -q     # 765 tests, OK
-node --test viewer/tests/*.test.js              # 177 pass
+python3.12 -m unittest discover -s tests -q     # 791 tests, OK
+node --test viewer/tests/*.test.js              # 183 pass
 python3.12 demo.py all                          # 8 场景全过
 python3.12 audit.py audit fixtures/demo-target
 PYTHONPATH=src python3.12 -m flowagent.benchmark --output /tmp/bench

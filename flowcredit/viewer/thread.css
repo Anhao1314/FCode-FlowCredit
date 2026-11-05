@@ -1,8 +1,575 @@
-/* ============================================================ 任务线程（统一）
-   一条线程同时承载：用户任务 → Agent 状态／计划 → 工具调用与审批 → 最终回复。
-   实时运行、历史回放、普通项目与完整研究共用这一套 DOM（app/task-thread.js）。
-   这里只写组件形态：Codex 式的居中阅读列、紧凑工具行、渐进披露。
-   颜色、字体、间距全部消费 app.css 的 token，不引入新的色板或渐变。 */
+/* ============================================================ thread.css
+   Consolidated shell + views stylesheet (v7 convergence).
+   Previously split across kimi.css / moonshot.css / workspace.css / thread.css,
+   now merged in cascade order (kimi → moonshot → workspace → thread).
+   Loading position: LAST in the chain (after app → desktop → design → chat),
+   so these rules override the core files exactly as before.
+   Organization: sidebar/composer/menus → moonshot stage → shell/responsive
+   → task thread. All tokens come from app.css :root — no re-declarations. */
+
+
+/* ================================================================ 1 · SIDEBAR / COMPOSER / MENUS
+   Formerly kimi.css — sidebar structure, composer, menus, stage chips,
+   model effort, run evidence view, ask_operator, Work task experience.
+   ================================================================ */
+
+body {
+  background: var(--canvas);
+  color: var(--text-1);
+  font: 14px/20px var(--font-ui);
+}
+
+
+/* ================================================================ 侧栏（已迁出）
+   基础侧栏规则已迁往 design.css「统一侧栏 · 基础层」（P0 切片 1，取值不变）。
+   仍留在本文件的：主功能切换 / composer / 菜单浮层 / desktop-app 变体。 */
+
+/* ================================================================ 主功能切换
+   对齐 Kimi 桌面端：侧栏顶部 [工作 | 对话] 分段开关，切换整个侧栏内容；
+   主区 wordmark 随模式挂 WORK 徽章（黑底白字，KIMI WORK 同款）。 */
+.mode-switch { display: flex; gap: 4px; margin: 0 0 10px; }
+.mode-opt {
+  flex: 1; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0.5px solid transparent; border-radius: 10px; background: transparent;
+  color: var(--text-3); font-size: 13px; cursor: pointer;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.mode-opt .s-icon, .mode-opt .d-icon { width: 15px; height: 15px; }
+.mode-opt:hover { color: var(--text-1); background: rgba(0, 0, 0, .04); }
+.mode-opt.active { background: #FFFFFF; border-color: rgba(0, 0, 0, .13); color: var(--text-1); }
+
+.stage-mark { display: inline-flex; align-items: flex-start; gap: 10px; }
+/* .stage-badge 黑底款已删：moonshot.css:21 的透明描边款是定稿（本文件加载序在先，从未生效）。 */
+.stage-chips[hidden] { display: none !important; }
+
+/* ================================================================ 主区 */
+/* 顶栏底边与底色由 desktop.css 的毛玻璃规则定稿（此处旧透明款是死代码，已删）。 */
+.tabs { border-bottom-color: var(--line-soft); }
+.statusline { border-top-color: var(--line-soft); }
+
+.stage-mark { font-size: 44px; font-weight: 600; letter-spacing: -.03em; }
+html.desktop-app #app.stage-mode .statusline { display: none; }
+html.desktop-app #app.chat-mode .statusline { display: none; }
+.stage-note { color: var(--text-3); font-size: 15px; line-height: 22px; }
+.stage-chip {
+  border: .5px solid rgba(0, 0, 0, .13); background: #FFFFFF; color: var(--text-2);
+  font-size: 14px; transition: background-color .15s, color .15s, border-color .15s;
+}
+.stage-chip:hover { background: #F5F5F5; color: var(--text-1); border-color: rgba(0, 0, 0, .20); }
+
+/* rail 旧浮层规则已迁往 desktop.css「rail 双形态」节（含关闭态 visibility 修复）。 */
+
+/* ================================================================ composer */
+.composer { max-width: 768px; }
+.composer-box {
+  border: 1px solid rgba(0, 0, 0, .09); border-radius: 24px;
+  background: #FFFFFF;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .03), 0 5px 16px -4px rgba(0, 0, 0, .07);
+  transition: border-color .3s, box-shadow .3s;
+}
+.composer-box:focus-within {
+  border-color: rgba(0, 0, 0, .18);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .04), 0 5px 16px -4px rgba(0, 0, 0, .09);
+}
+.composer-ta {
+  min-height: 58px; padding: 12px 16px 0;
+  font-size: 16px; line-height: 24px;
+}
+html.desktop-app .composer-ta { min-height: 58px; }
+html.desktop-app .side-new { height: 40px; }
+.composer-ta::placeholder { color: var(--text-3); }
+.composer-bar { padding: 8px 10px 10px; gap: 8px; }
+
+.c-btn {
+  height: 36px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 20px;
+  background: transparent; color: var(--text-2); font-size: 14px;
+  transition: background-color .3s ease-in-out, color .3s ease-in-out, box-shadow .15s;
+}
+.c-btn:hover { background: #F5F5F5; color: var(--text-1); }
+.c-btn.static { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
+.c-btn.static:hover { background: none; }
+.c-btn .s-icon, .c-btn .d-icon { width: 18px; height: 18px; }
+
+.c-icon {
+  width: 36px; height: 36px; border: 0; border-radius: 20px;
+  color: var(--text-1); background: transparent;
+  transition: background-color .3s ease-in-out, color .15s, transform .15s var(--ease);
+}
+.c-icon:hover { background: #F5F5F5; color: var(--text-1); }
+.c-icon .s-icon, .c-icon svg { width: 18px; height: 18px; }
+
+#composer-open .plus-glyph, #composer-open .close-glyph {
+  width: 18px; height: 18px; stroke-width: 1.8;
+  transition: transform .2s var(--ease), opacity .15s;
+}
+#composer-open:hover .plus-glyph { transform: scale(1.08); }
+#composer-open.open .close-glyph { animation: kimiPop .2s var(--ease); }
+
+.send {
+  width: 36px; height: 36px; border-radius: 50%; border: 0;
+  background: #000000; color: #FFFFFF;
+  transition: background-color .15s, transform .15s var(--ease), opacity .15s;
+}
+.send:hover { background: #2A2A2A; transform: scale(1.04); }
+.send:active { transform: scale(.96); }
+.send:disabled { background: #F5F5F5; color: rgba(0, 0, 0, .30); opacity: 1; transform: none; }
+.send.stop { background: #FFFFFF; color: var(--text-1); border: 1px solid var(--line-strong); }
+.send.stop:hover { background: #F5F5F5; }
+.send .s-icon, .send svg { width: 18px; height: 18px; }
+.send .s-icon { transition: transform .15s var(--ease); }
+.send:hover .s-icon { transform: translateY(-1px); }
+
+.run-chip { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.run-chip .pdot { background: var(--accent); animation: kimiPulse 1.2s ease-in-out infinite alternate; }
+button.run-chip:hover { border-color: var(--accent); color: var(--text-1); }
+
+/* ================================================================ 菜单 / 浮层（已迁出）
+   视觉、进入动画与关键帧（kimiPanelUp/kimiMenuIn）已迁 design.css
+   「菜单与浮层」段（P0 切片 3）。动效关键帧 kimiPulse/kimiPop/kimiFade
+   仍留在下方「动效」段。 */
+
+/* ================================================================ 对话 → 已迁出
+   对话视图皮肤（列几何/气泡/markdown/思考块/代码/操作行/附件/typing/等待
+   额度/错误/空态/编辑态）已整体归一进 chat.css（生效值定稿）；
+   chat.css:249-251 的桌面端字号覆盖在旧层序下从未生效，随迁移删除。
+   图标尺寸规则（.s-icon）与动效符号保留在下方。 */
+
+/* 图标：Kimi 的 24 网格 / 1.8 线宽 */
+.s-icon { width: 18px; height: 18px; stroke-width: 1.8; }
+.side-new .s-icon, .side-nav .s-icon, .foot-item .s-icon { width: 18px; height: 18px; }
+
+/* ================================================================ 动效 */
+@keyframes kimiPulse {
+  from { opacity: .45; }
+  to { opacity: .85; }
+}
+@keyframes kimiPop {
+  0% { opacity: 0; transform: scale(.8); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes kimiFade {
+  from { opacity: 0; transform: translateY(4px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+/* kimiDot/kimiShimmer 随对话皮肤迁往 chat.css（改名 chatDot/chatShimmer）后删除。 */
+
+/* 运行中的状态点也使用同一呼吸曲线，而不是闪烁。 */
+.session .sdot.live { animation: kimiPulse 1.2s ease-in-out infinite alternate; }
+
+body.reduce-motion .session .sdot.live,
+body.reduce-motion .run-chip .pdot {
+  animation: none !important;
+  opacity: .45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session .sdot.live, .run-chip .pdot {
+    animation: none !important;
+    opacity: .45;
+  }
+}
+
+/* ================================================================ 字号与元素比例
+   元素比例沿用此前的定稿（字阶令牌已收敛到 app.css :root，不再在此声明）：
+   元素：导航行 36 / 历史行 28 / 用户行 32 / 操作行 36 / 模型浮窗 290。 */
+
+/* 顶栏标题：字号/字重由 workspace.css 定稿，行高 24px 随归一进 design.css（本条删除）。 */
+
+/* 元信息 = C1 12/18（计数、时间、预算行、快捷键、脚注） */
+.side-count, .side-desk .side-count, .side-section .side-count, .side-head-label .grp-count { font: 12px/18px var(--font-mono); }
+.session .smeta { font-size: 12px; line-height: 18px; }
+.run-row .r-sub { font: 12px/18px var(--font-mono); }
+.kbtn { font-size: 12px; }
+.foot-meta { font-size: 12px; line-height: 18px; }
+
+/* 用户行：Kimi 触发行的比例 → 32 高，齿轮 20 */
+html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
+.side-user .side-gear { width: 20px; height: 20px; }
+
+/* 对话：操作按钮 12/18；行内码与正文同字号（Kimi markdown-InlineCode 16/26） */
+.chat-act { font-size: 12px; line-height: 18px; }
+
+/* 思考强度 = Kimi 规格行：label 14/20 + 右侧档位胶囊 28/r8 */
+.model-effort {
+  margin: 4px 0 2px; padding: 8px 10px;
+  border: 0; border-radius: 8px; background: #F5F5F5;
+}
+.me-head {
+  font: 500 14px/20px var(--font-ui);
+  letter-spacing: 0; text-transform: none; color: var(--text-1);
+}
+.me-opt {
+  min-width: 40px; height: 28px; padding: 0 10px;
+  border: 0; border-radius: 8px; background: rgba(0, 0, 0, .04);
+  color: var(--text-2); font-size: 12px; line-height: 18px;
+  transition: background-color .15s, color .15s;
+}
+.me-opt:hover { background: rgba(0, 0, 0, .08); color: var(--text-1); border-color: transparent; }
+.me-opt.active { background: #000000; border-color: transparent; color: #FFFFFF; font-weight: 500; }
+.me-note { font-size: 12px; line-height: 18px; }
+
+/* toast = 深色胶囊已收编 design.css「toast」节（生效值 #2B2B2B + workspace 的 r10/13px）。 */
+
+/* 设置输入框与操作行同高 */
+.chatcfg-field input { height: 36px; border-radius: 8px; font-size: 14px; }
+
+/* ================================================================ 运行证据视图
+   Kimi 对过程内容的形态：安静的摘要行 + 展开细节，没有盒中盒、没有时间线竖轨。
+   每轮一行摘要（图标 · 轮次 · 工具 · 门控状态 · 预算增量），展开才看
+   参数 / 门控 / 执行结果 / 收据；治理语义（PASS/DENIED/UNKNOWN、哈希、
+   收据数字）全部保留，只换呈现。 */
+#main[data-view="run"] {
+  max-width: 832px;
+  padding: 16px 16px 30px 4px;
+}
+.session-kicker {
+  font: 500 12px/18px var(--font-ui);
+  letter-spacing: 0; text-transform: none; color: var(--text-3);
+}
+.session-meta { font: 12px/18px var(--font-mono); }
+
+/* 轮次摘要卡已由统一任务线程（thread.css + app/task-thread.js）取代。 */
+
+/* 输出井与原始 JSON：F5F5F5 圆角井，去描边 */
+#main[data-view="run"] .out {
+  background: #F5F5F5; border: 0; border-radius: 8px;
+  font-size: 12px; line-height: 18px;
+}
+#main[data-view="run"] .raw summary {
+  font-size: 12px; line-height: 18px; color: var(--text-3); cursor: pointer;
+}
+#main[data-view="run"] .raw pre {
+  background: #F5F5F5; border: 0; border-radius: 8px;
+  font-size: 12px; line-height: 18px;
+}
+
+/* 窄屏 chat 段已并入 chat.css 的 ≤900 块（生效值 14/14/24、thread/bubble 100%）。 */
+
+/* ============================================================ 对话内执行卡 → 已收编
+   执行卡（提案 + 镜像 + 审批门）已整体收编 design.css「工具卡」节，
+   与 workspace.css 的三行覆写合并为生效值（卡 r14/--line、行透明底+软分隔、
+   审批门白底+左缘 3px 警示条、主档 #111）。core/run-card.js 渲染契约不动。 */
+
+/* 舞台脚注与「演示场景」折叠：真实任务模板直接露出，故障注入夹具收进折叠。
+   chips 改为换行布局：Kimi 的模板区是有限几项，横滚是我们自己的历史包袱。 */
+.stage-chips { flex-wrap: wrap; row-gap: 10px; }
+.stage-foot {
+  margin: 10px 0 0; max-width: 620px;
+  font: 12px/18px var(--font-ui); color: var(--text-4); text-align: center;
+}
+.stage-demos {
+  flex: 1 0 100%; margin-top: 2px;
+  font: 12px/18px var(--font-ui); color: var(--text-3);
+}
+.stage-demos > summary {
+  display: inline-block; padding: 4px 10px; border-radius: 8px; cursor: pointer;
+  color: var(--text-3); transition: background-color .15s, color .15s;
+}
+.stage-demos > summary:hover { background: var(--panel); color: var(--text-1); }
+.stage-demo-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 0 4px; }
+.stage-demo-note { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--text-4); }
+
+/* 设置页 provider 卡：作用域说明 + 配置时效 */
+.chatcfg-scope { margin: 2px 0 8px; font: 12px/18px var(--font-ui); color: var(--text-4); }
+.chatcfg-source { margin: 0 0 10px; font: 12px/18px var(--font-ui); color: var(--text-3); }
+.chatcfg-source code { font-family: var(--font-mono); color: var(--text-2); }
+.chatcfg-source .bad { color: var(--warn); font-weight: 500; }
+.chatcfg-source .dim { color: var(--text-4); }
+
+/* 线程形态已由统一任务线程接管：目标、计划、工具与审批都是线程条目。 */
+
+/* 侧栏「更多」：折叠的功能行与主行同形，展开时行本身保持可见 */
+.side-nav .nav-item .chev {
+  margin-left: auto; font-size: 11px; color: var(--text-4);
+  transition: transform .15s var(--ease);
+}
+.side-nav .nav-item.open .chev { transform: rotate(180deg); }
+
+/* ================================================== 运行提问（ask_operator）
+   卡片的形态与审批卡一致（同一个实时边沿、同一条等待语义），
+   展开后的 Q&A 块在轮次里读作"问了一句、得到了什么"。 */
+.card.approval.question .q-text { color: var(--text-1); }
+.q-input {
+  width: 100%; box-sizing: border-box; margin: 8px 0 2px;
+  padding: 8px 10px; border: 0; border-radius: 10px; background: var(--panel);
+  color: var(--text-1); font: 14px/20px var(--font-ui); resize: vertical;
+}
+.q-input:focus { outline: none; background: var(--raised); box-shadow: inset 0 0 0 0.5px var(--accent-line); }
+.qa-block { display: flex; flex-direction: column; gap: 6px; }
+.qa-line { display: flex; gap: 8px; align-items: baseline; font: 14px/20px var(--font-ui); }
+.qa-line .qa-who {
+  flex: none; min-width: 48px; color: var(--text-4);
+  font: 12px/18px var(--font-ui);
+}
+.qa-line.q .qa-text { color: var(--text-1); }
+.qa-line.a .qa-text { color: var(--text-1); font-weight: 500; }
+.qa-why { font: 12px/18px var(--font-ui); color: var(--text-4); }
+.qa-note { font: 12px/18px var(--font-ui); color: var(--warn); }
+
+/* ==================================================== 侧栏复刻（已迁出）
+   黑灰化定稿块的整体规则（含桌面变体与 --k-* 令牌）已迁出：
+   基础与变体规则 → design.css「统一侧栏 · 功能件与桌面变体」（P0 切片 2），
+   令牌 → app.css :root。取值不变；死选择器随迁移删除。 */
+
+/* ================================================================ Work 任务体验
+   首页、执行页与输入区共用 Kimi 的阅读宽度和灰阶层级。项目设置、模型与附件
+   都是浮层；执行、变更、文件共享一个任务上下文，不再混入需求确认与审计卡片。 */
+.mode-work .stage-foot { display: none; }
+.mode-work .chain-pill { display: none; }
+html.desktop-app .mode-work .statusline { display: none; }
+
+.project-composer { position: static; padding: 4px 12px 0; }
+.project-context-button {
+  width: auto; max-width: 100%; min-height: 28px; padding: 3px 7px; gap: 6px;
+  border-radius: 8px; color: var(--text-2);
+}
+.project-context-icon { width: 18px; height: 18px; background: transparent; color: var(--text-2); }
+.project-context-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.project-context-name { max-width: 220px; font-size: 12px; font-weight: 450; color: var(--text-2); }
+.project-context-mode { flex: none; font-size: 11px; color: var(--text-3); }
+.project-context-chevron { font-size: 11px; }
+.project-quick-edit {
+  position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); z-index: 90;
+  box-sizing: border-box; gap: 12px; padding: 16px;
+  border: 1px solid rgba(0, 0, 0, .09); border-radius: 16px;
+  background: #FFFFFF; box-shadow: 0 16px 48px rgba(0, 0, 0, .12), 0 2px 8px rgba(0, 0, 0, .05);
+}
+.project-quick-head { align-items: center; }
+.project-quick-head b { font-size: 14px; font-weight: 560; }
+.project-quick-head span, .project-quick-foot { font-size: 12px; }
+.project-quick-edit label { gap: 6px; font-size: 12px; }
+.project-quick-edit input { padding: 9px 10px; background: #FFFFFF; font: 13px/20px var(--font-ui); }
+.project-quick-foot .a-btn { min-height: 30px; padding: 4px 14px; border-radius: 8px; }
+
+.project-work-layout { padding-top: 4px; }
+.project-work-layout .work-view-tabs {
+  max-width: min(768px, calc(100% - 48px)); gap: 24px; margin-bottom: 12px;
+  padding: 0; border-bottom-color: var(--line-soft); background: rgba(251, 250, 249, .96);
+  backdrop-filter: blur(12px);
+}
+.project-work-layout .work-view-tab { padding: 10px 0; font-size: 13px; font-weight: 400; }
+.project-work-layout .work-view-tab.active { font-weight: 500; }
+.project-work-layout .work-view-tab.active::after { height: 1.5px; }
+.project-work-layout .project-context,
+.project-work-layout .task-thread {
+  box-sizing: border-box; max-width: min(768px, calc(100% - 48px));
+}
+.project-work-layout .project-context { margin-top: 12px; }
+.project-work-layout .task-thread { margin-top: 10px; }
+.project-context {
+  display: flex; gap: 7px; margin: 0 auto 10px; padding: 0 2px;
+  border: 0; border-radius: 0; background: transparent; color: var(--text-3); font-size: 12px;
+}
+.project-context-mark { display: inline-flex; width: 16px; height: 20px; background: none; color: var(--text-3); }
+.project-context-mark svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.project-context b { flex: none; color: var(--text-2); font-size: 12px; font-weight: 450; }
+.project-context-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); }
+.project-context code { flex: none; max-width: 180px; color: var(--text-3); font: 11px/20px var(--font-mono); }
+.project-context .project-isolated { padding: 0; border: 0; color: var(--text-3); font-size: 11px; }
+
+.project-outcome {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px 12px;
+  margin: 24px 0 32px; padding: 18px;
+  border: 1px solid var(--line-soft); border-radius: 16px; background: #FFFFFF;
+}
+.project-outcome-icon {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--ok-soft); color: var(--ok-ink); font-size: 14px; font-weight: 600;
+}
+.project-outcome.failed .project-outcome-icon { background: var(--bad-soft); color: var(--bad-ink); }
+.project-outcome-copy h2 { margin: 1px 0 4px; font-size: 15px; line-height: 22px; font-weight: 560; }
+.project-outcome-copy p { margin: 0; color: var(--text-2); font-size: 13px; line-height: 21px; }
+.project-outcome-actions { grid-column: 2; display: flex; gap: 8px; }
+.project-outcome-actions button {
+  min-height: 32px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: #FFFFFF; color: var(--text-1); font: 13px/20px var(--font-ui); cursor: pointer;
+}
+.project-outcome-actions button:hover { background: #F5F5F5; }
+
+/* project-result/files 卡与文件行生效值已收编 design.css（view: project 分节）。 */
+
+@media (max-width: 720px) {
+  .project-context-mode, .project-context-path, .project-context code { display: none; }
+  .project-context-name { max-width: min(220px, calc(100vw - 150px)); }
+  .project-work-layout .work-view-tabs,
+  .project-work-layout .project-context,
+  .project-work-layout .task-thread { max-width: calc(100% - 28px); }
+  .project-quick-edit { left: 4px; right: 4px; padding: 14px; }
+  .project-quick-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .project-outcome { padding: 15px; }
+  .project-outcome-actions { flex-wrap: wrap; }
+}
+
+
+/* ================================================================ 3 · SHELL / RESPONSIVE
+   Formerly workspace.css — shell appearance finalisation (sidebar,
+   topbar, composer, rail, settings, palette, scroll-latest),
+   base element rules, and ≤900 / ≤560 responsive breakpoints.
+   ================================================================ */
+
+body { background: var(--canvas); font-size: 14px; -webkit-font-smoothing: antialiased; }
+button, input, textarea { font-family: var(--font-ui); }
+button { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-visible, input:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* 导航/sidebar 的生效值已迁 design.css「统一侧栏 · 终稿」与 desktop.css
+   同名章节（P0 切片 4）；死选择器 .side-flavor/.mode-* 随之删除。 */
+
+/* 顶栏毛玻璃已迁 desktop.css；tb-title 生效值已归一 design.css「顶栏」节。 */
+.tb-chips:empty { display: none; }
+.tb-chips .chip { border: 0; background: var(--panel); color: var(--text-3); font-size: 11px; }
+.icon-btn { width: 32px; height: 32px; border: 0; border-radius: 8px; color: var(--text-2); }
+.icon-btn:hover { background: var(--panel); color: var(--text-1); }
+.chain-pill { height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; font-size: 11px; color: var(--text-3); }
+.chain-pill:hover { background: var(--panel); }
+/* conn-pill/conn-banner 状态件已收编 design.css「连接状态件」节。 */
+.statusline { height: 25px; padding: 0 20px; border-color: var(--line); color: var(--text-3); font-size: 10px; }
+.tabs { padding: 5px 20px 0; background: var(--canvas); }
+
+/* Main reading and working columns. */
+.center { position: relative; }
+.main { scroll-behavior: smooth; scroll-padding-bottom: 24px; scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.14) transparent; }
+.main-inner { max-width: calc(var(--reading-w) + 80px); padding: 26px 32px 52px; }
+#app.chat-mode .main-inner { max-width: 900px; padding: 20px 32px 52px; }
+#main[data-view="run"] { max-width: calc(var(--reading-w) + 64px); padding: 20px 32px 64px; }
+.chat-thread { max-width: 780px; gap: 32px; }
+.session-head { margin: 0 0 28px; padding: 4px 0 22px; border-bottom: 1px solid var(--line); }
+.session-kicker { margin-bottom: 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.session-title { margin: 0; font-size: 24px; line-height: 34px; letter-spacing: -.025em; font-weight: 600; }
+.session-meta { margin-top: 10px; font-family: var(--font-ui); color: var(--text-3); }
+.meta-button { border-radius: 6px; font-size: 11px; }
+/* 计划 / 预算 / 轮次摘要的旧容器已由统一任务线程取代（thread.css）。 */
+.card.meters { border: 0; background: transparent; }
+.card.meters .card-head { padding: 8px 0; }
+
+/* Delivery is a first-class outcome; diagnostics stay available but secondary. */
+.card.result, .project-outcome { margin-top: 24px; border: 1px solid var(--line-strong); border-radius: 14px; background: #fff; box-shadow: 0 8px 30px rgba(0,0,0,.035); }
+.result .card-head { padding: 16px 18px 10px; }
+.result-answer { padding: 4px 18px 14px; color: var(--text-1); font-size: 15px; line-height: 25px; }
+.result .metrics { padding: 4px 18px 16px; }
+.result .metric { border-radius: 10px; background: var(--panel); }
+.result-foot { padding: 14px 18px; border-top: 1px solid var(--line); }
+.a-btn { min-height: 32px; border-radius: 8px; font-size: 12px; }
+.a-btn.strong, .a-btn.primary { background: #111; color: #fff; }
+.project-work-layout { max-width: var(--work-w); margin: 0 auto; }
+.project-work-layout .work-view-tabs { position: sticky; top: -20px; z-index: 15; max-width: none; margin-bottom: 22px; background: rgba(251,251,251,.94); }
+.project-work-layout .project-context { max-width: 860px; }
+.project-work-layout .task-thread { max-width: 860px; margin-right: auto; margin-left: auto; }
+.work-pane-empty { min-height: 300px; border: 1px dashed var(--line-strong); border-radius: 14px; background: transparent; }
+
+/* Composer: independent flex footer. A solid boundary makes the end of the
+   scrollport explicit; .main owns scrolling and never extends beneath it. */
+.composer-wrap { position: relative; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
+.composer-box { border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow-stage); }
+.composer-box:focus-within {
+  /* 聚焦反馈保持在容器上：边框轻微加深 + 3px 柔环。此前 .32 接近黑色，
+     配合下面的输入框焦点环会叠成"黑边框"观感（用户反馈）。 */
+  border-color: rgba(0, 0, 0, .22);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .03), var(--shadow-stage);
+}
+/* Chrome 对 textarea 的鼠标聚焦同样匹配 :focus-visible，全局焦点环会在
+   输入框内圈再画一圈 2px 黑框，与容器焦点态重复。聚焦反馈由
+   .composer-box:focus-within 承担；其他输入控件的焦点环不受影响。 */
+.composer-ta:focus-visible { outline: none; }
+.composer-ta, html.desktop-app .composer-ta { min-height: 52px; padding: 14px 16px 2px; font-size: 15px; line-height: 24px; }
+.composer-bar, html.desktop-app .composer-bar { padding: 7px 9px 9px; }
+.c-btn, .c-icon, .send { height: 34px; }
+.c-icon, .send { width: 34px; }
+.send { border-radius: 50%; }
+.send:disabled { background: var(--panel); }
+.project-context-button { border-radius: 7px; }
+.tpl-menu, .foot-menu, .row-menu, .attach-panel, .project-quick-edit { border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 50px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.04); }
+.tpl-item { border-radius: 9px; }
+/* chat-attach-chips/chat-file 已归一 chat.css。 */
+
+/* Chat: 气泡/markdown/头像/思考块/代码/操作行已归一 chat.css；
+   工具卡（run-card）已收编 design.css「工具卡」节。 */
+
+/* Decisions appear in-place with explicit consequences and one primary choice.
+   审批卡生效值已收编 design.css「审批门」节（白卡 + 3px 警示条 + 主档 #111）。 */
+
+/* Evidence inspector: 双形态已定稿进 desktop.css「rail 双形态」节
+   （宽屏停靠 / ≤1180 浮层 / 关闭态 visibility 修复），此处删除旧停靠规则。
+   rail 内部件的细节样式（rail-head/body、seg、ev-*）仍归本文件，待组件合并。 */
+.rail-head { padding: 16px; border-bottom: 1px solid var(--line); }
+.rail-title { min-height: 26px; }
+.rail-kicker { font-size: 14px; font-weight: 550; }
+.rail-count { color: var(--text-3); font-size: 11px; }
+.rail-close { border-radius: 7px; }
+.seg { padding: 3px; border: 0; border-radius: 9px; background: rgba(0,0,0,.045); }
+.seg button { border-radius: 7px; font-size: 12px; }
+.seg button.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.rail-body { padding: 10px 14px 24px; }
+.ev-item { border-left-color: var(--line-strong); }
+.ev-type { font-family: var(--font-ui); }
+.rf, .ev-more { border-radius: 6px; }
+.raw-pre, .doc-body { border-radius: 8px; }
+
+/* Settings and command surfaces use the same hierarchy as the workspace. */
+.settings-page { background: #f7f7f7; }
+.setpage-card { max-width: 1180px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 18px 60px rgba(0,0,0,.05); overflow: hidden; }
+.setpage-head { padding: 24px 28px; border-bottom: 1px solid var(--line); }
+.setpage-kicker { font-family: var(--font-mono); letter-spacing: .1em; }
+.setpage-title { font-size: 24px; letter-spacing: -.025em; }
+.setpage-nav button { border-radius: 8px; }
+.setpage-nav button.active { background: var(--panel); }
+.set-section-head h2 { font-size: 18px; }
+.set-row { min-height: 58px; }
+.chatcfg, .chatcfg-card { border-color: var(--line); border-radius: 12px; }
+.chatcfg-field input { background: #fff; }
+.palette-box { margin-top: 12vh; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 28px 90px rgba(0,0,0,.18); overflow: hidden; }
+.palette-input { height: 58px; font-size: 16px; }
+.palette-foot { border-top: 1px solid var(--line); }
+/* toast 深色胶囊已收编 design.css。 */
+.scroll-latest { position: absolute; right: 28px; bottom: 138px; z-index: 35; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--text-2); box-shadow: 0 4px 18px rgba(0,0,0,.09); cursor: pointer; }
+.scroll-latest:hover { color: #111; transform: translateY(-1px); }
+
+/* rail ≤1180 浮层规则已迁 desktop.css「rail 双形态」节。 */
+@media (max-width: 900px) {
+  html.desktop-app #app.stage-mode .topbar { display: flex; }
+  .topbar { padding: 0 12px; }
+  .tb-title { max-width: 48vw; }
+  #main[data-view="run"], #app.chat-mode .main-inner { padding: 16px 18px 42px; }
+  .chain-pill { max-width: 34px; overflow: hidden; padding: 0 8px; }
+  .chain-pill span:not(.dot) { display: none; }
+  .composer-wrap { padding: 8px 14px 16px; }
+  .statusline { display: none; }
+  .scroll-latest { right: 18px; bottom: 132px; }
+  .setpage-card { border-radius: 0; border: 0; }
+}
+@media (max-width: 560px) {
+  .tb-chips, #rail-toggle { display: none; }
+  .topbar { gap: 6px; }
+  .tb-title { max-width: calc(100vw - 130px); }
+  .main-inner, #main[data-view="run"], #app.chat-mode .main-inner { padding: 14px 12px 36px; }
+  .session-title { font-size: 21px; line-height: 30px; }
+  .session-meta .meta-button { display: none; }
+  .th-tool-name { max-width: 46%; }
+  .composer-bar .c-btn { padding: 0 8px; font-size: 12px; }
+  #approval-label { display: none; }
+  .model-menu { max-width: calc(100vw - 28px); }
+  .chat-bubble, html.desktop-app .chat-bubble { max-width: 94%; }
+  .ai-avatar { display: none; }
+  .result .metrics { grid-template-columns: 1fr; }
+  .apv-choices { flex-direction: column; }
+  .palette-box { width: calc(100vw - 24px); margin-top: 6vh; }
+  .palette-foot span:last-child { display: none; }
+}
+/* @media (prefers-reduced-motion: reduce) 全局块已迁 desktop.css（操作系统级
+   减少动效开关，与 body.reduce-motion 应用内开关是两层）。 */
+/* 待办：≤900 / ≤560 两段响应式规则与 design.css 组件规则同名互斥
+   （.statusline/.chain-pill/.session-title/.setpage-card/.apv-choices…），
+   提前搬到 desktop.css 会因加载序翻值——随 workspace.css 组件合并时逐条
+   排重后迁入 desktop.css，一档不漏。 */
+
+
+/* ================================================================ 4 · TASK THREAD
+   Formerly thread.css — unified task thread (Codex-style reading column,
+   tool rows, approvals, plans). Loads after all shell rules so thread
+   selectors win the cascade where they overlap. ================================================================ */
 
 .task-thread {
   display: flex;

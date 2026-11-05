@@ -86,6 +86,8 @@ class RunManager:
                 self.chat = runtime.ChatService(
                     self.runs_dir.parent / "chat.sqlite",
                     CHAT_CONFIG_PATH,
+                    # Agentic chat 的只读工具沙箱：以仓库根为界（越狱由沙箱拒绝）。
+                    workspace_root=Path(runtime.repo or self.runs_dir.parent),
                 )
                 try:
                     retention = int(os.environ.get("FCODE_CHAT_RETENTION_DAYS", "0") or 0)

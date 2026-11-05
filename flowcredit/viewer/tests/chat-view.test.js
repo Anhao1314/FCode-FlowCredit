@@ -114,3 +114,27 @@ test("生成中的回答换成落印章并带呼吸环；失败换叉眼", () =>
   assert.match(failed, /ai-avatar--bad/);
   assert.match(failed, /aria-label="FCode · 调用失败"/);
 });
+
+test("agentic chat:有 blocks 的消息按序渲染文本与工具卡", async () => {
+  const { chatMessageHtml } = await import("../core/chat-view.js");
+  const html = chatMessageHtml({
+    id: "a-1", role: "assistant", status: "ok", text: "先看文件。读完了。",
+    blocks: [
+      { type: "text", text: "先看文件。" },
+      { type: "tool", call_id: "c1", name: "read_file", arguments: '{"path":"a"}', status: "ok" },
+      { type: "text", text: "读完了。" },
+    ],
+  });
+  assert.match(html, /chat-blocks/);
+  const toolIndex = html.indexOf("chat-tool");
+  assert.ok(toolIndex > 0, "工具卡必须渲染");
+  assert.ok(html.indexOf("先看文件") < toolIndex);
+  assert.ok(html.indexOf("读完了") > toolIndex);
+});
+
+test("agentic chat:无 blocks 的旧消息保持单段 Markdown", async () => {
+  const { chatMessageHtml } = await import("../core/chat-view.js");
+  const html = chatMessageHtml({ id: "a-2", role: "assistant", status: "ok", text: "普通回答" });
+  assert.ok(!html.includes("chat-tool"));
+  assert.match(html, /chat-md/);
+});

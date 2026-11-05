@@ -1,24 +1,16 @@
-/* 两侧栏（工作 / 对话）的纯渲染层。
+/* 统一侧栏的纯渲染层。
 
-   依据不是猜的：桌面版自带两套 sidebar，我们分别照抄它们自己的结构。
-   - 工作侧栏 = Kimi Work（kimi-agent.html 的 AppSidebar 组件，从
-     /Applications/Kimi.app 的 app.asar 里解出来的 Vue 渲染函数读出的顺序）：
-       header(折叠钮+logo+flavor 徽章) → [工作|对话] 分段 → 固定区 nav-item
-       .new-task(图标 addConversation 18 + 标签 + ⌘K chip) → 滚动区
-       nav-section(canvas/plugins/cron/remoteControl/apps) → Pinned →
-       Projects(section-title-button + “＋” 菜单：startFromScratch / useExistingFolder)
-       → Tasks(section-title-button + “＋” new task + 行 + 空态
-       “Your tasks will appear here”) → footer(quickstart 卡片 + account 行)。
-   - 对话侧栏 = kimi.com 网页版（桌面版的“对话”其实是在 kimi-agent 页面里点
-     分段后 closePage 回到的网页 chat，桌面 app 缓存里有它的样式与组件名）：
-       sidebar-header → mode-switcher → sidebar-fixed-new-chat →
-       next-sidebar__top-list(mykimi / plugin / scheduled-tasks / inspiration)
-       → next-sidebar__more-list + next-sidebar__more-menu(More 折叠：
-       kimi-work / kfc / kimi-claw / platform) → claw → pinned-list →
-       project-list(__create-label) → section(history: title / task-status /
-       action / chat-unread) → footer(history-loading + user-profile-trigger)。
+   历史：桌面版 Kimi 有两套 sidebar（Work 的 AppSidebar / 网页版对话侧栏），
+   FCode 一度照抄成 pane-work + pane-chat 双面板。2026-11-02 工作模式收敛
+   退役（uiMode 恒为 chat），pane-work 成了不可达的幽灵 DOM；2026-11 适配
+   重建把两套名单合并为单一结构：
 
-   两边共同的硬事实（同一份 shell 样式表）：nav-item 高 36/内边距 8/圆角 12、
+       header(折叠钮+logo) → 新对话(⌘N) + 搜索与命令(⌘K) →
+       SIDEBAR_NAV(审计台/看板/判断记录/定时任务，扁平) →
+       More(4 个预留槽位，默认收起) → Pinned → Projects → 对话 → 任务 →
+       footer(quickstart + 模型状态)
+
+   硬事实沿用（同一份 shell 样式表）：nav-item 高 36/内边距 8/圆角 12、
    悬停 F1、选中 F2；分组标题 12px/18px/Tertiary；滚动区 24px 渐变遮罩；
    footer padding 8、margin 0 -8px -8px。
 
@@ -26,25 +18,33 @@
 
 import { esc, num } from "./format.js";
 
-/* 工作侧栏的平坦导航：Kimi Work 把工作页排成一列，不做折叠。
-   对话侧栏把二级入口收进 More（next-sidebar__more-list），顶部只留主入口。
+/* 统一侧栏的平坦导航（2026-11 适配重建）。
 
-   Kimi Work 自己的 5 个槽位是 canvas / plugins / cron / remoteControl / apps(Beta)
-   （从商品包 kimi-agent-*.js 的路由表读出：chat / cron / remoteControl / pluginsHub /
-   pluginDetail / canvas）。FCode 只有 3 个真页面，另外 4 个能力不存在，所以：
+   历史包袱：桌面版 Kimi 有工作/对话两套 sidebar，FCode 照抄过两份
+   （WORK_NAV 进隐藏的 pane-work、CHAT_NAV/CHAT_MORE_NAV 进 pane-chat）。
+   工作模式 2026-11-02 已收敛退役（uiMode 恒为 chat），pane-work 只剩幽灵
+   DOM；四个真实功能面被拆散成「顶部两项 + 更多里两项」，审计台这种一等
+   公民还藏在二级菜单里。重建后只有一套名单：
 
-   - 3 条真页面（ledger / reviews / scheduled）在前 —— 与 Kimi 的顺序不同（它是
-     canvas 打头），这是有意的：第一眼能点开的应该是真页面；
-   - 4 条 reserved 在后，各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注
-     的预留槽位页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
+   - SIDEBAR_NAV：4 个真实功能面，扁平排布 —— 第一眼全部可点，不做折叠。
+     顺序：审计台打头（统一壳的最新入口），其余按日常频率（看板/判断/定时）。
+   - MORE_NAV：4 个 Kimi Work 预留槽位，收进「更多」二级区（默认收起），
+     各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注的预留槽位
+     页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
+
    每条都记 kimi 字段：预留页要把"它对应 Kimi 的什么"直接印出来，单一来源。 */
-export const WORK_NAV = [
+export const SIDEBAR_NAV = [
+  { open: "audit", label: "审计台", icon: "shield-check",
+    title: "发现账本:审计器产出的缺陷与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "ledger", label: "看板 · 账本", icon: "layout-grid",
     title: "委托汇总与成本账本", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "reviews", label: "判断记录", icon: "clipboard-list",
     title: "你在判断面里做过的选择", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "scheduled", label: "定时任务", icon: "calendar",
     title: "把重复的委托排上日程", kimi: "cron（Kimi Work 的 Scheduled）" },
+];
+
+export const MORE_NAV = [
   { open: "canvas", label: "Canvas", icon: "cube", reserved: true,
     title: "预留槽位：对应 Kimi Work 的 canvas，FCode 尚未实现",
     kimi: "canvas", needs: "一个可读写的画布对象模型 + 与工作区文件的双向同步" },
@@ -60,20 +60,11 @@ export const WORK_NAV = [
     kimi: "apps（Beta）", needs: "第三方应用目录与 OAuth；目前只有本地模板与 MCP" },
 ];
 
-export const CHAT_NAV = [
-  { open: "reviews", label: "判断记录", icon: "user", title: "My Kimi 对应：操作者判断聚合" },
-  { open: "scheduled", label: "定时任务", icon: "calendar", title: "把重复的委托排上日程" },
-];
-
-export const CHAT_MORE_NAV = [
-  { open: "ledger", label: "看板 · 账本", icon: "layout-grid", title: "委托汇总与成本账本" },
-];
-
 /* 预留槽位的索引：open 键 → 条目。页面用它在预留页上印出"对应 Kimi 的什么、
    落地需要什么"，避免那两句在各处重复。 */
 export function reservedSlots() {
   const out = {};
-  for (const item of [...WORK_NAV, ...CHAT_NAV, ...CHAT_MORE_NAV]) {
+  for (const item of [...SIDEBAR_NAV, ...MORE_NAV]) {
     if (item.reserved) out[item.open] = item;
   }
   return out;
@@ -222,15 +213,6 @@ export function quickStartHtml(state) {
 
 /* 侧栏版本：header 的 flavor 徽章只在工作侧栏出现（Kimi Work 的 sidebar-flavor-badge）；
    对话侧栏（网页版）header 只有 logo 与折叠钮。 */
-export function modeChrome(mode) {
-  const work = mode === "work";
-  return {
-    flavor: work ? "WORK" : "",
-    newLabel: work ? "新建任务" : "新对话",
-    newTitle: work ? "新建任务（⌘K）" : "新对话（⌘K）",
-  };
-}
-
 export function panelHeadHtml(count, label) {
   return "<span>" + esc(label) + '</span><span class="side-count">' + num(count || 0) + "</span>";
 }

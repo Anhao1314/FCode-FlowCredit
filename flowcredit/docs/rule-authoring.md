@@ -36,7 +36,7 @@
 | `id` | `RULE-<分类号>-<序号>`,永不复用 |
 | `category` | 必须在 `flowaudit.vulns.AGI_CATEGORIES` 内 |
 | `severity` | `critical`/`high`/`medium`/`low`/`info` |
-| `trigger` | `static`(可局部匹配)或 `probe`(引用版本化探针代码);**含糊的触发条件 = 不可实现的规则** |
+| `trigger` | `static`(可局部匹配)、`probe`(引用版本化探针代码)或 `rea`(匹配 REA 事实快照);**含糊的触发条件 = 不可实现的规则** |
 | `poc.capabilities` | PoC 声明的能力范围(文件/网络/凭据/副作用);宿主校验实际重放不越声明——进程隔离不是能力隔离 |
 | `poc.stimulus` | 必须能生成**一个能力受限环境可重放**的复现物(无真实凭据、默认禁网、临时文件系统、目标副本);"手动检查"不是 PoC |
 | `poc.oracle` | 判定不变量,由宿主执行与读取;**PoC 是刺激物不是裁判**,PoC 自报 PASS 无效 |
@@ -63,7 +63,7 @@ draft(无靶子)→ active(靶子就位,验收线通过)→ deprecated(只标记
 规则只增不删。审计报告引用规则时同时记录规则集版本,历史结论要能追溯到
 当时的规则状态。`audit-rules/index.json` 的 `version` 单调递增。
 
-## 四、首批规则(Sprint 2 目标,2026-10-31 评审后收窄)
+## 四、当前规则集(2026-11)
 
 只做 dev 集(FPCODE-01/02/06)对应的确定性规则;**盲测集(FCODE-04/07)
 不进入规则、提示词与示例**;FCODE-03/05 预留。
@@ -73,6 +73,13 @@ draft(无靶子)→ active(靶子就位,验收线通过)→ deprecated(只标记
 | 审批记忆参数无关免审批 | AGI-02 | fcode-self #FCODE-02 |
 | 工具执行绕过门控/无咽喉点 | AGI-02 | fcode-self #FCODE-06 |
 | 控制台无 token 模式写保护可绕过 | AGI-07 | fcode-self #FCODE-01 |
+| Shipped dependency pre-release | AGI-05 | `RULE-AGI05-101` / `fixtures/rea/facts-prerelease.json` |
+| Entitlements 超出声明功能 | AGI-07 | `RULE-AGI07-101` / `fixtures/rea/facts-entitlements.json` |
+| Sidecar listener 无 auth marker | AGI-02 | `RULE-AGI02-102` / `fixtures/rea/sidecar-unauth.json` |
+| Sidecar 源码 key-shaped literal | AGI-03 | `RULE-AGI03-102` / `fixtures/rea/sidecar-secret.json` |
+| Sidecar 运行时 npm install/exec | AGI-05 | `RULE-AGI05-102` / `fixtures/rea/sidecar-npm.json` |
+| Go 依赖命中离线 OSV | AGI-05 | `RULE-AGI05-103` / `fixtures/rea/facts-vulnerable.json` |
+| 主二进制运行时 npm 安装 | AGI-05 | `RULE-AGI05-104` / `fixtures/rea/facts-runtime-install.json` |
 
 验收:dev 集回归检出 + 盲测集检出 + 负对照零误报;每条发现一条命令可重放。
 "独立检出"仅可用于规则开发未接触的样本。
@@ -83,3 +90,22 @@ draft(无靶子)→ active(靶子就位,验收线通过)→ deprecated(只标记
 组合、模型行为类缺陷,用**版本化探针代码**承载:探针是仓库内代码(自带测试、
 进评审),规则以 `trigger.type=probe` 按 id 引用它。探针代码不引入第三方依赖,
 与内核同一零依赖纪律。
+
+`trigger.type=rea` 用于 shipped artifact：REA 先把目标投影成
+`fcode.rea-facts/v1` 的事实快照，规则只匹配快照，不直接读目标、不执行
+REA。格式：
+
+```json
+{
+  "type": "rea",
+  "operation": "inspect_go_binary",
+  "selector": "dependencies",
+  "predicate": {"any": {"field": "prerelease", "equals": true}}
+}
+```
+
+`operation` 为 REA operation 或 `"host"`；`selector` 是点分隔的对象键/列表
+索引；`predicate` 只支持 `equals / matches / exists / absent / count_gt /
+count_lt / any / all / not / field`。规则仍必须声明 `poc.scenario =
+"rea_fact_evidence"`、`probe_params` 与 `control_params`，并提供一个宿主
+oracle；REA 事实本身不是 finding。详见 [integration-rea](integration-rea.md)。

@@ -169,7 +169,6 @@ function harness() {
     stageEmptyHtml: () => "",
     autosize() {},
     paintSections() {},
-    modeChrome: () => ({ newLabel: "", flavor: "", newTitle: "" }),
     selectRun() {},
     prepareCardRuns: async () => {},
     aiAvatarHtml: () => "",
@@ -186,17 +185,12 @@ function harness() {
     threadOrigin: () => ({}),
     adoptDefaultChatModel() {},
     loadChatModels() {},
-    WORK_STAGE_NOTE: "",
-    WORK_PLACEHOLDER: "",
     getHealth: () => ({ live: true }),
     getChatThreads: () => chatThreads,
     setChatThreads: value => { chatThreads = value; },
     getChatConfig: () => ({}),
     getSettingsOpen: () => false,
     setLedgerOpen() {},
-    getUiMode: () => "chat",
-    setUiModeValue() {},
-    setSidebarMode() {},
     getViewEpoch: () => epoch,
     invalidateView: () => { epoch += 1; },
   });
@@ -286,24 +280,6 @@ test("Chat A 生成中切到 Work：流不中止，delta 继续写入 A", async 
   control.close();
   await running;
   assert.equal(threadA.messages.at(-1).status, "ok");
-});
-
-test("切到 Work（detach 但保留 current）时后台 done 不改 Work 标题", async () => {
-  const h = harness();
-  const { running, control } = await startSend(h);
-  const threadA = h.chat.current;
-  control.send({ type: "start", thread_id: "chat-a", thread_title: "A" });
-  await tick();
-
-  h.ui.openWorkHome();
-  const titleBefore = document.getElementById("tb-title").textContent;
-  assert.equal(h.chat.active, false);
-  control.send({ type: "done", message: { id: "m-a", text: "A final" } });
-  control.close();
-  await running;
-
-  assert.equal(document.getElementById("tb-title").textContent, titleBefore, "后台流不能改当前 Work 页标题");
-  assert.equal(threadA.messages.at(-1).text, "A final", "但线程本身仍保存最终回答");
 });
 
 test("A 生成中打开 B：A 的 delta/done 不出现在 B；后台完成后返回 A 显示最终回答", async () => {

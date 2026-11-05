@@ -1,12 +1,16 @@
 """Chat: the conversational surface, still budgeted and chained.
 
-The console's agent runs execute tools; a chat answer executes nothing. That
-difference is deliberate:
+Since Phase 1 of agentic chat, a turn may run a bounded **read-only tool
+loop** (ls_workspace / read_file): the model proposes tool calls, the host
+gates them with the same Permissions class a run uses, charges one read per
+call and may loop for up to FCODE_CHAT_MAX_TOOL_ROUNDS rounds. Write tools
+stay out of chat — those still require the fcode_action proposal handoff to
+a governed run. The governance line is unchanged:
 
-* a chat turn is **one model call**, charged before dispatch and recorded as an
-  event in the same SHA-256 chain as a run;
-* it never touches the tool registry, the gate or the verifier, because there is
-  no action to gate and no result to recompute;
+* a chat turn is **one or more model calls**, each charged before dispatch and
+  recorded as events in the same SHA-256 chain as a run;
+* tools only run through the registry + gate; there is no path from the model
+  to a filesystem write or a command;
 * attachments are text folded into the user message, not files read by a tool;
 * "regenerate" and "edit" append events and supersede old messages — the chain
   stays append-only, the active branch is a projection.
@@ -76,8 +80,10 @@ CHAT_VERSION = "flowagent.chat/v1"
 
 CHAT_SYSTEM_PROMPT = (
     "你是 FCode 里的对话助手。用中文、清楚、简洁地回答。"
-    "你只能回答，不能执行工具、读写文件或运行命令，也绝不声称你已经执行了任何动作。"
-    "如果用户的请求需要执行（读写文件、运行命令、抓取网页、多步任务），"
+    "你可以调用只读工具查看工作区（ls_workspace 列目录、read_file 读文件），"
+    "基于真实文件内容回答；但你**不能写文件、运行命令或抓取网页**，"
+    "也绝不声称你执行了未通过工具返回的动作。"
+    "如果用户的请求需要写文件、运行命令或抓取网页，"
     "在回答末尾附一个执行提案块，让界面展示确认卡：\n"
     "```fcode_action\n"
     '{"goal": "把任务写成一句明确的目标（5–600 字）", "mode": "script", '
@@ -212,10 +218,17 @@ def merge_action(
 class ChatService:
     """Threads, messages and streaming answers, backed by the task chain."""
 
-    def __init__(self, db_path: Path, config_path: Path | None = None) -> None:
+    def __init__(self, db_path: Path, config_path: Path | None = None,
+                 workspace_root: Path | str | None = None) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = TaskStore(db_path)
         self.receipts = ReceiptStore(self.store)
+        #: 工具沙箱的根（对话可读写的目录）。None 表示不提供工具。
+        self._workspace_root = Path(workspace_root) if workspace_root else None
+        self._tool_ctx = None
+        #: 写工具的逐调用审批注册表：approval_id → {thread_id, payload, decision}
+        self._approvals: dict[str, dict[str, Any]] = {}
+        self._approvals_cv = threading.Condition()
         self._lock = threading.RLock()
         self._db_path = db_path
         # User settings live next to the chat database (Application Support in
@@ -240,10 +253,96 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
 
     # -------------------------------------------------------------- helpers
 
+    def _tool_context(self):
+        """{registry, permissions, tool_defs, sandbox} 或 None（未配置/构建失败）。
+
+        只在第一次需要时构建；构建失败按"无工具"降级，不阻断对话。
+        """
+        if self._tool_ctx is not None:
+            return self._tool_ctx or None
+        if self._workspace_root is None:
+            self._tool_ctx = False
+            return None
+        try:
+            from .chat_tools import (
+                build_chat_registry, build_chat_permissions, to_openai_tools,
+            )
+            from .tools.general.sandbox import WorkspaceSandbox
+            # build_chat_registry 内部自建沙箱；这里传根路径，实例另建一份
+            # 给 ctx（审批预览用 edit_preview/diff_preview）。
+            sandbox = WorkspaceSandbox(self._workspace_root)
+            registry = build_chat_registry(self._workspace_root)
+            permissions = build_chat_permissions(registry)
+            self._tool_ctx = {
+                "registry": registry,
+                "permissions": permissions,
+                "tool_defs": to_openai_tools(registry),
+                "sandbox": sandbox,
+                "sandbox_root": str(self._workspace_root),
+            }
+        except Exception:  # noqa: BLE001 — 工具不可用不应阻断纯文本对话
+            self._tool_ctx = False
+        return self._tool_ctx or None
+
+    # --------------------------------------------------- 写工具审批通道
+
+    def request_tool_approval(self, thread_id: str, approval_id: str,
+                              payload: dict[str, Any],
+                              timeout: float = 300.0) -> dict[str, Any]:
+        """注册一个待批工具调用并阻塞等待操作员决定（或超时）。
+
+        approval_id 由调用方（工具循环）生成，SSE 事件与注册表共用同一个
+        id——操作员的 POST 靠它找到待批项。返回 {"allow", "remember",
+        "reason"}。线程 id 不匹配或被取消（流断开）按拒绝处理。
+        """
+        with self._approvals_cv:
+            self._approvals[approval_id] = {
+                "thread_id": thread_id, "payload": payload, "decision": None,
+            }
+        deadline = time.monotonic() + max(1.0, float(timeout))
+        decision = None
+        while decision is None:
+            with self._approvals_cv:
+                record = self._approvals.get(approval_id)
+                if record is None:
+                    break  # 已被取消
+                if record["decision"] is not None:
+                    decision = record["decision"]
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._approvals_cv.wait(remaining)
+        with self._approvals_cv:
+            self._approvals.pop(approval_id, None)
+        return decision or {"allow": False, "remember": False, "reason": "timeout"}
+
+    def decide_tool(self, thread_id: str, approval_id: str,
+                    allow: bool, remember: bool = False) -> dict[str, Any] | None:
+        """操作员对某个待批调用的决定；返回被决定的记录（供 404 判别）。"""
+        with self._approvals_cv:
+            record = self._approvals.get(approval_id)
+            if record is None or record["thread_id"] != thread_id:
+                return None
+            record["decision"] = {"allow": bool(allow), "remember": bool(remember)}
+            self._approvals_cv.notify_all()
+        return dict(record["decision"])
+
+    def cancel_thread_approvals(self, thread_id: str) -> None:
+        """流断开/取消时，撤销该线程的所有待批调用（按拒绝处理）。"""
+        with self._approvals_cv:
+            for record in self._approvals.values():
+                if record["thread_id"] == thread_id and record["decision"] is None:
+                    record["decision"] = {"allow": False, "remember": False,
+                                          "reason": "stream cancelled"}
+            self._approvals_cv.notify_all()
+
     def limits(self) -> BudgetLimits:
         return BudgetLimits(
             max_calls=_env_int("FCODE_CHAT_MAX_CALLS", DEFAULT_CHAT_LIMITS.max_calls),
-            max_reads=0,
+            # Agentic chat: each tool call charges one read. 0 used to freeze
+            # tools out entirely; the default now allows a bounded read loop.
+            max_reads=_env_int("FCODE_CHAT_MAX_READS", 30),
             max_cost_microusd=_env_int(
                 "FCODE_CHAT_MAX_COST_MICROUSD", DEFAULT_CHAT_LIMITS.max_cost_microusd
             ),
@@ -521,6 +620,12 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 action = detail.get("action")
                 if isinstance(action, dict) and action:
                     message["action"] = dict(action)
+                # Agentic chat: ordered blocks (text/tool) ride on the
+                # assistant detail; older threads simply do not have them.
+                if isinstance(detail.get("blocks"), list) and detail["blocks"]:
+                    message["blocks"] = list(detail["blocks"])
+                if isinstance(detail.get("tool_calls"), list) and detail["tool_calls"]:
+                    message["tool_calls"] = list(detail["tool_calls"])
                 messages.append(message)
                 by_id[message["id"]] = message
             elif kind == "chat_run_started":
@@ -809,11 +914,39 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
     def _prompt_messages(self, thread_id: str) -> list[dict[str, Any]]:
         messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
         active = self._replay(thread_id)[-MAX_HISTORY_MESSAGES:]
+        # 只给最近一条带工具历史的 assistant 回填 tool_calls/tool 消息：
+        # 更早的轮次只留最终文本，避免上下文被历史工具输出撑爆。
+        last_tool_assistant = next(
+            (m for m in reversed(active)
+             if m["role"] == "assistant" and isinstance(m.get("tool_calls"), list)
+             and m["tool_calls"]),
+            None,
+        )
         for message in active:
             if message["role"] == "user":
                 content = message["text"] + self._attachment_block(message.get("attachments") or [])
                 messages.append({"role": "user", "content": content})
-            elif message["status"] == "ok" and message["text"]:
+                continue
+            # 带工具历史的 assistant：先回放 tool_calls + tool 结果，再回放
+            # 最终文本——与真实时序一致（tool 结果必须紧跟 tool_calls）。
+            if message is last_tool_assistant:
+                calls = list(message.get("tool_calls") or [])[:8]
+                messages.append({
+                    "role": "assistant", "content": "",
+                    "tool_calls": [
+                        {"id": str(call.get("call_id") or ""), "type": "function",
+                         "function": {"name": str(call.get("name") or ""),
+                                      "arguments": str(call.get("arguments") or "{}")}}
+                        for call in calls
+                    ],
+                })
+                for call in calls:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": str(call.get("call_id") or ""),
+                        "content": str(call.get("content") or "")[:2000],
+                    })
+            if message["status"] == "ok" and message["text"]:
                 messages.append({"role": "assistant", "content": message["text"]})
         return messages
 
@@ -830,10 +963,11 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         thread: Task,
         user_message: dict[str, Any],
         model: str | None,
+        approval: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         from .chat_answer import AnswerStream
 
-        yield from AnswerStream(self, thread, user_message, model).events()
+        yield from AnswerStream(self, thread, user_message, model, approval).events()
 
     def send(
         self,
@@ -842,6 +976,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         text: str,
         attachments: Any = None,
         model: str | None = None,
+        approval: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         clean_text = str(text or "").strip()
         clean_attachments = self._normalise_attachments(attachments)
@@ -869,7 +1004,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "seq": thread.sequence,
             "at": "",
         }
-        yield from self._answer(thread, user_message, model)
+        yield from self._answer(thread, user_message, model, approval)
 
     def edit(
         self,

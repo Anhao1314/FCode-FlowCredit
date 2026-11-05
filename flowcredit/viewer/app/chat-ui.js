@@ -4,7 +4,7 @@ import { applyChatEvent, createChatStreamRegistry } from "../core/chat-streams.j
 
 /* /audit <target> 斜杠命令:在唯一对话框里触发审计管线。
    解析是纯函数,node --test 直接覆盖;执行走 POST /api/audit/run,
-   轮询 /api/audit/jobs/<id>,结果指向发现账本(audit.html)。 */
+   轮询 /api/audit/jobs/<id>,完成后给统一壳内的审计面深链(#/audit/<dir>)。 */
 export function parseAuditCommand(text) {
   const match = /^\s*\/audit\s+(\S[\s\S]*)$/.exec(text || "");
   return match ? match[1].trim() : null;
@@ -14,7 +14,8 @@ export function auditStatusText(job) {
   if (!job) return "审计任务不存在";
   if (job.status === "running") return `⏳ 审计进行中(job ${job.job_id})…完成后在审计台查看发现`;
   if (job.status === "done") {
-    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:/audit.html`;
+    const target = job.audit_id ? `/#/audit/${encodeURIComponent(job.audit_id)}` : "/#/audit";
+    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:[打开审计台](${target})`;
   }
   if (job.status === "failed") return `❌ 审计失败:${job.error || "unknown"}`;
   return `审计状态:${job.status}`;
@@ -277,31 +278,6 @@ export function createChatUI(deps) {
     restoreSendButton();
   }
 
-  function openWorkHome() {
-    d.invalidateView();
-    openChatSeq += 1;
-    detachChatChrome();
-    if (d.intake.active) d.closeIntake(false);
-    if (d.getSettingsOpen()) d.closeSettingsPage(false);
-    d.setLedgerOpen(false);
-    if (d.activeSession()) d.detachLive();
-    d.setChromeState({ rail: false });
-    d.store.key = null;
-    d.store.trace = null;
-    chat.active = false;
-    chat.streaming = false;
-    chat.editing = null;
-    d.renderNav();
-    d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-    paintChatChrome(false);
-    document.getElementById("tb-title").textContent = "FCode";
-    document.getElementById("tb-chips").innerHTML = "";
-    const ta = document.getElementById("composer-ta");
-    if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = d.WORK_PLACEHOLDER; ta.focus(); }
-    renderChatAttachChips();
-    paintSendState();
-  }
-
   function switchToChat() {
     if (chat.current && (chat.current.messages || []).length) {
       chat.active = true;
@@ -317,52 +293,19 @@ export function createChatUI(deps) {
     } else newChat();
   }
 
-  function setUiMode(mode) {
+  // 统一壳只有一个侧栏,工作模式已退役(2026-11-02 收敛):setUiMode 只负责
+  // 把聊天状态摆正(openChat/初始化调用)。侧栏/顶栏文案是静态的,无需投影。
+  function setUiMode() {
     d.invalidateView();
     openChatSeq += 1;
-    if (d.getUiMode() !== mode) {
-      d.setUiModeValue(mode);
-      try { localStorage.setItem("fa.uiMode", mode); } catch { /* quota */ }
-    }
-    d.setSidebarMode(mode);
     const app = document.getElementById("app");
-    app.classList.toggle("mode-chat", mode === "chat");
-    app.classList.toggle("mode-work", mode === "work");
-    const chatTab = document.getElementById("mode-chat"), workTab = document.getElementById("mode-work");
-    if (chatTab) {
-      chatTab.classList.toggle("active", mode === "chat");
-      chatTab.setAttribute("aria-selected", mode === "chat" ? "true" : "false");
-    }
-    if (workTab) {
-      workTab.classList.toggle("active", mode === "work");
-      workTab.setAttribute("aria-selected", mode === "work" ? "true" : "false");
-    }
-    const paneChat = document.getElementById("pane-chat"), paneWork = document.getElementById("pane-work");
-    if (paneChat) paneChat.hidden = mode !== "chat";
-    if (paneWork) paneWork.hidden = mode !== "work";
-    const chrome = d.modeChrome(mode);
-    const newLabel = document.getElementById("new-label");
-    if (newLabel) newLabel.textContent = chrome.newLabel;
-    const flavor = document.getElementById("side-flavor");
-    if (flavor) { flavor.textContent = chrome.flavor; flavor.hidden = !chrome.flavor; }
-    const newBtn = document.getElementById("new-run");
-    if (newBtn) newBtn.title = chrome.newTitle;
+    app.classList.add("mode-chat");
+    app.classList.remove("mode-work");
     d.renderNav();
     d.paintSections();
-    if (mode === "chat") {
-      if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
-      if (chat.current && (chat.current.messages || []).length) switchToChat();
-      else if (!chat.active) newChat();
-    } else {
-      const view = document.getElementById("main")?.dataset.view;
-      if (view === "empty" && !chat.active) {
-        d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-        const ta = document.getElementById("composer-ta");
-        if (ta) ta.placeholder = d.WORK_PLACEHOLDER;
-        return;
-      }
-      if (d.activeSession()) d.selectRun(d.activeSession().id); else openWorkHome();
-    }
+    if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
+    if (chat.current && (chat.current.messages || []).length) switchToChat();
+    else if (!chat.active) newChat();
   }
 
   function resetForChat() {
@@ -548,8 +491,15 @@ export function createChatUI(deps) {
     const node = document.querySelector(`.chat-msg[data-msg-id="${String(assistant.id)}"]`);
     if (!node) { renderChat(); return; }
     const stick = d.nearMainBottom();
-    const body = node.querySelector(".chat-md");
-    if (body) body.innerHTML = d.renderMarkdown(assistant.text);
+    const bodies = node.querySelectorAll(".chat-md");
+    const body = bodies[bodies.length - 1];
+    if (body) {
+      const blocks = Array.isArray(assistant.blocks) ? assistant.blocks : null;
+      const lastText = blocks && blocks.length
+        ? [...blocks].reverse().find(block => block.type === "text")
+        : null;
+      body.innerHTML = d.renderMarkdown(lastText ? lastText.text : assistant.text);
+    }
     const typing = node.querySelector(".chat-typing");
     if (typing && assistant.text) typing.remove();
     let wait = node.querySelector(".chat-wait");
@@ -646,7 +596,8 @@ export function createChatUI(deps) {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         assistant.text = auditStatusText({ status: "running", job_id: data.job_id });
         renderChat({ forceBottom: true });
-        for (let poll = 0; poll < 90; poll++) {
+        // 轮询上限对齐子进程 900s 超时(460×2s),避免长审计卡片提前停在"进行中"。
+        for (let poll = 0; poll < 460; poll++) {
           await new Promise(resolve => setTimeout(resolve, 2000));
           const jobRes = await fetch(`/api/audit/jobs/${encodeURIComponent(data.job_id)}`);
           const job = await jobRes.json();
@@ -803,7 +754,7 @@ export function createChatUI(deps) {
 
   return {
     loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-    detachChatChrome, openWorkHome, switchToChat, setUiMode, newChat, openChat, renderChat,
+    detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
     renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
     stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
     regenerateChat, copyChatMessage, delegateChatMessage,

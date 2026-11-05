@@ -11,6 +11,14 @@ deliberately small — an audit vocabulary that names everything explains
 nothing.
 """
 
+VIBE_CATEGORIES: dict[str, str] = {
+    "VIBE-01": "Structural debt (god file/function, deep nesting, too many params)",
+    "VIBE-02": "Consistency defects (mixed error handling, naming inconsistency, duplicate patterns)",
+    "VIBE-03": "Implicit bugs (silent catch, dead import, hallucinated reference, unguarded external data)",
+    "VIBE-04": "Maintainability gaps (magic numbers, TODO density, missing docs, test coverage gaps)",
+    "VIBE-05": "AI fingerprints (copy-paste divergence between session-written files, inconsistent patterns)",
+}
+
 AGI_CATEGORIES: dict[str, str] = {
     "AGI-01": "Indirect prompt injection (untrusted content reaches the agent as instructions)",
     "AGI-02": "Unauthorized tool execution (no gate, self-approval, over-broad remembered approvals)",
@@ -26,4 +34,4 @@ AGI_CATEGORIES: dict[str, str] = {
 
 def category_label(category_id: str) -> str:
     """Return the taxonomy label for a category id, or the id itself."""
-    return AGI_CATEGORIES.get(category_id, category_id)
+    return AGI_CATEGORIES.get(category_id, category_id) or VIBE_CATEGORIES.get(category_id, category_id)

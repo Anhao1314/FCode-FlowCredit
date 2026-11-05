@@ -96,6 +96,10 @@ class ChatProviderConfig:
     timeout_seconds: float = 120.0
     max_completion_tokens: int = DEFAULT_MAX_COMPLETION
     completion_field: str = "max_tokens"
+    #: Whether this transport accepts OpenAI-style ``tools`` and returns
+    #: ``tool_calls`` deltas. False means the chat loop falls back to the
+    #: historical text-only turn (no tools offered, no execution).
+    supports_tools: bool = False
     #: When the prices above were read, and from where. Mandatory for the same
     #: reason the delegation presets demand it: an undated price turns the
     #: budget ceiling into a guess. One settings page, one contract.
@@ -223,6 +227,7 @@ def _remote_config(
         timeout_seconds=_env_float("CHAT_STREAM_TIMEOUT_SECONDS", 120.0),
         max_completion_tokens=max_completion,
         completion_field="max_completion_tokens" if key == "kimi" else "max_tokens",
+        supports_tools=True,  # Moonshot / DeepSeek expose OpenAI-compatible tool calling
         price_as_of=price_as_of,
         price_source=(os.environ.get(price_source_env, "").strip() if price_source_env else "")
         or _ov_str(overrides, "price_source"),
@@ -308,6 +313,9 @@ def resolve_chat_provider(
             label="离线 Mock",
             model="offline-chat-mock-v1",
             max_completion_tokens=_env_int("CHAT_MAX_COMPLETION_TOKENS", DEFAULT_MAX_COMPLETION),
+            # 脚本化工具循环（FCODE_CHAT_MOCK_TOOLS）用于端到端测试；
+            # 没有该环境变量时 mock 仍然只回文本。
+            supports_tools=True,
         )
     if normalized == "kimi":
         return _kimi_config(override)

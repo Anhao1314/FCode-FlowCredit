@@ -75,6 +75,9 @@ function inlineMarkdown(text) {
   value = value.replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
   value = value.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   value = value.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // 壳内审计深链:同文档 hash 导航,不开新标签;hashchange 监听负责进审计面。
+  value = value.replace(/\[([^\]]+)\]\((\/#\/audit(?:\/[a-z0-9][a-z0-9.-]{0,63})?)\)/g,
+    '<a href="$2">$1</a>');
   value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   value = value.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,

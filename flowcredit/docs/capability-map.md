@@ -2,7 +2,7 @@
 
 > 本文档面向两类读者:**想快速判断这个项目深度的工程师/面试官**,和**想复现任何一条能力的使用者**。
 > 规矩沿用项目自己的纪律:每条能力对到**可指出的代码**和**可现场复现的命令**;没有对应证据的,直接写"未覆盖",不凑。
-> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 765 项),前端以 `node --test viewer/tests/*.test.js` 为准(177 项)。数字由 CI 在每次提交时重新推导。
+> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 791 项),前端以 `node --test viewer/tests/*.test.js` 为准(183 项)。数字由 CI 在每次提交时重新推导。
 
 ## 一、Agent 应用工程
 
@@ -25,6 +25,7 @@
 | 漏洞分类法 | `src/flowaudit/vulns/__init__.py`:AGI-01~09,每类锚定真实样本 | `python -c "from flowaudit.vulns import AGI_CATEGORIES"` |
 | 规则即数据引擎 | `vulns/engine.py`:加载 JSON 规则,draft 规则不参与检测(有测试钉死) | `python -m unittest tests.test_audit_vertical.EngineTests` |
 | 静态审计与证据指针 | `targets/repo.py` + 规则 trigger:命中记录 path/line/snippet | 同上 |
+| 交付物审计(REA) | `targets/rea.py` + `rea/client.py` + `rea/facts.py` + `rea/sidecars.py` + `rea/macho.py`:Go 构建信息/SBOM、bundle 解剖、entitlements 与签名、sidecar 源码模式扫描、Mach-O 加载链/entitlement 必要性、离线 OSV 依赖匹配、运行时 npm 安装命令扫描;原始 Evidence 与 facts 按 SHA-256 固定 | `python audit.py audit /Applications/EvoX.app --adapter rea --target-md fixtures/evox/target.md --out /tmp/evox` |
 | 受限重放沙箱 | `poc/replay_worker.py`:启动剥 env(无凭据)、`sys.addaudithook` 阻断 socket/子进程、临时文件系统、目标独立副本 | `python -m unittest tests.test_audit_vertical.EndToEndTests.test_replay_worker_refuses_network_escape` |
 | 宿主侧 oracle | `poc/replay.py`:判定读目标事件链,PoC 自报 PASS 无效(枚举+测试双重拒绝) | `python -m unittest tests.test_audit_contracts.TamperDetectionTests` |
 | 四值结果状态机 | finding / not_reproduced / invalid_poc / not_vulnerable_under_scope;负对照违反一律 invalid_poc | `python -m unittest tests.test_audit_vertical` |
@@ -41,9 +42,9 @@
 | 零依赖 / 可移植 | `pyproject.toml` `dependencies = []`,CI 第一步断言为空;规则用 JSON 不用 YAML | CI "Confirm there is nothing to install" |
 | 数据完整性与密码学用法 | `core/store.py` 序列号 CAS + 追加式事件;`core/hashing.py` canonical JSON(拒 float);`core/receipts.py` HMAC + `compare_digest` | 改一个字节,`load` 抛 `CHAIN_TAMPERED` |
 | 状态机建模 | `core/contracts.py` 显式迁移表,存储层强制 | `test_illegal_transition_is_rejected` |
-| 测试设计 | 765 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 177 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
+| 测试设计 | 791 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 183 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
 | 契约即测试 | 证据 Schema 用 stdlib 迷你校验器 enforced;8 类篡改用例(自报 PASS/非宿主 oracle/改环境标志…)全部被拒 | `python -m unittest tests.test_audit_contracts` |
-| 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台 mockup 已出 | `python viewer/server.py --repo .` |
+| 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台为统一壳内 surface(`#/audit`)+ `/api/audit/*` 已落地 | `python viewer/server.py --repo .` 后从侧栏「审计台」进入,旧 `/audit.html` 链接 302 到 `#/audit` |
 | 文档能力 | `docs/`:架构、威胁模型、审计方法论、规则指南、外部评审裁决记录(`design-reviews/`) | 随便打开一篇 |
 | AI 协作工程 | 人掌握 Design(评审裁决记录可查),AI 执行杠杆;对抗性外部评审 49 条逐条裁决归档 | `docs/design-reviews/2026-10-31-kimi.md` |
 
@@ -55,4 +56,5 @@
 - **OS 级沙箱**:重放隔离是"审计钩子 + env 剥离 + 临时副本"强度,不是容器/VM;容器层在路线图(Sprint 4)。
 - **分布式**:单机 SQLite,无多副本与分布式锁。
 - **前端框架化**:刻意零构建、零运行时依赖,模块化靠 ES module 拆分。
-- **动态探针全量**:消息/HTTP 探针框架已设计,Sprint 2 只交付了静态规则 + 受限重放闭环。
+- **动态探针全量**:消息/HTTP 探针框架已设计;当前交付静态规则 + 受限重放 + REA 制品静态事实,动态探测仍未全量。
+- **REA 制品审计的后续层**:sidecar JS 图、REA 动态工具(browser/Frida/process)、真实干净对照与 CVE/OSV 情报仍未接;当前只覆盖静态事实。

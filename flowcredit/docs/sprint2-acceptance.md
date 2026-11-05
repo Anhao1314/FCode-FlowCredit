@@ -1,3 +1,7 @@
+> **历史验收记录（2026-10-31）**：本文记录当时的 definition of done，不是当前状态。
+> 当前能力以 [README](../README.md)、[architecture-map](architecture-map.md) 与
+> [integration-rea](integration-rea.md) 为准。
+
 # Sprint 2 验收清单(definition of done)
 
 > 范围冻结于 2026-10-31 设计评审后:**可信证据闭环**。明确不做:九类规则铺开、

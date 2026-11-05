@@ -298,3 +298,30 @@ body { margin: 0; }
 #app.intake-mode #composer-open,
 #app.intake-mode .run-chip,
 #app.intake-mode .composer-bar .c-btn.static { display: none; }
+
+
+/* 侧栏复刻令牌（--k-*）：原 thread.css「黑灰化定稿」的 :root 块迁入。
+   仍有消费者的中性与反白档；--k-flavor 作为 #111 黑色accent 仍被
+   桌面滚动条渐变与 live 状态环引用。 */
+:root {
+  --k-fill-1: rgba(0, 0, 0, .03);
+  --k-fill-2: rgba(0, 0, 0, .05);
+  --k-label-2: rgba(0, 0, 0, .6);
+  --k-label-3: rgba(0, 0, 0, .45);
+  --k-flavor: #111;
+  --k-label-1-hover: #0e0e0ee7;
+  --k-fill-1-hover: #0000000f;
+  --k-fill-1-invert: rgba(255, 255, 255, .05);
+  --k-fill-2-active: #00000019;
+  --k-white: #fff;
+}
+
+/* Moonshot stage 专属变量（非全局令牌，仅 stage-mode 使用）。
+   必须有 :root 包裹——裸声明是非法 CSS，会被解析器整段丢弃，
+   所有 var(--moonshot-mono) 字体声明随之失效回退 sans（首页标题字形
+   互相碰撞的根因）。 */
+:root {
+  --moonshot-black: #0a0a0a;
+  --moonshot-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+

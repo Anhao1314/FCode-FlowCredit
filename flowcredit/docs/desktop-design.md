@@ -57,14 +57,14 @@
 字标 + 居中输入框 + 模板 chips，没有顶部工具栏。与 Kimi 的首页结构相同：
 侧栏导航在左，输入框略高于视口中线，chips 在下方。
 
-![desktop home](desktop-home.png)
+![desktop home](../viewer/docs/desktop-home.png)
 
 ### 运行页
 
 52px 顶栏显示当前委托标题与链验证状态；内容列 768，工具卡是 FCode 自己的
 结构化证据视图；输入框吸底，右侧证据浮层宽 320。
 
-![desktop run](desktop-run.png)
+![desktop run](../viewer/docs/desktop-run.png)
 
 ### 委托确认、设置、报告
 

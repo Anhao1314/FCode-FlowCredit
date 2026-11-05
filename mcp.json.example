@@ -3,23 +3,50 @@
   "servers": {
     "example-server": {
       "command": "python3",
-      "args": ["-m", "your_mcp_server"],
+      "args": [
+        "-m",
+        "your_mcp_server"
+      ],
       "cwd": "",
       "env": {
         "API_TOKEN": "env:EXAMPLE_API_TOKEN"
       },
-      "readonlyTools": ["get_status"],
+      "readonlyTools": [
+        "get_status"
+      ],
       "timeout": 30,
       "billing": "not-configured"
     },
     "playwright": {
       "_comment": "浏览器自动化经 MCP 导入（能力基线三大件之三）。npx 首次会下载 @playwright/mcp 与浏览器内核——这是主机审阅清单的一部分：确认你信任该包与版本。导入后工具名为 mcp__playwright__browser_* ，默认全部 consequential（过审批）；navigate/click/type 等一律在审批界面显示 URL 与选择器参数。readonly 标注权在主机，此处默认不标——浏览器动作天然有外部副作用。",
       "command": "npx",
-      "args": ["@playwright/mcp@latest", "--stdio"],
+      "args": [
+        "@playwright/mcp@latest",
+        "--stdio"
+      ],
       "cwd": "",
       "env": {},
       "readonlyTools": [],
       "timeout": 60,
+      "billing": "not-configured"
+    },
+    "rea": {
+      "_comment": "Flat-schema wrapper around the local REA CLI. It imports only four path-based reads; REA's native nested schemas would be refused by FCode's MCP gate. Set REA_BIN or leave it to PATH.",
+      "command": "python3",
+      "args": [
+        "flowcredit/scripts/rea_mcp.py"
+      ],
+      "cwd": "",
+      "env": {
+        "REA_BIN": "env:REA_BIN"
+      },
+      "readonlyTools": [
+        "inspect_go_binary",
+        "inspect_desktop_application",
+        "analyze_javascript_application",
+        "inspect_library_validation"
+      ],
+      "timeout": 300,
       "billing": "not-configured"
     }
   }
