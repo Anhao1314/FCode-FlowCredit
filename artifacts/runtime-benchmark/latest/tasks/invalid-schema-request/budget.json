@@ -1,0 +1,15 @@
+{
+  "calls_remaining": 7,
+  "calls_used": 3,
+  "cost_remaining_microusd": 8500,
+  "cost_used_microusd": 1500,
+  "limits": {
+    "max_calls": 10,
+    "max_cost_microusd": 10000,
+    "max_reads": 20,
+    "max_tokens": 20000
+  },
+  "reads_remaining": 20,
+  "reads_used": 0,
+  "tokens_used": 3000
+}

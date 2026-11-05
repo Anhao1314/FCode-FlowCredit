@@ -1,0 +1,9 @@
+--- initial/config.json
++++ final/config.json
+@@ -0,0 +1 @@
++{"retries": 3}
+--- initial/main.py
++++ final/main.py
+@@ -0,0 +1,2 @@
++import json
++print(json.load(open("config.json"))["retries"])

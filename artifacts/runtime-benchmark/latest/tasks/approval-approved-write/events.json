@@ -1,0 +1,209 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.128Z",
+    "hash": "675b59912ee1999997863ab794abb6be5ed964664d1c372cfbc4e37ad98d1e04",
+    "payload": {
+      "body_hash": "479bc24dea320365135a2698a059ef284fdd8a2a899df4d1f66b71157698e716",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.128Z",
+    "hash": "071942755a7cd29465b06535f604658b6cf8144698df1d07a0f5677109c6d566",
+    "payload": {
+      "body_hash": "cf3676c338db861baa71f7f08ab28115bf58bd0805ec0c3600111a2ed6c6fbc2",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "675b59912ee1999997863ab794abb6be5ed964664d1c372cfbc4e37ad98d1e04",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.128Z",
+    "hash": "98e14b8832b6ea3cdc8a5868b3ef4931adc4ebc30682c24a1544527b592c0c8a",
+    "payload": {
+      "body_hash": "25b674f951ef625d99f4c874907f887c521a9315eac357cc9e023992a57412fa",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "approved=true\n",
+                "path": "approved.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "071942755a7cd29465b06535f604658b6cf8144698df1d07a0f5677109c6d566",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.129Z",
+    "hash": "ea3b1e428543de00f54e214664f1e4a93493e7afd01d0edd9e3d17619af6ebfe",
+    "payload": {
+      "body_hash": "b2ce81136a3a7f0f89b2a6be811e3b1ee57909f9a79f98562e130aa39e6bcbb0",
+      "detail": {
+        "approval_id": "approval-approval-approved-write-1",
+        "arguments": {
+          "content": "approved=true\n",
+          "path": "approved.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "98e14b8832b6ea3cdc8a5868b3ef4931adc4ebc30682c24a1544527b592c0c8a",
+    "sequence": 4,
+    "type": "approval_requested"
+  },
+  {
+    "at": "2026-10-28T19:22:41.129Z",
+    "hash": "31a8e4be60bb0fcd72d0cce96d5626162ccebbc20c945503ca800730b5b1c74e",
+    "payload": {
+      "body_hash": "4e8e86ec60dddad3ca40238d200733091d906d0b119c538ff2a7e6c1356d2034",
+      "detail": {
+        "approval_id": "approval-approval-approved-write-1",
+        "by": "offline-host-policy",
+        "decision": "approved",
+        "round": 1
+      }
+    },
+    "prev_hash": "ea3b1e428543de00f54e214664f1e4a93493e7afd01d0edd9e3d17619af6ebfe",
+    "sequence": 5,
+    "type": "approval_resolved"
+  },
+  {
+    "at": "2026-10-28T19:22:41.129Z",
+    "hash": "67b8ecadf8df3aa622b7e561108820355e098993535568e3e62884a6557ffc23",
+    "payload": {
+      "body_hash": "253014e5fb694b29777ca03d825fe6494380e597afd02a6787e9d66683884ee9",
+      "detail": {}
+    },
+    "prev_hash": "31a8e4be60bb0fcd72d0cce96d5626162ccebbc20c945503ca800730b5b1c74e",
+    "sequence": 6,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.129Z",
+    "hash": "7811ab280948a41e1c7701f485ad84728961b5267f07e39b09b27d4e1a78ef7a",
+    "payload": {
+      "body_hash": "106953f32e10baa889c537f062929029d163695323b5b760ee41f37f37b22c2a",
+      "detail": {
+        "arguments": {
+          "content": "approved=true\n",
+          "path": "approved.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "67b8ecadf8df3aa622b7e561108820355e098993535568e3e62884a6557ffc23",
+    "sequence": 7,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.185Z",
+    "hash": "b27a860c5ccededf6ff4fcc5398325abc280efd0853783a37bdbfedd9b816e75",
+    "payload": {
+      "body_hash": "271cb2e659a9497a107ac0a7ca5389d920952622626c29d964aa5d57ce429c54",
+      "detail": {
+        "arguments": {
+          "content": "approved=true\n",
+          "path": "approved.txt"
+        },
+        "result": {
+          "bytes": 14,
+          "changed": true,
+          "commit": "8a3f3c4",
+          "computed": true,
+          "diff": "--- a/approved.txt\n+++ b/approved.txt\n@@ -0,0 +1 @@\n+approved=true\n",
+          "path": "approved.txt",
+          "sha256_after": "bef935bb502c4320d5f03bd037d33097f183d04bed18e43bd5a987849d34d914",
+          "sha256_before": null,
+          "truncated": false
+        },
+        "result_hash": "275cdaf0c8a049107dc92c355d4e49dd9171f5a679d4a409b54609f40692500e",
+        "round": 1,
+        "tool": "write_file",
+        "tool_version": "1.0"
+      }
+    },
+    "prev_hash": "7811ab280948a41e1c7701f485ad84728961b5267f07e39b09b27d4e1a78ef7a",
+    "sequence": 8,
+    "type": "tool_succeeded"
+  },
+  {
+    "at": "2026-10-28T19:22:41.186Z",
+    "hash": "6cfca40f280a846de440584dd8ab59b138983d039fd1a715fa6c96061501d7ba",
+    "payload": {
+      "body_hash": "0d8e72e0a9249570ba1ad7d9501fd3dbc2788d0ce88e5ebaf3d3bd3bdd7f851b",
+      "detail": {
+        "plan": {
+          "goal": "Write the approved artifact after an explicit host approval.",
+          "revision": 1,
+          "todos": [
+            {
+              "arguments": {
+                "content": "approved=true\n",
+                "path": "approved.txt"
+              },
+              "done_when": "observed:s1",
+              "evidence": [
+                "275cdaf0c8a049107dc92c355d4e49dd9171f5a679d4a409b54609f40692500e"
+              ],
+              "id": "s1",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed write_file action",
+              "tool": "write_file"
+            }
+          ]
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "b27a860c5ccededf6ff4fcc5398325abc280efd0853783a37bdbfedd9b816e75",
+    "sequence": 9,
+    "type": "plan_updated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.187Z",
+    "hash": "47680cb67c7ed8636d838ac5a8549db64154460a6b5a25f031621fb1a6f4ba56",
+    "payload": {
+      "body_hash": "7591ac5fd7c74744f798af07de93a949667806ba043217151e0ec6f773ac6676",
+      "detail": {}
+    },
+    "prev_hash": "6cfca40f280a846de440584dd8ab59b138983d039fd1a715fa6c96061501d7ba",
+    "sequence": 10,
+    "type": "verification_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.187Z",
+    "hash": "e5cae7b1f0885743b8cabf59fe4852ffab7d70cb8c6569f5bdb5900d14c3b663",
+    "payload": {
+      "body_hash": "c5b5db06c5993cff8b8e08791e22ce3601d3177246fea19d332aa8090197a050",
+      "detail": {}
+    },
+    "prev_hash": "47680cb67c7ed8636d838ac5a8549db64154460a6b5a25f031621fb1a6f4ba56",
+    "sequence": 11,
+    "type": "task_succeeded"
+  }
+]

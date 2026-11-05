@@ -1,0 +1,83 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "audit_integrity",
+    "expected_final_state": {
+      "chain_valid": true,
+      "files": {
+        "audit.txt": "chain-me\n"
+      },
+      "replay": false,
+      "runtime_status": "succeeded",
+      "tamper": {
+        "code": "CHAIN_TAMPERED",
+        "sequence": 2
+      }
+    },
+    "expected_governance_events": [],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "chain-me\n",
+            "path": "audit.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "Audit integrity is tested by real SQLite tampering, and the failure must identify the event position.",
+    "task_id": "hash-chain-tamper-detection",
+    "timeout_seconds": 30,
+    "user_task": "Modify one historical event after a valid run and require exact detection.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "03deedd501c32681b0d6bf81906d3f8d005e9ccfd6ffd840cae097dfe4eb58ee",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

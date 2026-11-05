@@ -1,0 +1,34 @@
+{
+  "allowed_tools": [
+    "ls_workspace",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "run_command",
+    "report_blocked"
+  ],
+  "approval": {
+    "mode": "none"
+  },
+  "budget": {
+    "max_calls": 10,
+    "max_cost_microusd": 10000,
+    "max_reads": 20,
+    "max_tokens": 20000
+  },
+  "permissions": {
+    "allowed_effects": [
+      "read",
+      "write"
+    ],
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ]
+  },
+  "timeout_seconds": 30
+}

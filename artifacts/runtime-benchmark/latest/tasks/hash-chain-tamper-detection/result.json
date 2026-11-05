@@ -1,0 +1,42 @@
+{
+  "artifacts": {
+    "diff": "tasks/hash-chain-tamper-detection/workspace.diff",
+    "events": "tasks/hash-chain-tamper-detection/events.json",
+    "sqlite": "tasks/hash-chain-tamper-detection/task.sqlite",
+    "task": "tasks/hash-chain-tamper-detection/task.json",
+    "verifier": "tasks/hash-chain-tamper-detection/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "audit_integrity",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "files": {
+      "audit.txt": "chain-me\n"
+    },
+    "replay": false,
+    "runtime_status": "succeeded",
+    "tamper": {
+      "code": "CHAIN_TAMPERED",
+      "sequence": 2
+    }
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {
+    "code": "CHAIN_TAMPERED",
+    "controlled_fault_injection": true,
+    "detected": true,
+    "message": "event 2 hash mismatch for hash-chain-tamper-detection",
+    "sequence": 2
+  },
+  "task_id": "hash-chain-tamper-detection",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

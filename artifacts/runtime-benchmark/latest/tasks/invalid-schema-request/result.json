@@ -1,0 +1,36 @@
+{
+  "artifacts": {
+    "diff": "tasks/invalid-schema-request/workspace.diff",
+    "events": "tasks/invalid-schema-request/events.json",
+    "sqlite": "tasks/invalid-schema-request/task.sqlite",
+    "task": "tasks/invalid-schema-request/task.json",
+    "verifier": "tasks/invalid-schema-request/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "policy_block",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "absent_paths": [
+      "invalid.txt"
+    ],
+    "chain_valid": true,
+    "events": [
+      "proposal_rejected",
+      "tool_denied"
+    ],
+    "failure_code": "TOOL_ARGUMENTS_INVALID",
+    "runtime_status": "denied"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": "TOOL_ARGUMENTS_INVALID",
+  "pipeline_completed": true,
+  "policy_violation_blocked": true,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "denied",
+  "tamper": {},
+  "task_id": "invalid-schema-request",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

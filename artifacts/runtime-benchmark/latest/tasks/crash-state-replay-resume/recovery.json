@@ -1,0 +1,8 @@
+{
+  "recovered": true,
+  "resumed_from_committed_event": true,
+  "retry_dispatched": false,
+  "side_effect": "observed",
+  "terminal_status": "succeeded",
+  "unknown_outcome": false
+}

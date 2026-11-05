@@ -1,0 +1,139 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "task proposal quality and independent completion"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "script_repair",
+    "expected_final_state": {
+      "chain_valid": true,
+      "command": {
+        "args": [
+          "calc.py"
+        ],
+        "exit_code": 0,
+        "program": "python3",
+        "stdout": "start\nfixed\n"
+      },
+      "command_observations": [
+        1,
+        0
+      ],
+      "events": [
+        "edit_file",
+        "task_succeeded"
+      ],
+      "file_contains": {
+        "calc.py": [
+          "print(\"fixed\")"
+        ],
+        "result.txt": [
+          "fixed"
+        ]
+      },
+      "runtime_status": "succeeded"
+    },
+    "expected_governance_events": [
+      "edit_file",
+      "task_succeeded"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "print(\"start\")\nraise ValueError(\"boom\")\n",
+            "path": "calc.py"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "id": "s2",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "new_text": "print(\"fixed\")",
+            "old_text": "raise ValueError(\"boom\")",
+            "path": "calc.py"
+          },
+          "id": "s3",
+          "tool": "edit_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "id": "s4",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "content": "fixed\n",
+            "path": "result.txt"
+          },
+          "id": "s5",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "The middle state matters: a failing command observation must drive a real edit and a later passing run.",
+    "task_id": "script-error-locate-repair",
+    "timeout_seconds": 30,
+    "user_task": "Run the script, repair the failing line, rerun it, and file the fixed marker.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "17eebd036e13c436369c4c73cce8c38ec54bbb7cd7c78f75daec12b88799e302",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

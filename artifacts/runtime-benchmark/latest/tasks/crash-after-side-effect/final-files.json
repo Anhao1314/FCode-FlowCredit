@@ -1,0 +1,7 @@
+{
+  "unknown-write.txt": {
+    "bytes": 13,
+    "content": "written-once\n",
+    "sha256": "e09b7d660463ca838a3299798b1d89e2311f530a8b93ac5e62885046d7581828"
+  }
+}

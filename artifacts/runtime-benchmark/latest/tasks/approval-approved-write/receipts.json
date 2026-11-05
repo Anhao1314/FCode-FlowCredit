@@ -1,0 +1,40 @@
+[
+  {
+    "arguments": {
+      "content": "approved=true\n",
+      "path": "approved.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "7811ab280948a41e1c7701f485ad84728961b5267f07e39b09b27d4e1a78ef7a",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 7,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "approved=true\n",
+      "path": "approved.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "b27a860c5ccededf6ff4fcc5398325abc280efd0853783a37bdbfedd9b816e75",
+    "recovery": null,
+    "result": {
+      "bytes": 14,
+      "changed": true,
+      "commit": "8a3f3c4",
+      "computed": true,
+      "diff": "--- a/approved.txt\n+++ b/approved.txt\n@@ -0,0 +1 @@\n+approved=true\n",
+      "path": "approved.txt",
+      "sha256_after": "bef935bb502c4320d5f03bd037d33097f183d04bed18e43bd5a987849d34d914",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "275cdaf0c8a049107dc92c355d4e49dd9171f5a679d4a409b54609f40692500e",
+    "round": 1,
+    "sequence": 8,
+    "tool": "write_file"
+  }
+]

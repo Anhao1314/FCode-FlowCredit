@@ -1,0 +1,71 @@
+[
+  {
+    "arguments": {
+      "path": "source.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "9d4e6c521885960ad0563a952041f90cd4aaf3982ccabb287d295541e2794268",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "read_file"
+  },
+  {
+    "arguments": {
+      "path": "source.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "7e7558fe5a01b4fcefcb305aaa062aa688f94770087533941619cf20e083aed0",
+    "recovery": null,
+    "result": {
+      "bytes": 6,
+      "content": "alpha\n",
+      "path": "source.txt",
+      "sha256": "b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060"
+    },
+    "result_hash": "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3",
+    "round": 1,
+    "sequence": 6,
+    "tool": "read_file"
+  },
+  {
+    "arguments": {
+      "content": "source=alpha\ndependency=read_file\n",
+      "path": "derived.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "e911a9e49ec5d95b50e8686d08242a3686d228d8b42267d0d5cf0bc7f6647eaf",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 2,
+    "sequence": 10,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "source=alpha\ndependency=read_file\n",
+      "path": "derived.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "f8af76c1270d7629652f7fd7b364f5bd66ce1e74011ebc1417f84048f7fc6adc",
+    "recovery": null,
+    "result": {
+      "bytes": 34,
+      "changed": true,
+      "commit": "1f1210e",
+      "computed": true,
+      "diff": "--- a/derived.txt\n+++ b/derived.txt\n@@ -0,0 +1,2 @@\n+source=alpha\n+dependency=read_file\n",
+      "path": "derived.txt",
+      "sha256_after": "e16c2f81be710ebb2aea907b3e9c3d344074acdd1a2a5ad6308b1f59207c164e",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4",
+    "round": 2,
+    "sequence": 11,
+    "tool": "write_file"
+  }
+]

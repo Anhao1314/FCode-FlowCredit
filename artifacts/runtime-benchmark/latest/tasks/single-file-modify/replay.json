@@ -1,0 +1,78 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "85bc235799f7354ed3870ce7136e3d9a5bfb01e1ad99c408b7a4249d0bd2d67c",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "Create answer.txt with exactly the requested release marker.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "release=verified\n",
+            "path": "answer.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "85bc235799f7354ed3870ce7136e3d9a5bfb01e1ad99c408b7a4249d0bd2d67c"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "85bc235799f7354ed3870ce7136e3d9a5bfb01e1ad99c408b7a4249d0bd2d67c",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "Create answer.txt with exactly the requested release marker.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "release=verified\n",
+            "path": "answer.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "85bc235799f7354ed3870ce7136e3d9a5bfb01e1ad99c408b7a4249d0bd2d67c"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

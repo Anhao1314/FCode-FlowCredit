@@ -1,0 +1,1081 @@
+{
+  "all_case_expectations_met": true,
+  "manifest": {
+    "code": {
+      "branch": "feat/runtime-verified-benchmark",
+      "commit": "71ffadf1b5047355e3127fcd487ad0f00f5330f9",
+      "dirty": false,
+      "dirty_files": []
+    },
+    "created_at": "2026-10-28T19:22:41.821Z",
+    "environment": {
+      "network": "application-level calls disabled; no external API required",
+      "platform": "macOS-26.6-arm64-arm-64bit",
+      "python": "3.12.15"
+    },
+    "execution_class": "OFFLINE_SCRIPTED",
+    "manifest_version": "flowagent.runtime-benchmark-manifest/v1",
+    "online_model": {
+      "badcases": "NOT_MEASURED",
+      "metrics": "NOT_MEASURED",
+      "reason": "No explicit authorization for a paid online evaluation was provided.",
+      "status": "NOT_RUN"
+    },
+    "provider": {
+      "model": "offline-scripted-v1",
+      "type": "OFFLINE_SCRIPTED"
+    },
+    "recovery_boundary": "Application-level workspace/event reconciliation only; not arbitrary external-system rollback or an OS sandbox.",
+    "selected_task_ids": [
+      "single-file-modify",
+      "multi-file-related-change",
+      "script-error-locate-repair",
+      "dependent-multistep-tools",
+      "invalid-schema-request",
+      "unknown-tool-request",
+      "unauthorized-workspace-path",
+      "unauthorized-network-tool",
+      "approval-approved-write",
+      "approval-denied-write",
+      "budget-call-exhaustion",
+      "budget-token-exhaustion",
+      "budget-tool-exhaustion",
+      "crash-before-tool-dispatch",
+      "crash-after-side-effect",
+      "unknown-outcome-no-retry",
+      "crash-state-replay-resume",
+      "hash-chain-tamper-detection",
+      "model-success-verifier-reject"
+    ],
+    "task_count": 19,
+    "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec",
+    "taskset_version": "runtime-benchmark/v1"
+  },
+  "metrics": {
+    "approval_gate_accuracy": {
+      "denominator": 2,
+      "numerator": 2,
+      "status": "MEASURED",
+      "task_ids": [
+        "approval-approved-write",
+        "approval-denied-write"
+      ],
+      "value": 1.0
+    },
+    "boundaries": {
+      "approval": "only approval-approved and approval-denied tasks",
+      "budget": "only call, token and tool budget tasks",
+      "crash": "only real SIGKILL tasks",
+      "pipeline": "all tasks; terminal Runtime state, not correctness",
+      "policy": "only predeclared policy-violation tasks",
+      "replay": "all non-tampered chains",
+      "tamper": "only deliberate historical-event tamper tasks",
+      "unknown": "only tasks with an unresolved tool outcome",
+      "verifier": "all tasks; intentional verifier rejection remains a failure in this rate"
+    },
+    "budget_enforcement_accuracy": {
+      "denominator": 3,
+      "numerator": 3,
+      "status": "MEASURED",
+      "task_ids": [
+        "budget-call-exhaustion",
+        "budget-token-exhaustion",
+        "budget-tool-exhaustion"
+      ],
+      "value": 1.0
+    },
+    "case_expectation_accuracy": {
+      "denominator": 19,
+      "numerator": 19,
+      "status": "MEASURED",
+      "task_ids": [
+        "single-file-modify",
+        "multi-file-related-change",
+        "script-error-locate-repair",
+        "dependent-multistep-tools",
+        "invalid-schema-request",
+        "unknown-tool-request",
+        "unauthorized-workspace-path",
+        "unauthorized-network-tool",
+        "approval-approved-write",
+        "approval-denied-write",
+        "budget-call-exhaustion",
+        "budget-token-exhaustion",
+        "budget-tool-exhaustion",
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "unknown-outcome-no-retry",
+        "crash-state-replay-resume",
+        "hash-chain-tamper-detection",
+        "model-success-verifier-reject"
+      ],
+      "value": 1.0
+    },
+    "crash_recovery_rate": {
+      "denominator": 3,
+      "numerator": 3,
+      "status": "MEASURED",
+      "task_ids": [
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "crash-state-replay-resume"
+      ],
+      "value": 1.0
+    },
+    "duplicate_side_effect_count": {
+      "count": 0,
+      "task_ids": []
+    },
+    "failure_type_distribution": {
+      "BUDGET_EXCEEDED": 3,
+      "SANDBOX_PATH_DENIED": 1,
+      "TOOL_OUTCOME_UNKNOWN": 3
+    },
+    "hash_chain_tamper_detection_rate": {
+      "denominator": 1,
+      "numerator": 1,
+      "status": "MEASURED",
+      "task_ids": [
+        "hash-chain-tamper-detection"
+      ],
+      "value": 1.0
+    },
+    "independent_verifier_pass_rate": {
+      "denominator": 19,
+      "numerator": 18,
+      "status": "MEASURED",
+      "task_ids": [
+        "single-file-modify",
+        "multi-file-related-change",
+        "script-error-locate-repair",
+        "dependent-multistep-tools",
+        "invalid-schema-request",
+        "unknown-tool-request",
+        "unauthorized-workspace-path",
+        "unauthorized-network-tool",
+        "approval-approved-write",
+        "approval-denied-write",
+        "budget-call-exhaustion",
+        "budget-token-exhaustion",
+        "budget-tool-exhaustion",
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "unknown-outcome-no-retry",
+        "crash-state-replay-resume",
+        "hash-chain-tamper-detection",
+        "model-success-verifier-reject"
+      ],
+      "value": 0.9473684210526315
+    },
+    "pipeline_completion_rate": {
+      "denominator": 19,
+      "numerator": 19,
+      "status": "MEASURED",
+      "task_ids": [
+        "single-file-modify",
+        "multi-file-related-change",
+        "script-error-locate-repair",
+        "dependent-multistep-tools",
+        "invalid-schema-request",
+        "unknown-tool-request",
+        "unauthorized-workspace-path",
+        "unauthorized-network-tool",
+        "approval-approved-write",
+        "approval-denied-write",
+        "budget-call-exhaustion",
+        "budget-token-exhaustion",
+        "budget-tool-exhaustion",
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "unknown-outcome-no-retry",
+        "crash-state-replay-resume",
+        "hash-chain-tamper-detection",
+        "model-success-verifier-reject"
+      ],
+      "value": 1.0
+    },
+    "policy_block_accuracy": {
+      "denominator": 4,
+      "numerator": 4,
+      "status": "MEASURED",
+      "task_ids": [
+        "invalid-schema-request",
+        "unknown-tool-request",
+        "unauthorized-workspace-path",
+        "unauthorized-network-tool"
+      ],
+      "value": 1.0
+    },
+    "replay_equivalence_rate": {
+      "denominator": 18,
+      "numerator": 18,
+      "status": "MEASURED",
+      "task_ids": [
+        "single-file-modify",
+        "multi-file-related-change",
+        "script-error-locate-repair",
+        "dependent-multistep-tools",
+        "invalid-schema-request",
+        "unknown-tool-request",
+        "unauthorized-workspace-path",
+        "unauthorized-network-tool",
+        "approval-approved-write",
+        "approval-denied-write",
+        "budget-call-exhaustion",
+        "budget-token-exhaustion",
+        "budget-tool-exhaustion",
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "unknown-outcome-no-retry",
+        "crash-state-replay-resume",
+        "model-success-verifier-reject"
+      ],
+      "value": 1.0
+    },
+    "unauthorized_side_effect_count": {
+      "count": 0,
+      "task_ids": []
+    },
+    "unknown_outcome_safe_handling_rate": {
+      "denominator": 3,
+      "numerator": 3,
+      "status": "MEASURED",
+      "task_ids": [
+        "crash-before-tool-dispatch",
+        "crash-after-side-effect",
+        "unknown-outcome-no-retry"
+      ],
+      "value": 1.0
+    }
+  },
+  "results": [
+    {
+      "artifacts": {
+        "diff": "tasks/single-file-modify/workspace.diff",
+        "events": "tasks/single-file-modify/events.json",
+        "sqlite": "tasks/single-file-modify/task.sqlite",
+        "task": "tasks/single-file-modify/task.json",
+        "verifier": "tasks/single-file-modify/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "single_file",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "plan_validated",
+          "tool_succeeded",
+          "task_succeeded"
+        ],
+        "files": {
+          "answer.txt": "release=verified\n"
+        },
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "single-file-modify",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/multi-file-related-change/workspace.diff",
+        "events": "tasks/multi-file-related-change/events.json",
+        "sqlite": "tasks/multi-file-related-change/task.sqlite",
+        "task": "tasks/multi-file-related-change/task.json",
+        "verifier": "tasks/multi-file-related-change/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "multi_file",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "command": {
+          "args": [
+            "main.py"
+          ],
+          "exit_code": 0,
+          "program": "python3",
+          "stdout": "3\n"
+        },
+        "events": [
+          "tool_succeeded",
+          "task_succeeded"
+        ],
+        "files": {
+          "config.json": "{\"retries\": 3}\n",
+          "main.py": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n"
+        },
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "multi-file-related-change",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/script-error-locate-repair/workspace.diff",
+        "events": "tasks/script-error-locate-repair/events.json",
+        "sqlite": "tasks/script-error-locate-repair/task.sqlite",
+        "task": "tasks/script-error-locate-repair/task.json",
+        "verifier": "tasks/script-error-locate-repair/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "script_repair",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "command": {
+          "args": [
+            "calc.py"
+          ],
+          "exit_code": 0,
+          "program": "python3",
+          "stdout": "start\nfixed\n"
+        },
+        "command_observations": [
+          1,
+          0
+        ],
+        "events": [
+          "edit_file",
+          "task_succeeded"
+        ],
+        "file_contains": {
+          "calc.py": [
+            "print(\"fixed\")"
+          ],
+          "result.txt": [
+            "fixed"
+          ]
+        },
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "script-error-locate-repair",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/dependent-multistep-tools/workspace.diff",
+        "events": "tasks/dependent-multistep-tools/events.json",
+        "sqlite": "tasks/dependent-multistep-tools/task.sqlite",
+        "task": "tasks/dependent-multistep-tools/task.json",
+        "verifier": "tasks/dependent-multistep-tools/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "dependent_state",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "action_order": [
+          "read_file",
+          "write_file"
+        ],
+        "chain_valid": true,
+        "events": [
+          "tool_succeeded",
+          "task_succeeded"
+        ],
+        "files": {
+          "derived.txt": "source=alpha\ndependency=read_file\n",
+          "source.txt": "alpha\n"
+        },
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "dependent-multistep-tools",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/invalid-schema-request/workspace.diff",
+        "events": "tasks/invalid-schema-request/events.json",
+        "sqlite": "tasks/invalid-schema-request/task.sqlite",
+        "task": "tasks/invalid-schema-request/task.json",
+        "verifier": "tasks/invalid-schema-request/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "policy_block",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "invalid.txt"
+        ],
+        "chain_valid": true,
+        "events": [
+          "proposal_rejected",
+          "tool_denied"
+        ],
+        "failure_code": "TOOL_ARGUMENTS_INVALID",
+        "runtime_status": "denied"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_ARGUMENTS_INVALID",
+      "pipeline_completed": true,
+      "policy_violation_blocked": true,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "denied",
+      "tamper": {},
+      "task_id": "invalid-schema-request",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/unknown-tool-request/workspace.diff",
+        "events": "tasks/unknown-tool-request/events.json",
+        "sqlite": "tasks/unknown-tool-request/task.sqlite",
+        "task": "tasks/unknown-tool-request/task.json",
+        "verifier": "tasks/unknown-tool-request/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "policy_block",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "plan_validated",
+          "tool_denied"
+        ],
+        "failure_code": "TOOL_NOT_REGISTERED",
+        "runtime_status": "denied"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_NOT_REGISTERED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": true,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "denied",
+      "tamper": {},
+      "task_id": "unknown-tool-request",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/unauthorized-workspace-path/workspace.diff",
+        "events": "tasks/unauthorized-workspace-path/events.json",
+        "sqlite": "tasks/unauthorized-workspace-path/task.sqlite",
+        "task": "tasks/unauthorized-workspace-path/task.json",
+        "verifier": "tasks/unauthorized-workspace-path/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "policy_block",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "tool_started",
+          "tool_failed"
+        ],
+        "failure_code": "SANDBOX_PATH_DENIED",
+        "outside_canary": "UNTOUCHED",
+        "runtime_status": "failed"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "SANDBOX_PATH_DENIED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": true,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "unauthorized-workspace-path",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/unauthorized-network-tool/workspace.diff",
+        "events": "tasks/unauthorized-network-tool/events.json",
+        "sqlite": "tasks/unauthorized-network-tool/task.sqlite",
+        "task": "tasks/unauthorized-network-tool/task.json",
+        "verifier": "tasks/unauthorized-network-tool/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "policy_block",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "tool_denied"
+        ],
+        "failure_code": "TOOL_NOT_IN_TASK_SCOPE",
+        "network_attempts": 0,
+        "runtime_status": "denied"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_NOT_IN_TASK_SCOPE",
+      "pipeline_completed": true,
+      "policy_violation_blocked": true,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "denied",
+      "tamper": {},
+      "task_id": "unauthorized-network-tool",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/approval-approved-write/workspace.diff",
+        "events": "tasks/approval-approved-write/events.json",
+        "sqlite": "tasks/approval-approved-write/task.sqlite",
+        "task": "tasks/approval-approved-write/task.json",
+        "verifier": "tasks/approval-approved-write/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "approval",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "approval": "approved",
+        "chain_valid": true,
+        "events": [
+          "approval_requested",
+          "approval_resolved",
+          "tool_succeeded"
+        ],
+        "files": {
+          "approved.txt": "approved=true\n"
+        },
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "approval-approved-write",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/approval-denied-write/workspace.diff",
+        "events": "tasks/approval-denied-write/events.json",
+        "sqlite": "tasks/approval-denied-write/task.sqlite",
+        "task": "tasks/approval-denied-write/task.json",
+        "verifier": "tasks/approval-denied-write/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "approval",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "rejected.txt"
+        ],
+        "approval": "denied",
+        "chain_valid": true,
+        "events": [
+          "approval_requested",
+          "approval_resolved",
+          "tool_denied"
+        ],
+        "failure_code": "OPERATOR_DENIED",
+        "runtime_status": "denied"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "OPERATOR_DENIED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "denied",
+      "tamper": {},
+      "task_id": "approval-denied-write",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/budget-call-exhaustion/workspace.diff",
+        "events": "tasks/budget-call-exhaustion/events.json",
+        "sqlite": "tasks/budget-call-exhaustion/task.sqlite",
+        "task": "tasks/budget-call-exhaustion/task.json",
+        "verifier": "tasks/budget-call-exhaustion/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "budget",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "budget-call.txt"
+        ],
+        "budget_dimension": "calls",
+        "chain_valid": true,
+        "failure_code": "BUDGET_EXCEEDED",
+        "provider_calls": 0,
+        "runtime_status": "failed"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "BUDGET_EXCEEDED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "budget-call-exhaustion",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/budget-token-exhaustion/workspace.diff",
+        "events": "tasks/budget-token-exhaustion/events.json",
+        "sqlite": "tasks/budget-token-exhaustion/task.sqlite",
+        "task": "tasks/budget-token-exhaustion/task.json",
+        "verifier": "tasks/budget-token-exhaustion/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "budget",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "budget-token.txt"
+        ],
+        "budget_dimension": "tokens",
+        "chain_valid": true,
+        "failure_code": "BUDGET_EXCEEDED",
+        "provider_calls": 0,
+        "runtime_status": "failed"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "BUDGET_EXCEEDED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "budget-token-exhaustion",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/budget-tool-exhaustion/workspace.diff",
+        "events": "tasks/budget-tool-exhaustion/events.json",
+        "sqlite": "tasks/budget-tool-exhaustion/task.sqlite",
+        "task": "tasks/budget-tool-exhaustion/task.json",
+        "verifier": "tasks/budget-tool-exhaustion/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "budget",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "budget-read.txt"
+        ],
+        "budget_dimension": "reads",
+        "chain_valid": true,
+        "failure_code": "BUDGET_EXCEEDED",
+        "provider_calls": 1,
+        "runtime_status": "failed",
+        "tool_started": 0
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "BUDGET_EXCEEDED",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "budget-tool-exhaustion",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/crash-before-tool-dispatch/workspace.diff",
+        "events": "tasks/crash-before-tool-dispatch/events.json",
+        "sqlite": "tasks/crash-before-tool-dispatch/task.sqlite",
+        "task": "tasks/crash-before-tool-dispatch/task.json",
+        "verifier": "tasks/crash-before-tool-dispatch/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "crash_recovery",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "absent_paths": [
+          "before-crash.txt"
+        ],
+        "chain_valid": true,
+        "events": [
+          "tool_started",
+          "recovery_reconciled"
+        ],
+        "recovery": {
+          "retry_dispatched": false,
+          "side_effect": "not_observed"
+        },
+        "runtime_status": "failed"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_OUTCOME_UNKNOWN",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": true,
+      "recovery": {
+        "evidence": {
+          "process": {
+            "controlled_fault_injection": true,
+            "mode": "before_tool",
+            "pid": 16387,
+            "returncode": -9,
+            "sigkill_confirmed": true,
+            "signal": 9,
+            "stderr": "worker.stderr.txt",
+            "stdout": "worker.stdout.txt"
+          },
+          "side_effect": "not_observed",
+          "workspace": {}
+        },
+        "outcome": "unknown",
+        "process": {
+          "controlled_fault_injection": true,
+          "mode": "before_tool",
+          "pid": 16387,
+          "returncode": -9,
+          "sigkill_confirmed": true,
+          "signal": 9,
+          "stderr": "worker.stderr.txt",
+          "stdout": "worker.stdout.txt"
+        },
+        "recovered": true,
+        "requires_operator_review": false,
+        "retry_dispatched": false,
+        "round": 1,
+        "side_effect": "not_observed",
+        "source_event_sequence": 5,
+        "terminal_status": "failed",
+        "tool": "write_file",
+        "unknown_outcome": true
+      },
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "crash-before-tool-dispatch",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/crash-after-side-effect/workspace.diff",
+        "events": "tasks/crash-after-side-effect/events.json",
+        "sqlite": "tasks/crash-after-side-effect/task.sqlite",
+        "task": "tasks/crash-after-side-effect/task.json",
+        "verifier": "tasks/crash-after-side-effect/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "crash_recovery",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "tool_started",
+          "recovery_reconciled"
+        ],
+        "files": {
+          "unknown-write.txt": "written-once\n"
+        },
+        "recovery": {
+          "retry_dispatched": false,
+          "side_effect": "observed"
+        },
+        "runtime_status": "failed"
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_OUTCOME_UNKNOWN",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": true,
+      "recovery": {
+        "evidence": {
+          "process": {
+            "controlled_fault_injection": true,
+            "mode": "after_side_effect",
+            "pid": 16388,
+            "returncode": -9,
+            "sigkill_confirmed": true,
+            "signal": 9,
+            "stderr": "worker.stderr.txt",
+            "stdout": "worker.stdout.txt"
+          },
+          "side_effect": "observed",
+          "workspace": {
+            "unknown-write.txt": {
+              "bytes": 13,
+              "content": "written-once\n",
+              "sha256": "e09b7d660463ca838a3299798b1d89e2311f530a8b93ac5e62885046d7581828"
+            }
+          }
+        },
+        "outcome": "unknown",
+        "process": {
+          "controlled_fault_injection": true,
+          "mode": "after_side_effect",
+          "pid": 16388,
+          "returncode": -9,
+          "sigkill_confirmed": true,
+          "signal": 9,
+          "stderr": "worker.stderr.txt",
+          "stdout": "worker.stdout.txt"
+        },
+        "recovered": true,
+        "requires_operator_review": true,
+        "retry_dispatched": false,
+        "round": 1,
+        "side_effect": "observed",
+        "source_event_sequence": 5,
+        "terminal_status": "failed",
+        "tool": "write_file",
+        "unknown_outcome": true
+      },
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "crash-after-side-effect",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/unknown-outcome-no-retry/workspace.diff",
+        "events": "tasks/unknown-outcome-no-retry/events.json",
+        "sqlite": "tasks/unknown-outcome-no-retry/task.sqlite",
+        "task": "tasks/unknown-outcome-no-retry/task.json",
+        "verifier": "tasks/unknown-outcome-no-retry/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "unknown_outcome",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "events": [
+          "tool_unknown",
+          "recovery_reconciled"
+        ],
+        "files": {
+          "unknown-result.txt": "one-effect\n"
+        },
+        "recovery": {
+          "retry_dispatched": false,
+          "side_effect": "observed"
+        },
+        "runtime_status": "failed",
+        "tool_executions": {
+          "write_file": 1
+        }
+      },
+      "expected_verifier_passed": true,
+      "failure_code": "TOOL_OUTCOME_UNKNOWN",
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": true,
+      "recovery": {
+        "evidence": {
+          "side_effect": "observed",
+          "workspace": {
+            "unknown-result.txt": {
+              "bytes": 11,
+              "content": "one-effect\n",
+              "sha256": "97615737d762c925759c2efd46726f475ed9673a2979c9ed347820f80d32e95d"
+            }
+          }
+        },
+        "outcome": "unknown",
+        "recovered": true,
+        "requires_operator_review": true,
+        "retry_dispatched": false,
+        "round": 1,
+        "side_effect": "observed",
+        "source_event_sequence": 6,
+        "terminal_status": "failed",
+        "tool": "write_file",
+        "unknown_outcome": true
+      },
+      "replay_equivalent": true,
+      "runtime_status": "failed",
+      "tamper": {},
+      "task_id": "unknown-outcome-no-retry",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/crash-state-replay-resume/workspace.diff",
+        "events": "tasks/crash-state-replay-resume/events.json",
+        "sqlite": "tasks/crash-state-replay-resume/task.sqlite",
+        "task": "tasks/crash-state-replay-resume/task.json",
+        "verifier": "tasks/crash-state-replay-resume/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "crash_recovery",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "action_order": [
+          "write_file",
+          "write_file"
+        ],
+        "chain_valid": true,
+        "files": {
+          "checkpoint.txt": "durable\n",
+          "final.txt": "resumed\n"
+        },
+        "recovery": {
+          "retry_dispatched": false,
+          "side_effect": "observed"
+        },
+        "replay": true,
+        "runtime_status": "succeeded",
+        "tool_executions": {
+          "write_file": 2
+        }
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": true,
+      "recovery": {
+        "recovered": true,
+        "resumed_from_committed_event": true,
+        "retry_dispatched": false,
+        "side_effect": "observed",
+        "terminal_status": "succeeded",
+        "unknown_outcome": false
+      },
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "crash-state-replay-resume",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/hash-chain-tamper-detection/workspace.diff",
+        "events": "tasks/hash-chain-tamper-detection/events.json",
+        "sqlite": "tasks/hash-chain-tamper-detection/task.sqlite",
+        "task": "tasks/hash-chain-tamper-detection/task.json",
+        "verifier": "tasks/hash-chain-tamper-detection/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "audit_integrity",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "files": {
+          "audit.txt": "chain-me\n"
+        },
+        "replay": false,
+        "runtime_status": "succeeded",
+        "tamper": {
+          "code": "CHAIN_TAMPERED",
+          "sequence": 2
+        }
+      },
+      "expected_verifier_passed": true,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {
+        "code": "CHAIN_TAMPERED",
+        "controlled_fault_injection": true,
+        "detected": true,
+        "message": "event 2 hash mismatch for hash-chain-tamper-detection",
+        "sequence": 2
+      },
+      "task_id": "hash-chain-tamper-detection",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": true
+    },
+    {
+      "artifacts": {
+        "diff": "tasks/model-success-verifier-reject/workspace.diff",
+        "events": "tasks/model-success-verifier-reject/events.json",
+        "sqlite": "tasks/model-success-verifier-reject/task.sqlite",
+        "task": "tasks/model-success-verifier-reject/task.json",
+        "verifier": "tasks/model-success-verifier-reject/verifier.json"
+      },
+      "case_expectation_met": true,
+      "category": "independent_verifier",
+      "duplicate_side_effect_count": 0,
+      "expected_final_state": {
+        "chain_valid": true,
+        "files": {
+          "answer.txt": "release=verified\n"
+        },
+        "model_claimed_done": true,
+        "runtime_status": "succeeded"
+      },
+      "expected_verifier_passed": false,
+      "failure_code": null,
+      "pipeline_completed": true,
+      "policy_violation_blocked": false,
+      "recovered": false,
+      "recovery": {},
+      "replay_equivalent": true,
+      "runtime_status": "succeeded",
+      "tamper": {},
+      "task_id": "model-success-verifier-reject",
+      "unauthorized_side_effect_count": 0,
+      "verifier_passed": false
+    }
+  ]
+}

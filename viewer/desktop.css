@@ -1,0 +1,411 @@
+/* ============================================================ FCode desktop shell — 布局层（desktop-app 模式 + App Shell 几何）
+   职责：?desktop=1（html.desktop-app）下的壳几何——侧栏比例、导航行高、
+   顶栏高度、composer 尺寸与舞台锚点；以及与加载序无关的 App Shell 事实——
+   侧栏功能件（resizer/滚动渐隐/tooltip/折叠动画/跑马灯/转环，自 kimi.css
+   第二批迁入）、rail 双形态（停靠/浮层/关闭态 visibility）、顶栏毛玻璃、
+   composer 菜单锚点、z-index 层级表、操作系统级减少动效块。
+   所有规则带 html.desktop-app 前缀或与后续文件无同名碰撞（迁移时逐条核实）。
+   令牌纪律：本文件不改写任何令牌；桌面与非桌面共用 app.css 的统一字阶与
+   阅读列。workspace.css 的 ≤900/≤560 响应式段与 design.css 组件规则同名
+   互斥，随其组件合并时排重后迁入（见 workspace.css 尾部待办）。 */
+
+/* 侧栏：8px 内边距；新建 41/r12；导航行 36、标签落在 x=40（与 Kimi 同列） */
+html.desktop-app .sidebar { padding: 8px; }
+html.desktop-app .side-head { padding: 4px 0 12px; }
+html.desktop-app .side-new {
+  width: 100%; height: 41px; margin: 0 0 10px; border-radius: 12px; font-size: 14px;
+}
+html.desktop-app .side-search { margin: 0 0 8px; }
+html.desktop-app .side-list { padding: 0; }
+html.desktop-app .side-nav { gap: 1px; margin: 0 0 6px; }
+html.desktop-app .side-nav .nav-item { height: 36px; padding: 0 8px; font-size: 14px; }
+html.desktop-app .side-section { margin: 12px 8px 4px; }
+html.desktop-app .side-foot { border-top: 0; padding: 0; margin-top: 8px; }
+html.desktop-app .side-user { height: 44px; padding: 8px; border-radius: 12px; font-size: 14px; }
+html.desktop-app .side-user .side-gear { width: 24px; height: 24px; }
+
+/* 首页：与 Kimi 的新对话视图一致，不显示顶部工具条；运行/委托/设置页保留 */
+html.desktop-app #app.stage-mode .topbar { display: none; }
+html.desktop-app .topbar { height: 52px; }
+
+/* 输入框：768 宽、24 圆角、16/24 编辑区、36 操作行（总高 114） */
+html.desktop-app .composer { max-width: 768px; }
+html.desktop-app .composer-ta {
+  min-height: 60px; padding: 12px 16px 0; font-size: 16px; line-height: 24px;
+}
+html.desktop-app .composer-bar { padding: 9px 10px; }
+html.desktop-app .c-btn {
+  height: 36px; padding: 0 13px; border-radius: 20px; font-size: 14px;
+}
+html.desktop-app .c-icon,
+html.desktop-app .send { width: 36px; height: 36px; }
+html.desktop-app .stage-dock { width: min(768px, 100%); }
+html.desktop-app .stage-chips { max-width: min(768px, 100%); }
+
+/* ================================================================ 浮层与 z-index 层级表
+   全站 z-index 的当前生效档位（散点定义仍在各规则处；新增浮层对号入座，禁止越档）：
+     150  report-layer          报告签发（app.css，全局最上）
+     140  .side-tip             侧栏 tooltip（本文件·侧栏功能件）
+     130  #foot-menu            侧栏脚菜单（app.css）
+     120  #sidebar-toggle 悬浮钮（app.css）/ toast（design.css）
+     100  .palette              命令面板（app.css）
+      90  .project-quick-edit   项目快编浮层（kimi.css）
+      80  .rail 浮层态（本文件·rail 双形态）
+      70  .rail-scrim（本文件）
+      60  .sidebar-frame / mobile-nav（app.css / workspace.css）
+      55  .sidebar-scrim（workspace.css）
+      40  停靠 .rail / .attach-panel / .tpl-menu / .row-menu / .slash-menu（局部锚点浮层）
+       6  .side-resizer（本文件）
+   目标序为「全局浮层 > 报告 > 设置 > rail > 主区」；设置页目前靠兄弟 display:none
+   全屏接管（app.css），不占 z 档。层级归位与浮层锚点统一在组件合并步骤完成
+   （design.css/kimi.css 里与组件视觉同规则的锚点，单独搬运会翻值）。 */
+
+/* ================================================================ 侧栏功能件（自 kimi.css 第二批整体迁入）
+   取值即迁移前的生效值；迁移前逐条 grep 核实与 design.css/chat.css/moonshot.css
+   无同名碰撞，与 workspace.css 同名规则的优先级关系保持不变。 */
+
+/* ---------- 修：三条此前被更高优先级压掉的规则（原 kimi.css 第二批①） ---------- */
+/* app.css 的 .app.side-collapsed .sidebar 把纵向内边距写成 10px；
+   折叠只是宽度归零，内边距保持 9px 0 8px。 */
+.app.side-collapsed .sidebar { padding: 9px 0 8px; }
+/* 折叠宽屏时滚动条不贴字：side-list 右留白 2px（覆盖本文件上方更早的 padding:0）。 */
+html.desktop-app .side-list { padding: 0 2px; }
+/* design.css 直接在 <svg> 上写 color: var(--text-3)，压过 span 上的规则
+   （图标 stroke=currentColor，谁定 svg 的 color 谁赢）。规则原本只修工作侧
+   （pane-work 已随适配重建删除），现在作用于统一侧栏的功能导航。 */
+#side-nav-items .nav-item svg,
+#side-nav-items .nav-item .d-icon,
+#side-nav-items .nav-item.active svg,
+#side-nav-items .nav-item.active .d-icon { color: var(--text-1); }
+#side-nav-items .nav-item:hover svg,
+#side-nav-items .nav-item:hover .d-icon { color: var(--text-1); }
+
+/* ---------- 段落折叠（原 kimi.css，body[data-hide~] 状态载体与 JS 契约不变） ----------
+   grid 行 1fr→0fr + 透明度补间（Kimi 的 .sidebar-reveal 手法），不是 display:none。
+   关键结构约束：段标题必须在折叠区之外（core/side-nav.js 注释），折叠区只包"行"，
+   用 :has() 认领各自的列表。 */
+.side-block-inner,
+html.desktop-app .side-block-inner {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows .16s cubic-bezier(.2, 0, 0, 1), opacity .12s ease-out;
+}
+.side-block-inner > *,
+html.desktop-app .side-block-inner > * { min-height: 0; overflow: hidden; }
+body[data-hide~="tasks"] .side-block-inner:has(#run-nav),
+html.desktop-app body[data-hide~="tasks"] .side-block-inner:has(#run-nav),
+body[data-hide~="chats"] .side-block-inner:has(#chat-nav),
+html.desktop-app body[data-hide~="chats"] .side-block-inner:has(#chat-nav),
+body[data-hide~="projects"] .side-block-inner:has([data-proj-nav]),
+html.desktop-app body[data-hide~="projects"] .side-block-inner:has([data-proj-nav]),
+body[data-hide~="pinned"] .side-block-inner:has([data-pin-nav]),
+html.desktop-app body[data-hide~="pinned"] .side-block-inner:has([data-pin-nav]) {
+  grid-template-rows: 0fr; opacity: 0;
+}
+
+/* ---------- 可拖拽调宽（原 kimi.css ②）----------
+   4px 命中区贴住侧栏右缘；::after 是 1px 渐变竖条：hover / 拖拽时 opacity .5，
+   高度 400px，拖拽中收到 360px，竖直位置跟随指针（--sidebar-indicator-y，
+   由 app.js:6137 setProperty 写入）。 */
+.side-resizer {
+  position: absolute; top: 0; bottom: 0; right: -2px; z-index: 6;
+  width: 4px; cursor: col-resize; touch-action: none;
+}
+.side-resizer::after {
+  content: ""; position: absolute; left: 0; top: var(--sidebar-indicator-y, 50%);
+  width: 1px; height: 400px; opacity: 0; transform: translateY(-50%);
+  background: linear-gradient(to top, transparent 0%, var(--k-flavor) 50%, transparent 100%);
+}
+.side-resizer:hover::after,
+.side-resizer.dragging::after { opacity: .5; }
+.side-resizer.dragging::after { height: 360px; }
+
+/* ---------- 滚动渐隐（原 kimi.css ③）----------
+   两个独立元素而不是容器 mask：顶部那个 height:0、flex-basis 0，靠 .is-visible
+   淡入；底部那条挂在 footer 的 ::before 上——独立元素才有"滚动了才淡入"的动画。 */
+.side-scroll-top-mask {
+  position: relative; z-index: 2; height: 0; opacity: 0; pointer-events: none;
+  transition: opacity .16s cubic-bezier(.23, 1, .32, 1);
+}
+.side-scroll-top-mask::after {
+  content: ""; position: absolute; top: 0; left: 1px; right: 1px; height: 24px;
+  background: linear-gradient(to bottom, var(--canvas) 0%, transparent 100%);
+}
+.side-scroll-top-mask.is-visible { opacity: 1; }
+.side-foot::before {
+  content: ""; position: absolute; bottom: 100%; left: 1px; right: 1px; height: 24px;
+  background: linear-gradient(transparent, var(--canvas)); pointer-events: none;
+}
+
+/* ---------- 折叠钮的 tooltip + keycap（原 kimi.css ④）----------
+   .side-fold 必须自身是定位祖先，否则 tooltip 按 .sidebar（absolute）定位落到视口外。 */
+.side-fold { position: relative; }
+.side-tip {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 140;
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+  padding: 6px 8px; border-radius: 8px;
+  background: var(--k-label-1-hover); color: var(--k-white);
+  font: 400 12px/18px var(--font-ui);
+  opacity: 0; transform: translateY(-2px); pointer-events: none;
+  transition: opacity .12s ease-out, transform .12s ease-out;
+}
+.side-fold:hover .side-tip,
+.side-fold:focus-visible .side-tip { opacity: 1; transform: none; }
+.side-tip-key {
+  --keycap-chips-gap: 4px;
+  display: inline-flex; align-items: center; height: 16px; padding: 0 4px;
+  border-radius: 4px; background: var(--k-fill-1-invert);
+  font: 500 11px/16px var(--font-mono);
+}
+
+/* ---------- 侧栏动画符号（原 kimi.css ⑤；keyframes 名与节奏保持，勿改名）---------- */
+@keyframes kimi-spin { to { transform: rotate(360deg); } }
+@keyframes quickstart-dismiss { to { transform: scale(.804); opacity: 0; } }
+@keyframes kimi-title-marquee { 0% { transform: translate(0); } to { transform: translate(calc(-1 * var(--k-marquee-distance, 0px))); } }
+@keyframes kimi-pill-in { 0% { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: none; } }
+
+/* 运行中：行左侧转动的环（border 环，不是字形）。 */
+.run-row .smark.live { position: relative; font-size: 0; }
+.run-row .smark.live::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid var(--k-fill-2-active); border-top-color: var(--k-flavor);
+  animation: kimi-spin 1s linear infinite;
+}
+
+/* 快速开始卡退场（scale .804 + 淡出）。 */
+.sidebar-quickstart.dismissing { animation: quickstart-dismiss .16s cubic-bezier(.2, 0, 0, 1) forwards; }
+
+/* 悬停长标题：跑马灯。overflow 时才挂 data-marquee（app.js 量出距离写进
+   --k-marquee-distance 行内变量，带 0px 回退——变量名与 keyframes 名都是
+   app.js 零改动契约）。 */
+.session .slabel[data-marquee="1"]:hover {
+  animation: kimi-title-marquee 1.6s linear infinite alternate;
+}
+
+/* 刚出现的行：新内容不是硬闪进来。 */
+.side-block-inner > .nav > .session { animation: kimi-pill-in .18s cubic-bezier(.2, 0, 0, 1); }
+
+/* 减少动效：迁入的这几条一并关掉（应用内开关层）。 */
+body.reduce-motion .run-row .smark.live::before,
+body.reduce-motion .sidebar-quickstart.dismissing,
+body.reduce-motion .session .slabel[data-marquee="1"]:hover,
+body.reduce-motion .side-block-inner > .nav > .session {
+  animation: none !important;
+}
+
+/* ================================================================ rail（证据详情区）——双形态定稿
+   宽屏（>1180px）打开时停靠主区右侧（flex:0 0 var(--evidence-w)）；≤1180px 转
+   为自顶栏下滑出的浮层（54px 顶栏高度）。关闭态 translateX(102%) 滑出视口并
+   visibility:hidden(+150ms delay)——纯 CSS 把它移出无障碍树（修审计缺口③）。
+   取值基准：app.css 旧浮层块 + kimi.css 的 border/shadow/scrim 实测生效值
+   + workspace.css 的停靠形态；三处旧规则随本次迁移删除。 */
+.rail {
+  position: fixed; top: 0; right: 0; bottom: 0; width: var(--evidence-w);
+  display: flex; flex-direction: column; min-height: 0; z-index: 80;
+  border-left: 1px solid var(--line); background: var(--raised);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, .06);
+  transform: translateX(102%); opacity: .96;
+  visibility: hidden;
+  transition: transform 150ms var(--ease), opacity 150ms var(--ease), visibility 0s linear 150ms;
+}
+.app.rail-open .rail {
+  position: relative; inset: auto; flex: 0 0 var(--evidence-w);
+  width: var(--evidence-w); height: auto; transform: none; opacity: 1;
+  visibility: visible; border-left: 1px solid var(--line); background: #f8f8f8;
+  box-shadow: none; z-index: 40;
+  transition: transform 150ms var(--ease), opacity 150ms var(--ease), visibility 0s linear 0s;
+}
+.rail-head { display: flex; flex-direction: column; gap: 8px; }
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; }
+.rail-scrim { display: none; }
+.app.rail-open .rail-scrim {
+  display: none; position: fixed; inset: 0; z-index: 70;
+  background: rgba(0, 0, 0, .18);
+}
+@media (max-width: 1180px) {
+  .app.rail-open .rail {
+    position: fixed; inset: 54px 0 0 auto;
+    width: min(var(--evidence-w), 92vw); height: auto;
+    box-shadow: -16px 0 48px rgba(0, 0, 0, .1); z-index: 80;
+  }
+  .app.rail-open .rail-scrim { display: block; }
+}
+
+/* ================================================================ 顶栏（自 workspace.css 迁入）
+   毛玻璃 = 主区滚动的静层：92% 不透明画布色 + blur(16px)。原 kimi.css:149 的
+   `.topbar{border-bottom:0;background:transparent}` 在旧层序里已被本规则完全
+   覆盖（死代码），随迁移删除；design.css 无 .topbar 规则，迁移零翻值。
+   桌面模式高度仍由本文件上方 html.desktop-app .topbar{height:52px} 定稿。 */
+.topbar, html.desktop-app .topbar {
+  height: 54px; padding: 0 20px; gap: 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(251, 251, 251, .92);
+  backdrop-filter: blur(16px);
+}
+
+/* ================================================================ composer 菜单锚点（自 kimi.css 迁入）
+   模型浮窗贴触发芯片右缘（bar padding 10 + send 36 + gap 8 = 54px），上方 4px，
+   原点右下角；审批浮窗镜像到左缘。id 选择器（1,0,0）压过 design.css 的同名
+   class 规则，与加载顺序无关——迁移前后生效值一致。 */
+#model-menu {
+  left: auto; right: 54px; bottom: calc(100% + 4px);
+  width: 290px; transform-origin: bottom right;
+  animation: kimiMenuIn .15s cubic-bezier(0, 0, .2, 1) both;
+  max-height: min(70vh, 460px); overflow-y: auto;
+}
+/* 上方放不下时向下展开：舞台态 composer 位置低，向上会顶出画布。
+   JS 量完高度后加这个类。 */
+#model-menu.drop-down {
+  top: calc(100% + 4px); bottom: auto;
+  transform-origin: top right;
+}
+/* 审批浮窗：同一规则镜像到左缘（plus 36 + gap 8 + padding 10 = 54px）。 */
+#approval-menu {
+  left: 54px; right: auto; bottom: calc(100% + 4px);
+  transform-origin: bottom left;
+  animation: kimiMenuIn .15s cubic-bezier(0, 0, .2, 1) both;
+}
+/* 窄屏：芯片锚点会让浮窗越出画布，退回贴边。 */
+@media (max-width: 480px) {
+  #model-menu { right: 10px; width: min(290px, calc(100% - 20px)); }
+  #approval-menu { left: 10px; right: 10px; width: auto; }
+}
+
+/* ================================================================ 减少动效（操作系统级，自 workspace.css 迁入）
+   与 body.reduce-motion（应用内开关）是两层：这一层覆盖系统"减少动态效果"
+   设置，漏迁会让系统级用户失去全局关动画。 */
+@media (prefers-reduced-motion: reduce) {
+  .main { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+
+/* ================================================================ 统一侧栏 · 桌面变体
+   自 thread.css「侧栏复刻（黑灰化定稿）」块拆出（P0 切片 2）。
+   这些 html.desktop-app 选择器原先在 thread.css 末尾，因 thread.css 最后
+   加载而压过本文件顶部的旧版几何；拆出后追加在文件末尾，文件级层叠
+   关系与迁移前一致（同特异性时后者胜）。与本文件第 13-25 行的旧版桌面
+   几何存在同特异性重叠，此处靠后胜出——与迁移前结果相同。 */
+
+
+html.desktop-app .sidebar { padding: 9px 8px 8px; }
+html.desktop-app .side-head {
+  /* 桌面端把折叠钮放在 left: 8px（--work-sidebar-toggle-left），logo 紧随其后 */
+  height: 36px; padding: 0 0 0 8px; margin: 0 -8px -3px; gap: 6px; align-items: center;
+}
+html.desktop-app .side-new {
+  height: 41px; margin: 6px 0 8px; padding: 0 12px; gap: 7px; border-radius: 12px;
+}
+html.desktop-app .side-search { height: 34px; border-radius: 12px; margin: 0 0 8px; }
+html.desktop-app .side-section {
+  padding: 4px 8px; margin: 8px 0 2px;
+  font-size: 12px; line-height: 18px; font-weight: 400; letter-spacing: 0;
+  color: var(--k-label-3); text-transform: none;
+}
+html.desktop-app .side-list { position: relative; }
+html.desktop-app .side-foot { padding: 8px; margin: 0 -8px -8px; gap: 6px; }
+html.desktop-app .side-new { justify-content: flex-start; }
+html.desktop-app .side-new .nav-shortcut {
+  margin-left: auto; padding: 0 6px; height: 20px; border-radius: 6px;
+  background: var(--k-fill-1); color: var(--k-label-3);
+  font: 500 12px/20px var(--font-ui); letter-spacing: .2px;
+}
+html.desktop-app .side-new:hover .nav-shortcut { background: rgba(0, 0, 0, .06); }
+html.desktop-app #pane-chat #nav-more { width: 100%; }
+html.desktop-app #pane-chat #nav-more .chev {
+  margin-left: auto; font-size: 12px; line-height: 1;
+  color: var(--k-label-3); transform: rotate(0deg); transition: transform 140ms var(--ease);
+}
+html.desktop-app .more-nav { padding-left: 0; }
+html.desktop-app .side-section { display: flex; align-items: center; gap: 6px; }
+html.desktop-app .section-title-button {
+  flex: 1; min-width: 0; height: 18px; padding: 0; border: 0; background: none;
+  display: flex; align-items: center; gap: 4px;
+  font: 400 12px/18px var(--font-ui); color: var(--k-label-3); text-align: left;
+}
+html.desktop-app .section-title-button:hover { color: var(--text-1); }
+html.desktop-app .section-title-button .chev {
+  font-size: 10px; line-height: 1; transform: rotate(0deg); transition: transform 140ms var(--ease);
+}
+html.desktop-app .section-title-button[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+html.desktop-app .section-action {
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: none;
+  display: grid; place-items: center; cursor: pointer;
+  font: 400 14px/1 var(--font-ui); color: var(--k-label-3);
+}
+html.desktop-app .section-action:hover { background: var(--k-fill-1); color: var(--text-1); }
+html.desktop-app .side-section .side-count { font-size: 12px; line-height: 18px; color: var(--k-label-3); }
+html.desktop-app .section-empty {
+  padding: 6px 8px; font: 400 12px/18px var(--font-ui); color: var(--k-label-3);
+}
+html.desktop-app .chat-row .chat-pin,
+html.desktop-app .chat-row .chat-del {
+  margin-left: auto; width: 20px; text-align: center; opacity: 0;
+  font-size: 12px; color: var(--k-label-3); transition: opacity 120ms var(--ease);
+}
+html.desktop-app .chat-row .chat-del { margin-left: 0; }
+html.desktop-app .chat-row:hover .chat-pin,
+html.desktop-app .chat-row:hover .chat-del { opacity: 1; }
+html.desktop-app .run-row .r-top .smark { flex: 0 0 12px; }
+html.desktop-app .sidebar-quickstart {
+  margin: 0 0 6px; padding: 10px; border-radius: 12px;
+  background: var(--k-fill-1); display: flex; flex-direction: column; gap: 6px;
+}
+html.desktop-app .quickstart-header { display: flex; align-items: center; gap: 6px; }
+html.desktop-app .quickstart-title { font: 500 12px/18px var(--font-ui); color: var(--text-1); }
+html.desktop-app .quickstart-close {
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px; background: none;
+  cursor: pointer; color: var(--k-label-3); font: 400 12px/1 var(--font-ui);
+}
+html.desktop-app .quickstart-list { display: flex; flex-direction: column; gap: 2px; }
+html.desktop-app .quickstart-task {
+  display: flex; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: none;
+  text-align: left; cursor: pointer; border-radius: 8px;
+}
+html.desktop-app .quickstart-checkbox {
+  flex: 0 0 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line-strong, rgba(0, 0, 0, .18));
+  display: grid; place-items: center; font-size: 10px; line-height: 1; color: var(--text-1);
+}
+html.desktop-app .quickstart-task-title { font: 400 12px/18px var(--font-ui); color: var(--text-1); }
+html.desktop-app .quickstart-done-text { font: 400 12px/18px var(--font-ui); color: var(--k-label-3); }
+html.desktop-app .side-foot { flex-direction: column; align-items: stretch; }
+html.desktop-app #side-quickstart { width: 100%; }
+html.desktop-app .side-foot .side-user { width: 100%; }
+html.desktop-app .quickstart-task-title {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+html.desktop-app .quickstart-task .smeta { flex: 0 0 auto; }
+html.desktop-app .quickstart-header .smeta { flex: 0 0 auto; }
+html.desktop-app .nav-item--reserved { color: var(--k-label-2); }
+html.desktop-app .nav-item--reserved .nav-reserved {
+  margin-left: auto; flex: 0 0 auto; height: 16px; padding: 0 5px; border-radius: 4px;
+  background: var(--k-fill-1); color: var(--k-label-3);
+  font: 400 10px/16px var(--font-ui); letter-spacing: .02em;
+}
+
+/* 行：36 高、内边距 8、gap 6；悬停 F1、选中 F2（v19 定稿值）。
+   原规则的选择器列表与死类 .side-desk 混排，死类清理时整条被误删，
+   此处按原值补回（切片 2 验收发现的漏网）。 */
+html.desktop-app .side-nav .nav-item { height: 36px; padding: 8px; gap: 6px; border-radius: 12px; margin: 0; }
+html.desktop-app .side-nav .nav-item:hover { background: var(--k-fill-1); color: var(--text-1); }
+html.desktop-app .side-nav .nav-item.active { background: var(--k-fill-2); border-color: transparent; }
+
+
+/* ================================================================ 统一侧栏 · 终稿桌面变体
+   与 design.css「统一侧栏 · 终稿层」配套（P0 切片 4a）。追加在文件末尾，
+   保持 thread.css 时代的文件级层叠（同特异性时后者胜）。 */
+
+html.desktop-app .sidebar { padding: 12px 10px 10px; background: #f7f7f7; }
+html.desktop-app .side-head { height: 38px; margin: 0 0 10px; padding: 0 2px; gap: 8px; }
+html.desktop-app .side-new { height: 40px; margin: 0 0 6px; border: 0; border-radius: 10px; background: #111; color: #fff; box-shadow: none; }
+html.desktop-app .side-new:hover { background: #292929; border-color: transparent; box-shadow: none; }
+html.desktop-app .side-new .nav-shortcut { background: rgba(255,255,255,.12); color: rgba(255,255,255,.64); }
+html.desktop-app .side-nav .nav-item { height: 35px; border-radius: 8px; font-size: 13px; }
+html.desktop-app .side-section { margin-top: 16px; }
+html.desktop-app .chat-row { height: 32px; font-size: 13px; }
+html.desktop-app .section-empty { line-height: 19px; }
+html.desktop-app .side-foot .side-user { height: 36px; border-radius: 8px; font-size: 12px; }
+html.desktop-app .sidebar-quickstart { border: 1px solid var(--line); background: transparent; }

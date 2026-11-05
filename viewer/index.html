@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>FCode · 本机 Agent 工作区</title>
+<link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
+<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=80">
+<link rel="stylesheet" href="design.css?v=82">
+<link rel="stylesheet" href="desktop.css?v=6">
+<link rel="stylesheet" href="chat.css?v=8">
+<link rel="stylesheet" href="thread.css?v=1">
+</head>
+<body>
+<div class="shell app rail-hidden" id="app">
+
+  <div class="sidebar-frame">
+  <aside class="sidebar">
+    <div class="side-head">
+      <button class="side-fold" id="sidebar-toggle" type="button" aria-label="折叠侧栏">
+        <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+        <span class="side-tip" role="tooltip"><span class="side-tip-label">折叠侧栏</span><kbd class="side-tip-key">⌘B</kbd></span>
+      </button>
+      <img class="brand-mark" src="brand/logo.svg" alt="FCode" width="32" height="32">
+      <span class="grow"></span>
+    </div>
+
+    <button class="side-new" id="new-run" title="新对话">
+      <span data-doodle="kimi-plus"></span>
+      <span id="new-label">新对话</span>
+      <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
+    </button>
+    <button class="side-search" id="side-search" type="button" title="搜索与命令（⌘K）">
+      <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
+    </button>
+
+    <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
+         结构：功能导航（4 个真实 surface 扁平排布）→ 更多（4 个预留槽位，
+         默认收起）→ 置顶 → Projects → 对话 → 任务。
+         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达，
+         四个功能面也不再拆散在「顶部两项 + 更多两项」。
+         折叠区只包"行"（.side-block-inner = Kimi 的 .sidebar-reveal-content），
+         段标题留在外面——第一版把标题一起包了进去，折叠后标题被裁掉，
+         [data-section-toggle] 点不到，该段再也展不开（浏览器验收抓到的真 bug）。
+         #chat-pinned / #chat-projects 的 inner 由 side-nav.js 自带（它一次生成标题+行）。 -->
+    <div class="side-list" id="pane-chat">
+      <div class="side-scroll-top-mask"></div>
+      <div class="side-nav">
+        <nav id="side-nav-items" aria-label="功能导航"></nav>
+        <button class="nav-item" id="nav-more" type="button" aria-expanded="false" aria-controls="more-nav" title="更多（预留槽位）">
+          <span data-doodle="ellipsis"></span><span>更多</span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
+      </div>
+      <div class="side-nav more-nav" id="more-nav" hidden></div>
+      <div id="chat-pinned"></div>
+      <div id="chat-projects"></div>
+      <div id="chat-chats"></div>
+      <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
+      <div id="chat-tasks"></div>
+    </div>
+
+    <div class="side-foot">
+      <div id="side-quickstart"></div>
+      <button class="side-user" id="user-btn" type="button" aria-expanded="false" aria-haspopup="menu">
+        <span class="fdot" id="foot-dot"></span>
+        <span class="foot-text" id="foot-text">离线 · 只读回放</span>
+        <span class="side-gear" aria-hidden="true"><span data-doodle="chevron-up"></span></span>
+      </button>
+      <div class="foot-menu" id="foot-menu" role="menu" hidden>
+        <button class="foot-item" id="foot-palette" role="menuitem">
+          <span data-doodle="search"></span><span>命令面板</span><kbd class="nav-shortcut">⌘K</kbd>
+        </button>
+        <button class="foot-item" id="foot-settings" role="menuitem">
+          <span data-doodle="gear"></span><span>设置</span>
+        </button>
+        <button class="foot-item" id="foot-github" role="menuitem">
+          <span data-doodle="code"></span><span>在 GitHub 查看</span>
+        </button>
+        <div class="foot-meta">FCode · 本机运行 · 数据不出设备</div>
+      </div>
+    </div>
+
+  </aside>
+  <!-- 拖拽调宽（Kimi 的 .sidebar-resizer）：4px 命中区贴右缘，拖拽时的 1px KMBlue
+       渐变指示条由 ::after 画（见 kimi.css 第二批 ②）。 -->
+  <div class="side-resizer" id="side-resizer" role="separator" aria-orientation="vertical" aria-label="拖动调整侧栏宽度"></div>
+  </div>
+  <div class="sidebar-scrim" aria-hidden="true"></div>
+
+  <div class="workspace" id="workspace">
+    <header class="topbar">
+      <button class="icon-btn workspace-menu" id="workspace-menu" type="button" title="打开导航" aria-label="打开导航">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="tb-title" id="tb-title">—</div>
+      <div class="tb-chips" id="tb-chips"></div>
+      <div class="grow"></div>
+      <button class="tb-audit-link" type="button" data-open="audit"
+        title="发现账本:审计器产出的缺陷与证据">审计台</button>
+      <button class="conn-pill" id="conn-pill" type="button" title="运行流连接状态" hidden>
+        <span class="conn-dot" aria-hidden="true"></span><span id="conn-pill-text"></span>
+      </button>
+      <button class="chain-pill" id="chain-badge" type="button" title="点击重新验证签名链"><span class="dot"></span><span>未加载</span></button>
+      <button class="icon-btn settings-mobile" id="settings-mobile" type="button" title="设置" aria-label="设置">
+        <span data-doodle="gear"></span>
+      </button>
+      <button class="icon-btn" id="rail-toggle" title="事件面板" aria-label="事件面板" aria-controls="task-rail" aria-expanded="false">
+        <svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+      </button>
+    </header>
+
+    <div class="tabs" id="tabs" hidden></div>
+    <div class="conn-banner" id="conn-banner" role="status" aria-live="polite" hidden>
+      <span id="conn-banner-text"></span>
+    </div>
+
+    <div class="content">
+      <div class="center">
+        <main class="main">
+          <div class="main-inner" id="main">
+            <section class="stage-empty" aria-label="空状态">
+              <img class="stage-logo" src="brand/logo.svg" alt="FCode" width="56" height="56">
+              <div class="stage-mark">FCode</div>
+              <p class="stage-note">还没有运行记录</p>
+            </section>
+          </div>
+        </main>
+        <footer class="composer-wrap">
+          <div class="composer">
+            <div class="composer-box" id="composer-box">
+              <div class="tpl-menu approval-menu" id="approval-menu" hidden></div>
+              <div class="tpl-menu model-menu" id="model-menu" hidden></div>
+              <div class="attach-panel" id="attach-panel" hidden></div>
+              <div class="chat-attach-chips" id="chat-attach-chips" hidden></div>
+              <div class="project-composer" id="project-composer" hidden></div>
+              <textarea class="composer-ta" id="composer-ta" rows="1" aria-label="输入消息或任务描述"
+                placeholder="给 agent 派一个任务：例如整理本仓库的审计发现并生成一份摘要报告…"></textarea>
+              <div class="composer-bar">
+                <button class="c-icon" id="composer-open" title="资料 / 工具 / 预算" aria-expanded="false">
+                  <svg class="i plus-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                  <svg class="i close-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+                </button>
+                <button class="c-icon" id="chat-attach" title="添加文本附件（最多 3 个，每个 ≤64 KiB）" hidden>
+                  <svg class="i" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>
+                </button>
+                <button class="c-btn" id="approval-btn" title="审批档位：只在需要你确认的地方暂停（对新任务生效）">
+                  <span data-doodle="key"></span>
+                  <span id="approval-label">关键审批</span>
+                  <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="grow"></div>
+                <button class="c-btn static run-chip" id="run-chip" hidden title="在轮次边界停止运行（⌘.）">
+                  <span class="pdot"></span>
+                  <svg class="i run-doodle" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="8.6" cy="6.8" r="3.1"/>
+                    <path d="M8.6 9.9v6.6"/>
+                    <path d="M5.9 16.5h5.4"/>
+                    <path d="M14.2 10.4h4.9l-1 4.3h-2.9z"/>
+                    <path d="M19.1 11.4h1.3a1.5 1.5 0 0 1 0 3h-1"/>
+                    <path d="M13.1 7.9c1.2-.5 2.1-.3 2.8.2"/>
+                  </svg>
+                  <span id="run-chip-text" aria-live="polite">运行中</span>
+                </button>
+                <button class="c-btn" id="model-btn" title="选择模型与思考强度">
+                  <span id="model-label">—</span>
+                  <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <button class="send" id="send" title="发送任务" aria-label="发送任务" disabled>
+                  <span data-doodle="arrow-up"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </footer>
+        <button class="scroll-latest" id="scroll-latest" type="button" title="回到最新内容" aria-label="回到最新内容" hidden>↓</button>
+        <input type="file" id="chat-files" multiple hidden accept=".txt,.md,.markdown,.json,.jsonl,.csv,.log,.py,.js,.ts,.tsx,.jsx,.html,.css,.yaml,.yml,.toml,.sql,.sh">
+      </div>
+
+      <div class="rail-scrim" data-rail-close></div>
+      <aside class="rail" id="task-rail" aria-label="任务详情" aria-hidden="true" inert>
+        <div class="rail-head">
+          <div class="rail-title">
+            <span class="rail-kicker">任务详情</span>
+            <span class="rail-count" id="rail-count"></span>
+            <button class="rail-close" data-rail-close type="button" title="关闭任务详情" aria-label="关闭任务详情">×</button>
+          </div>
+          <div class="seg" id="rail-tabs">
+            <button data-tab="events" class="active">活动<span class="tab-count" data-count="events"></span></button>
+            <button data-tab="tools">工具<span class="tab-count" data-count="tools"></span></button>
+            <button data-tab="chain">验证<span class="tab-count" data-count="chain"></span></button>
+            <button data-tab="raw">原始</button>
+          </div>
+        </div>
+        <div class="rail-body" id="rail-body"></div>
+      </aside>
+    </div>
+    <div class="statusline" id="statusline"></div>
+
+    <section class="settings-page" id="settings-page" hidden aria-label="设置">
+      <div class="setpage-card">
+      <header class="setpage-head">
+        <button class="setpage-close" id="settings-back" type="button" title="关闭设置 (Esc)" aria-label="关闭设置">×</button>
+        <div class="setpage-heading">
+          <span class="setpage-kicker">PREFERENCES</span>
+          <h1 class="setpage-title">设置</h1>
+        </div>
+        <div class="setpage-head-meta">
+          <span class="setpage-scope">本机偏好</span>
+          <span class="setpage-state" id="settings-state">offline</span>
+        </div>
+      </header>
+      <div class="setpage-body">
+        <nav class="setpage-nav" id="settings-nav" aria-label="设置章节">
+          <button type="button" class="active" data-set-section="appearance"><span class="n">01</span><span>外观与动效</span></button>
+          <button type="button" data-set-section="delegation"><span class="n">02</span><span>委托默认</span></button>
+          <button type="button" data-set-section="model"><span class="n">03</span><span>模型与工具</span></button>
+          <button type="button" data-set-section="memory"><span class="n">04</span><span>记忆与产物</span></button>
+          <button type="button" data-set-section="notify"><span class="n">05</span><span>通知与快捷键</span></button>
+          <button type="button" data-set-section="about"><span class="n">06</span><span>安全与关于</span></button>
+        </nav>
+        <div class="setpage-content" id="settings-content">
+          <section class="set-section" id="set-appearance" data-set-panel="appearance">
+            <div class="set-section-head"><h2>外观与动效</h2><span class="set-tag">本机</span></div>
+            <p class="set-section-desc">只改变这台机器上的阅读与操作方式，不影响运行结果或签名链。</p>
+            <div class="set-rows">
+              <div class="set-row">
+                <span class="set-row-text"><b>界面动效</b><small>线条图标与进入动画</small></span>
+                <button class="set-switch" id="settings-motion" type="button" role="switch" aria-checked="true" aria-label="界面动效"><span></span></button>
+              </div>
+              <div class="set-row">
+                <span class="set-row-text"><b>主题</b><small>月之暗面 · 明亮工作区与黑白像素细节</small></span>
+                <span class="set-value">浅色</span>
+              </div>
+              <div class="set-row">
+                <span class="set-row-text"><b>事件栏默认</b><small>打开运行时的默认过滤，运行中仍可临时切换</small></span>
+                <div class="set-seg" id="settings-rail-filter">
+                  <button type="button" data-set-filter="key" class="active">关键</button>
+                  <button type="button" data-set-filter="all">全部</button>
+                  <button type="button" data-set-filter="human">人工</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-delegation" data-set-panel="delegation">
+            <div class="set-section-head"><h2>委托默认</h2><span class="set-tag">下次委托</span></div>
+            <p class="set-section-desc">新委托的审批档位。运行中的审批仍按创建时的档位执行。</p>
+            <div class="set-modes" id="settings-modes"></div>
+            <p class="set-note">预算由模板决定：完整研究为 12 calls / 20 reads / 20,000 µUSD；修改预算需要在需求确认里换模板。</p>
+            <div class="set-rows">
+              <div class="set-row">
+                <span class="set-row-text"><b>自动召回旧案</b><small>委托创建时检索 top-3 相似案例，并把召回写入哈希链</small></span>
+                <span class="set-value">已开启 · top-3</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-model" data-set-panel="model">
+            <div class="set-section-head"><h2>模型与工具</h2><span class="set-tag">运行时</span></div>
+            <p class="set-section-desc">模型只提议动作；权限、预算与执行由主机决定。这里展示当前实际生效的配置。</p>
+            <div class="chatcfg" id="chatcfg">
+              <div class="chatcfg-head">
+                <b>对话模型</b>
+                <small>配置保存在本机用户配置目录的 <code>chat-config.json</code>（不在静态目录，不进仓库、不进事件链）；优先级：这里 &gt; 环境变量。当前作用于对话；委托运行仍读环境变量。</small>
+              </div>
+              <div class="chatcfg-default" id="chatcfg-default"></div>
+              <div class="chatcfg-cards" id="chatcfg-cards"></div>
+            </div>
+            <div class="set-rows">
+              <div class="set-row">
+                <span class="set-row-text"><b>工具目录</b><small>封闭注册表：schema、effect、契约版本由主机持有</small></span>
+                <span class="set-value" id="settings-tools">—</span>
+              </div>
+              <div class="set-row">
+                <span class="set-row-text"><b>外部连接器</b><small>端点与凭证由主机持有，默认关闭</small></span>
+                <span class="set-value dim">demo-feed · 默认关闭</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-memory" data-set-panel="memory">
+            <div class="set-section-head"><h2>记忆与产物</h2><span class="set-tag">本机 / 运行时</span></div>
+            <p class="set-section-desc">长期记忆是签名轨迹的确定性投影；删除运行只写墓碑，不销毁证据。</p>
+            <div class="set-stats">
+              <div class="set-stat"><span class="k">案例</span><b id="settings-cases">—</b><small>有效 / 含墓碑</small></div>
+              <div class="set-stat"><span class="k">事实</span><b id="settings-facts">—</b><small>有效 / 含墓碑</small></div>
+              <div class="set-stat"><span class="k">产物</span><b id="settings-artifacts">—</b><small>有效 / 含墓碑</small></div>
+              <div class="set-stat"><span class="k">运行记录</span><b id="settings-runs">—</b><small>本机历史</small></div>
+            </div>
+            <div class="set-actions">
+              <button class="set-action" id="settings-clear" type="button">清空输入历史</button>
+              <button class="set-action" id="settings-refresh-memory" type="button">刷新统计</button>
+            </div>
+            <p class="set-note">输入历史只存在本机 ↑↓ 里；案例与事实存放在 viewer/memory，删除运行会同步墓碑。</p>
+          </section>
+
+          <section class="set-section" id="set-notify" data-set-panel="notify">
+            <div class="set-section-head"><h2>通知与快捷键</h2><span class="set-tag">本机</span></div>
+            <p class="set-section-desc">页面在后台时，完成通知会提醒你回来看结果。</p>
+            <div class="set-rows">
+              <div class="set-row">
+                <span class="set-row-text"><b>完成通知</b><small id="settings-notify-state">需要浏览器授权</small></span>
+                <button class="set-switch" id="settings-notify" type="button" role="switch" aria-checked="false" aria-label="完成通知"><span></span></button>
+              </div>
+            </div>
+            <div class="set-keys">
+              <div><kbd>⌘K</kbd><span>命令面板</span></div>
+              <div><kbd>⌘N</kbd><span>新建委托</span></div>
+              <div><kbd>⌘,</kbd><span>打开设置</span></div>
+              <div><kbd>⌘.</kbd><span>停止当前运行</span></div>
+              <div><kbd>⌘↵</kbd><span>允许审批</span></div>
+              <div><kbd>⌘⌫</kbd><span>拒绝审批</span></div>
+              <div><kbd>↑↓</kbd><span>运行记录 / 输入历史</span></div>
+              <div><kbd>Esc</kbd><span>关闭设置或浮层</span></div>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-about" data-set-panel="about">
+            <div class="set-section-head"><h2>安全与关于</h2><span class="set-tag">只读</span></div>
+            <p class="set-section-desc">签名链在每次打开运行时全量重算；这里展示当前状态与本机数据位置。</p>
+            <div class="set-rows">
+              <div class="set-row">
+                <span class="set-row-text"><b>签名链</b><small id="settings-chain">当前没有加载运行</small></span>
+                <button class="set-action inline" id="settings-reverify" type="button">重新验证</button>
+              </div>
+              <div class="set-row">
+                <span class="set-row-text"><b>数据目录</b><small>运行记录、案例簿与事实簿的落点</small></span>
+                <span class="set-value dim" id="settings-repo">—</span>
+              </div>
+              <div class="set-row">
+                <span class="set-row-text"><b>许可</b><small>内核零第三方运行时依赖</small></span>
+                <span class="set-value">Apache-2.0</span>
+              </div>
+            </div>
+            <div class="set-actions">
+              <button class="set-action" id="settings-diag" type="button">复制运行诊断</button>
+              <a class="set-action" href="https://github.com/Anhao1314/FCode" target="_blank" rel="noreferrer">在 GitHub 查看</a>
+            </div>
+            <p class="set-note">FCode · local runtime。设置页不会上传任何数据；诊断信息只复制到剪贴板。</p>
+          </section>
+        </div>
+      </div>
+      <footer class="setpage-foot">
+        <button class="setpage-reset" id="settings-reset" type="button">恢复本机默认</button>
+        <span class="setpage-foot-note" id="settings-saved">更改即时保存到本机</span>
+        <button class="setpage-done" id="settings-done" type="button">完成</button>
+      </footer>
+      </div>
+    </section>
+  </div>
+
+</div>
+<input type="file" id="pick" hidden accept=".json,application/json">
+
+<div class="palette" id="palette" hidden>
+  <div class="palette-scrim" data-palette-close></div>
+  <div class="palette-box" role="dialog" aria-label="命令面板">
+    <input class="palette-input" id="palette-input" placeholder="输入命令，或搜索运行与场景…" autocomplete="off" spellcheck="false">
+    <div class="palette-list" id="palette-list"></div>
+    <div class="palette-foot"><span>↑↓ 选择</span><span>↵ 执行</span><span>esc 关闭</span><div class="grow"></div><span>⌘K 面板 · ⌘, 设置 · ⌘. 停止 · 审批 ⌘↵ 允许 / ⌘⌫ 拒绝</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<div class="report-layer" id="report-layer" hidden>
+  <div class="report-scrim" data-report-close></div>
+  <div class="report-panel">
+    <div class="report-bar">
+      <span class="report-title" id="report-title">工作底稿预览</span>
+      <span class="grow"></span>
+      <button class="a-btn" id="report-print" title="通过系统打印对话框存为 PDF">打印 / 存为 PDF</button>
+      <button class="a-btn strong" id="report-download" title="下载自包含 HTML（可离线打开、转发、独立验证）">下载报告</button>
+      <button class="icon-btn" id="report-close" title="关闭 (Esc)">×</button>
+    </div>
+    <iframe class="report-frame" id="report-frame" title="报告预览"></iframe>
+  </div>
+</div>
+
+<script src="report.js?v=56"></script>
+<script src="icons-doodle.js?v=54"></script>
+  <script src="brand/seal-icons.js"></script>
+<script src="app.js?v=120" type="module"></script>
+</body>
+</html>

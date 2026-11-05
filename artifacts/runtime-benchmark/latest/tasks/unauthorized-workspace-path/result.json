@@ -1,0 +1,34 @@
+{
+  "artifacts": {
+    "diff": "tasks/unauthorized-workspace-path/workspace.diff",
+    "events": "tasks/unauthorized-workspace-path/events.json",
+    "sqlite": "tasks/unauthorized-workspace-path/task.sqlite",
+    "task": "tasks/unauthorized-workspace-path/task.json",
+    "verifier": "tasks/unauthorized-workspace-path/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "policy_block",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "events": [
+      "tool_started",
+      "tool_failed"
+    ],
+    "failure_code": "SANDBOX_PATH_DENIED",
+    "outside_canary": "UNTOUCHED",
+    "runtime_status": "failed"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": "SANDBOX_PATH_DENIED",
+  "pipeline_completed": true,
+  "policy_violation_blocked": true,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "failed",
+  "tamper": {},
+  "task_id": "unauthorized-workspace-path",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

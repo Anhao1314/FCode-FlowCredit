@@ -1,0 +1,12 @@
+{
+  "config.json": {
+    "bytes": 15,
+    "content": "{\"retries\": 3}\n",
+    "sha256": "c3d8feac140aa89dbd43e63835023f71ce63360c7134e19baa3fe5bb8bbd88c5"
+  },
+  "main.py": {
+    "bytes": 61,
+    "content": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n",
+    "sha256": "e29b213fd7a220d17cb909c638289c6df7bf58b35fe13672d972dae082b2a747"
+  }
+}

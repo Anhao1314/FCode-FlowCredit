@@ -1,0 +1,32 @@
+{
+  "artifacts": {
+    "diff": "tasks/model-success-verifier-reject/workspace.diff",
+    "events": "tasks/model-success-verifier-reject/events.json",
+    "sqlite": "tasks/model-success-verifier-reject/task.sqlite",
+    "task": "tasks/model-success-verifier-reject/task.json",
+    "verifier": "tasks/model-success-verifier-reject/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "independent_verifier",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "files": {
+      "answer.txt": "release=verified\n"
+    },
+    "model_claimed_done": true,
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": false,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "model-success-verifier-reject",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": false
+}

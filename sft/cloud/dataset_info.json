@@ -1,0 +1,50 @@
+{
+  "fcode_sft_smoke": {
+    "file_name": "train_smoke.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "fcode_sft_full": {
+    "file_name": "train_full.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "fcode_choice_train": {
+    "file_name": "choices_lab_train.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "fcode_choice_val": {
+    "file_name": "choices_lab_val.jsonl",
+    "formatting": "sharegpt",
+    "columns": { "messages": "conversations" },
+    "tags": {
+      "role_tag": "from",
+      "content_tag": "value",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  }
+}

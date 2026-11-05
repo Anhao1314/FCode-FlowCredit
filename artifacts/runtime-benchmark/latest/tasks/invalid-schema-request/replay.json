@@ -1,0 +1,22 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [],
+    "model_attempts": 3,
+    "plan_state": null,
+    "recovery_decisions": [],
+    "status": "denied",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [],
+    "model_attempts": 3,
+    "plan_state": null,
+    "recovery_decisions": [],
+    "status": "denied",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

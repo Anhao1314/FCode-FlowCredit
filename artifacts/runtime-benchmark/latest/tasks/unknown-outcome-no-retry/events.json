@@ -1,0 +1,145 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.436Z",
+    "hash": "2bc2bbd7a8fd4104d38917ed2d96c3fdb957e87700322759fc60cebe9c1a612d",
+    "payload": {
+      "body_hash": "0744ee081bd15b2ce878d77f32168e3da3dfff0338d96fbe3fab4b07464344d0",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.436Z",
+    "hash": "198f62a601b105e791f7e3515a20b0245b4ea8194cb04e38243afa2e209107e7",
+    "payload": {
+      "body_hash": "5194fc34592b038e2e0bb74e0791c9de749e3bbd6a941abd00c37ebf0067c053",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "2bc2bbd7a8fd4104d38917ed2d96c3fdb957e87700322759fc60cebe9c1a612d",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.437Z",
+    "hash": "e1ed9a9c91445cb8180ef0988ad1024e0d5ae3f715f9736464ac659db4426343",
+    "payload": {
+      "body_hash": "4f3fac99a186cfc49a8e17204456764ad11255775ee080acd36ee2faa429a54b",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "one-effect\n",
+                "path": "unknown-result.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "198f62a601b105e791f7e3515a20b0245b4ea8194cb04e38243afa2e209107e7",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.437Z",
+    "hash": "ac6e21c57abce0481d8f390d03541b6ee59147856ca5328794578ae4759b24ff",
+    "payload": {
+      "body_hash": "d7adff7aa5f92f2235a629199d51ce74250f9226782b0f29a00791643ac04176",
+      "detail": {}
+    },
+    "prev_hash": "e1ed9a9c91445cb8180ef0988ad1024e0d5ae3f715f9736464ac659db4426343",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.437Z",
+    "hash": "b2b7f776df01b61d82dba22589d798b6de186e6af14798d0861436f72d65380f",
+    "payload": {
+      "body_hash": "8ab32e8bdfdf92f277ec67be26bf4d15e17002f871f172bb316cb3358bb8b785",
+      "detail": {
+        "arguments": {
+          "content": "one-effect\n",
+          "path": "unknown-result.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "ac6e21c57abce0481d8f390d03541b6ee59147856ca5328794578ae4759b24ff",
+    "sequence": 5,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.496Z",
+    "hash": "4c43cb6d4f83f9051efbca7412f42e5a0e8217c96cf2bc859becd61dbc4fdeea",
+    "payload": {
+      "body_hash": "fa61d7aa12943e59160511725cf20bc91526a5ef3eda49c40d465bbb0acc11ac",
+      "detail": {
+        "code": "BENCHMARK_UNKNOWN_AFTER_WRITE",
+        "message": "controlled fault: write completed but its outcome is unknown",
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "b2b7f776df01b61d82dba22589d798b6de186e6af14798d0861436f72d65380f",
+    "sequence": 6,
+    "type": "tool_unknown"
+  },
+  {
+    "at": "2026-10-28T19:22:41.497Z",
+    "hash": "74191908477baa9565c598287f449fdcd7f4c13b7bccb5f485b4030727ffbfef",
+    "payload": {
+      "body_hash": "919a72b4013eddd7e34c64b2750f4a285e03328d9d760b8e4d950fef900f05ec",
+      "detail": {
+        "cause": "BENCHMARK_UNKNOWN_AFTER_WRITE",
+        "code": "TOOL_OUTCOME_UNKNOWN"
+      }
+    },
+    "prev_hash": "4c43cb6d4f83f9051efbca7412f42e5a0e8217c96cf2bc859becd61dbc4fdeea",
+    "sequence": 7,
+    "type": "task_failed"
+  },
+  {
+    "at": "2026-10-28T19:22:41.499Z",
+    "hash": "cd4958862804d9be78470c3a0439abb9c3a459064e887a114abe4450b94b38cf",
+    "payload": {
+      "body_hash": "d0e3fde6908682808d4706f64df7fa51afeac6304ad9ced887534093449c6135",
+      "detail": {
+        "evidence": {
+          "side_effect": "observed",
+          "workspace": {
+            "unknown-result.txt": {
+              "bytes": 11,
+              "content": "one-effect\n",
+              "sha256": "97615737d762c925759c2efd46726f475ed9673a2979c9ed347820f80d32e95d"
+            }
+          }
+        },
+        "outcome": "unknown",
+        "requires_operator_review": true,
+        "retry_dispatched": false,
+        "round": 1,
+        "side_effect": "observed",
+        "source_event_sequence": 6,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "74191908477baa9565c598287f449fdcd7f4c13b7bccb5f485b4030727ffbfef",
+    "sequence": 8,
+    "type": "recovery_reconciled"
+  }
+]

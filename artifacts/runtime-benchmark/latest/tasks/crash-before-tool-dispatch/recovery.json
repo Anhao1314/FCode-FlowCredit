@@ -1,0 +1,36 @@
+{
+  "evidence": {
+    "process": {
+      "controlled_fault_injection": true,
+      "mode": "before_tool",
+      "pid": 16387,
+      "returncode": -9,
+      "sigkill_confirmed": true,
+      "signal": 9,
+      "stderr": "worker.stderr.txt",
+      "stdout": "worker.stdout.txt"
+    },
+    "side_effect": "not_observed",
+    "workspace": {}
+  },
+  "outcome": "unknown",
+  "process": {
+    "controlled_fault_injection": true,
+    "mode": "before_tool",
+    "pid": 16387,
+    "returncode": -9,
+    "sigkill_confirmed": true,
+    "signal": 9,
+    "stderr": "worker.stderr.txt",
+    "stdout": "worker.stdout.txt"
+  },
+  "recovered": true,
+  "requires_operator_review": false,
+  "retry_dispatched": false,
+  "round": 1,
+  "side_effect": "not_observed",
+  "source_event_sequence": 5,
+  "terminal_status": "failed",
+  "tool": "write_file",
+  "unknown_outcome": true
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "fcode.rea-facts/v1",
+  "target": {
+    "identity": "fixtures/rea/facts-entitlements.json",
+    "version": "1.0.0",
+    "artifact_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "operations": {},
+  "host": {
+    "entitlements": [
+      "com.apple.security.device.audio-input",
+      "com.apple.security.personal-information.calendars"
+    ],
+    "declared_features": ["com.apple.security.device.audio-input"],
+    "signature": {"status": "valid", "tool": "codesign"}
+  },
+  "uncovered": []
+}

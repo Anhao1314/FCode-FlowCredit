@@ -1,0 +1,60 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run Python tests
+        run: python -m unittest discover -s tests
+
+      - name: Run frontend tests
+        run: node --test viewer/tests/*.test.js
+
+      - name: Run all offline demos
+        run: python demo.py all
+
+      - name: Run the versioned offline Runtime task benchmark
+        run: PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/ci
+
+      - name: Smoke-test the zero-configuration entry point
+        run: python demo.py --list
+
+      - name: Check that verification left tracked files unchanged
+        run: git diff --exit-code -- .
+
+  all-checks-passed:
+    name: All checks passed
+    needs: [verify]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every matrix job to succeed
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          if [ "$VERIFY_RESULT" != "success" ]; then
+            echo "Verification matrix result: $VERIFY_RESULT"
+            exit 1
+          fi

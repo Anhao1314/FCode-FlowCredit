@@ -1,0 +1,205 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.089Z",
+    "hash": "cee47570325991e22763c39c620e8481e07758b7a9f846797f6526f822033dd3",
+    "payload": {
+      "body_hash": "cb4c7f328a23b8e4208ec6f1b885f749efdee0e1d3a5866ec4c56b9516ace9ba",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "fa3112ce5a1b4a51c50e32a49c975dc9cb39fcb32489230e661cda0e9ad975d1",
+    "payload": {
+      "body_hash": "cd077ad27638ecfeaa404ae36738de5b4234ececd7220548e22416d9ed245515",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "cee47570325991e22763c39c620e8481e07758b7a9f846797f6526f822033dd3",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "6a9e128e3e9487d72b7e3a0a66cf145f24d6a68a4612413634ec4e36dec93973",
+    "payload": {
+      "body_hash": "84fd96350827f088f1f58195e3e4f673865d4839d9d3d71183528810f6badd26",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "path": "invalid.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "fa3112ce5a1b4a51c50e32a49c975dc9cb39fcb32489230e661cda0e9ad975d1",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "5f9b44183e54e2ae02261e7e2598ff19306c9b007445224048ded5a99289f404",
+    "payload": {
+      "body_hash": "58ade4c6c47c7f53dba41bd0d2bd0f4ad62cf1d9ed6530c96c525e733e745c3b",
+      "detail": {
+        "arguments": {
+          "path": "invalid.txt"
+        },
+        "attempt": 1,
+        "code": "TOOL_ARGUMENTS_INVALID",
+        "message": "write_file requires 'content'",
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "6a9e128e3e9487d72b7e3a0a66cf145f24d6a68a4612413634ec4e36dec93973",
+    "sequence": 4,
+    "type": "proposal_rejected"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "5a1bf139004510261cf339e1c7aa4a900f0405893269792fb0eb72501803f439",
+    "payload": {
+      "body_hash": "d2c869b973e543e90a049f3438769472caa6564013cf45a406775422660bbf26",
+      "detail": {
+        "round": 2
+      }
+    },
+    "prev_hash": "5f9b44183e54e2ae02261e7e2598ff19306c9b007445224048ded5a99289f404",
+    "sequence": 5,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "6ce7e27431f44d174c2699bbc3b07cf14927aa71a34f37481a0198017bbcde7b",
+    "payload": {
+      "body_hash": "10caab2e17ba34fe281923191d601057ded0b801ac0f42860a7cd28dd658dcb5",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "path": "invalid.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 2
+      }
+    },
+    "prev_hash": "5a1bf139004510261cf339e1c7aa4a900f0405893269792fb0eb72501803f439",
+    "sequence": 6,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.090Z",
+    "hash": "a5e70b0bbd3102e58e3dabecf424857934b506a1da4e5e79e4b44e643cba7835",
+    "payload": {
+      "body_hash": "6f87f3c2bda573a5e6ddc38bea0ce7a9b8300b141af52508389ab417c639cb40",
+      "detail": {
+        "arguments": {
+          "path": "invalid.txt"
+        },
+        "attempt": 2,
+        "code": "TOOL_ARGUMENTS_INVALID",
+        "message": "write_file requires 'content'",
+        "round": 2,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "6ce7e27431f44d174c2699bbc3b07cf14927aa71a34f37481a0198017bbcde7b",
+    "sequence": 7,
+    "type": "proposal_rejected"
+  },
+  {
+    "at": "2026-10-28T19:22:41.091Z",
+    "hash": "ae82794f3ab6399b8014854663f7a616f30ccd5278ca660bb835219fecce8c11",
+    "payload": {
+      "body_hash": "31c123947696492eb8578ff17482cee655c40af73dbf069db4edff8e484f2926",
+      "detail": {
+        "round": 3
+      }
+    },
+    "prev_hash": "a5e70b0bbd3102e58e3dabecf424857934b506a1da4e5e79e4b44e643cba7835",
+    "sequence": 8,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.092Z",
+    "hash": "c095764609e4094356260e5d0bf04f4e82c134e93c8c721b4b6fb008b6535973",
+    "payload": {
+      "body_hash": "105d9ae4c402219ea1aa95d34347dd81ce6e7743c15cf0d922dedbf60497c9d5",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "path": "invalid.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 3
+      }
+    },
+    "prev_hash": "ae82794f3ab6399b8014854663f7a616f30ccd5278ca660bb835219fecce8c11",
+    "sequence": 9,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.093Z",
+    "hash": "292dfdaba1246feb330f173349a69b4dbcedd2f2bcb36130a1f9b2d80ee992b3",
+    "payload": {
+      "body_hash": "e638fdaa91d0d74f963eba132e7f114a090876fdd5dd2419a6008d52343fbb7e",
+      "detail": {
+        "code": "TOOL_ARGUMENTS_INVALID",
+        "plan": {
+          "abandoned": 0,
+          "active": 0,
+          "blocked": 0,
+          "done": 0,
+          "pending": 3,
+          "revision": 1,
+          "total": 3
+        },
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "c095764609e4094356260e5d0bf04f4e82c134e93c8c721b4b6fb008b6535973",
+    "sequence": 10,
+    "type": "tool_denied"
+  }
+]

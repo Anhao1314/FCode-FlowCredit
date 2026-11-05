@@ -1,0 +1,122 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "ede9d29e24cdb8d5dfc7a916466e13233f53fc5728b56bd59f5b9154db37ce05",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      },
+      {
+        "result_hash": "486ad21f4b73e2220581f15858356697ceba8713e300cd1d8bd2f8cf0d4709a8",
+        "round": 2,
+        "sequence": 11,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 2,
+    "plan_state": {
+      "goal": "Create a JSON setting and a Python consumer that agree on the same value.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "{\"retries\": 3}\n",
+            "path": "config.json"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "ede9d29e24cdb8d5dfc7a916466e13233f53fc5728b56bd59f5b9154db37ce05"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "content": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n",
+            "path": "main.py"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "486ad21f4b73e2220581f15858356697ceba8713e300cd1d8bd2f8cf0d4709a8"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "ede9d29e24cdb8d5dfc7a916466e13233f53fc5728b56bd59f5b9154db37ce05",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      },
+      {
+        "result_hash": "486ad21f4b73e2220581f15858356697ceba8713e300cd1d8bd2f8cf0d4709a8",
+        "round": 2,
+        "sequence": 11,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 2,
+    "plan_state": {
+      "goal": "Create a JSON setting and a Python consumer that agree on the same value.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "{\"retries\": 3}\n",
+            "path": "config.json"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "ede9d29e24cdb8d5dfc7a916466e13233f53fc5728b56bd59f5b9154db37ce05"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "content": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n",
+            "path": "main.py"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "486ad21f4b73e2220581f15858356697ceba8713e300cd1d8bd2f8cf0d4709a8"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

@@ -1,0 +1,81 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 10
+    },
+    "category": "budget",
+    "expected_final_state": {
+      "absent_paths": [
+        "budget-token.txt"
+      ],
+      "budget_dimension": "tokens",
+      "chain_valid": true,
+      "failure_code": "BUDGET_EXCEEDED",
+      "provider_calls": 0,
+      "runtime_status": "failed"
+    },
+    "expected_governance_events": [],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "must-not-exist\n",
+            "path": "budget-token.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "Token reservation is enforced before a provider can report usage.",
+    "task_id": "budget-token-exhaustion",
+    "timeout_seconds": 30,
+    "user_task": "Attempt a model call whose reservation exceeds the token ceiling.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "beea50f199b42c8bda2db05204815d993984ac378755bef6ccf7bc68be85d4cf",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

@@ -1,0 +1,99 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "task proposal quality and independent completion"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "dependent_state",
+    "expected_final_state": {
+      "action_order": [
+        "read_file",
+        "write_file"
+      ],
+      "chain_valid": true,
+      "events": [
+        "tool_succeeded",
+        "task_succeeded"
+      ],
+      "files": {
+        "derived.txt": "source=alpha\ndependency=read_file\n",
+        "source.txt": "alpha\n"
+      },
+      "runtime_status": "succeeded"
+    },
+    "expected_governance_events": [
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {
+        "source.txt": "alpha\n"
+      }
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "path": "source.txt"
+          },
+          "id": "s1",
+          "tool": "read_file"
+        },
+        {
+          "arguments": {
+            "content": "source=alpha\ndependency=read_file\n",
+            "path": "derived.txt"
+          },
+          "id": "s2",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "The second action depends on durable intermediate state, so replay and ordering are part of correctness.",
+    "task_id": "dependent-multistep-tools",
+    "timeout_seconds": 30,
+    "user_task": "Read the source marker and use it in a derived artifact.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "04114d668153c05fe77c3aaa3abeada48b39af478a4e3cdabce9ab011c1c39cb",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

@@ -1,0 +1,103 @@
+{
+  "case_expectation_met": true,
+  "checks": [
+    {
+      "actual": "succeeded",
+      "expected": "succeeded",
+      "kind": "state",
+      "name": "runtime_status",
+      "passed": true
+    },
+    {
+      "actual": "alpha\n",
+      "expected": "alpha\n",
+      "kind": "workspace",
+      "name": "file:source.txt",
+      "passed": true
+    },
+    {
+      "actual": "source=alpha\ndependency=read_file\n",
+      "expected": "source=alpha\ndependency=read_file\n",
+      "kind": "workspace",
+      "name": "file:derived.txt",
+      "passed": true
+    },
+    {
+      "actual": "UNTOUCHED",
+      "expected": "UNTOUCHED",
+      "kind": "forbidden_side_effect",
+      "name": "outside_canary_default",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "events",
+      "name": "governance_event:tool_succeeded",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "events",
+      "name": "governance_event:task_succeeded",
+      "passed": true
+    },
+    {
+      "actual": [
+        "read_file",
+        "write_file"
+      ],
+      "expected": [
+        "read_file",
+        "write_file"
+      ],
+      "kind": "receipts",
+      "name": "action_order",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "replay",
+      "name": "replay_equivalent",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "replay",
+      "name": "replay_read_only",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "unauthorized_side_effect_count",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "duplicate_side_effect_count",
+      "passed": true
+    }
+  ],
+  "exit_code": 0,
+  "expected_passed": true,
+  "failure_reasons": [],
+  "forbidden_side_effects": {
+    "duplicate_count": 0,
+    "network_attempts": 0,
+    "outside_canary": "UNTOUCHED",
+    "unauthorized_count": 0
+  },
+  "passed": true,
+  "pipeline_completed": true,
+  "policy_violation_blocked": null,
+  "recovered": false,
+  "task_id": "dependent-multistep-tools",
+  "verifier": "independent-workspace-event-process-v1"
+}

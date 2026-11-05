@@ -1,0 +1,82 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 0,
+      "max_tokens": 20000
+    },
+    "category": "budget",
+    "expected_final_state": {
+      "absent_paths": [
+        "budget-read.txt"
+      ],
+      "budget_dimension": "reads",
+      "chain_valid": true,
+      "failure_code": "BUDGET_EXCEEDED",
+      "provider_calls": 1,
+      "runtime_status": "failed",
+      "tool_started": 0
+    },
+    "expected_governance_events": [],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "must-not-exist\n",
+            "path": "budget-read.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "The tool budget gate runs before tool_started and before any side effect.",
+    "task_id": "budget-tool-exhaustion",
+    "timeout_seconds": 30,
+    "user_task": "Attempt a tool action with no remaining tool budget.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "1c7e07238a95bafda201cf548e4e0410c53b3c573d59009ed2a07794cebb9824",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

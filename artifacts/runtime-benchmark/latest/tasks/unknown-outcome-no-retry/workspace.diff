@@ -1,0 +1,4 @@
+--- initial/unknown-result.txt
++++ final/unknown-result.txt
+@@ -0,0 +1 @@
++one-effect

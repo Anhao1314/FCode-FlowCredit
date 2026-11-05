@@ -1,0 +1,37 @@
+{
+  "artifacts": {
+    "diff": "tasks/approval-approved-write/workspace.diff",
+    "events": "tasks/approval-approved-write/events.json",
+    "sqlite": "tasks/approval-approved-write/task.sqlite",
+    "task": "tasks/approval-approved-write/task.json",
+    "verifier": "tasks/approval-approved-write/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "approval",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "approval": "approved",
+    "chain_valid": true,
+    "events": [
+      "approval_requested",
+      "approval_resolved",
+      "tool_succeeded"
+    ],
+    "files": {
+      "approved.txt": "approved=true\n"
+    },
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "approval-approved-write",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

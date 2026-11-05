@@ -1,0 +1,1 @@
+pid=16388 checkpoint=after_handler_before_observation_commit

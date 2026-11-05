@@ -1,0 +1,120 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3",
+        "round": 1,
+        "sequence": 6,
+        "tool": "read_file"
+      },
+      {
+        "result_hash": "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4",
+        "round": 2,
+        "sequence": 11,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 2,
+    "plan_state": {
+      "goal": "Read the source marker and use it in a derived artifact.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "path": "source.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed read_file action",
+          "tool": "read_file"
+        },
+        {
+          "arguments": {
+            "content": "source=alpha\ndependency=read_file\n",
+            "path": "derived.txt"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3",
+        "round": 1,
+        "sequence": 6,
+        "tool": "read_file"
+      },
+      {
+        "result_hash": "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4",
+        "round": 2,
+        "sequence": 11,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 2,
+    "plan_state": {
+      "goal": "Read the source marker and use it in a derived artifact.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "path": "source.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed read_file action",
+          "tool": "read_file"
+        },
+        {
+          "arguments": {
+            "content": "source=alpha\ndependency=read_file\n",
+            "path": "derived.txt"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

@@ -1,0 +1,74 @@
+{
+  "artifacts": {
+    "diff": "tasks/crash-before-tool-dispatch/workspace.diff",
+    "events": "tasks/crash-before-tool-dispatch/events.json",
+    "sqlite": "tasks/crash-before-tool-dispatch/task.sqlite",
+    "task": "tasks/crash-before-tool-dispatch/task.json",
+    "verifier": "tasks/crash-before-tool-dispatch/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "crash_recovery",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "absent_paths": [
+      "before-crash.txt"
+    ],
+    "chain_valid": true,
+    "events": [
+      "tool_started",
+      "recovery_reconciled"
+    ],
+    "recovery": {
+      "retry_dispatched": false,
+      "side_effect": "not_observed"
+    },
+    "runtime_status": "failed"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": "TOOL_OUTCOME_UNKNOWN",
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": true,
+  "recovery": {
+    "evidence": {
+      "process": {
+        "controlled_fault_injection": true,
+        "mode": "before_tool",
+        "pid": 16387,
+        "returncode": -9,
+        "sigkill_confirmed": true,
+        "signal": 9,
+        "stderr": "worker.stderr.txt",
+        "stdout": "worker.stdout.txt"
+      },
+      "side_effect": "not_observed",
+      "workspace": {}
+    },
+    "outcome": "unknown",
+    "process": {
+      "controlled_fault_injection": true,
+      "mode": "before_tool",
+      "pid": 16387,
+      "returncode": -9,
+      "sigkill_confirmed": true,
+      "signal": 9,
+      "stderr": "worker.stderr.txt",
+      "stdout": "worker.stdout.txt"
+    },
+    "recovered": true,
+    "requires_operator_review": false,
+    "retry_dispatched": false,
+    "round": 1,
+    "side_effect": "not_observed",
+    "source_event_sequence": 5,
+    "terminal_status": "failed",
+    "tool": "write_file",
+    "unknown_outcome": true
+  },
+  "replay_equivalent": true,
+  "runtime_status": "failed",
+  "tamper": {},
+  "task_id": "crash-before-tool-dispatch",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

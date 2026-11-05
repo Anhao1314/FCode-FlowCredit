@@ -1,0 +1,13 @@
+# Desktop build-only dependencies. The flowagent runtime remains stdlib-only.
+pyinstaller>=6.10,<7
+pywebview>=5.4,<7
+# pyobjc 12 pulls pyobjc-core 12, whose sdist was yanked because its
+# python_requires wrongly claims Python 3.9; that sdist also fails to compile
+# with the system clang used by macOS's stock python3. Keep the py3.9 build on
+# the last binary-compatible 11.x line.
+pyobjc-core<12; sys_platform == "darwin" and python_version < "3.10"
+pyobjc-framework-Cocoa<12; sys_platform == "darwin" and python_version < "3.10"
+pyobjc-framework-WebKit<12; sys_platform == "darwin" and python_version < "3.10"
+pyobjc-framework-Quartz<12; sys_platform == "darwin" and python_version < "3.10"
+pyobjc-framework-UniformTypeIdentifiers<12; sys_platform == "darwin" and python_version < "3.10"
+pyobjc-framework-security<12; sys_platform == "darwin" and python_version < "3.10"

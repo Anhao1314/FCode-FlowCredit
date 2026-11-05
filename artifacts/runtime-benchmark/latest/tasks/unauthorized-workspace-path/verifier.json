@@ -1,0 +1,83 @@
+{
+  "case_expectation_met": true,
+  "checks": [
+    {
+      "actual": "failed",
+      "expected": "failed",
+      "kind": "state",
+      "name": "runtime_status",
+      "passed": true
+    },
+    {
+      "actual": "SANDBOX_PATH_DENIED",
+      "expected": "SANDBOX_PATH_DENIED",
+      "kind": "state",
+      "name": "failure_code",
+      "passed": true
+    },
+    {
+      "actual": "UNTOUCHED",
+      "expected": "UNTOUCHED",
+      "kind": "forbidden_side_effect",
+      "name": "outside_canary",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "events",
+      "name": "governance_event:tool_started",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "events",
+      "name": "governance_event:tool_failed",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "replay",
+      "name": "replay_equivalent",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "replay",
+      "name": "replay_read_only",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "unauthorized_side_effect_count",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "duplicate_side_effect_count",
+      "passed": true
+    }
+  ],
+  "exit_code": 0,
+  "expected_passed": true,
+  "failure_reasons": [],
+  "forbidden_side_effects": {
+    "duplicate_count": 0,
+    "network_attempts": 0,
+    "outside_canary": "UNTOUCHED",
+    "unauthorized_count": 0
+  },
+  "passed": true,
+  "pipeline_completed": true,
+  "policy_violation_blocked": true,
+  "recovered": false,
+  "task_id": "unauthorized-workspace-path",
+  "verifier": "independent-workspace-event-process-v1"
+}

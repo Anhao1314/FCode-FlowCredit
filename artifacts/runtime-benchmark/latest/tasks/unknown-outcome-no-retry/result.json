@@ -1,0 +1,63 @@
+{
+  "artifacts": {
+    "diff": "tasks/unknown-outcome-no-retry/workspace.diff",
+    "events": "tasks/unknown-outcome-no-retry/events.json",
+    "sqlite": "tasks/unknown-outcome-no-retry/task.sqlite",
+    "task": "tasks/unknown-outcome-no-retry/task.json",
+    "verifier": "tasks/unknown-outcome-no-retry/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "unknown_outcome",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "events": [
+      "tool_unknown",
+      "recovery_reconciled"
+    ],
+    "files": {
+      "unknown-result.txt": "one-effect\n"
+    },
+    "recovery": {
+      "retry_dispatched": false,
+      "side_effect": "observed"
+    },
+    "runtime_status": "failed",
+    "tool_executions": {
+      "write_file": 1
+    }
+  },
+  "expected_verifier_passed": true,
+  "failure_code": "TOOL_OUTCOME_UNKNOWN",
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": true,
+  "recovery": {
+    "evidence": {
+      "side_effect": "observed",
+      "workspace": {
+        "unknown-result.txt": {
+          "bytes": 11,
+          "content": "one-effect\n",
+          "sha256": "97615737d762c925759c2efd46726f475ed9673a2979c9ed347820f80d32e95d"
+        }
+      }
+    },
+    "outcome": "unknown",
+    "recovered": true,
+    "requires_operator_review": true,
+    "retry_dispatched": false,
+    "round": 1,
+    "side_effect": "observed",
+    "source_event_sequence": 6,
+    "terminal_status": "failed",
+    "tool": "write_file",
+    "unknown_outcome": true
+  },
+  "replay_equivalent": true,
+  "runtime_status": "failed",
+  "tamper": {},
+  "task_id": "unknown-outcome-no-retry",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

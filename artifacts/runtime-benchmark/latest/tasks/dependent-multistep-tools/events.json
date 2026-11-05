@@ -1,0 +1,322 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.021Z",
+    "hash": "113841253803df758e308d6d4ba7850843a4c453265371a3c7a3b4fd5199eda4",
+    "payload": {
+      "body_hash": "3f9aa7eb0f667bc3557ad44b0769070cf8093a78dce2575158c5a9ec4125585b",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.022Z",
+    "hash": "10fdf38819c73564becc4c7075a4331728d5d18f8d93ace8fb45ef258d99f2af",
+    "payload": {
+      "body_hash": "2ce865de0ad86f59c5722f31d64f55e14900267b6c937493989d20298cb2b9cb",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "113841253803df758e308d6d4ba7850843a4c453265371a3c7a3b4fd5199eda4",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.022Z",
+    "hash": "83e7b5bd3a3364ec608f089c74f81cf7b06077a1e80b12ea22c8e1f20dd1cf57",
+    "payload": {
+      "body_hash": "ec667431850ab6ec726c38830bc08b0a66d31dadd9db4ebbbef1368299878f2a",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "path": "source.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "read_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "10fdf38819c73564becc4c7075a4331728d5d18f8d93ace8fb45ef258d99f2af",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.022Z",
+    "hash": "d891f14688d702de6f5eaa14bead7b970684e1789a27e12d2f324a51d5e5b1d6",
+    "payload": {
+      "body_hash": "23bf017010ff2fa7d98a20c1a1c862299de4c6d9795894f6f0e0011081090495",
+      "detail": {}
+    },
+    "prev_hash": "83e7b5bd3a3364ec608f089c74f81cf7b06077a1e80b12ea22c8e1f20dd1cf57",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.023Z",
+    "hash": "9d4e6c521885960ad0563a952041f90cd4aaf3982ccabb287d295541e2794268",
+    "payload": {
+      "body_hash": "b0ca9d5c045487cbe479d958dbb29061bf02c67b660e15a696e7a2854d681208",
+      "detail": {
+        "arguments": {
+          "path": "source.txt"
+        },
+        "round": 1,
+        "tool": "read_file"
+      }
+    },
+    "prev_hash": "d891f14688d702de6f5eaa14bead7b970684e1789a27e12d2f324a51d5e5b1d6",
+    "sequence": 5,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.023Z",
+    "hash": "7e7558fe5a01b4fcefcb305aaa062aa688f94770087533941619cf20e083aed0",
+    "payload": {
+      "body_hash": "f4e914abed2b849e9eb06b31b8be900fb82cd8944ed7803ffa4a2f0eda6da0ce",
+      "detail": {
+        "arguments": {
+          "path": "source.txt"
+        },
+        "result": {
+          "bytes": 6,
+          "content": "alpha\n",
+          "path": "source.txt",
+          "sha256": "b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060"
+        },
+        "result_hash": "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3",
+        "round": 1,
+        "tool": "read_file",
+        "tool_version": "1.0"
+      }
+    },
+    "prev_hash": "9d4e6c521885960ad0563a952041f90cd4aaf3982ccabb287d295541e2794268",
+    "sequence": 6,
+    "type": "tool_succeeded"
+  },
+  {
+    "at": "2026-10-28T19:22:41.023Z",
+    "hash": "a4e5a9f7895f2bb9651bd93508846f21d62d468d13e562d8617c622e9b025ca4",
+    "payload": {
+      "body_hash": "316ee2c50292b33c2cec2073be67efbe049e8562609dacc71cbd0dd78b0dd691",
+      "detail": {
+        "plan": {
+          "goal": "Read the source marker and use it in a derived artifact.",
+          "revision": 1,
+          "todos": [
+            {
+              "arguments": {
+                "path": "source.txt"
+              },
+              "done_when": "observed:s1",
+              "evidence": [
+                "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3"
+              ],
+              "id": "s1",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed read_file action",
+              "tool": "read_file"
+            },
+            {
+              "arguments": {
+                "content": "source=alpha\ndependency=read_file\n",
+                "path": "derived.txt"
+              },
+              "done_when": "observed:s2",
+              "evidence": [],
+              "id": "s2",
+              "reason": "",
+              "required": true,
+              "status": "pending",
+              "text": "Execute proposed write_file action",
+              "tool": "write_file"
+            }
+          ]
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "7e7558fe5a01b4fcefcb305aaa062aa688f94770087533941619cf20e083aed0",
+    "sequence": 7,
+    "type": "plan_updated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.023Z",
+    "hash": "582905cabe8340f8a7e10bc061c156d76c56e33b65d2d1e53a4241461a5bb8de",
+    "payload": {
+      "body_hash": "f3b52429eb290384dc415881d60feff2b1f169cd707e92f95f039975e75f75bf",
+      "detail": {
+        "round": 2
+      }
+    },
+    "prev_hash": "a4e5a9f7895f2bb9651bd93508846f21d62d468d13e562d8617c622e9b025ca4",
+    "sequence": 8,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.024Z",
+    "hash": "7b592338d4121a29978334945befc3de4f24a4c4514c5d57e8a8694e135b89ce",
+    "payload": {
+      "body_hash": "f8d789ba032e78e264060ee63f1846c56bf8062e005a69cd0f1076edc82e90fd",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "source=alpha\ndependency=read_file\n",
+                "path": "derived.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s2",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 2
+      }
+    },
+    "prev_hash": "582905cabe8340f8a7e10bc061c156d76c56e33b65d2d1e53a4241461a5bb8de",
+    "sequence": 9,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.024Z",
+    "hash": "e911a9e49ec5d95b50e8686d08242a3686d228d8b42267d0d5cf0bc7f6647eaf",
+    "payload": {
+      "body_hash": "e79c7157f60a17a9939fb415d1f7fa57128102e0ef76d7cfe4aa75dc42fca32e",
+      "detail": {
+        "arguments": {
+          "content": "source=alpha\ndependency=read_file\n",
+          "path": "derived.txt"
+        },
+        "round": 2,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "7b592338d4121a29978334945befc3de4f24a4c4514c5d57e8a8694e135b89ce",
+    "sequence": 10,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.081Z",
+    "hash": "f8af76c1270d7629652f7fd7b364f5bd66ce1e74011ebc1417f84048f7fc6adc",
+    "payload": {
+      "body_hash": "878df3faee98661d269dbbc3e5b1a8dd4f60ae6e2881a0ee71baae2ea11c1d3d",
+      "detail": {
+        "arguments": {
+          "content": "source=alpha\ndependency=read_file\n",
+          "path": "derived.txt"
+        },
+        "result": {
+          "bytes": 34,
+          "changed": true,
+          "commit": "1f1210e",
+          "computed": true,
+          "diff": "--- a/derived.txt\n+++ b/derived.txt\n@@ -0,0 +1,2 @@\n+source=alpha\n+dependency=read_file\n",
+          "path": "derived.txt",
+          "sha256_after": "e16c2f81be710ebb2aea907b3e9c3d344074acdd1a2a5ad6308b1f59207c164e",
+          "sha256_before": null,
+          "truncated": false
+        },
+        "result_hash": "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4",
+        "round": 2,
+        "tool": "write_file",
+        "tool_version": "1.0"
+      }
+    },
+    "prev_hash": "e911a9e49ec5d95b50e8686d08242a3686d228d8b42267d0d5cf0bc7f6647eaf",
+    "sequence": 11,
+    "type": "tool_succeeded"
+  },
+  {
+    "at": "2026-10-28T19:22:41.081Z",
+    "hash": "2c1f5d937701ffd6cc82712cd2a9a57b0d2da025e7ecf5d8da75f7a99e659f02",
+    "payload": {
+      "body_hash": "41f79c1a8d58daf1149d9feb0a311b5d58b73b9237a55a76e3e1f59545637a0a",
+      "detail": {
+        "plan": {
+          "goal": "Read the source marker and use it in a derived artifact.",
+          "revision": 1,
+          "todos": [
+            {
+              "arguments": {
+                "path": "source.txt"
+              },
+              "done_when": "observed:s1",
+              "evidence": [
+                "338b520131b49eaa3881ee1a8da874fe7aada918935aa0558f75c549ceae24d3"
+              ],
+              "id": "s1",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed read_file action",
+              "tool": "read_file"
+            },
+            {
+              "arguments": {
+                "content": "source=alpha\ndependency=read_file\n",
+                "path": "derived.txt"
+              },
+              "done_when": "observed:s2",
+              "evidence": [
+                "7a38b0dd2ac8d21252f88f68f793836b1482b868810326b280c66bf817de3df4"
+              ],
+              "id": "s2",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed write_file action",
+              "tool": "write_file"
+            }
+          ]
+        },
+        "round": 2
+      }
+    },
+    "prev_hash": "f8af76c1270d7629652f7fd7b364f5bd66ce1e74011ebc1417f84048f7fc6adc",
+    "sequence": 12,
+    "type": "plan_updated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.082Z",
+    "hash": "dcc9b6f94b528f1784da8195879a29c61f170676716a045c540cd6fe7587462c",
+    "payload": {
+      "body_hash": "9c15faaa04dd885dce39f7af4a7a228eb649c411bf808cf3a592f4a8416e7d1c",
+      "detail": {}
+    },
+    "prev_hash": "2c1f5d937701ffd6cc82712cd2a9a57b0d2da025e7ecf5d8da75f7a99e659f02",
+    "sequence": 13,
+    "type": "verification_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.082Z",
+    "hash": "cd5734aeded6c4142072610176634e0f69683b1702028739caaee6d58e54b4f7",
+    "payload": {
+      "body_hash": "ddb8692b677049dcce5c1b5b6fb0245086d2697bd00ac46bbbf20e1cb2caba25",
+      "detail": {}
+    },
+    "prev_hash": "dcc9b6f94b528f1784da8195879a29c61f170676716a045c540cd6fe7587462c",
+    "sequence": 14,
+    "type": "task_succeeded"
+  }
+]

@@ -1,0 +1,92 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "crash_recovery",
+    "crash": {
+      "mode": "before_tool"
+    },
+    "expected_final_state": {
+      "absent_paths": [
+        "before-crash.txt"
+      ],
+      "chain_valid": true,
+      "events": [
+        "tool_started",
+        "recovery_reconciled"
+      ],
+      "recovery": {
+        "retry_dispatched": false,
+        "side_effect": "not_observed"
+      },
+      "runtime_status": "failed"
+    },
+    "expected_governance_events": [
+      "tool_started",
+      "recovery_reconciled"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "must-not-exist\n",
+            "path": "before-crash.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "A real SIGKILL before dispatch must recover as unknown without inventing a side effect or retrying.",
+    "task_id": "crash-before-tool-dispatch",
+    "timeout_seconds": 30,
+    "user_task": "Kill the Runtime after tool_started but before the write handler.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "3609dac4a9a0429633b9ff89f3d2fb13a3c9dc78cd10cd63c6c01b30de8c3cdc",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

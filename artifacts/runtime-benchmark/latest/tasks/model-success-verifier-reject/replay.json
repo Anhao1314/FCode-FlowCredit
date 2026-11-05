@@ -1,0 +1,78 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "10dc6550df7ab8630441701048de4099c08a5248594a7bb32a07a583f877cbe0",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "The model claims done after writing a plausible but wrong answer.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "release=wrong\n",
+            "path": "answer.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "10dc6550df7ab8630441701048de4099c08a5248594a7bb32a07a583f877cbe0"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "10dc6550df7ab8630441701048de4099c08a5248594a7bb32a07a583f877cbe0",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "The model claims done after writing a plausible but wrong answer.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "release=wrong\n",
+            "path": "answer.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "10dc6550df7ab8630441701048de4099c08a5248594a7bb32a07a583f877cbe0"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

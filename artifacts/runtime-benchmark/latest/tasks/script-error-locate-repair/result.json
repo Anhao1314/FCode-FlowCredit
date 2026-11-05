@@ -1,0 +1,52 @@
+{
+  "artifacts": {
+    "diff": "tasks/script-error-locate-repair/workspace.diff",
+    "events": "tasks/script-error-locate-repair/events.json",
+    "sqlite": "tasks/script-error-locate-repair/task.sqlite",
+    "task": "tasks/script-error-locate-repair/task.json",
+    "verifier": "tasks/script-error-locate-repair/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "script_repair",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "command": {
+      "args": [
+        "calc.py"
+      ],
+      "exit_code": 0,
+      "program": "python3",
+      "stdout": "start\nfixed\n"
+    },
+    "command_observations": [
+      1,
+      0
+    ],
+    "events": [
+      "edit_file",
+      "task_succeeded"
+    ],
+    "file_contains": {
+      "calc.py": [
+        "print(\"fixed\")"
+      ],
+      "result.txt": [
+        "fixed"
+      ]
+    },
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "script-error-locate-repair",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

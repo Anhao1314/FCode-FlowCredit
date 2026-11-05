@@ -1,0 +1,40 @@
+{
+  "artifacts": {
+    "diff": "tasks/dependent-multistep-tools/workspace.diff",
+    "events": "tasks/dependent-multistep-tools/events.json",
+    "sqlite": "tasks/dependent-multistep-tools/task.sqlite",
+    "task": "tasks/dependent-multistep-tools/task.json",
+    "verifier": "tasks/dependent-multistep-tools/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "dependent_state",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "action_order": [
+      "read_file",
+      "write_file"
+    ],
+    "chain_valid": true,
+    "events": [
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "files": {
+      "derived.txt": "source=alpha\ndependency=read_file\n",
+      "source.txt": "alpha\n"
+    },
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "dependent-multistep-tools",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

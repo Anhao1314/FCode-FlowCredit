@@ -1,0 +1,8 @@
+# 本地运行产物
+work/
+.venv-desktop/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

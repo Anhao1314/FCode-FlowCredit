@@ -1,0 +1,10 @@
+{
+  "_comment": "Host-reviewed extension only. Built-in rules cannot be removed or downgraded. Never place credentials in this file.",
+  "commands": [
+    {
+      "program": "ruff",
+      "readonly": true,
+      "argPolicy": "free"
+    }
+  ]
+}

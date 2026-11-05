@@ -1,0 +1,102 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "task proposal quality and independent completion"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "multi_file",
+    "expected_final_state": {
+      "chain_valid": true,
+      "command": {
+        "args": [
+          "main.py"
+        ],
+        "exit_code": 0,
+        "program": "python3",
+        "stdout": "3\n"
+      },
+      "events": [
+        "tool_succeeded",
+        "task_succeeded"
+      ],
+      "files": {
+        "config.json": "{\"retries\": 3}\n",
+        "main.py": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n"
+      },
+      "runtime_status": "succeeded"
+    },
+    "expected_governance_events": [
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "{\"retries\": 3}\n",
+            "path": "config.json"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "content": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n",
+            "path": "main.py"
+          },
+          "id": "s2",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "Two individually valid writes can still disagree; the verifier checks their relationship by execution.",
+    "task_id": "multi-file-related-change",
+    "timeout_seconds": 30,
+    "user_task": "Create a JSON setting and a Python consumer that agree on the same value.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "25cd0372066b7b99d8457a286fa8122f5d26cd2afc8247c6ce5d6163d3253369",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

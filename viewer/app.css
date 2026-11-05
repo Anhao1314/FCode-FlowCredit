@@ -1,0 +1,327 @@
+/* ============================================================ FCode console — tokens + 布局层（样式栈第一加载）
+   加载顺序见 index.html <head>：app.css → desktop.css → design.css →
+   chat.css → kimi.css → moonshot.css → workspace.css。
+   app.css 承担三件事：
+   1. :root 设计令牌（本文件顶部）——全站唯一的令牌定义处，任何其他文件只
+      允许消费 var(--*)，不得再声明或改写令牌（kimi.css / workspace.css /
+      desktop.css / design.css 的历史改写块已移除；取值以浏览器实测的最终
+      生效值为基准收敛于此）。
+   2. 基础 reset 与全局基元：box-sizing、::selection、焦点环令牌 --focus-ring。
+   3. 外壳几何：shell / 侧栏 / 主区 / 右栏的盒模型、滚动容器、浮层定位、
+      响应式堆叠与可见性。
+   组件视觉（排版、边框、圆角、图标、动效）在 design.css 等后续文件，它们
+   在本文件之后加载，可以覆盖这里的任何非令牌规则。 */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 表面：三层浅色（黑白灰基调）----------------------------------------
+     --canvas  页面画布：近白，最亮的底也是滚动区的底；
+     --panel   面板：浅灰，侧栏、卡片等一切"躺在画布上"的表面；
+     --raised  悬浮/置顶：纯白，浮层、菜单、命令面板、当前选中项。 */
+  --canvas: #fbfbfb;
+  --panel: #f3f3f3;
+  --raised: #ffffff;
+  /* 代码 / 输出等嵌入面：比面板再沉一档，白底上的浅灰阅读井 */
+  --inset: #f5f5f5;
+
+  /* ---- 线与圆角 ---------------------------------------------------------------
+     统一 1px 黑 7.5% 描边；--line-soft 更轻一档（卡内分隔线），--line-strong
+     用于需要比邻居更高一级的边（悬浮层描边、当前项指示）。
+     圆角：控件 9px / 卡片 14px / 胶囊 999px / composer 舞台连体胶囊 24px /
+     菜单浮层 10px。 */
+  --line: rgba(0, 0, 0, .075);
+  --line-soft: rgba(0, 0, 0, .06);
+  --line-strong: rgba(0, 0, 0, .14);
+  --radius: 9px;
+  --radius-card: 14px;
+  --radius-pill: 999px;
+  --radius-stage: 24px;
+  --radius-menu: 10px;
+  --shadow-stage: 0 1px 2px rgba(0, 0, 0, .025), 0 8px 28px rgba(0, 0, 0, .045);
+
+  /* ---- 文字：四档黑 ------------------------------------------------------------
+     --text-1 主文字（结论、标题、正文）：88% 黑；
+     --text-2 次级（说明、元信息标签）；
+     --text-3 弱化（分组标题、占位符、禁用态）；
+     --text-4 最弱（键位提示、序号等装饰文字）。 */
+  --text-1: rgba(0, 0, 0, .88);
+  --text-2: rgba(0, 0, 0, .58);
+  --text-3: rgba(0, 0, 0, .42);
+  --text-4: rgba(0, 0, 0, .28);
+
+  /* ---- 强调色：全站唯一 --------------------------------------------------------
+     近黑 #111 只允许出现在：主按钮、当前项、焦点环、进行中动画。
+     状态语义（通过 / 拒绝 / 警告）用下面三个语义色，不做装饰。 */
+  --accent: #111;
+  --accent-soft: rgba(0, 0, 0, .055);
+  --accent-line: rgba(0, 0, 0, .24);
+  /* 焦点环基元：design.css / workspace.css 的 :focus-visible 规则消费 */
+  --focus-ring: 2px solid rgba(0, 0, 0, .55);
+
+  /* ---- 语义状态色：只表达状态，配小圆点使用，不做大面积色块 --------------------
+     白底对比度校准的深色档：绿 #15803D（4.6:1）、红 #DC2626（4.5:1）、琥珀
+     #B45309（4.6:1）。原 kimi.css 亮绿/红/橙（#16C456/#FF3849/#FF9500）随其
+     令牌块移除——黑白灰语言下语义色取深不取亮。 */
+  --ok: #15803D;                                /* PASS / 链验证通过 */
+  --ok-soft: rgba(21, 128, 61, .10);
+  --bad: #DC2626;                               /* DENIED / 失败 / 链验证失败 */
+  --bad-soft: rgba(220, 38, 38, .08);
+  --warn: #B45309;                              /* unknown / 警告 / 等待审批 */
+  --warn-soft: rgba(180, 83, 9, .10);
+  /* 过渡别名：kimi.css / workspace.css 的视图规则仍消费 --ok-ink/--bad-ink，
+     映射到同值语义色；后续视图迁移时随消费规则一并清理。 */
+  --ok-ink: var(--ok);
+  --bad-ink: var(--bad);
+
+  /* ---- 字体：系统栈 + 等宽 ------------------------------------------------------
+     界面正文用系统无衬线；所有哈希、时间戳、预算数字用 ui-monospace，
+     数字密集处配 font-variant-numeric: tabular-nums 对齐。 */
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Hiragino Sans GB", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* ---- 字号四档：14 / 14 / 15 / 18 --------------------------------------------
+     以此前全站最后生效的字阶为准（原 kimi.css:531-536 定稿）：--fs-5 18px 是
+     页面/会话标题（T1），design.css 多处 var(--fs-5) 消费，取 20px 会放大标题。 */
+  --fs-2: 14px;
+  --fs-3: 14px;
+  --fs-4: 15px;
+  --fs-5: 18px;
+
+  /* ---- 动效：150ms 交互 / 300ms 淡入，统一缓出曲线 ------------------------------ */
+  --t: 150ms;
+  --t-fade: 300ms;
+  --ease: cubic-bezier(.23, 1, .32, 1);
+
+  /* ---- 旧别名（收缩后仅剩一条，有活跃消费者）--------------------------------
+     --active：app.css/design.css/chat.css 共 50+ 处悬停底色。
+     其余旧别名（--bg/--card/--ink/--paper/--green/
+     --red/--r-card/--space-* 等约 44 条）经精确 grep 确认零消费者，已删除；
+     消费者要么就地改写为正式令牌（--ink-2/3→--text-2/3、--red→--bad、--green→--ok、
+     --ink→--text-1），要么本就无引用。 */
+  --active: rgba(0, 0, 0, .055);
+  /* 结构层尺寸：侧栏 / 图标 rail / 阅读列 / 证据栏（原 workspace.css 覆写值定稿；
+     --sidebar-w 仍被 app.js 侧栏拖宽 setProperty 行内覆写，不受此处影响） */
+  --sidebar-w: 252px;
+  --sidebar-rail-w: 56px;
+  --reading-w: 780px;
+  --work-w: 1180px;
+  --evidence-w: 380px;
+  --motion-fast: var(--t);
+  --motion-page: var(--t-fade);
+  --ease-paper: var(--ease);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; }
+/* 全局基元：选区反色（黑白灰语言下唯一允许的"实心"效果之一） */
+::selection { background: #1a1a1a; color: #fff; }
+.grow { flex: 1; min-width: 0; }
+
+.shell { display: flex; height: 100vh; }
+
+/* ================================================================ sidebar（左区：委托导航） */
+.sidebar-frame {
+  position: relative; flex: none; width: var(--sidebar-w); min-height: 0;
+  border-right: 0; /* 分隔靠 --panel 与 --canvas 的色差，不画线 */
+  transition: width 200ms var(--ease); z-index: 60;
+}
+.sidebar {
+  position:absolute; inset:0 auto 0 0; width:var(--sidebar-w);
+  display:flex; flex-direction:column; min-height:0; padding:10px 8px 8px;
+  transition:transform 200ms var(--ease), opacity 200ms var(--ease);
+}
+.app.side-collapsed .sidebar-frame { width:0; border-right:0; }
+.app.side-collapsed .sidebar {
+  width:0; padding:10px 0 8px; overflow:visible; pointer-events:none;
+}
+/* 折叠态只留折叠钮可见：其余内容 visibility 隐藏（不用 opacity，
+   否则悬浮展开钮作为子节点会一起消失） */
+.app.side-collapsed .sidebar > *:not(.side-head),
+.app.side-collapsed .side-head > *:not(#sidebar-toggle) { visibility: hidden; }
+/* 折叠后唯一的留痕：左上角悬浮展开钮（对齐 kimi.com）。
+   按钮是 sidebar 的子节点，fixed 定位让它脱离零宽容器继续可见可点。 */
+.app.side-collapsed #sidebar-toggle {
+  position: fixed; top: 14px; left: 14px; z-index: 120;
+  visibility: visible; pointer-events: auto;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  background: var(--raised); border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.side-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 12px; }
+.side-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 2px; }
+.side-foot {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  border-top: 1px solid var(--line); margin-top: 8px; padding: 6px 6px 2px;
+}
+.side-user {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 10px;
+  background: none; color: var(--text-2); font-size: var(--fs-2);
+  cursor: pointer; text-align: left;
+  transition: background-color var(--t) ease;
+}
+.side-user:hover { background: var(--active); }
+.side-user[aria-expanded="true"] { background: var(--active); }
+.side-user .side-gear { display: grid; place-items: center; margin-left: auto;
+  width: 22px; height: 22px; color: var(--text-3); }
+.foot-menu {
+  position: absolute; left: 8px; right: 8px; bottom: calc(100% + 8px); z-index: 130;
+  background: var(--raised); border: 1px solid var(--line-strong); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.12); padding: 6px;
+  transform-origin: bottom left;
+  animation: footIn 150ms var(--ease);
+}
+@keyframes footIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.foot-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-1); font-size: var(--fs-3);
+  cursor: pointer; text-align: left;
+  transition: background-color var(--t) ease;
+}
+.foot-item:hover { background: var(--active); }
+.foot-item svg, .foot-item .d-icon { color: var(--text-3); }
+.foot-meta {
+  padding: 8px 10px 4px; border-top: 1px solid var(--line); margin-top: 4px;
+  font-size: 10.5px; color: var(--text-3);
+}
+/* 折叠态：foot 收成图标，弹窗改从左侧浮出 */
+.app.side-collapsed .side-user { justify-content: center; padding: 6px 4px; }
+.app.side-collapsed .side-user .foot-text { display: none; }
+.app.side-collapsed .foot-menu { left: calc(100% + 10px); bottom: 0; right: auto; width: 224px; }
+/* 图标 rail 只保留可辨识的操作；文字标签在 CSS 层隐藏，DOM 功能不删。 */
+.app.side-collapsed .sidebar .side-brand,
+.app.side-collapsed .sidebar .brand-mark,
+.app.side-collapsed .sidebar .kbtn,
+.app.side-collapsed .sidebar .side-new > span:last-child,
+.app.side-collapsed .sidebar .side-desk > span:nth-child(2),
+.app.side-collapsed .sidebar .side-count,
+.app.side-collapsed .sidebar .side-section span,
+.app.side-collapsed .sidebar .session .slabel,
+.app.side-collapsed .sidebar .session .smeta,
+.app.side-collapsed .sidebar .foot-text { display:none; }
+.app.side-collapsed .sidebar:focus-within .side-brand,
+.app.side-collapsed .sidebar:focus-within .brand-mark,
+.app.side-collapsed .sidebar:focus-within .kbtn,
+.app.side-collapsed .sidebar:focus-within .side-new > span:last-child,
+.app.side-collapsed .sidebar:focus-within .side-desk > span:nth-child(2),
+.app.side-collapsed .sidebar:focus-within .side-count,
+.app.side-collapsed .sidebar:focus-within .side-section span,
+.app.side-collapsed .sidebar:focus-within .session .slabel,
+.app.side-collapsed .sidebar:focus-within .session .smeta,
+.app.side-collapsed .sidebar:focus-within .foot-text { display:block; }
+.app.side-collapsed .sidebar .side-search { padding:5px 7px; }
+.app.side-collapsed .sidebar .side-search input { display:none; }
+
+.app.side-collapsed .sidebar:focus-within .side-search input { display:block; }
+
+/* ============================================================== workspace */
+.workspace { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  height: 50px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 18px; border-bottom: 1px solid var(--line);
+}
+
+.content { flex: 1; min-height: 0; display: flex; }
+.center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-height: 0; overflow-y: auto; }
+.main-inner {
+  width:100%; max-width: calc(var(--reading-w) + 64px); margin:0 auto;
+  padding:26px 32px 44px;
+}
+.result .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 2px 14px 8px; }
+
+/* ================================================================== rail（证据详情区）
+   旧浮层定位已迁往 desktop.css「rail 双形态」节（停靠/浮层两形态 + 关闭态
+   visibility 修复）；rail-head/rail-body 的内边距与描边由 workspace.css 的
+   rail 细节规则承接，此处只留布局基元之外无重复。 */
+
+/* ============================================================== composer */
+.composer-wrap { flex:none; padding:0 32px 20px; }
+.composer { max-width:var(--reading-w); margin:0 auto; }
+
+/* =============================================================== palette */
+.palette { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center; }
+.palette[hidden] { display: none; }
+
+/* ================================================================ a11y 窄屏 */
+@media (max-width: 900px) {
+  .sidebar-frame { width:0; overflow:visible; }
+  .sidebar { transform:translateX(-102%); opacity:0; pointer-events:none; }
+  .sidebar:hover, .sidebar:focus-within { transform:translateX(0); opacity:1; pointer-events:auto; }
+  .topbar { padding:0 12px; }
+  .main-inner { max-width:100%; padding:18px 14px 28px; }
+  .composer-wrap { padding:0 12px 12px; }
+  .result .metrics { grid-template-columns:repeat(3,1fr); }
+}
+
+/* ================================================== 会话 tabs（多运行并行） */
+.tabs {
+  display: flex; align-items: stretch; gap: 2px; flex: none;
+  padding: 6px 14px 0; border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none;
+}
+
+/* ============================================================ 报告签发 */
+.report-layer { position: fixed; inset: 0; z-index: 150; display: flex; }
+.report-layer[hidden] { display: none; }
+
+/* ============================================================== 状态行 */
+.statusline {
+  display: flex; align-items: center; gap: 14px; flex: none; height: 26px;
+  padding: 0 16px; overflow: hidden; white-space: nowrap;
+  border-top: 1px solid var(--line);
+}
+.statusline .sl-left, .statusline .sl-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.statusline .sl-right { margin-left: auto; }
+
+/* 主区切换：聊天 / 设置 */
+/* 全覆盖页面：接管整个界面（对齐 kimi 的设置页形态）——侧栏一并收起 */
+#app.settings-open .sidebar-frame { width: 0; overflow: hidden; }
+#app.settings-open .sidebar { opacity: 0; pointer-events: none; }
+#workspace.settings-open > .topbar,
+#workspace.settings-open > .tabs,
+#workspace.settings-open > .content,
+#workspace.settings-open > .composer-wrap,
+#workspace.settings-open > .statusline { display: none; }
+#app.intake-mode .rail { display: none; }
+#app.intake-mode .chain-pill { visibility: hidden; }
+#app.intake-mode .statusline { display: none; }
+#app.intake-mode #template-btn,
+#app.intake-mode #approval-btn,
+#app.intake-mode #model-btn,
+#app.intake-mode #composer-open,
+#app.intake-mode .run-chip,
+#app.intake-mode .composer-bar .c-btn.static { display: none; }
+
+
+/* 侧栏复刻令牌（--k-*）：原 thread.css「黑灰化定稿」的 :root 块迁入。
+   仍有消费者的中性与反白档；--k-flavor 作为 #111 黑色accent 仍被
+   桌面滚动条渐变与 live 状态环引用。 */
+:root {
+  --k-fill-1: rgba(0, 0, 0, .03);
+  --k-fill-2: rgba(0, 0, 0, .05);
+  --k-label-2: rgba(0, 0, 0, .6);
+  --k-label-3: rgba(0, 0, 0, .45);
+  --k-flavor: #111;
+  --k-label-1-hover: #0e0e0ee7;
+  --k-fill-1-hover: #0000000f;
+  --k-fill-1-invert: rgba(255, 255, 255, .05);
+  --k-fill-2-active: #00000019;
+  --k-white: #fff;
+}
+
+/* Moonshot stage 专属变量（非全局令牌，仅 stage-mode 使用）。
+   必须有 :root 包裹——裸声明是非法 CSS，会被解析器整段丢弃，
+   所有 var(--moonshot-mono) 字体声明随之失效回退 sans（首页标题字形
+   互相碰撞的根因）。 */
+:root {
+  --moonshot-black: #0a0a0a;
+  --moonshot-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+

@@ -1,0 +1,77 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.096Z",
+    "hash": "368228e48f5e2c3f92d2938704e83767b5c5e454c0dd1bf177d9a147bdb8a618",
+    "payload": {
+      "body_hash": "17b08eb8b2881da0c8d4dffc545d7511de4479f290d9d5f42f3dd71d1f703fa2",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.097Z",
+    "hash": "277dd23127dd665b84cbc26263e42698576b80bc275d24cd3d31a5ed1acd9761",
+    "payload": {
+      "body_hash": "98d12630406a087f9952df9508151e8e5b980da3f88826c355b02370c1f37a91",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "368228e48f5e2c3f92d2938704e83767b5c5e454c0dd1bf177d9a147bdb8a618",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.097Z",
+    "hash": "7c32c87333b1c928523c3d5de07423788f1506d1347f4c3dd8dcfa77b09c1913",
+    "payload": {
+      "body_hash": "f7148f299d2e81f1b0b182d6de3df241337a7b8f219afd3a23f35b7f8197d8dd",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {},
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "unregistered_action"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "277dd23127dd665b84cbc26263e42698576b80bc275d24cd3d31a5ed1acd9761",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.097Z",
+    "hash": "a4118899dfb269838b6174605294d5b6da10ae5294e1c4b74c1b167acd826876",
+    "payload": {
+      "body_hash": "5cc91aef34f2d0fc90896f2e8da92de595b91f6a8e38ab8cbb2972ce67559110",
+      "detail": {
+        "code": "TOOL_NOT_REGISTERED",
+        "plan": {
+          "abandoned": 0,
+          "active": 0,
+          "blocked": 0,
+          "done": 0,
+          "pending": 1,
+          "revision": 1,
+          "total": 1
+        },
+        "tool": "unregistered_action"
+      }
+    },
+    "prev_hash": "7c32c87333b1c928523c3d5de07423788f1506d1347f4c3dd8dcfa77b09c1913",
+    "sequence": 4,
+    "type": "tool_denied"
+  }
+]

@@ -1,0 +1,5 @@
+--- initial/derived.txt
++++ final/derived.txt
+@@ -0,0 +1,2 @@
++source=alpha
++dependency=read_file

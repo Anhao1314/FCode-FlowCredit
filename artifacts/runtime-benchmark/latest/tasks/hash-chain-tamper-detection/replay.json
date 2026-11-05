@@ -1,0 +1,78 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "148621b35b8be50220a8c987ba05be982265606f8740d22719c0d41588062163",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "Modify one historical event after a valid run and require exact detection.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "chain-me\n",
+            "path": "audit.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "148621b35b8be50220a8c987ba05be982265606f8740d22719c0d41588062163"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "148621b35b8be50220a8c987ba05be982265606f8740d22719c0d41588062163",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 1,
+    "plan_state": {
+      "goal": "Modify one historical event after a valid run and require exact detection.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "chain-me\n",
+            "path": "audit.txt"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "148621b35b8be50220a8c987ba05be982265606f8740d22719c0d41588062163"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

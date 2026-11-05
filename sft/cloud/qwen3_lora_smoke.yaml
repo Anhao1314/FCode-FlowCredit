@@ -1,0 +1,45 @@
+### FCode SFT — smoke run (T4 16GB, QLoRA)
+### Goal: prove the pipeline end to end in ~15 minutes, not to learn anything.
+model_name_or_path: /root/fcode-sft/models/Qwen3-4B-Instruct-2507
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+quantization_bit: 4
+quantization_method: bnb
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target: all
+
+### dataset
+dataset: fcode_sft_smoke
+template: qwen3
+cutoff_len: 2048
+overwrite_cache: true
+preprocessing_num_workers: 2
+dataloader_num_workers: 0
+
+### output
+output_dir: /root/fcode-sft/saves/smoke
+logging_steps: 1
+save_steps: 50
+plot_loss: true
+overwrite_output_dir: true
+report_to: none
+
+### train
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-4
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+fp16: true
+gradient_checkpointing: true
+optim: paged_adamw_8bit
+
+### eval (smoke: no held-out split; the real eval is the runtime)
+val_size: 0.0

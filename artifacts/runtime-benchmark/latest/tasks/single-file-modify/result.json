@@ -1,0 +1,36 @@
+{
+  "artifacts": {
+    "diff": "tasks/single-file-modify/workspace.diff",
+    "events": "tasks/single-file-modify/events.json",
+    "sqlite": "tasks/single-file-modify/task.sqlite",
+    "task": "tasks/single-file-modify/task.json",
+    "verifier": "tasks/single-file-modify/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "single_file",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "events": [
+      "plan_validated",
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "files": {
+      "answer.txt": "release=verified\n"
+    },
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "single-file-modify",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

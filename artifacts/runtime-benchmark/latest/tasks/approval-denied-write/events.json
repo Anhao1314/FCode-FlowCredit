@@ -1,0 +1,115 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.193Z",
+    "hash": "e3a4c6acd27fbd4d36535fa9f48513f5267095b19c210d59c1ad4da448c05694",
+    "payload": {
+      "body_hash": "a5ecc82765f751ced3315b4445d19e30032ce824f56343396209e2f716aa33ae",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.194Z",
+    "hash": "1b16f271de86426e5e36ea15c6be1cef99d66886a66af46effa9ae88df3dea6b",
+    "payload": {
+      "body_hash": "8fd488974cd43e0e29b6c1152910e1f2ed7c54ac5c0cb86c743bd6619ce164f4",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "e3a4c6acd27fbd4d36535fa9f48513f5267095b19c210d59c1ad4da448c05694",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.194Z",
+    "hash": "f803961124e8a1e57efce0e9894a4260f05856c64ae8a8e5e6e08be846e2631a",
+    "payload": {
+      "body_hash": "147b2270ac32b4f814727983e5c37431f5c02d97e9464ef1ecdca404cebb212e",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "must-not-exist\n",
+                "path": "rejected.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "1b16f271de86426e5e36ea15c6be1cef99d66886a66af46effa9ae88df3dea6b",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.194Z",
+    "hash": "b813c4f0d2d1b6eafffdc95e947c870f90ea5f96ba4afcdb7055c4c441d55cb8",
+    "payload": {
+      "body_hash": "4cdc565a98e7ed94d7b26f7f6919b86ce14c210361af51c2c27c4805e33a9dec",
+      "detail": {
+        "approval_id": "approval-approval-denied-write-1",
+        "arguments": {
+          "content": "must-not-exist\n",
+          "path": "rejected.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "f803961124e8a1e57efce0e9894a4260f05856c64ae8a8e5e6e08be846e2631a",
+    "sequence": 4,
+    "type": "approval_requested"
+  },
+  {
+    "at": "2026-10-28T19:22:41.194Z",
+    "hash": "e01a6f50545a437ff6a4385994d20b9d02753bd2ceda63c0febbc3896647cdd6",
+    "payload": {
+      "body_hash": "40387860b54265ad24579c8e761d658cdb9692012427e49cb8e83fa1fabc93d0",
+      "detail": {
+        "approval_id": "approval-approval-denied-write-1",
+        "by": "offline-host-policy",
+        "decision": "denied",
+        "round": 1
+      }
+    },
+    "prev_hash": "b813c4f0d2d1b6eafffdc95e947c870f90ea5f96ba4afcdb7055c4c441d55cb8",
+    "sequence": 5,
+    "type": "approval_resolved"
+  },
+  {
+    "at": "2026-10-28T19:22:41.194Z",
+    "hash": "b969abea4b7fce9bfb4fcda510ee4881a060cd5b26a9054b042158c5467af041",
+    "payload": {
+      "body_hash": "4272dbbeb8fa6b6733fbfa1263de982d1fa07ccc6e957310e8283727ffa88fdf",
+      "detail": {
+        "code": "OPERATOR_DENIED",
+        "plan": {
+          "abandoned": 0,
+          "active": 0,
+          "blocked": 0,
+          "done": 0,
+          "pending": 1,
+          "revision": 1,
+          "total": 1
+        },
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "e01a6f50545a437ff6a4385994d20b9d02753bd2ceda63c0febbc3896647cdd6",
+    "sequence": 6,
+    "type": "tool_denied"
+  }
+]

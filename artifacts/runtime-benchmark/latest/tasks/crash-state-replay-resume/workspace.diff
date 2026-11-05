@@ -1,0 +1,8 @@
+--- initial/checkpoint.txt
++++ final/checkpoint.txt
+@@ -0,0 +1 @@
++durable
+--- initial/final.txt
++++ final/final.txt
+@@ -0,0 +1 @@
++resumed

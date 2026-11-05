@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 232 64" role="img" aria-label="FCode — host-governed agent runtime">
+  <title>FCode wordmark</title>
+  <g>
+    <path d="M12 18a6 6 0 0 1 6-6h28a6 6 0 0 1 6 6v28" fill="none" stroke="#1B1B1F" stroke-width="4" stroke-linecap="round"/>
+    <path d="M52 52h-7M38 52h-14M17 52h-5" fill="none" stroke="#1B1B1F" stroke-width="4" stroke-linecap="round"/>
+    <path d="M27 41V22h13M27 31h9" fill="none" stroke="#1B1B1F" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="43" cy="52" r="3.5" fill="#15803D"/>
+  </g>
+  <text x="68" y="42" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif" font-size="27" font-weight="650" letter-spacing="-0.5" fill="#1B1B1F">FCode</text>
+</svg>

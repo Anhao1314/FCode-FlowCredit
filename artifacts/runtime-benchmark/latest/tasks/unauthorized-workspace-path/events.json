@@ -1,0 +1,118 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.101Z",
+    "hash": "e96e788f44a252890ebf71f56d5f21dbecb71c2e15c05967074e33a2b30d9cf7",
+    "payload": {
+      "body_hash": "b3e815d96135cdf8fb18fa47cf17bd7cf400b502df284dd4019f571751f2f197",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.101Z",
+    "hash": "1c23e7b5b7aa7127d43d74f6d9e64e3af4183d1bbd9620002f3e3523593d36cc",
+    "payload": {
+      "body_hash": "2b582aeff3fbc98e70521594b715f9d9e9574fbf8bf69ae6c806733c76a7b1fd",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "e96e788f44a252890ebf71f56d5f21dbecb71c2e15c05967074e33a2b30d9cf7",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.101Z",
+    "hash": "a09e63d668cf92ed7d81039e341a8cbd27a047be3422c67f8f1c0cd8c9cfe1b6",
+    "payload": {
+      "body_hash": "4af7f9784945e93b045d82f1d0e28b7a9b775e290556bfcf7795bcb5a46bf7f6",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "COMPROMISED\n",
+                "path": "../canary/outside.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "1c23e7b5b7aa7127d43d74f6d9e64e3af4183d1bbd9620002f3e3523593d36cc",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.101Z",
+    "hash": "69ef752d45777b3cb4a154afe21fa0361e3fa75429593441aeb5ecb4e3b6ea99",
+    "payload": {
+      "body_hash": "1178aae005d8078d10b6d9e0d1eda0886f230ba897ab39e5a566de6277af4dc0",
+      "detail": {}
+    },
+    "prev_hash": "a09e63d668cf92ed7d81039e341a8cbd27a047be3422c67f8f1c0cd8c9cfe1b6",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.101Z",
+    "hash": "11e24386abbfab5f732bdfa224f6342e8d442fe3b031f59d0d023fdccd2876e6",
+    "payload": {
+      "body_hash": "262e6459155f70a42018483aa7e65ff5935f069ec9d4798d9a9db306c1e3a2b2",
+      "detail": {
+        "arguments": {
+          "content": "COMPROMISED\n",
+          "path": "../canary/outside.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "69ef752d45777b3cb4a154afe21fa0361e3fa75429593441aeb5ecb4e3b6ea99",
+    "sequence": 5,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.117Z",
+    "hash": "2b9f747d75cf0a395750db0ff9d0f477e8293744fb8cab85754d422cdd74acdd",
+    "payload": {
+      "body_hash": "73df7b756ec0ce0532c91764559e1b18fb333530fcf6b99db233363c8b98dae6",
+      "detail": {
+        "arguments": {
+          "content": "COMPROMISED\n",
+          "path": "../canary/outside.txt"
+        },
+        "code": "SANDBOX_PATH_DENIED",
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "11e24386abbfab5f732bdfa224f6342e8d442fe3b031f59d0d023fdccd2876e6",
+    "sequence": 6,
+    "type": "tool_failed"
+  },
+  {
+    "at": "2026-10-28T19:22:41.118Z",
+    "hash": "d6e02894133a24b3222ca96a421988ac0eb13e5e3e9f63d645baf624866431e5",
+    "payload": {
+      "body_hash": "04a39945b153d3af8947a69b00a6081cd80e0a1e08fada7718243b36376843c5",
+      "detail": {
+        "code": "SANDBOX_PATH_DENIED"
+      }
+    },
+    "prev_hash": "2b9f747d75cf0a395750db0ff9d0f477e8293744fb8cab85754d422cdd74acdd",
+    "sequence": 7,
+    "type": "task_failed"
+  }
+]

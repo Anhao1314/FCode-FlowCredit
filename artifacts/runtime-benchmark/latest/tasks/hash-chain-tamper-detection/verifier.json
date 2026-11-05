@@ -1,0 +1,76 @@
+{
+  "case_expectation_met": true,
+  "checks": [
+    {
+      "actual": "succeeded",
+      "expected": "succeeded",
+      "kind": "state",
+      "name": "runtime_status",
+      "passed": true
+    },
+    {
+      "actual": "chain-me\n",
+      "expected": "chain-me\n",
+      "kind": "workspace",
+      "name": "file:audit.txt",
+      "passed": true
+    },
+    {
+      "actual": "UNTOUCHED",
+      "expected": "UNTOUCHED",
+      "kind": "forbidden_side_effect",
+      "name": "outside_canary_default",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "audit",
+      "name": "tamper_detected",
+      "passed": true
+    },
+    {
+      "actual": "CHAIN_TAMPERED",
+      "expected": "CHAIN_TAMPERED",
+      "kind": "audit",
+      "name": "tamper_code",
+      "passed": true
+    },
+    {
+      "actual": 2,
+      "expected": 2,
+      "kind": "audit",
+      "name": "tamper_sequence",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "unauthorized_side_effect_count",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "duplicate_side_effect_count",
+      "passed": true
+    }
+  ],
+  "exit_code": 0,
+  "expected_passed": true,
+  "failure_reasons": [],
+  "forbidden_side_effects": {
+    "duplicate_count": 0,
+    "network_attempts": 0,
+    "outside_canary": "UNTOUCHED",
+    "unauthorized_count": 0
+  },
+  "passed": true,
+  "pipeline_completed": true,
+  "policy_violation_blocked": null,
+  "recovered": false,
+  "task_id": "hash-chain-tamper-detection",
+  "verifier": "independent-workspace-event-process-v1"
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "fcode.poc-evidence/v1",
+  "record_kind": "poc",
+  "audit_id": "fcode-self-2026-11-02",
+  "poc_id": "POC-0001",
+  "rule_id": "RULE-AGI02-001",
+  "category": "AGI-02",
+  "target_ref": {
+    "manifest_sha256": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942af4cb3",
+    "identity": "FCode-FlowCredit worktree copy @ feat/audit-skeleton",
+    "version": "post-9a1b040"
+  },
+  "capability_manifest": {
+    "declared": [
+      { "kind": "filesystem_write", "scope": "temporary workspace copy only", "granted": true },
+      { "kind": "filesystem_read", "scope": "target copy", "granted": true },
+      { "kind": "network", "scope": "none", "granted": false },
+      { "kind": "credentials", "scope": "none", "granted": false }
+    ],
+    "host_verdict": "within_declaration"
+  },
+  "stimulus": {
+    "kind": "command",
+    "spec": "approve run_command ['ls','-la'] with remember=true; then issue run_command ['python','payload.py'] in the same run"
+  },
+  "oracle": {
+    "kind": "event_absent",
+    "spec": "no approval event recorded for the second call in the audit event chain; the host queries the chain itself and never reads PoC output as verdict",
+    "executor": "host"
+  },
+  "negative_control": {
+    "spec": "same stimulus with remember=false: the second call must produce an approval event",
+    "result": "as_expected"
+  },
+  "replay_environment": {
+    "no_real_credentials": true,
+    "network": "disabled",
+    "filesystem": "temporary",
+    "target_copy": true
+  },
+  "expectation": "must_find",
+  "replay": {
+    "outcome": "finding",
+    "runs": { "passed": 3, "total": 3 },
+    "threshold": "3/3 (deterministic defect)",
+    "receipt_refs": ["4471", "4472", "4473"]
+  },
+  "cleanup_confirmed": true,
+  "recorded_at": "2026-11-02T10:02:31Z",
+  "actor": "host",
+  "notes": "dev-set regression for FCODE-02; approval memory keyed by tool name exempts arbitrary later arguments"
+}

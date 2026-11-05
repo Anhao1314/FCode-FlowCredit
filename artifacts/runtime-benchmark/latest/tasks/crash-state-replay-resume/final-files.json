@@ -1,0 +1,12 @@
+{
+  "checkpoint.txt": {
+    "bytes": 8,
+    "content": "durable\n",
+    "sha256": "c13208ac20f7d4ee70e2ae7e21553ee7523d3b78ac7928d67afcd2105ab03c83"
+  },
+  "final.txt": {
+    "bytes": 8,
+    "content": "resumed\n",
+    "sha256": "535fd952fb9473150fd21218d3bdacd1eae57d613c3ffc561cbd595da558631b"
+  }
+}

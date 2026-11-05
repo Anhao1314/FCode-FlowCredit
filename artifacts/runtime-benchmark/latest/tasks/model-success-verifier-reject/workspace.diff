@@ -1,0 +1,4 @@
+--- initial/answer.txt
++++ final/answer.txt
+@@ -0,0 +1 @@
++release=wrong

@@ -1,0 +1,40 @@
+[
+  {
+    "arguments": {
+      "content": "chain-me\n",
+      "path": "audit.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "38da272d79161fec4d8d677e5961be2b5bf50713c01a6899d12b3f63e115d04c",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "chain-me\n",
+      "path": "audit.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "b8ba1cae18406a206663a910266811ced615c0aa97712c77758477fee250f280",
+    "recovery": null,
+    "result": {
+      "bytes": 9,
+      "changed": true,
+      "commit": "cea1a79",
+      "computed": true,
+      "diff": "--- a/audit.txt\n+++ b/audit.txt\n@@ -0,0 +1 @@\n+chain-me\n",
+      "path": "audit.txt",
+      "sha256_after": "6e832cd0f616140d9b87852f9b2ae65c22be855100310e4e9144427cd2a28200",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "148621b35b8be50220a8c987ba05be982265606f8740d22719c0d41588062163",
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  }
+]

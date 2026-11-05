@@ -1,0 +1,89 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "deny"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "approval",
+    "expected_final_state": {
+      "absent_paths": [
+        "rejected.txt"
+      ],
+      "approval": "denied",
+      "chain_valid": true,
+      "events": [
+        "approval_requested",
+        "approval_resolved",
+        "tool_denied"
+      ],
+      "failure_code": "OPERATOR_DENIED",
+      "runtime_status": "denied"
+    },
+    "expected_governance_events": [
+      "approval_requested",
+      "approval_resolved",
+      "tool_denied"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "must-not-exist\n",
+            "path": "rejected.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "A rejected approval must leave neither a file nor a tool_started dispatch event.",
+    "task_id": "approval-denied-write",
+    "timeout_seconds": 30,
+    "user_task": "Request a consequential write that the host rejects.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "22aef7d79202639a7144d4a9e700c0be6827fae53d18b33700fca602549cc7eb",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

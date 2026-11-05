@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FCode">
+  <title>FCode favicon — simplified seal</title>
+  <!-- 16px 简化：实心章 + 粗 F，省略撕边与绿点 -->
+  <rect x="10" y="10" width="44" height="44" rx="9" fill="#1B1B1F"/>
+  <path d="M27 41V22h13M27 31h9" fill="none" stroke="#FAFAFB" stroke-width="7" stroke-linecap="round"/>
+</svg>

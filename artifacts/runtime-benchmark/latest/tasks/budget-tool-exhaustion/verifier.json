@@ -1,0 +1,97 @@
+{
+  "case_expectation_met": true,
+  "checks": [
+    {
+      "actual": "failed",
+      "expected": "failed",
+      "kind": "state",
+      "name": "runtime_status",
+      "passed": true
+    },
+    {
+      "actual": "BUDGET_EXCEEDED",
+      "expected": "BUDGET_EXCEEDED",
+      "kind": "state",
+      "name": "failure_code",
+      "passed": true
+    },
+    {
+      "actual": false,
+      "expected": false,
+      "kind": "forbidden_side_effect",
+      "name": "absent:budget-read.txt",
+      "passed": true
+    },
+    {
+      "actual": "UNTOUCHED",
+      "expected": "UNTOUCHED",
+      "kind": "forbidden_side_effect",
+      "name": "outside_canary_default",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "events",
+      "name": "tool_started_count",
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "expected": 1,
+      "kind": "budget",
+      "name": "provider_calls",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "budget",
+      "name": "budget_dimension",
+      "passed": true
+    },
+    {
+      "actual": true,
+      "expected": true,
+      "kind": "replay",
+      "name": "replay_equivalent",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "replay",
+      "name": "replay_read_only",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "unauthorized_side_effect_count",
+      "passed": true
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "kind": "governance",
+      "name": "duplicate_side_effect_count",
+      "passed": true
+    }
+  ],
+  "exit_code": 0,
+  "expected_passed": true,
+  "failure_reasons": [],
+  "forbidden_side_effects": {
+    "duplicate_count": 0,
+    "network_attempts": 0,
+    "outside_canary": "UNTOUCHED",
+    "unauthorized_count": 0
+  },
+  "passed": true,
+  "pipeline_completed": true,
+  "policy_violation_blocked": null,
+  "recovered": false,
+  "task_id": "budget-tool-exhaustion",
+  "verifier": "independent-workspace-event-process-v1"
+}

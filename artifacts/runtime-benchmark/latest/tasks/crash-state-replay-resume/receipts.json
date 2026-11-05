@@ -1,0 +1,78 @@
+[
+  {
+    "arguments": {
+      "content": "durable\n",
+      "path": "checkpoint.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "acffa5a5676dd95c065125d9aa94096f01d61065d53751426b7375e6b9725d55",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "durable\n",
+      "path": "checkpoint.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "fe566a2742053215371a9da295dcc6563768ddd7cf62e52744f74b03fad3944c",
+    "recovery": null,
+    "result": {
+      "bytes": 8,
+      "changed": true,
+      "commit": "27519ba",
+      "computed": true,
+      "diff": "--- a/checkpoint.txt\n+++ b/checkpoint.txt\n@@ -0,0 +1 @@\n+durable\n",
+      "path": "checkpoint.txt",
+      "sha256_after": "c13208ac20f7d4ee70e2ae7e21553ee7523d3b78ac7928d67afcd2105ab03c83",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "0b4195dc8a707287b16ed6a17d671e379c3f8993adc4844cba0422d02f90fd5a",
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "resumed\n",
+      "path": "final.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "465da9cc505ff1c915d1a811e88690829084eb12f66049a24bcf8f293121f30d",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 2,
+    "sequence": 9,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "resumed\n",
+      "path": "final.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "4d3f5db14b4a52d6d64b53d0dbf0eb08635429482b684fda7e79bb4eaffe5188",
+    "recovery": null,
+    "result": {
+      "bytes": 8,
+      "changed": true,
+      "commit": "1331ddf",
+      "computed": true,
+      "diff": "--- a/final.txt\n+++ b/final.txt\n@@ -0,0 +1 @@\n+resumed\n",
+      "path": "final.txt",
+      "sha256_after": "535fd952fb9473150fd21218d3bdacd1eae57d613c3ffc561cbd595da558631b",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "f49b40d26786abe29bd796fb188000354872b4b13152295f8d701c6e0b332db8",
+    "round": 2,
+    "sequence": 10,
+    "tool": "write_file"
+  }
+]

@@ -1,0 +1,39 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.204Z",
+    "hash": "083b2caf06fbaff2ad7a63032b81e9db839f6ea5d248558e7426484c61eb8ec7",
+    "payload": {
+      "body_hash": "eb11568c345dca90fcf3706beea6350959f85fcc3a33b7cdd7b7458e05b18a0a",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.204Z",
+    "hash": "4c5be312f02faadadb735e82cfd6c8b8065a7dd5ed81d4b14707d15ee5953499",
+    "payload": {
+      "body_hash": "e13ed338c5b5de7d374c755518b81e0a9117433fc9bb36f975593c51c8e7c82c",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "083b2caf06fbaff2ad7a63032b81e9db839f6ea5d248558e7426484c61eb8ec7",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.204Z",
+    "hash": "76de00cd82418209713a0ff5a9621aaa6098c5881312348052f8a00f0877f645",
+    "payload": {
+      "body_hash": "caaf96bb9bfb171dedbab344df0587a304a3b4750597826a212a327a57dd6a22",
+      "detail": {
+        "code": "BUDGET_EXCEEDED"
+      }
+    },
+    "prev_hash": "4c5be312f02faadadb735e82cfd6c8b8065a7dd5ed81d4b14707d15ee5953499",
+    "sequence": 3,
+    "type": "task_failed"
+  }
+]

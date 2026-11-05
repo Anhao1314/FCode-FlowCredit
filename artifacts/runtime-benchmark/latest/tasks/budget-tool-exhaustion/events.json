@@ -1,0 +1,81 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.208Z",
+    "hash": "e5ed9222fbb00fb4ee73b49710832714973473dcec79e0299d8025b117954a08",
+    "payload": {
+      "body_hash": "1ae4717296aea4ccc377a115685d2a32bf4117006935aab509d2f5951eac4e15",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.208Z",
+    "hash": "1c0d7d2b52f17192cfaebc0e0d0abddc9a22af4ad624cff6dae3939bbb56f661",
+    "payload": {
+      "body_hash": "bd89721581f3ed9afe372d7176af4128da1c202025f0b636ed002b612ea0782f",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "e5ed9222fbb00fb4ee73b49710832714973473dcec79e0299d8025b117954a08",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.209Z",
+    "hash": "e138100a8b31d66562c5d20ee15c5774eb774a828c7a8676f1f8997119fe5f16",
+    "payload": {
+      "body_hash": "95a7dc07393881195df459188a415482c8b5a4bceaab9f298db91b136cc8660e",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "must-not-exist\n",
+                "path": "budget-read.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "1c0d7d2b52f17192cfaebc0e0d0abddc9a22af4ad624cff6dae3939bbb56f661",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.209Z",
+    "hash": "805f6de24dde82e9afd23e285872ad1c5feaf953821cf848c676cab85d345172",
+    "payload": {
+      "body_hash": "0e77625595b97a14d3f64de96e1b70b7302bcb79d0307ee659eb6815c52b48e8",
+      "detail": {}
+    },
+    "prev_hash": "e138100a8b31d66562c5d20ee15c5774eb774a828c7a8676f1f8997119fe5f16",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.209Z",
+    "hash": "0eb026104a0f8f2c9fec8ada0a8037b5bcc7065cdd77b7101cc88f69f965549b",
+    "payload": {
+      "body_hash": "641aabe189bdab04cd57c4a941225e977f98c70f0bebd611608f0bae96e3d812",
+      "detail": {
+        "code": "BUDGET_EXCEEDED"
+      }
+    },
+    "prev_hash": "805f6de24dde82e9afd23e285872ad1c5feaf953821cf848c676cab85d345172",
+    "sequence": 5,
+    "type": "task_failed"
+  }
+]

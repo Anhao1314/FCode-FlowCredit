@@ -1,0 +1,4 @@
+--- initial/unknown-write.txt
++++ final/unknown-write.txt
+@@ -0,0 +1 @@
++written-once

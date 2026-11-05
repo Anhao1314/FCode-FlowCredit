@@ -1,0 +1,264 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [
+      {
+        "result_hash": "575b18045020e46bdd1033700002acc0d886ad3b90c92f19a016f99fded90f65",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      },
+      {
+        "result_hash": "531d915ff684aa1de490ea1506795024e63340e00ca45f9d778fd4fc7199dfb2",
+        "round": 2,
+        "sequence": 11,
+        "tool": "run_command"
+      },
+      {
+        "result_hash": "92b6b0cdb1da588740eec703c43712fc094dbafc496635e5d3268337ea5e89d4",
+        "round": 3,
+        "sequence": 16,
+        "tool": "edit_file"
+      },
+      {
+        "result_hash": "d0f90272ed44884759b73723dc4f6f4cf26adbb2c941c10c944e05aea44d9aba",
+        "round": 4,
+        "sequence": 21,
+        "tool": "run_command"
+      },
+      {
+        "result_hash": "306f6c78808fe59ac744ed73dfcf903cbf6a6c9a0604c38faa40f99c328093ce",
+        "round": 5,
+        "sequence": 26,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 5,
+    "plan_state": {
+      "goal": "Run the script, repair the failing line, rerun it, and file the fixed marker.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "print(\"start\")\nraise ValueError(\"boom\")\n",
+            "path": "calc.py"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "575b18045020e46bdd1033700002acc0d886ad3b90c92f19a016f99fded90f65"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "531d915ff684aa1de490ea1506795024e63340e00ca45f9d778fd4fc7199dfb2"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed run_command action",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "new_text": "print(\"fixed\")",
+            "old_text": "raise ValueError(\"boom\")",
+            "path": "calc.py"
+          },
+          "done_when": "observed:s3",
+          "evidence": [
+            "92b6b0cdb1da588740eec703c43712fc094dbafc496635e5d3268337ea5e89d4"
+          ],
+          "id": "s3",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed edit_file action",
+          "tool": "edit_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "done_when": "observed:s4",
+          "evidence": [
+            "d0f90272ed44884759b73723dc4f6f4cf26adbb2c941c10c944e05aea44d9aba"
+          ],
+          "id": "s4",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed run_command action",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "content": "fixed\n",
+            "path": "result.txt"
+          },
+          "done_when": "observed:s5",
+          "evidence": [
+            "306f6c78808fe59ac744ed73dfcf903cbf6a6c9a0604c38faa40f99c328093ce"
+          ],
+          "id": "s5",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [
+      {
+        "result_hash": "575b18045020e46bdd1033700002acc0d886ad3b90c92f19a016f99fded90f65",
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      },
+      {
+        "result_hash": "531d915ff684aa1de490ea1506795024e63340e00ca45f9d778fd4fc7199dfb2",
+        "round": 2,
+        "sequence": 11,
+        "tool": "run_command"
+      },
+      {
+        "result_hash": "92b6b0cdb1da588740eec703c43712fc094dbafc496635e5d3268337ea5e89d4",
+        "round": 3,
+        "sequence": 16,
+        "tool": "edit_file"
+      },
+      {
+        "result_hash": "d0f90272ed44884759b73723dc4f6f4cf26adbb2c941c10c944e05aea44d9aba",
+        "round": 4,
+        "sequence": 21,
+        "tool": "run_command"
+      },
+      {
+        "result_hash": "306f6c78808fe59ac744ed73dfcf903cbf6a6c9a0604c38faa40f99c328093ce",
+        "round": 5,
+        "sequence": 26,
+        "tool": "write_file"
+      }
+    ],
+    "model_attempts": 5,
+    "plan_state": {
+      "goal": "Run the script, repair the failing line, rerun it, and file the fixed marker.",
+      "revision": 1,
+      "todos": [
+        {
+          "arguments": {
+            "content": "print(\"start\")\nraise ValueError(\"boom\")\n",
+            "path": "calc.py"
+          },
+          "done_when": "observed:s1",
+          "evidence": [
+            "575b18045020e46bdd1033700002acc0d886ad3b90c92f19a016f99fded90f65"
+          ],
+          "id": "s1",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "done_when": "observed:s2",
+          "evidence": [
+            "531d915ff684aa1de490ea1506795024e63340e00ca45f9d778fd4fc7199dfb2"
+          ],
+          "id": "s2",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed run_command action",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "new_text": "print(\"fixed\")",
+            "old_text": "raise ValueError(\"boom\")",
+            "path": "calc.py"
+          },
+          "done_when": "observed:s3",
+          "evidence": [
+            "92b6b0cdb1da588740eec703c43712fc094dbafc496635e5d3268337ea5e89d4"
+          ],
+          "id": "s3",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed edit_file action",
+          "tool": "edit_file"
+        },
+        {
+          "arguments": {
+            "args": [
+              "calc.py"
+            ],
+            "command": "python3"
+          },
+          "done_when": "observed:s4",
+          "evidence": [
+            "d0f90272ed44884759b73723dc4f6f4cf26adbb2c941c10c944e05aea44d9aba"
+          ],
+          "id": "s4",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed run_command action",
+          "tool": "run_command"
+        },
+        {
+          "arguments": {
+            "content": "fixed\n",
+            "path": "result.txt"
+          },
+          "done_when": "observed:s5",
+          "evidence": [
+            "306f6c78808fe59ac744ed73dfcf903cbf6a6c9a0604c38faa40f99c328093ce"
+          ],
+          "id": "s5",
+          "reason": "",
+          "required": true,
+          "status": "done",
+          "text": "Execute proposed write_file action",
+          "tool": "write_file"
+        }
+      ]
+    },
+    "recovery_decisions": [],
+    "status": "succeeded",
+    "unknown_tools": []
+  },
+  "tools_executed_by_replay": 0
+}

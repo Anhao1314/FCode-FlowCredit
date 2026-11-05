@@ -1,0 +1,9 @@
+{
+  "name": "fcode-viewer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python server.py --repo ..",
+    "test": "node --test tests/*.test.js"
+  }
+}

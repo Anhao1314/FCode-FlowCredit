@@ -1,0 +1,133 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.215Z",
+    "hash": "b7a1c2e7ce69b7e96365592371ab2f84dab3e2ef58b9929820b51d1e40a2a6c9",
+    "payload": {
+      "body_hash": "022b440e017b27832fd7c925bd29b254a10cec2413621fa1b04d270761e2aa84",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.264Z",
+    "hash": "4aa165c084fd2862805152c67254d93fc3633185b1a3fa8a9ee32f89e966cc78",
+    "payload": {
+      "body_hash": "853c12cf2a4c47d1d4facf1c6fb0dd8181d582d060700f65335a431c6229acb3",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "b7a1c2e7ce69b7e96365592371ab2f84dab3e2ef58b9929820b51d1e40a2a6c9",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.264Z",
+    "hash": "fc319b8bd5aff45793ca4dc6a6c17c7d8c696e8cb5449ec41ec85f16cacea17e",
+    "payload": {
+      "body_hash": "c7699dbd480f982d22a43dc6d1be428f3d241533d9fa68e76c521a6f5080316f",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "must-not-exist\n",
+                "path": "before-crash.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "4aa165c084fd2862805152c67254d93fc3633185b1a3fa8a9ee32f89e966cc78",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.264Z",
+    "hash": "27ebbb50060727232aaedd6ccef2c535b3c8a466574b07009e609de9a72cb04e",
+    "payload": {
+      "body_hash": "a6d09190d5d19ccc2237fd68ecea9f83fdb61c399cf8c33817fbb44726ba2d2f",
+      "detail": {}
+    },
+    "prev_hash": "fc319b8bd5aff45793ca4dc6a6c17c7d8c696e8cb5449ec41ec85f16cacea17e",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.264Z",
+    "hash": "d52280ef3c03b4c189466f69fe6e3ca4f9d053919f098cbc7f0b096c39c72c5b",
+    "payload": {
+      "body_hash": "108b5e16fbcddba810bcb07726780766941bc5fdff086d540a3d71560ad8afea",
+      "detail": {
+        "arguments": {
+          "content": "must-not-exist\n",
+          "path": "before-crash.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "27ebbb50060727232aaedd6ccef2c535b3c8a466574b07009e609de9a72cb04e",
+    "sequence": 5,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.290Z",
+    "hash": "de84ec11b83ff91a71502e3bf9a6bf1b68267bd4af9d4fa8081a3ae7db94971f",
+    "payload": {
+      "body_hash": "27cc47ee7cb26ebcea315508ad1a3e3381c157b1bc2a3c90efae02277c0b2ae5",
+      "detail": {
+        "evidence": {
+          "process": {
+            "controlled_fault_injection": true,
+            "mode": "before_tool",
+            "pid": 16387,
+            "returncode": -9,
+            "sigkill_confirmed": true,
+            "signal": 9,
+            "stderr": "worker.stderr.txt",
+            "stdout": "worker.stdout.txt"
+          },
+          "side_effect": "not_observed",
+          "workspace": {}
+        },
+        "outcome": "unknown",
+        "requires_operator_review": false,
+        "retry_dispatched": false,
+        "round": 1,
+        "side_effect": "not_observed",
+        "source_event_sequence": 5,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "d52280ef3c03b4c189466f69fe6e3ca4f9d053919f098cbc7f0b096c39c72c5b",
+    "sequence": 6,
+    "type": "recovery_reconciled"
+  },
+  {
+    "at": "2026-10-28T19:22:41.290Z",
+    "hash": "e5c70eb8f4cd1b47514fc7d7c549c3ec6e4d662f5ed05707a438c2a6ff8b275e",
+    "payload": {
+      "body_hash": "72aac5ad8151d180909b5970d449fb2cedeae4ed7107183c61ed2cb8d284c753",
+      "detail": {
+        "code": "TOOL_OUTCOME_UNKNOWN",
+        "recovered": true
+      }
+    },
+    "prev_hash": "de84ec11b83ff91a71502e3bf9a6bf1b68267bd4af9d4fa8081a3ae7db94971f",
+    "sequence": 7,
+    "type": "task_failed"
+  }
+]

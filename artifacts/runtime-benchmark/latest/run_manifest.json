@@ -1,0 +1,51 @@
+{
+  "code": {
+    "branch": "feat/runtime-verified-benchmark",
+    "commit": "71ffadf1b5047355e3127fcd487ad0f00f5330f9",
+    "dirty": false,
+    "dirty_files": []
+  },
+  "created_at": "2026-10-28T19:22:41.821Z",
+  "environment": {
+    "network": "application-level calls disabled; no external API required",
+    "platform": "macOS-26.6-arm64-arm-64bit",
+    "python": "3.12.15"
+  },
+  "execution_class": "OFFLINE_SCRIPTED",
+  "manifest_version": "flowagent.runtime-benchmark-manifest/v1",
+  "online_model": {
+    "badcases": "NOT_MEASURED",
+    "metrics": "NOT_MEASURED",
+    "reason": "No explicit authorization for a paid online evaluation was provided.",
+    "status": "NOT_RUN"
+  },
+  "provider": {
+    "model": "offline-scripted-v1",
+    "type": "OFFLINE_SCRIPTED"
+  },
+  "recovery_boundary": "Application-level workspace/event reconciliation only; not arbitrary external-system rollback or an OS sandbox.",
+  "selected_task_ids": [
+    "single-file-modify",
+    "multi-file-related-change",
+    "script-error-locate-repair",
+    "dependent-multistep-tools",
+    "invalid-schema-request",
+    "unknown-tool-request",
+    "unauthorized-workspace-path",
+    "unauthorized-network-tool",
+    "approval-approved-write",
+    "approval-denied-write",
+    "budget-call-exhaustion",
+    "budget-token-exhaustion",
+    "budget-tool-exhaustion",
+    "crash-before-tool-dispatch",
+    "crash-after-side-effect",
+    "unknown-outcome-no-retry",
+    "crash-state-replay-resume",
+    "hash-chain-tamper-detection",
+    "model-success-verifier-reject"
+  ],
+  "task_count": 19,
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec",
+  "taskset_version": "runtime-benchmark/v1"
+}

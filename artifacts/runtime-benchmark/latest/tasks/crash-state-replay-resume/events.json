@@ -1,0 +1,283 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.505Z",
+    "hash": "7bf0e5af36b9fff0806001b33c43e7f70298b4f4159a69d513489dacc594616b",
+    "payload": {
+      "body_hash": "76b361f821ab27849be31229b93b68c4575e91fff0a33fab2672d55bed222aed",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.555Z",
+    "hash": "afc6d15ce9c5fb50fe0a996ac33a21696c5ed7874ad3cf900ba093c2580357c9",
+    "payload": {
+      "body_hash": "b7183858d1ffe3f2344c0fde9ce8bb1d3b9eadc293662a3b2fe1bc9f8824ddf0",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "7bf0e5af36b9fff0806001b33c43e7f70298b4f4159a69d513489dacc594616b",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.555Z",
+    "hash": "4bdb3ea3a09618d124071392dae0965f52f94a5cfae44a75fca78a197a23a858",
+    "payload": {
+      "body_hash": "ca81b305033938d5e15bb37854ee45e1f38f94479cab806f9d681c55f5e16841",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "durable\n",
+                "path": "checkpoint.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "afc6d15ce9c5fb50fe0a996ac33a21696c5ed7874ad3cf900ba093c2580357c9",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.555Z",
+    "hash": "7f537c98f341e0d567d6dd18f3cf1512d0c4f3624d1403c60dd939f196cded49",
+    "payload": {
+      "body_hash": "2dc55e84b4fbed0846e30eb66dd3b7a43ca1e681b6e4e290a6b3faac4ad1d4dd",
+      "detail": {}
+    },
+    "prev_hash": "4bdb3ea3a09618d124071392dae0965f52f94a5cfae44a75fca78a197a23a858",
+    "sequence": 4,
+    "type": "execution_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.556Z",
+    "hash": "acffa5a5676dd95c065125d9aa94096f01d61065d53751426b7375e6b9725d55",
+    "payload": {
+      "body_hash": "d320476b1dd218f43c9e8592035b39e4bc514bf1aba69d154955b6c5b8d4c346",
+      "detail": {
+        "arguments": {
+          "content": "durable\n",
+          "path": "checkpoint.txt"
+        },
+        "round": 1,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "7f537c98f341e0d567d6dd18f3cf1512d0c4f3624d1403c60dd939f196cded49",
+    "sequence": 5,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.613Z",
+    "hash": "fe566a2742053215371a9da295dcc6563768ddd7cf62e52744f74b03fad3944c",
+    "payload": {
+      "body_hash": "033e5e1086fa1ed4fa608be5032b0f8ea1a205e40b43af4b8e5b2685d600d2d1",
+      "detail": {
+        "arguments": {
+          "content": "durable\n",
+          "path": "checkpoint.txt"
+        },
+        "result": {
+          "bytes": 8,
+          "changed": true,
+          "commit": "27519ba",
+          "computed": true,
+          "diff": "--- a/checkpoint.txt\n+++ b/checkpoint.txt\n@@ -0,0 +1 @@\n+durable\n",
+          "path": "checkpoint.txt",
+          "sha256_after": "c13208ac20f7d4ee70e2ae7e21553ee7523d3b78ac7928d67afcd2105ab03c83",
+          "sha256_before": null,
+          "truncated": false
+        },
+        "result_hash": "0b4195dc8a707287b16ed6a17d671e379c3f8993adc4844cba0422d02f90fd5a",
+        "round": 1,
+        "tool": "write_file",
+        "tool_version": "1.0"
+      }
+    },
+    "prev_hash": "acffa5a5676dd95c065125d9aa94096f01d61065d53751426b7375e6b9725d55",
+    "sequence": 6,
+    "type": "tool_succeeded"
+  },
+  {
+    "at": "2026-10-28T19:22:41.639Z",
+    "hash": "4b3ec1b9f8c05200eeb3f72bf473ff3c664267547442c489ffefae1b7542b69d",
+    "payload": {
+      "body_hash": "354acb51abffaf5ff7fbe2f2ededbbab0ba6df4e9710d16b83e69f006d79f7ff",
+      "detail": {
+        "round": 2
+      }
+    },
+    "prev_hash": "fe566a2742053215371a9da295dcc6563768ddd7cf62e52744f74b03fad3944c",
+    "sequence": 7,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.640Z",
+    "hash": "230ab80c3bc1739bc9d8200370e1e44daf0e539cb08637df64b09c137cd23f06",
+    "payload": {
+      "body_hash": "036ae01d2cff74147c548e51cda522ac0011237e891295288736052588aa05fb",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "content": "resumed\n",
+                "path": "final.txt"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s2",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "write_file"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 2
+      }
+    },
+    "prev_hash": "4b3ec1b9f8c05200eeb3f72bf473ff3c664267547442c489ffefae1b7542b69d",
+    "sequence": 8,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.640Z",
+    "hash": "465da9cc505ff1c915d1a811e88690829084eb12f66049a24bcf8f293121f30d",
+    "payload": {
+      "body_hash": "2c85b6a3f36877f7577402b94c8d01806c78caa75213176ff73bffa5c74f1984",
+      "detail": {
+        "arguments": {
+          "content": "resumed\n",
+          "path": "final.txt"
+        },
+        "round": 2,
+        "tool": "write_file"
+      }
+    },
+    "prev_hash": "230ab80c3bc1739bc9d8200370e1e44daf0e539cb08637df64b09c137cd23f06",
+    "sequence": 9,
+    "type": "tool_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.682Z",
+    "hash": "4d3f5db14b4a52d6d64b53d0dbf0eb08635429482b684fda7e79bb4eaffe5188",
+    "payload": {
+      "body_hash": "0c852b84d61ac37ab949e3a06fb6c1e8644b66d061bcd3d40611678382ad26a7",
+      "detail": {
+        "arguments": {
+          "content": "resumed\n",
+          "path": "final.txt"
+        },
+        "result": {
+          "bytes": 8,
+          "changed": true,
+          "commit": "1331ddf",
+          "computed": true,
+          "diff": "--- a/final.txt\n+++ b/final.txt\n@@ -0,0 +1 @@\n+resumed\n",
+          "path": "final.txt",
+          "sha256_after": "535fd952fb9473150fd21218d3bdacd1eae57d613c3ffc561cbd595da558631b",
+          "sha256_before": null,
+          "truncated": false
+        },
+        "result_hash": "f49b40d26786abe29bd796fb188000354872b4b13152295f8d701c6e0b332db8",
+        "round": 2,
+        "tool": "write_file",
+        "tool_version": "1.0"
+      }
+    },
+    "prev_hash": "465da9cc505ff1c915d1a811e88690829084eb12f66049a24bcf8f293121f30d",
+    "sequence": 10,
+    "type": "tool_succeeded"
+  },
+  {
+    "at": "2026-10-28T19:22:41.682Z",
+    "hash": "609d0195ea985c820ffc233f7f273a4d068872198401efe7ff6a5b0c508d1d9d",
+    "payload": {
+      "body_hash": "a800b3c7c90440873f6ea575c445f758dc217d5a13bafaa05f329c9c8e8d5c31",
+      "detail": {
+        "plan": {
+          "goal": "Commit one write, SIGKILL, rebuild the plan, then finish a different write.",
+          "revision": 1,
+          "todos": [
+            {
+              "arguments": {
+                "content": "durable\n",
+                "path": "checkpoint.txt"
+              },
+              "done_when": "observed:s1",
+              "evidence": [
+                "0b4195dc8a707287b16ed6a17d671e379c3f8993adc4844cba0422d02f90fd5a"
+              ],
+              "id": "s1",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed write_file action",
+              "tool": "write_file"
+            },
+            {
+              "arguments": {
+                "content": "resumed\n",
+                "path": "final.txt"
+              },
+              "done_when": "observed:s2",
+              "evidence": [
+                "f49b40d26786abe29bd796fb188000354872b4b13152295f8d701c6e0b332db8"
+              ],
+              "id": "s2",
+              "reason": "",
+              "required": true,
+              "status": "done",
+              "text": "Execute proposed write_file action",
+              "tool": "write_file"
+            }
+          ]
+        },
+        "round": 2
+      }
+    },
+    "prev_hash": "4d3f5db14b4a52d6d64b53d0dbf0eb08635429482b684fda7e79bb4eaffe5188",
+    "sequence": 11,
+    "type": "plan_updated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.683Z",
+    "hash": "ef60ae9f10e97932628d74073fe479797a9a115a7089231d73e011cbee614dbf",
+    "payload": {
+      "body_hash": "74ee5b87622844bee26481df6372b4e0a5b2ed039fb867fbffbf06a9f72747dd",
+      "detail": {}
+    },
+    "prev_hash": "609d0195ea985c820ffc233f7f273a4d068872198401efe7ff6a5b0c508d1d9d",
+    "sequence": 12,
+    "type": "verification_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.683Z",
+    "hash": "e95ebfc3a4e0dc96765b02aebac2302d9bcd4d54fb07141105e0ac4cc7a1fc47",
+    "payload": {
+      "body_hash": "4516f2d51baf0adb19db8b315130a3f6ef8cb81270ee041e9cbbbb7f8c41caf4",
+      "detail": {}
+    },
+    "prev_hash": "ef60ae9f10e97932628d74073fe479797a9a115a7089231d73e011cbee614dbf",
+    "sequence": 13,
+    "type": "task_succeeded"
+  }
+]

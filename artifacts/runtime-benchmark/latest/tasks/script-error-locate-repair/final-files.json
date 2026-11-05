@@ -1,0 +1,12 @@
+{
+  "calc.py": {
+    "bytes": 30,
+    "content": "print(\"start\")\nprint(\"fixed\")\n",
+    "sha256": "4f640ecfad85f1aaf7f165cf773917b1870fe046719ae11b69861a9ed9125197"
+  },
+  "result.txt": {
+    "bytes": 6,
+    "content": "fixed\n",
+    "sha256": "0c3071418e6356e614898c84ed064ca95e88551bc0811b534bdf1952ecdae534"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "model": "offline-scripted-v1",
+  "network_access": "disabled",
+  "provider": "offline-scripted",
+  "provider_calls_this_process": 2,
+  "type": "OFFLINE_SCRIPTED"
+}

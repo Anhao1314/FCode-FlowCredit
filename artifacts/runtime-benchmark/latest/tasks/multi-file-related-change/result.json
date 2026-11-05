@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    "diff": "tasks/multi-file-related-change/workspace.diff",
+    "events": "tasks/multi-file-related-change/events.json",
+    "sqlite": "tasks/multi-file-related-change/task.sqlite",
+    "task": "tasks/multi-file-related-change/task.json",
+    "verifier": "tasks/multi-file-related-change/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "multi_file",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "chain_valid": true,
+    "command": {
+      "args": [
+        "main.py"
+      ],
+      "exit_code": 0,
+      "program": "python3",
+      "stdout": "3\n"
+    },
+    "events": [
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "files": {
+      "config.json": "{\"retries\": 3}\n",
+      "main.py": "import json\nprint(json.load(open(\"config.json\"))[\"retries\"])\n"
+    },
+    "runtime_status": "succeeded"
+  },
+  "expected_verifier_passed": true,
+  "failure_code": null,
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "succeeded",
+  "tamper": {},
+  "task_id": "multi-file-related-change",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

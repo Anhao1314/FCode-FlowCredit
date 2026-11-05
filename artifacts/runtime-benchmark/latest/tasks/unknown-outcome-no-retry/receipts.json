@@ -1,0 +1,56 @@
+[
+  {
+    "arguments": {
+      "content": "one-effect\n",
+      "path": "unknown-result.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "b2b7f776df01b61d82dba22589d798b6de186e6af14798d0861436f72d65380f",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": null,
+    "event": "tool_unknown",
+    "event_hash": "4c43cb6d4f83f9051efbca7412f42e5a0e8217c96cf2bc859becd61dbc4fdeea",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  },
+  {
+    "arguments": null,
+    "event": "recovery_reconciled",
+    "event_hash": "cd4958862804d9be78470c3a0439abb9c3a459064e887a114abe4450b94b38cf",
+    "recovery": {
+      "evidence": {
+        "side_effect": "observed",
+        "workspace": {
+          "unknown-result.txt": {
+            "bytes": 11,
+            "content": "one-effect\n",
+            "sha256": "97615737d762c925759c2efd46726f475ed9673a2979c9ed347820f80d32e95d"
+          }
+        }
+      },
+      "outcome": "unknown",
+      "requires_operator_review": true,
+      "retry_dispatched": false,
+      "round": 1,
+      "side_effect": "observed",
+      "source_event_sequence": 6,
+      "tool": "write_file"
+    },
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 8,
+    "tool": "write_file"
+  }
+]

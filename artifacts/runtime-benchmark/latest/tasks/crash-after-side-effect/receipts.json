@@ -1,0 +1,55 @@
+[
+  {
+    "arguments": {
+      "content": "written-once\n",
+      "path": "unknown-write.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "a267b856522709539cd9b85eb98ba1438064a8e3dc44fb2930b3085dbe033b5f",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": null,
+    "event": "recovery_reconciled",
+    "event_hash": "f3edfcba6dc58bb9f2124e2c8afdbb94e8da61a5ea243824766ac4061fa745fd",
+    "recovery": {
+      "evidence": {
+        "process": {
+          "controlled_fault_injection": true,
+          "mode": "after_side_effect",
+          "pid": 16388,
+          "returncode": -9,
+          "sigkill_confirmed": true,
+          "signal": 9,
+          "stderr": "worker.stderr.txt",
+          "stdout": "worker.stdout.txt"
+        },
+        "side_effect": "observed",
+        "workspace": {
+          "unknown-write.txt": {
+            "bytes": 13,
+            "content": "written-once\n",
+            "sha256": "e09b7d660463ca838a3299798b1d89e2311f530a8b93ac5e62885046d7581828"
+          }
+        }
+      },
+      "outcome": "unknown",
+      "requires_operator_review": true,
+      "retry_dispatched": false,
+      "round": 1,
+      "side_effect": "observed",
+      "source_event_sequence": 5,
+      "tool": "write_file"
+    },
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  }
+]

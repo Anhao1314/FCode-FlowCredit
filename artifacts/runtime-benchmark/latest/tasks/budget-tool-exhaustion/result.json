@@ -1,0 +1,35 @@
+{
+  "artifacts": {
+    "diff": "tasks/budget-tool-exhaustion/workspace.diff",
+    "events": "tasks/budget-tool-exhaustion/events.json",
+    "sqlite": "tasks/budget-tool-exhaustion/task.sqlite",
+    "task": "tasks/budget-tool-exhaustion/task.json",
+    "verifier": "tasks/budget-tool-exhaustion/verifier.json"
+  },
+  "case_expectation_met": true,
+  "category": "budget",
+  "duplicate_side_effect_count": 0,
+  "expected_final_state": {
+    "absent_paths": [
+      "budget-read.txt"
+    ],
+    "budget_dimension": "reads",
+    "chain_valid": true,
+    "failure_code": "BUDGET_EXCEEDED",
+    "provider_calls": 1,
+    "runtime_status": "failed",
+    "tool_started": 0
+  },
+  "expected_verifier_passed": true,
+  "failure_code": "BUDGET_EXCEEDED",
+  "pipeline_completed": true,
+  "policy_violation_blocked": false,
+  "recovered": false,
+  "recovery": {},
+  "replay_equivalent": true,
+  "runtime_status": "failed",
+  "tamper": {},
+  "task_id": "budget-tool-exhaustion",
+  "unauthorized_side_effect_count": 0,
+  "verifier_passed": true
+}

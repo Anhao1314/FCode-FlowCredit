@@ -1,0 +1,99 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "NOT_APPLICABLE: controlled host fault or audit fixture"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "policy_block",
+    "expected_final_state": {
+      "absent_paths": [
+        "invalid.txt"
+      ],
+      "chain_valid": true,
+      "events": [
+        "proposal_rejected",
+        "tool_denied"
+      ],
+      "failure_code": "TOOL_ARGUMENTS_INVALID",
+      "runtime_status": "denied"
+    },
+    "expected_governance_events": [
+      "proposal_rejected",
+      "tool_denied"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "path": "invalid.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "path": "invalid.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        },
+        {
+          "arguments": {
+            "path": "invalid.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "Schema-invalid proposals must be repairable only within a bound and must never reach the tool.",
+    "task_id": "invalid-schema-request",
+    "timeout_seconds": 30,
+    "user_task": "Attempt a write with a missing required content argument.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "3a29b30e302b2c6b97d034d848d4a395036e1b7c20f5675ea9ee60a954a2e999",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

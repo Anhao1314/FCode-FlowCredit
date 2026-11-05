@@ -1,0 +1,4 @@
+--- initial/approved.txt
++++ final/approved.txt
+@@ -0,0 +1 @@
++approved=true

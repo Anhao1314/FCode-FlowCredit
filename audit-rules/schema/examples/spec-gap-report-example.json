@@ -1,0 +1,149 @@
+{
+  "schema_version": "fcode.spec-gap-report/v1",
+  "report_id": "spec-gap-dsh-gap-2026-11-02",
+  "audit_id": "dsh-gap-2026-11-02",
+  "target": {
+    "identity": "deepseek-harness",
+    "version": "0.2.1-rc.5",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "session_log_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "generated_at": "2026-11-02T08:30:00Z",
+  "judgments": [
+    {
+      "judgment_id": "SG-0001",
+      "subject": "workspace-write 下写 /tmp",
+      "verdict": "conforms",
+      "basis": {
+        "kind": "document",
+        "doc_refs": [
+          "packages/fs/fs-sandbox/README.md:46",
+          "docs/subsystems/sandbox.md:11"
+        ]
+      },
+      "evidence_refs": [
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 26,
+          "event_type": "tool/call",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        },
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 29,
+          "event_type": "tool/result",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        }
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
+    },
+    {
+      "judgment_id": "SG-0002",
+      "subject": "删除工作区内文件是否触发审批",
+      "verdict": "undetermined",
+      "missing_spec": {
+        "question": "删除是否属于 consequential action？",
+        "searched_refs": [
+          "docs/subsystems/approval.md",
+          "packages/shell/tool-bash/README.md"
+        ],
+        "result": "no consequential-action definition found"
+      },
+      "evidence_refs": [
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 34,
+          "event_type": "tool/call",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        },
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 37,
+          "event_type": "tool/result",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        }
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
+    },
+    {
+      "judgment_id": "SG-0003",
+      "subject": "全程零审批是否符合设计",
+      "verdict": "undetermined",
+      "missing_spec": {
+        "question": "这些 tool/call 是否应触发 approval/asked？",
+        "searched_refs": [
+          "docs/subsystems/approval.md",
+          "docs/tool-execution-pipeline.md",
+          "packages/shell/tool-bash/README.md"
+        ],
+        "result": "no consequential-action definition found"
+      },
+      "evidence_refs": [
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 2,
+          "event_type": "approval/policy",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        },
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 20,
+          "event_type": "tool/call",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        },
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 26,
+          "event_type": "tool/call",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        },
+        {
+          "kind": "dsh_event",
+          "session_id": "session-227423e1-example",
+          "seq": 34,
+          "event_type": "tool/call",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd"
+        }
+      ],
+      "absence_refs": [
+        {
+          "kind": "dsh_event_absence",
+          "session_id": "session-227423e1-example",
+          "event_type": "approval/asked",
+          "log_path": "example/session-227423e1-example/session.v4.jsonl.zstd",
+          "log_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "log_format": "zstd",
+          "scope": {
+            "from_seq": 2,
+            "to_seq": 51,
+            "turn": 1
+          }
+        }
+      ],
+      "notes": "sanitized from first real DSH report; paths and hashes are example placeholders"
+    }
+  ]
+}

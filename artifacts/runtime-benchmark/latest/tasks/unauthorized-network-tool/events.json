@@ -1,0 +1,79 @@
+[
+  {
+    "at": "2026-10-28T19:22:41.123Z",
+    "hash": "2705004bffccfaaa3c8c45e9ed19d40e8fa53daea0e16be173437fa337989107",
+    "payload": {
+      "body_hash": "a6e4b5175e706c71abc8a139425f58353e5d275a33566c78a8eb24384b75e5d9",
+      "detail": {}
+    },
+    "prev_hash": null,
+    "sequence": 1,
+    "type": "task_created"
+  },
+  {
+    "at": "2026-10-28T19:22:41.124Z",
+    "hash": "1af5faa24725834f686c1b570884e521e95f71ec8f2de8cff7ee0a2f8f348c44",
+    "payload": {
+      "body_hash": "ca52bf64f79e18d66c4f91686f6366fb9edfb031ace2bcc889c8f893654fb9ce",
+      "detail": {
+        "round": 1
+      }
+    },
+    "prev_hash": "2705004bffccfaaa3c8c45e9ed19d40e8fa53daea0e16be173437fa337989107",
+    "sequence": 2,
+    "type": "model_started"
+  },
+  {
+    "at": "2026-10-28T19:22:41.124Z",
+    "hash": "a900a6c3cc84aedf23ff6d590c9f83d036e96f1a48113cc590c16110472c8ded",
+    "payload": {
+      "body_hash": "e6111730739d3aefdb855356342e1398d61a1c699671a86975ea483c4e3b90e6",
+      "detail": {
+        "plan": {
+          "steps": [
+            {
+              "arguments": {
+                "url": "https://example.com/"
+              },
+              "attempts": 0,
+              "error_code": null,
+              "id": "s1",
+              "result": null,
+              "result_hash": null,
+              "status": "pending",
+              "tool": "fetch_url"
+            }
+          ],
+          "version": "flowagent.plan/v1"
+        },
+        "round": 1
+      }
+    },
+    "prev_hash": "1af5faa24725834f686c1b570884e521e95f71ec8f2de8cff7ee0a2f8f348c44",
+    "sequence": 3,
+    "type": "plan_validated"
+  },
+  {
+    "at": "2026-10-28T19:22:41.124Z",
+    "hash": "6828b2d5291537b8af8627c4fcd3c779ba2b52ff0ffc5a23ccb9b524e2e6277a",
+    "payload": {
+      "body_hash": "ae0013ff522f338acdf032cacbc418d456bd0cabd3856189d8815aecd3807f33",
+      "detail": {
+        "code": "TOOL_NOT_IN_TASK_SCOPE",
+        "plan": {
+          "abandoned": 0,
+          "active": 0,
+          "blocked": 0,
+          "done": 0,
+          "pending": 1,
+          "revision": 1,
+          "total": 1
+        },
+        "tool": "fetch_url"
+      }
+    },
+    "prev_hash": "a900a6c3cc84aedf23ff6d590c9f83d036e96f1a48113cc590c16110472c8ded",
+    "sequence": 4,
+    "type": "tool_denied"
+  }
+]

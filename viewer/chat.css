@@ -1,0 +1,433 @@
+/* ================================================================ Chat — 视图层（chat 视图 + composer 皮肤，第四加载）
+   职责：chat 视图的列几何（--reading-w 阅读列、用户消息右对齐、助手正文
+   全宽、底部输入框）与对话组件皮肤（气泡/代码/思考/typing/等待额度态）。
+   加载顺序（index.html <head>）：app.css → desktop.css → design.css →
+   本文件 → kimi.css → moonshot.css → workspace.css；后续过渡层可覆盖这里
+   的规则。所有取值消费 app.css :root 令牌——本文件不改写任何令牌。
+   注：对话皮肤目前与 kimi.css / workspace.css 中的同名规则三层并存，
+   后续迁移步骤收敛为本文件唯一来源（以浏览器实测生效值为准）。 */
+
+#app.chat-mode .main-inner {
+  width: 100%;
+  max-width: calc(var(--reading-w) + 64px);
+  margin: 0 auto;
+  padding: 20px 32px 36px;
+}
+
+.chat-thread {
+  width: 100%;
+  max-width: var(--reading-w);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding-bottom: 24px;
+}
+
+.chat-msg { display: flex; flex-direction: column; min-width: 0; }
+.chat-msg.user { align-items: flex-end; }
+.chat-msg.assistant { align-items: stretch; }
+
+/* 气泡生效值（原 workspace.css 定稿）：#efefef 实底、14/14/4/14 圆角、15/25。
+   长内容换行：white-space/overflow-wrap 是本层独有的存活属性（旧 kimi/workspace 未设）。 */
+.chat-bubble {
+  max-width: 82%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px 14px 4px 14px;
+  background: #efefef;
+  color: var(--text-1);
+  font-size: 15px;
+  line-height: 25px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Markdown 生效值（原 kimi.css 定稿）：15/27 正文、行内码 16/26、链接无下划线悬停下划线。 */
+.chat-md {
+  color: var(--text-1);
+  font-size: 15px;
+  line-height: 27px;
+  overflow-wrap: anywhere;
+}
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p { margin: 0 0 12px; }
+.chat-md h2, .chat-md h3, .chat-md h4 { font-weight: 600; }
+.chat-md h2 { font-size: 20px; line-height: 32px; margin: 24px 0 10px; }
+.chat-md h3 { font-size: 18px; line-height: 28px; margin: 20px 0 8px; }
+.chat-md h4 { font-size: 16px; line-height: 24px; margin: 16px 0 6px; }
+.chat-md ul, .chat-md ol { margin: 8px 0 14px; padding-left: 24px; }
+.chat-md li { margin: 4px 0; }
+.chat-md blockquote {
+  margin: 12px 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-2);
+}
+.chat-md a { color: var(--accent); text-decoration: none; }
+.chat-md a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.chat-md code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #F5F5F5;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 26px;
+}
+.chat-code {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #F5F5F5;
+  overflow-x: auto; /* 长代码横滚，不撑破阅读列 */
+}
+.chat-code code {
+  padding: 0;
+  background: none;
+  font-size: 14px;
+  line-height: 22px;
+  white-space: pre;
+}
+.chat-code code[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-3);
+  font: 11px var(--font-mono);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+/* 思考块生效值（原 kimi.css 定稿）：无边框 #F5F5F5 井、14/22 次级文字。 */
+.chat-reasoning {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-left: 0;
+  border-radius: 8px;
+  background: #F5F5F5;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 22px;
+}
+.chat-reasoning summary { cursor: pointer; color: var(--text-2); }
+.chat-reasoning pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font: 13px/20px var(--font-mono);
+  color: var(--text-2);
+}
+
+.chat-meta {
+  margin-top: 8px;
+  color: var(--text-3);
+  font: 12px/18px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.chat-msg.cancelled .chat-md { opacity: .72; }
+
+/* 操作行生效值：默认 .35 悬停/聚焦显现，28px 行高。 */
+.chat-msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  opacity: .35;
+  transition: opacity .15s ease;
+}
+.chat-msg:hover .chat-msg-actions,
+.chat-msg:focus-within .chat-msg-actions,
+.chat-msg-actions.always { opacity: 1; }
+.chat-act {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background-color .3s ease-in-out, color .3s ease-in-out;
+}
+.chat-act:hover { background: #F5F5F5; color: var(--text-1); }
+.chat-act.strong { background: transparent; border: 0; color: var(--text-1); }
+
+/* 附件 chips 生效值（原 kimi + workspace 合并）：描边 #F5F5F5 底、等宽省略。 */
+.chat-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text-2);
+  font: 12px var(--font-ui);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chat-file-x {
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+.chat-file-x:hover { color: var(--bad); }
+
+.chat-attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 10px 14px 0;
+}
+.chat-attach-chips[hidden] { display: none; }
+
+/* 五点螺旋加载（原 kimi.css 定稿）：只动透明度，不上下跳。 */
+.chat-typing { display: inline-flex; gap: 3px; margin-top: 10px; }
+.chat-typing i {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-1); opacity: .15;
+  animation: chatDot 1.2s linear infinite;
+}
+.chat-typing i:nth-child(1) { animation-delay: 0s; }
+.chat-typing i:nth-child(2) { animation-delay: .12s; }
+.chat-typing i:nth-child(3) { animation-delay: .24s; }
+.chat-typing i:nth-child(4) { animation-delay: .36s; }
+.chat-typing i:nth-child(5) { animation-delay: .48s; }
+@keyframes chatDot {
+  0%, 100% { opacity: .15; }
+  25% { opacity: .45; }
+  50%, 98% { opacity: .15; }
+}
+/* 等待额度：流光文字（背景渐变裁进文字）。 */
+.chat-wait {
+  margin-top: 10px;
+  font: 12px/18px var(--font-ui);
+  color: transparent;
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, .32) 20%, rgba(0, 0, 0, .68) 50%, rgba(0, 0, 0, .32) 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  animation: chatShimmer 1.6s linear infinite;
+}
+@keyframes chatShimmer {
+  from { background-position: 200% center; }
+  to { background-position: -200% center; }
+}
+
+/* 错误条：语义深红 tint（随第一步语义色取深，替换 kimi 亮红硬编码）。 */
+.chat-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 38, 38, .22);
+  background: rgba(220, 38, 38, .08);
+  color: var(--bad-ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.chat-empty {
+  max-width: 620px;
+  margin: 52px auto 0;
+  text-align: center;
+  color: var(--text-2);
+}
+.chat-empty-mark {
+  font: 600 40px/1 var(--font-ui);
+  letter-spacing: -.03em;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+.chat-empty p { margin: 0; font-size: 15px; line-height: 22px; color: var(--text-3); }
+
+.chat-edit-box { width: 100%; max-width: 82%; }
+/* 编辑态输入框生效值（原 kimi.css 定稿）：16/24、发丝边。 */
+.chat-edit-input {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, .13);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--text-1);
+  font: 16px/24px var(--font-ui);
+  outline: none;
+}
+.chat-edit-input:focus { border-color: rgba(0, 0, 0, .20); }
+
+.side-empty-inline {
+  padding: 6px 10px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.stop-glyph {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: currentColor;
+  display: block;
+}
+
+/* 桌面端：thread 行距 28（同特异性覆盖基座 32；字号仍由统一基座定稿）。 */
+html.desktop-app .chat-thread { gap: 28px; }
+
+/* 减少动效（双层）：应用内开关 + 操作系统级，chat 自己的动画一并关掉。 */
+body.reduce-motion .chat-typing i,
+body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-typing i, .chat-wait { animation: none !important; opacity: .45; }
+}
+
+@media (max-width: 900px) {
+  #app.chat-mode .main-inner { padding: 14px 14px 24px; }
+  .chat-thread { max-width: 100%; }
+  .chat-bubble { max-width: 100%; }
+  .chat-edit-box { max-width: 100%; }
+}
+
+/* ================================================== 设置页：对话模型配置 */
+
+.chatcfg {
+  margin: 6px 0 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.chatcfg-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.chatcfg-head b { font-size: 14px; }
+.chatcfg-head small { color: var(--text-3); font-size: 12px; line-height: 1.6; }
+.chatcfg-head code { font-family: var(--font-mono); font-size: 11px; }
+
+.chatcfg-default { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chatcfg-label { font-size: 12px; color: var(--text-2); margin-right: 4px; }
+.chatcfg-radio {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px;
+  border: 0.5px solid var(--line-strong); border-radius: 999px;
+  background: var(--raised); color: var(--text-2); font-size: 12.5px;
+  cursor: pointer;
+}
+.chatcfg-radio .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.chatcfg-radio .dot.ok { background: var(--ok, #15803d); }
+.chatcfg-radio.active { border-color: var(--text-1); color: var(--text-1); font-weight: 550; }
+.chatcfg-radio:disabled { opacity: .5; cursor: default; }
+
+.chatcfg-cards { display: flex; flex-direction: column; gap: 12px; }
+.chatcfg-card { padding: 14px; border: 0.5px solid var(--line-strong); border-radius: 10px; background: var(--raised); }
+.chatcfg-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.chatcfg-card-head b { font-size: 13.5px; }
+.chatcfg-status { font-size: 11.5px; margin-left: auto; }
+.chatcfg-status.ok { color: var(--ok, #15803d); }
+.chatcfg-status.bad { color: var(--text-3); max-width: 55%; text-align: right; }
+.chatcfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 12px; }
+.chatcfg-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.chatcfg-field span { font-size: 11.5px; color: var(--text-2); }
+.chatcfg-field span i { font-style: normal; color: var(--text-3); margin-left: 6px; }
+.chatcfg-field input {
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--canvas, #fff); color: var(--text-1);
+  font: 12.5px var(--font-ui);
+}
+.chatcfg-field input:focus { outline: none; border-color: var(--accent-line, var(--line-strong)); }
+.chatcfg-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.chatcfg-note { font-size: 11px; color: var(--text-3); }
+
+/* 对话列表：归档按钮与分页 */
+.chat-row { position: relative; padding-right: 30px; }
+.chat-del {
+  display: none;
+  position: absolute; right: 6px; top: 50%;
+  transform: translateY(-50%);
+  align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 3px;
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 14px; line-height: 1;
+}
+.chat-row:hover .chat-del, .chat-del.armed { display: inline-flex; }
+.chat-del:hover { background: var(--active); color: var(--bad); }
+.chat-del.armed { color: var(--bad); font-size: 10.5px; }
+.chat-more {
+  display: block; width: 100%;
+  margin: 2px 0 8px; padding: 5px 8px;
+  border: 0; background: none;
+  color: var(--text-3); font-size: 11.5px; text-align: left;
+  cursor: pointer;
+}
+.chat-more:hover { color: var(--text-1); }
+
+/* ---------------------------------------------------------------- AI 头像
+   定稿形态（原 workspace.css 生效值）：26px 黑底 #111 方圆 7px、白墨反白，
+   无描边阴影；状态推导在 core/ai-avatar.js（--idle/--mark 等类名保持，
+   --mark 的浅色底在定稿层序下从未生效，随归一移除其背景声明）。
+   形象是 FCode 的 Q 版印豆；只出现在对话面：工作舞台仍用品牌 logo。 */
+.chat-msg-row { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.chat-msg-row .chat-md { flex: 1; min-width: 0; }
+
+.ai-avatar {
+  --ai-avatar-size: 26px;
+  position: relative; flex: none;
+  width: var(--ai-avatar-size, 26px); height: var(--ai-avatar-size, 26px);
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  background: #111;
+  box-shadow: none;
+  color: #fff;
+}
+.ai-avatar svg { display: block; }
+.ai-avatar-ring {
+  position: absolute; inset: -3px; border-radius: 50%;
+  border: 1.5px solid currentColor; opacity: .18;
+  animation: ai-avatar-breathe 1.6s ease-in-out infinite;
+}
+@keyframes ai-avatar-breathe {
+  0%, 100% { opacity: .1; transform: scale(.98); }
+  50% { opacity: .3; transform: scale(1.04); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-avatar-ring { animation: none; opacity: .18; }
+}
+.chat-empty .ai-avatar { margin: 0 auto 10px; display: flex; width: 64px; height: 64px; }
+.ai-avatar .ai-avatar-ring { pointer-events: none; }
+
+/* ================================================================ 对话内工具卡
+   Agentic chat：模型调用只读工具时，卡片按 blocks 顺序嵌在回答里。
+   状态点只有三态（运行中/完成/失败），不写形容词。 */
+.chat-blocks { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.chat-tool { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.chat-tool-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 12.5px; }
+.chat-tool-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); flex: none; }
+.chat-tool.running .chat-tool-dot { background: var(--warn); }
+.chat-tool.ok .chat-tool-dot { background: var(--ok); }
+.chat-tool.error .chat-tool-dot { background: var(--bad); }
+.chat-tool-name { font-family: var(--font-mono); font-weight: 550; color: var(--text-1); }
+.chat-tool-args { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.chat-tool-state { flex: none; font-size: 11px; color: var(--text-3); }
+.chat-tool-detail { border-top: 1px dashed var(--line-soft); padding: 6px 10px 8px; }
+.chat-tool-detail summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); }
+.chat-tool-detail summary:hover { color: var(--text-1); }
+.chat-tool-result { margin: 6px 0 0; padding: 8px; border-radius: 6px; background: var(--raised);
+  font: 11px/1.55 var(--font-mono); color: var(--text-2); white-space: pre-wrap;
+  word-break: break-all; max-height: 240px; overflow: auto; }
+.chat-tool-meta { margin-top: 6px; font: 10.5px var(--font-mono); color: var(--text-4); }
+
+.chat-tool.awaiting { border-color: rgba(180, 83, 9, .45); }
+.chat-tool.awaiting .chat-tool-dot { background: var(--warn); }
+.chat-tool.awaiting .chat-tool-state { color: var(--warn); font-weight: 550; }
+.chat-tool-approval { border-top: 2px solid var(--warn); background: rgba(180, 83, 9, .06); padding: 8px 10px 10px; }
+.chat-tool-approval-head { font-size: 12px; font-weight: 550; color: var(--warn); margin-bottom: 6px; }
+.chat-tool-approval-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

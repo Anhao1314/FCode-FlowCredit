@@ -1,0 +1,10 @@
+{
+  "controlled_fault_injection": true,
+  "mode": "after_side_effect",
+  "pid": 16388,
+  "returncode": -9,
+  "sigkill_confirmed": true,
+  "signal": 9,
+  "stderr": "worker.stderr.txt",
+  "stdout": "worker.stdout.txt"
+}

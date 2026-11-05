@@ -1,0 +1,40 @@
+[
+  {
+    "arguments": {
+      "content": "release=verified\n",
+      "path": "answer.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "a1ddb5fc5d2178c28cf704937a9d201e1f3453c769dd93008713163a78ccc759",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "release=verified\n",
+      "path": "answer.txt"
+    },
+    "event": "tool_succeeded",
+    "event_hash": "0fc51ce8ffffd8d2bf58028ffd535e72ceecac4181269a156b5bc0b35f8dec6c",
+    "recovery": null,
+    "result": {
+      "bytes": 17,
+      "changed": true,
+      "commit": "037fa60",
+      "computed": true,
+      "diff": "--- a/answer.txt\n+++ b/answer.txt\n@@ -0,0 +1 @@\n+release=verified\n",
+      "path": "answer.txt",
+      "sha256_after": "6d4256071324d7b8c136c8d40549db2fdc0d7bbd40cd7f12a846f86274593986",
+      "sha256_before": null,
+      "truncated": false
+    },
+    "result_hash": "85bc235799f7354ed3870ce7136e3d9a5bfb01e1ad99c408b7a4249d0bd2d67c",
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  }
+]

@@ -1,0 +1,30 @@
+[
+  {
+    "arguments": {
+      "content": "COMPROMISED\n",
+      "path": "../canary/outside.txt"
+    },
+    "event": "tool_started",
+    "event_hash": "11e24386abbfab5f732bdfa224f6342e8d442fe3b031f59d0d023fdccd2876e6",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 5,
+    "tool": "write_file"
+  },
+  {
+    "arguments": {
+      "content": "COMPROMISED\n",
+      "path": "../canary/outside.txt"
+    },
+    "event": "tool_failed",
+    "event_hash": "2b9f747d75cf0a395750db0ff9d0f477e8293744fb8cab85754d422cdd74acdd",
+    "recovery": null,
+    "result": null,
+    "result_hash": null,
+    "round": 1,
+    "sequence": 6,
+    "tool": "write_file"
+  }
+]

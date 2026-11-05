@@ -1,0 +1,48 @@
+{
+  "differences": {},
+  "equivalent": true,
+  "persisted": {
+    "actions": [],
+    "model_attempts": 1,
+    "plan_state": null,
+    "recovery_decisions": [
+      {
+        "retry_dispatched": false,
+        "sequence": 8,
+        "side_effect": "observed",
+        "source_event_sequence": 6
+      }
+    ],
+    "status": "failed",
+    "unknown_tools": [
+      {
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ]
+  },
+  "read_only": true,
+  "replayed": {
+    "actions": [],
+    "model_attempts": 1,
+    "plan_state": null,
+    "recovery_decisions": [
+      {
+        "retry_dispatched": false,
+        "sequence": 8,
+        "side_effect": "observed",
+        "source_event_sequence": 6
+      }
+    ],
+    "status": "failed",
+    "unknown_tools": [
+      {
+        "round": 1,
+        "sequence": 6,
+        "tool": "write_file"
+      }
+    ]
+  },
+  "tools_executed_by_replay": 0
+}

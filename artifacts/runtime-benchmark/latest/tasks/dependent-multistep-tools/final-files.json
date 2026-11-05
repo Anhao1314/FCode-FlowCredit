@@ -1,0 +1,12 @@
+{
+  "derived.txt": {
+    "bytes": 34,
+    "content": "source=alpha\ndependency=read_file\n",
+    "sha256": "e16c2f81be710ebb2aea907b3e9c3d344074acdd1a2a5ad6308b1f59207c164e"
+  },
+  "source.txt": {
+    "bytes": 6,
+    "content": "alpha\n",
+    "sha256": "b6a98d9ce9a2d9149288fa3df42d377c3e42737afdcdaf714e33c0a100b51060"
+  }
+}

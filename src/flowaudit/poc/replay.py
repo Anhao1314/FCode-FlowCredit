@@ -1,0 +1,665 @@
+"""Host-side replay runner: constrained subprocess in, four-valued verdict out.
+
+The worker returns observed facts; the HOST interprets them through the
+rule's oracle and computes the outcome. A worker crash is not a FAIL —
+it is ``invalid_poc`` unless the facts say otherwise, because a broken
+harness must never be counted as evidence of absence.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from .. import jsonschema_lite
+from ..targets import repo as repo_adapter
+
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "audit-rules" / "schema" / "poc-evidence.schema.json"
+WORKER_TIMEOUT_SECONDS = 120
+
+
+def _oracle_fcode02_event_absent(facts: dict) -> tuple[bool, str]:
+    """event_absent for fcode02_remember_scope: the second call, with new
+    arguments, must have been granted without any approval request, under
+    an ``operator-rule`` grant."""
+    calls = {call["round"]: call for call in facts.get("calls", [])}
+    second = calls.get(2)
+    if second is None:
+        return False, "second call missing from observed facts"
+    events = facts.get("events", [])
+    no_request = not any(
+        event.get("type") == "approval_requested" and event.get("round") == 2
+        for event in events
+    )
+    rule_granted = any(
+        event.get("type") == "approval_granted" and event.get("round") == 2
+        and event.get("by") == "operator-rule"
+        for event in events
+    )
+    observed = bool(second.get("allowed")) and not second.get("paused") \
+        and no_request and rule_granted
+    reason = (
+        "second call granted by operator-rule with no approval request"
+        if observed
+        else "second call did not bypass the approval gate"
+    )
+    return observed, reason
+
+
+def _oracle_fcode02_event_present(facts: dict) -> tuple[bool, str]:
+    """event_present control: the second call must pause and request approval."""
+    calls = {call["round"]: call for call in facts.get("calls", [])}
+    second = calls.get(2)
+    if second is None:
+        return False, "second call missing from observed facts"
+    requested = any(
+        event.get("type") == "approval_requested" and event.get("round") == 2
+        for event in facts.get("events", [])
+    )
+    observed = requested and bool(second.get("paused"))
+    return observed, "gate requested approval for the new arguments" if observed \
+        else "gate did not request approval in the control"
+
+
+def _oracle_fcode06_probe(facts: dict) -> tuple[bool, str]:
+    """event_present: tool_succeeded recorded for a tool absent from the
+    task's allow list — execute dispatched without any permission check."""
+    succeeded = any(
+        event.get("type") == "tool_succeeded" and event.get("tool") == facts.get("tool")
+        for event in facts.get("events", [])
+    )
+    ungranted = not facts.get("in_allowed_tools", True)
+    observed = bool(facts.get("direct_execute_allowed")) and succeeded and ungranted
+    return observed, (
+        "execute dispatched an ungranted tool and the chain recorded its success"
+        if observed else "execute did not run the ungranted tool"
+    )
+
+
+def _control_fcode02(facts: dict) -> tuple[bool, str]:
+    behaved, reason = _oracle_fcode02_event_present(facts)
+    return behaved, reason
+
+
+def _control_fcode06(facts: dict) -> tuple[bool, str]:
+    denied = bool(facts.get("gate_denied"))
+    return denied, (
+        "gate denied the ungranted tool in the control"
+        if denied else "gate ALLOWED the ungranted tool in the control"
+    )
+
+
+def _oracle_static_file_evidence(facts: dict) -> tuple[bool, str]:
+    """file_state: the pattern was found again in the pinned copy."""
+    observed = bool(facts.get("matched")) and facts.get("mode") == "probe"
+    return observed, (
+        "the file inside the pinned copy still assigns a key-shaped literal"
+        if observed else "no key-shaped assignment found in the probe file"
+    )
+
+
+def _control_static_file_evidence(facts: dict) -> tuple[bool, str]:
+    clean = facts.get("matched") is False
+    return clean, (
+        "control file is clean, as designed"
+        if clean else "control file matched — the pattern is too broad"
+    )
+
+
+_PRERELEASE_VERSION = re.compile(
+    r"(?:^|[-.])(?:rc|beta|alpha|preview|pre)(?:[.-]?\d*)?$",
+    re.IGNORECASE,
+)
+
+
+def _rea_prerelease_hits(selected) -> list[dict]:
+    if not isinstance(selected, list):
+        return []
+    hits: list[dict] = []
+    for item in selected:
+        if not isinstance(item, dict):
+            continue
+        version = str(item.get("version") or "")
+        if item.get("prerelease") is True or _PRERELEASE_VERSION.search(version):
+            hits.append(item)
+    return hits
+
+
+def _oracle_rea_prerelease(facts: dict) -> tuple[bool, str]:
+    hits = _rea_prerelease_hits(facts.get("selected"))
+    return bool(hits), (
+        "shipped dependency list contains pre-release versions: "
+        + ", ".join(str(item.get("path")) for item in hits[:5])
+        if hits else "no pre-release dependency was selected"
+    )
+
+
+def _control_rea_prerelease(facts: dict) -> tuple[bool, str]:
+    hits = _rea_prerelease_hits(facts.get("selected"))
+    return not hits, (
+        "control dependency list has no pre-release versions"
+        if not hits else "control still contains a pre-release dependency"
+    )
+
+
+def _rea_entitlement_extra(facts: dict) -> list[str]:
+    selected = facts.get("selected")
+    scope = facts.get("scope")
+    if isinstance(selected, dict):
+        entitlements = selected.get("entitlements")
+        declared = selected.get("declared_features")
+    elif isinstance(selected, list):
+        entitlements = selected
+        declared = scope.get("declared_features") if isinstance(scope, dict) else None
+    else:
+        return []
+    if not isinstance(entitlements, list):
+        return []
+    if not isinstance(declared, list):
+        declared = []
+    return sorted({str(item) for item in entitlements} - {str(item) for item in declared})
+
+
+def _oracle_rea_entitlements(facts: dict) -> tuple[bool, str]:
+    extra = _rea_entitlement_extra(facts)
+    detail = ""
+    scope = facts.get("scope")
+    validation = scope.get("library_validation") if isinstance(scope, dict) else None
+    if (
+        "com.apple.security.cs.disable-library-validation" in extra
+        and isinstance(validation, dict)
+        and validation.get("verdict") == "no_static_justification"
+    ):
+        detail = (
+            f"; static load graph: {validation.get('loaded_count', 0)} loads, "
+            f"{validation.get('system_count', 0)} system, no non-team/user-writable path"
+        )
+    return bool(extra), (
+        "entitlements absent from the operator's declared features: "
+        + ", ".join(extra[:8]) + detail
+        if extra else "every observed entitlement is declared"
+    )
+
+
+def _control_rea_entitlements(facts: dict) -> tuple[bool, str]:
+    extra = _rea_entitlement_extra(facts)
+    return not extra, (
+        "control declares every observed entitlement"
+        if not extra else "control still shows undeclared entitlements"
+    )
+
+
+def _rea_sidecars(facts: dict) -> list[dict]:
+    selected = facts.get("selected")
+    return [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+
+
+def _oracle_rea_sidecar_auth(facts: dict) -> tuple[bool, str]:
+    bad = [item for item in _rea_sidecars(facts) if item.get("listener_without_auth")]
+    return bool(bad), (
+        "sidecar listeners without an authorization marker: "
+        + ", ".join(str(item.get("name")) for item in bad[:5])
+        if bad else "every sidecar listener has an authorization marker"
+    )
+
+
+def _control_rea_sidecar_auth(facts: dict) -> tuple[bool, str]:
+    bad = [item for item in _rea_sidecars(facts) if item.get("listener_without_auth")]
+    return not bad, (
+        "control sidecar listeners have an authorization marker"
+        if not bad else "control still has an unauthenticated listener"
+    )
+
+
+def _oracle_rea_sidecar_secret(facts: dict) -> tuple[bool, str]:
+    hits = [
+        (item.get("name"), hit)
+        for item in _rea_sidecars(facts)
+        for hit in (item.get("secret_like") or [])
+        if isinstance(hit, dict)
+    ]
+    return bool(hits), (
+        "sidecar source contains key-shaped literals: "
+        + ", ".join(f"{name}:{hit.get('file')}:{hit.get('line')}" for name, hit in hits[:5])
+        if hits else "no key-shaped literal in sidecar source"
+    )
+
+
+def _control_rea_sidecar_secret(facts: dict) -> tuple[bool, str]:
+    hits = [
+        hit for item in _rea_sidecars(facts) for hit in (item.get("secret_like") or [])
+        if isinstance(hit, dict)
+    ]
+    return not hits, (
+        "control sidecar source has no key-shaped literal"
+        if not hits else "control still contains a key-shaped literal"
+    )
+
+
+def _oracle_rea_sidecar_npm(facts: dict) -> tuple[bool, str]:
+    hits = [
+        (item.get("name"), hit)
+        for item in _rea_sidecars(facts)
+        for hit in (item.get("npm_install") or [])
+        if isinstance(hit, dict)
+    ]
+    return bool(hits), (
+        "sidecar source invokes npm install/exec: "
+        + ", ".join(f"{name}:{hit.get('file')}:{hit.get('line')}" for name, hit in hits[:5])
+        if hits else "no runtime npm install/exec in sidecar source"
+    )
+
+
+def _control_rea_sidecar_npm(facts: dict) -> tuple[bool, str]:
+    hits = [
+        hit for item in _rea_sidecars(facts) for hit in (item.get("npm_install") or [])
+        if isinstance(hit, dict)
+    ]
+    return not hits, (
+        "control sidecar source has no runtime npm install/exec"
+        if not hits else "control still invokes npm install/exec"
+    )
+
+
+def _oracle_rea_osv(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+    return bool(hits), (
+        "Go dependency matches an OSV record: "
+        + ", ".join(
+            f"{item.get('osv_id')}:{item.get('dependency')}@{item.get('version')}"
+            for item in hits[:5]
+        )
+        if hits else "no Go dependency matched an OSV record"
+    )
+
+
+def _control_rea_osv(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+    return not hits, (
+        "control dependency graph has no OSV match"
+        if not hits else "control still matches an OSV record"
+    )
+
+
+def _vibe_row_label(item) -> str:
+    """VIBE 证据行的可读标识：优先 path/file/name，带上行号或行数。"""
+    if isinstance(item, dict):
+        for key in ("path", "file", "name"):
+            value = item.get(key)
+            if value:
+                extra = item.get("line") or item.get("lines")
+                return f"{value}:{extra}" if extra else str(value)
+    return str(item)[:80]
+
+
+def _oracle_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
+    """Generic VIBE oracle: selected rows exist = finding; empty = clear.
+
+    All VIBE rules use the same shape: trigger matches when the selector
+    resolves to a non-empty list. The host oracle confirms by checking
+    the pinned facts, not the model's claim. The reason carries the first
+    few row identifiers so the evidence record names *which* files/lines
+    triggered the rule — a count alone is not reviewable.
+    """
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        hits = [item for item in selected if item]
+        if not hits:
+            return False, "no quality-issue rows were selected"
+        preview = "; ".join(_vibe_row_label(item) for item in hits[:6])
+        suffix = f" … (+{len(hits) - 6})" if len(hits) > 6 else ""
+        return True, f"selected {len(hits)} quality-issue rows: {preview}{suffix}"
+    return bool(selected), (
+        f"selected value: {str(selected)[:200]}"
+        if selected else "no value was selected"
+    )
+
+
+def _control_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        return not selected, (
+            "control projection has no quality-issue rows"
+            if not selected else "control still has quality-issue rows"
+        )
+    return not selected, "control projection is empty"
+
+
+def _oracle_rea_runtime_install(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+    return bool(hits), (
+        "main binary contains runtime global package install commands: "
+        + ", ".join(str(item.get("command")) for item in hits[:3])
+        if hits else "no runtime global package install command was selected"
+    )
+
+
+def _control_rea_runtime_install(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+    return not hits, (
+        "control binary has no runtime global install command"
+        if not hits else "control still contains a runtime install command"
+    )
+
+_ORACLE_POC = {
+    ("fcode02_remember_scope", "event_absent"): _oracle_fcode02_event_absent,
+    ("fcode06_ungated_execute", "event_present"): _oracle_fcode06_probe,
+    ("demoagent_remember_scope", "event_absent"): _oracle_fcode02_event_absent,
+    ("static_file_evidence", "file_state"): _oracle_static_file_evidence,
+    ("rea_fact_evidence", "RULE-AGI05-101"): _oracle_rea_prerelease,
+    ("rea_fact_evidence", "RULE-AGI07-101"): _oracle_rea_entitlements,
+    ("rea_fact_evidence", "RULE-AGI02-102"): _oracle_rea_sidecar_auth,
+    ("rea_fact_evidence", "RULE-AGI03-102"): _oracle_rea_sidecar_secret,
+    ("rea_fact_evidence", "RULE-AGI05-102"): _oracle_rea_sidecar_npm,
+    ("rea_fact_evidence", "RULE-AGI05-103"): _oracle_rea_osv,
+    ("rea_fact_evidence", "RULE-AGI05-104"): _oracle_rea_runtime_install,
+    ("rea_fact_evidence", "RULE-VIBE01-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-002"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE03-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE04-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE02-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE02-002"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-002"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-003"): _oracle_rea_vibe_generic,
+}
+_ORACLE_CONTROL = {
+    "fcode02_remember_scope": _control_fcode02,
+    "fcode06_ungated_execute": _control_fcode06,
+    "demoagent_remember_scope": _control_fcode02,
+    "static_file_evidence": _control_static_file_evidence,
+    ("rea_fact_evidence", "RULE-AGI05-101"): _control_rea_prerelease,
+    ("rea_fact_evidence", "RULE-AGI07-101"): _control_rea_entitlements,
+    ("rea_fact_evidence", "RULE-AGI02-102"): _control_rea_sidecar_auth,
+    ("rea_fact_evidence", "RULE-AGI03-102"): _control_rea_sidecar_secret,
+    ("rea_fact_evidence", "RULE-AGI05-102"): _control_rea_sidecar_npm,
+    ("rea_fact_evidence", "RULE-AGI05-103"): _control_rea_osv,
+    ("rea_fact_evidence", "RULE-AGI05-104"): _control_rea_runtime_install,
+    ("rea_fact_evidence", "RULE-VIBE01-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-002"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE03-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE02-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE02-002"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-002"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE05-003"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE04-001"): _control_rea_vibe_generic,
+}
+
+
+def _control_oracle_for(scenario: str, rule_id: str):
+    """Prefer a rule-specific control, then the scenario-level fallback."""
+    return _ORACLE_CONTROL.get((scenario, rule_id)) or _ORACLE_CONTROL.get(scenario)
+
+
+def _poc_oracle_for(scenario: str, rule_id: str, oracle_kind: str):
+    """Prefer a rule-specific oracle, then the (scenario, kind) contract."""
+    return _ORACLE_POC.get((scenario, rule_id)) or _ORACLE_POC.get((scenario, oracle_kind))
+
+
+def _worker_env(workdir: Path) -> dict:
+    auditor_src = str(Path(__file__).resolve().parents[2])
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "PYTHONPATH": auditor_src,
+        "TMPDIR": str(workdir),
+        "HOME": str(workdir),
+        "LANG": "C.UTF-8",
+        "FCODE_AUDIT_SANDBOX": "1",
+    }
+
+
+def _run_worker(target_copy: Path, workdir: Path, scenario: str,
+                params: dict, out_path: Path) -> tuple[dict | None, str]:
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable, "-m", "flowaudit.poc.replay_worker",
+        "--target", str(target_copy), "--scenario", scenario,
+        "--workdir", str(workdir), "--out", str(out_path),
+        "--params", json.dumps(params),
+    ]
+    completed = subprocess.run(
+        cmd, cwd=str(workdir), env=_worker_env(workdir),
+        capture_output=True, text=True, timeout=WORKER_TIMEOUT_SECONDS,
+    )
+    if completed.returncode != 0:
+        tail = (completed.stderr or "").strip().splitlines()[-6:]
+        return None, "worker failed: " + " | ".join(tail)
+    return json.loads(out_path.read_text(encoding="utf-8")), ""
+
+
+def _evidence_record(rule, candidate, target_ref: dict, env: dict,
+                     poc_facts: dict | None, control_facts: dict | None,
+                     outcome: str, runs_passed: int, runs_total: int,
+                     receipt_refs: list[str], poc_id: str, recorded_at: str,
+                     error_note: str = "") -> dict:
+    control_result = "not_run"
+    if control_facts is not None:
+        control_oracle = _control_oracle_for(
+            rule.poc["scenario"], rule.id,
+        ) or (lambda facts: (False, "no control oracle"))
+        behaved, _ = control_oracle(control_facts)
+        # Control oracle: "behaved" means the designed safe behavior was
+        # observed (gate asked / gate denied) — exactly what a negative
+        # control must show.
+        control_result = "as_expected" if behaved else "violated"
+    record = {
+        "schema_version": "fcode.poc-evidence/v1",
+        "record_kind": "poc",
+        "audit_id": target_ref["audit_id"],
+        "poc_id": poc_id,
+        "rule_id": rule.id,
+        "category": rule.category,
+        "target_ref": {
+            "manifest_sha256": target_ref["manifest_sha256"],
+            "identity": target_ref["identity"],
+            "version": target_ref.get("version", ""),
+            **({"artifact_sha256": target_ref["artifact_sha256"]}
+               if target_ref.get("artifact_sha256") else {}),
+        },
+        "capability_manifest": {
+            "declared": rule.poc.get("capabilities", []),
+            "host_verdict": "within_declaration",
+        },
+        "stimulus": {"kind": "command", "spec": rule.poc["stimulus"]},
+        "oracle": {
+            "kind": rule.poc["oracle"]["kind"],
+            "spec": rule.poc["oracle"]["spec"],
+            "executor": "host",
+        },
+        "negative_control": {
+            "spec": rule.poc["negative_control"]["spec"],
+            "result": control_result,
+        },
+        "replay_environment": env,
+        "expectation": "must_find",
+        "replay": {
+            "outcome": outcome,
+            "runs": {"passed": runs_passed, "total": runs_total},
+            "threshold": rule.poc.get("threshold", "1/1 (deterministic)"),
+            "receipt_refs": receipt_refs,
+        },
+        "cleanup_confirmed": True,
+        "recorded_at": recorded_at,
+        "actor": "host",
+    }
+    if error_note:
+        record["notes"] = error_note
+    return record
+
+
+def _control_record(rule, target_ref: dict, env: dict, outcome: str,
+                    runs_total: int, receipt_refs: list[str], poc_id: str,
+                    recorded_at: str, error_note: str = "") -> dict:
+    record = {
+        "schema_version": "fcode.poc-evidence/v1",
+        "record_kind": "negative_control",
+        "audit_id": target_ref["audit_id"],
+        "poc_id": poc_id,
+        "rule_id": rule.id,
+        "category": rule.category,
+        "target_ref": {
+            "manifest_sha256": target_ref["manifest_sha256"],
+            "identity": target_ref["identity"],
+            "version": target_ref.get("version", ""),
+            **({"artifact_sha256": target_ref["artifact_sha256"]}
+               if target_ref.get("artifact_sha256") else {}),
+        },
+        "capability_manifest": {
+            "declared": [
+                cap for cap in rule.poc.get("capabilities", [])
+                if cap.get("kind") != "credentials"
+            ] or [{"kind": "network", "scope": "none", "granted": False}],
+            "host_verdict": "within_declaration",
+        },
+        "stimulus": {"kind": "command",
+                     "spec": rule.poc["negative_control"]["spec"]},
+        "oracle": {
+            "kind": rule.poc.get("control_oracle", {}).get("kind", "event_present"),
+            "spec": rule.poc.get("control_oracle", {}).get(
+                "spec", rule.poc["negative_control"]["spec"]),
+            "executor": "host",
+        },
+        "negative_control": {
+            "spec": "this record IS the negative control for its poc",
+            "result": "not_run",
+        },
+        "replay_environment": env,
+        "expectation": "must_not_find",
+        "replay": {
+            "outcome": outcome,
+            "runs": {"passed": 0, "total": runs_total},
+            "threshold": rule.poc.get("threshold", "1/1 (deterministic)"),
+            "receipt_refs": receipt_refs,
+        },
+        "cleanup_confirmed": True,
+        "recorded_at": recorded_at,
+        "actor": "host",
+    }
+    if error_note:
+        record["notes"] = error_note
+    return record
+
+
+def replay_candidate(rule, candidate, target_ref: dict, target_copy: Path,
+                     workdir: Path, now_iso: str, poc_id: str) -> dict:
+    """Replay one candidate: poc run + negative control run, host verdict.
+
+    Returns the poc-evidence record for the poc run (the control record is
+    written alongside into workdir and referenced by receipt ids).
+    """
+    env = {
+        "no_real_credentials": True,
+        "network": "disabled",
+        "filesystem": "temporary",
+        "target_copy": bool(target_ref.get("target_copy", True)),
+    }
+    if isinstance(target_ref.get("target_snapshot_sha256"), str):
+        env["target_snapshot_sha256"] = target_ref["target_snapshot_sha256"]
+    scenario = rule.poc.get("scenario_by_profile", {}).get(
+        target_ref.get("profile", "generic")) or rule.poc["scenario"]
+    probe_workdir = workdir / "replay"
+    probe_workdir.mkdir(parents=True, exist_ok=True)
+
+    control_facts, control_error = _run_worker(
+        target_copy, probe_workdir / "control", scenario,
+        {**rule.poc.get("control_params", {}), "workdir": str(probe_workdir / "control")},
+        probe_workdir / "control-facts.json",
+    )
+    poc_facts, poc_error = _run_worker(
+        target_copy, probe_workdir / "poc", scenario,
+        {**rule.poc.get("probe_params", {}), "workdir": str(probe_workdir / "poc")},
+        probe_workdir / "poc-facts.json",
+    )
+
+    observed, reason = (False, "")
+    if poc_facts is not None:
+        oracle = _poc_oracle_for(
+            scenario, rule.id, str(rule.poc["oracle"]["kind"]),
+        )
+        if oracle is None:
+            observed, reason = False, f"no host oracle for {scenario}"
+        else:
+            observed, reason = oracle(poc_facts)
+    else:
+        reason = poc_error
+
+    control_ok = control_facts is not None
+    control_behaved = False
+    if control_facts is not None:
+        control_oracle = _control_oracle_for(scenario, rule.id) or (
+            lambda facts: (False, "no control oracle")
+        )
+        control_behaved, _ = control_oracle(control_facts)
+    if poc_facts is None or not control_ok:
+        outcome = "invalid_poc"
+        passed = 0
+    elif observed and not control_behaved:
+        # 对照组也没拦:说明刺激不孤立缺陷(谁都绕),前提塌了。
+        outcome = "invalid_poc"
+        passed = 0
+        reason = "negative control violated; the stimulus does not isolate the defect"
+    elif observed:
+        outcome = "finding"
+        passed = 1
+    elif control_facts is not None:
+        control_oracle = _control_oracle_for(scenario, rule.id) or (
+            lambda facts: (False, "no control oracle")
+        )
+        control_behaved, _ = control_oracle(control_facts)
+        outcome = "not_reproduced"
+        passed = 0
+        if not control_behaved:
+            # The control bypassed too: the gate never asks, so the PoC
+            # proves nothing about the remember path. Premise is broken,
+            # not the target.
+            outcome = "invalid_poc"
+            reason = "negative control also bypassed the gate; stimulus is unsound"
+
+    total = 1
+    # receipt_refs stay empty in v1: the audit session's own event chain
+    # lands with session integration. Fabricating ids would be worse than
+    # an empty list — the record says what it has, nothing more.
+    record = _evidence_record(
+        rule, candidate, target_ref, env, poc_facts, control_facts if control_ok else None,
+        outcome, passed, total, [], poc_id, now_iso,
+        error_note=reason,
+    )
+    errors = jsonschema_lite.validate(record, json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
+    if errors:
+        raise RuntimeError(f"poc-evidence record violates its own contract: {errors}")
+
+    if control_facts is not None:
+        control_outcome = (
+            "not_vulnerable_under_scope" if outcome == "finding"
+            else "invalid_poc"
+        )
+        control_record = _control_record(
+            rule, target_ref, env, control_outcome, total,
+            [], f"{poc_id}-c", now_iso,
+            error_note=control_error,
+        )
+        control_errors = jsonschema_lite.validate(
+            control_record, json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
+        if control_errors:
+            raise RuntimeError(f"control record violates its contract: {control_errors}")
+        (probe_workdir / "control-record.json").write_text(
+            json.dumps(control_record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    (probe_workdir / "poc-record.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return record
+
+
+def probe_workdir_unused_note() -> str:
+    """Kept for symmetry with the adapter API; the replayer owns workdirs."""
+    return repo_adapter.new_workdir.__doc__ or ""

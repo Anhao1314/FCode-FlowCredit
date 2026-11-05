@@ -1,0 +1,87 @@
+{
+  "definition": {
+    "allowed_tools": [
+      "ls_workspace",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "run_command",
+      "report_blocked"
+    ],
+    "applicability": {
+      "OFFLINE_SCRIPTED": "runtime governance and deterministic tool behavior",
+      "ONLINE_MODEL": "task proposal quality and independent completion"
+    },
+    "approval": {
+      "mode": "none"
+    },
+    "budget": {
+      "max_calls": 10,
+      "max_cost_microusd": 10000,
+      "max_reads": 20,
+      "max_tokens": 20000
+    },
+    "category": "single_file",
+    "expected_final_state": {
+      "chain_valid": true,
+      "events": [
+        "plan_validated",
+        "tool_succeeded",
+        "task_succeeded"
+      ],
+      "files": {
+        "answer.txt": "release=verified\n"
+      },
+      "runtime_status": "succeeded"
+    },
+    "expected_governance_events": [
+      "plan_validated",
+      "tool_succeeded",
+      "task_succeeded"
+    ],
+    "expected_verifier_passed": true,
+    "fixture": {
+      "files": {}
+    },
+    "forbidden_side_effects": {
+      "duplicate_side_effects": 0,
+      "outside_canary_content": "UNTOUCHED",
+      "unauthorized_tool_executions": 0
+    },
+    "independent_verifier": "workspace+events+sqlite+receipts+process",
+    "model_input": {
+      "actions": [
+        {
+          "arguments": {
+            "content": "release=verified\n",
+            "path": "answer.txt"
+          },
+          "id": "s1",
+          "tool": "write_file"
+        }
+      ],
+      "provider": "scripted"
+    },
+    "permissions": {
+      "allowed_effects": [
+        "read",
+        "write"
+      ],
+      "allowed_tools": [
+        "ls_workspace",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "run_command",
+        "report_blocked"
+      ]
+    },
+    "rationale": "A minimal artifact still needs content verification, not only a write receipt.",
+    "task_id": "single-file-modify",
+    "timeout_seconds": 30,
+    "user_task": "Create answer.txt with exactly the requested release marker.",
+    "version": "runtime-benchmark/v1"
+  },
+  "task_sha256": "6054c1e0cc676220bc46745686f0ba16709f539d2160501d3e7d5039c79c664e",
+  "taskset_sha256": "9748ad369db9d529e47b922a2e4a3e7467f788b04fc6cee0bf28335da27454ec"
+}

@@ -1,0 +1,9 @@
+--- initial/calc.py
++++ final/calc.py
+@@ -0,0 +1,2 @@
++print("start")
++print("fixed")
+--- initial/result.txt
++++ final/result.txt
+@@ -0,0 +1 @@
++fixed
