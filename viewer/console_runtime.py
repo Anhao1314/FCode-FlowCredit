@@ -266,6 +266,9 @@ class Run:
     queue: list | None = None
     cost: dict | None = None
     spec: dict | None = None
+    #: 运行来源:manual(操作者/对话发起) | scheduled(定时任务调度器) |
+    #: subagent(父运行的 spawn 扇出)。账本可见性的事实字段。
+    source: str = "manual"
     controller: Any = None
     lock: threading.RLock = field(default_factory=threading.RLock)
     cond: threading.Condition = field(init=False)
@@ -295,6 +298,7 @@ class Run:
             "taskId": self.task_id,
             "cost": self.cost,
             "spec": self.spec,
+            "source": self.source,
         }
         if detail:
             out["error"] = self.error

@@ -2877,3 +2877,5 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   background: var(--accent-soft, rgba(0,0,0,.06)); color: var(--text-2);
   border: 1px solid var(--line);
 }
+button.led-lineage { cursor: pointer; font: inherit; }
+button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }

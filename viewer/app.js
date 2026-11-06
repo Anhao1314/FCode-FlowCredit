@@ -637,15 +637,21 @@ async function renderLedger() {
     const cost = run.cost ? `${num(run.cost.costMicrousd)} µUSD` : "—";
     const created = String(run.created || "").replace("T", " ").slice(5, 16);
     const confirmDelete = ledgerConfirmId === run.id;
-    // 父子关系:子代理行亮"子代理"徽章;父运行行亮扇出计数(点击行可见 spawn 卡)
+    // 父子关系:子代理行亮"子代理"徽章;父运行行亮扇出计数。徽章本身
+    // 可点:子行跳父,父行跳第一个子(数据来自轮询的 runHistory)。
     const parentId = (run.spec || {}).parent_run_id || "";
-    const childCount = runHistory.filter(r => (r.spec || {}).parent_run_id === run.id).length;
+    const childRuns = runHistory.filter(r => (r.spec || {}).parent_run_id === run.id);
+    const childCount = childRuns.length;
     const lineage = parentId
-      ? ` <span class="led-lineage" title="父运行 ${esc(parentId)}">子代理</span>`
-      : (childCount ? ` <span class="led-lineage" title="${childCount} 个子代理运行">子代理 ×${childCount}</span>` : "");
+      ? ` <button class="led-lineage" type="button" data-led-row-jump="${esc(parentId)}" title="父运行 ${esc(parentId)} · 点击打开">子代理</button>`
+      : (childCount ? ` <button class="led-lineage" type="button" data-led-row-jump="${esc(childRuns[0].id)}" title="${childCount} 个子代理运行 · 点击打开">子代理 ×${childCount}</button>` : "");
+    // 来源:manual 不标(默认);scheduled/subagent 如实标注发起方
+    const sourceChip = run.source === "scheduled"
+      ? ` <span class="led-lineage" title="由定时任务调度器创建">排程</span>`
+      : (run.source === "subagent" ? ` <span class="led-lineage" title="由父运行的 spawn 扇出创建">子代理来源</span>` : "");
     return `<tr data-led-row="${esc(run.id)}" title="${esc(run.objective)}">
       <td><span class="sdot ${run.status === "running" ? "live" : stateClass(run.status)}"></span> ${esc(stateText(run.status))}</td>
-      <td class="led-name">${esc(runLabel(run))}${lineage}</td>
+      <td class="led-name">${esc(runLabel(run))}${lineage}${sourceChip}</td>
       <td class="dim">${esc(tplTitle(run.template))}</td>
       <td class="num">${run.rounds || "—"}</td>
       <td class="num">${cost}</td>
@@ -3360,10 +3366,10 @@ function bindMainInteractions() {
       else { ledgerConfirmId = null; deleteRun(id); }
       return;
     }
-    const ledRow = event.target.closest("[data-led-row]");
-    if (ledRow && !event.target.closest("[data-led-del]")) { selectRun(ledRow.dataset.ledRow); return; }
     const lineageJump = event.target.closest("[data-led-row-jump]");
     if (lineageJump) { selectRun(lineageJump.dataset.ledRowJump); return; }
+    const ledRow = event.target.closest("[data-led-row]");
+    if (ledRow && !event.target.closest("[data-led-del]")) { selectRun(ledRow.dataset.ledRow); return; }
     const originChip = event.target.closest("[data-origin-thread]");
     if (originChip) {
       const threadId = originChip.dataset.originThread;

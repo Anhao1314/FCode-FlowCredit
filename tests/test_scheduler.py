@@ -153,3 +153,22 @@ class StoreAndValidationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunSourceTest(unittest.TestCase):
+    """运行来源字段:调度器/子代理触发的运行在账本可见性上如实标注。"""
+
+    def test_run_default_source_is_manual(self) -> None:
+        from console_runtime import Run
+
+        run = Run(id="r", template="full", objective="x", created="t", pace=0)
+        self.assertEqual(run.source, "manual")
+        self.assertEqual(run.to_json()["source"], "manual")
+
+    def test_run_source_values_round_trip(self) -> None:
+        from console_runtime import Run
+
+        for source in ("scheduled", "subagent"):
+            run = Run(id="r", template="full", objective="x", created="t",
+                      pace=0, source=source)
+            self.assertEqual(run.to_json()["source"], source)

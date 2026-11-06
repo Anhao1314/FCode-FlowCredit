@@ -40,6 +40,13 @@ test("UI 建排程 → 列表可见 → 调度器自动补触发过期任务", a
   await expect(page.locator("#main")).toHaveAttribute("data-view", "scheduled");
   await expect(page.locator("#main")).toContainText(marker);
   await expect(page.locator("#main")).toContainText("上次");
+  // 来源可见性:触发的运行在账本亮「排程」chip——操作者能回答"这条运行是谁发起的"
+  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
+  const firedRow = page.locator("[data-led-row]", { hasText: marker });
+  await expect(firedRow).toBeVisible({ timeout: 15_000 });
+  await expect(firedRow.locator(".led-lineage", { hasText: "排程" })).toBeVisible();
+
   // 收尾:删掉自己的排程——"每天 00:00"会在次日午夜再次触发,给后续
   // 用例留一个反复创建运行的环境(轮询器持续重绘,点击稳定性崩坏)
   const schedList = await (await page.request.get("/api/schedules")).json();

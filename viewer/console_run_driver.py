@@ -187,6 +187,7 @@ class RunDriver:
                 spec={"mode": "subagent", "parent_run_id": self.run.id},
                 model_key=self.run.model,
                 effort=self.run.effort,
+                source="subagent",
             )
             children.append({"run_id": child.id, "objective": objective})
 

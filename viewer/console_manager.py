@@ -400,7 +400,7 @@ class RunManager:
                 self.runtime.get_scenario(template)
             except Exception as error:
                 raise ValueError(f"unknown template {template!r}") from error
-        run = self.create(objective, template, approval, None)
+        run = self.create(objective, template, approval, None, source="scheduled")
         return run.id
 
     def _load_history(self) -> None:
@@ -588,6 +588,7 @@ class RunManager:
         spec: dict | None = None,
         model_key: str = "mock",
         effort: str = "",
+        source: str = "manual",
     ) -> Run:
         with self._lock:
             self._seq += 1
@@ -603,6 +604,7 @@ class RunManager:
                 spec=spec,
                 model=model_key,
                 effort=effort,
+                source=source,
             )
             self.runs[run_id] = run
             self.order.insert(0, run_id)
