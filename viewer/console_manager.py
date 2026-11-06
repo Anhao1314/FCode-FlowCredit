@@ -103,6 +103,19 @@ class RunManager:
         self._seq = 0
         self.runs_dir.mkdir(exist_ok=True)
         self._load_history()
+        # 定时任务调度器：排程存 runs 目录旁的 scheduler.sqlite；到点经
+        # mgr.create 走与手创运行完全相同的流水线（门控/预算/收据/链）。
+        # runtime 不可用时排程仍可增删查看，只是到点跳过触发。
+        try:
+            from console_scheduler import Scheduler, SchedulerStore
+
+            self.schedules = SchedulerStore(self.runs_dir.parent / "scheduler.sqlite")
+            self.scheduler = Scheduler(self.schedules, self._scheduled_create)
+            self.scheduler.start()
+        except Exception:  # noqa: BLE001 — 调度器故障不拖垮控制台
+            traceback.print_exc()
+            self.schedules = None
+            self.scheduler = None
         # The MCP bridge attaches whatever the host reviewed into mcp.json.
         # Connection happens off-thread: a hanging server must not delay boot,
         # and /api/mcp reports the honest per-server status meanwhile.
@@ -376,6 +389,19 @@ class RunManager:
     #: is doing, and calling it ``failed`` would contradict the kernel's
     #: unknown-outcome rule.
     INTERRUPTED_NOTE = "进程重启时这次运行还在进行；轨迹停在进程消失的那一刻"
+
+    def _scheduled_create(self, payload: dict) -> str:
+        """调度器触发回调：与 POST /api/runs 同一条创建路径。"""
+        template = str(payload.get("template") or "full")
+        objective = str(payload.get("objective") or "").strip()
+        approval = str(payload.get("approval") or "consequential")
+        if self.runtime is not None:
+            try:
+                self.runtime.get_scenario(template)
+            except Exception as error:
+                raise ValueError(f"unknown template {template!r}") from error
+        run = self.create(objective, template, approval, None)
+        return run.id
 
     def _load_history(self) -> None:
         """Make runs from earlier processes visible again, read-only.

@@ -26,6 +26,9 @@ from console_post_runs import (
     post_run_review,
     post_run_steer,
     post_run_stop,
+    post_schedules_upsert,
+    post_schedules_delete,
+    post_schedules_toggle,
 )
 from audit_jobs import start_audit_run
 
@@ -51,6 +54,9 @@ _STATIC = {
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
     "/api/chat/memory": post_chat_memory,
+    "/api/schedules": post_schedules_upsert,
+    "/api/schedules/delete": post_schedules_delete,
+    "/api/schedules/toggle": post_schedules_toggle,
     "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,

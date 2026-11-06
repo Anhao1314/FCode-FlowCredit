@@ -11,12 +11,25 @@
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 import globalSetup, { E2E_REPO } from "./e2e/global-setup.js";
 
-const PORT = 8610;
-const runsDir = join(tmpdir(), "fcode-e2e", "runs");
+const PORT = Number(process.env.FCODE_E2E_PORT || 8610);
+const stateRoot = join(tmpdir(), "fcode-e2e");
+const runsDir = join(stateRoot, "runs");
+// 每轮 E2E 从干净机器状态开始：清空上一轮的运行/对话/排程/记忆库。
+// 只允许主进程做（TEST_WORKER_INDEX 未定义）：config 在每个 worker
+// 里也会被加载，worker 里的删除会把运行中服务器的 sqlite 变成
+// readonly；globalSetup 又跑在 webServer 启动之后。主进程 config
+// 加载期是唯一早于 webServer 的窗口。
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  rmSync(runsDir, { recursive: true, force: true });
+  for (const db of ["scheduler.sqlite", "chat.sqlite", "chat.sqlite-shm", "chat.sqlite-wal",
+    "chat-memory.sqlite", "artifacts.sqlite"]) {
+    rmSync(join(stateRoot, db), { force: true });
+  }
+}
 mkdirSync(runsDir, { recursive: true });
 const repoForServer = process.env.FCODE_E2E_REPO || E2E_REPO;
 
@@ -34,7 +47,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     // 钉死离线 mock 模型:防止 adoptDefaultChatModel 把新档案带去真实
     // provider(会烧 API 额度,且 CI 无 key 必挂)
-    storageState: "./e2e/mock-model-state.json",
+    storageState: "./e2e/.mock-model-state.json",
   },
   globalSetup: "./e2e/global-setup.js",
   webServer: {

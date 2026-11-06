@@ -617,6 +617,16 @@ class Handler(SimpleHTTPRequestHandler):
                 "models": mgr.chat.chat_models(),
                 "default": mgr.chat.default_model(),
             })
+        if path == "/api/schedules":
+            if getattr(mgr, "schedules", None) is None:
+                return self._json({"error": "scheduler is unavailable"}, 503)
+            import datetime
+
+            from console_scheduler import describe_next
+
+            now = datetime.datetime.now()
+            entries = [dict(e, next=describe_next(e, now)) for e in mgr.schedules.list()]
+            return self._json({"schedules": entries})
         if path == "/api/chat/memory":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)

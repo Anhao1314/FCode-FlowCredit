@@ -8,7 +8,7 @@
  * 一次性快照。runs 与 chat.sqlite 已由 FCODE_RUNS_DIR 隔离。
  */
 
-import { cpSync, existsSync, mkdirSync, symlinkSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, symlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,5 +26,22 @@ export default function globalSetup() {
   if (existsSync(auditReal)) {
     cpSync(auditReal, join(E2E_REPO, "work", "audit"), { recursive: true });
   }
+
+  // 模型钉死文件随端口生成:storageState 的 origin 必须与 webServer 一致
+  const port = process.env.FCODE_E2E_PORT || "8610";
+  writeFileSync(
+    join(projectRoot, "viewer", "e2e", ".mock-model-state.json"),
+    JSON.stringify({
+      cookies: [],
+      origins: [{
+        origin: `http://127.0.0.1:${port}`,
+        localStorage: [
+          { name: "fa.model", value: '{"key":"mock"}' },
+          { name: "fa.chatModel", value: '{"key":"mock","touched":true}' },
+        ],
+      }],
+    }, null, 2) + "\n",
+    "utf-8",
+  );
   return E2E_REPO;
 }

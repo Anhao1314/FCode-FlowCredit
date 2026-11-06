@@ -11,3 +11,4 @@ __pycache__/
 viewer/test-results/
 viewer/playwright-report/
 viewer/node_modules/
+.mock-model-state.json

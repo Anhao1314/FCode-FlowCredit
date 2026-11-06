@@ -288,3 +288,60 @@ def post_run_meta(handler, run_id: str):
         run.pinned = bool(body.get("pinned"))
     handler.manager._write_meta(run)
     return handler._json(run.to_json())
+
+
+def post_schedules_upsert(handler):
+    """定时任务：创建/更新排程（调度器到点自动创建运行）。"""
+    import datetime
+
+    from console_scheduler import validate_schedule_payload
+
+    mgr = handler.manager
+    if getattr(mgr, "schedules", None) is None:
+        return handler._json({"error": "scheduler is unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        fields = validate_schedule_payload(body)
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 400)
+    entry = mgr.schedules.upsert(fields)
+    now = datetime.datetime.now()
+    entry = dict(entry)
+    entry["next"] = describe_next_safe(entry, now)
+    return handler._json({"schedule": entry})
+
+
+def describe_next_safe(entry, now):
+    try:
+        from console_scheduler import describe_next
+
+        return describe_next(entry, now)
+    except Exception:  # noqa: BLE001 — 展示字段失败不影响保存
+        return ""
+
+
+def post_schedules_delete(handler):
+    mgr = handler.manager
+    if getattr(mgr, "schedules", None) is None:
+        return handler._json({"error": "scheduler is unavailable"}, 503)
+    body = handler._read_body()
+    entry_id = body.get("id")
+    if not isinstance(entry_id, str) or not entry_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    if not mgr.schedules.delete(entry_id):
+        return handler._json({"error": "schedule not found"}, 404)
+    return handler._json({"ok": True})
+
+
+def post_schedules_toggle(handler):
+    mgr = handler.manager
+    if getattr(mgr, "schedules", None) is None:
+        return handler._json({"error": "scheduler is unavailable"}, 503)
+    body = handler._read_body()
+    entry_id = body.get("id")
+    enabled = body.get("enabled")
+    if not isinstance(entry_id, str) or not entry_id or not isinstance(enabled, bool):
+        return handler._json({"error": "id and enabled are required"}, 400)
+    if not mgr.schedules.set_enabled(entry_id, enabled):
+        return handler._json({"error": "schedule not found"}, 404)
+    return handler._json({"ok": True})

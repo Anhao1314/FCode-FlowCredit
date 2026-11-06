@@ -2474,7 +2474,7 @@ const WORK_STAGE_FOOTNOTE = "模型提议，主机守门。每次工具调用都
 /* 判断记录与定时任务两个 surface（viewer/app/pages.js）。
    数据一个来自 API、一个来自 localStorage；渲染原语仍由本文件提供。 */
 const {
-  renderReviews, renderScheduledPage, scheduledList: getScheduledList,
+  renderReviews, renderScheduledPage,
 } = createPages({
   renderMain, setFoot, toast,
   getViewGateSequence: () => viewGate.sequence,

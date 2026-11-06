@@ -9,12 +9,12 @@ test("判断记录页渲染(空态可读)", async ({ page }) => {
   await expect(page.locator("#main")).toContainText("判断记录");
 });
 
-test("定时任务页:空态诚实标注调度器未接入", async ({ page }) => {
+test("定时任务页:空态与服务端同步语义", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: "定时任务" }).click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "scheduled");
-  await expect(page.locator("#main")).toContainText("还没有定时任务草稿");
-  await expect(page.locator("#main")).toContainText("不会自动触发");
+  await expect(page.locator("#main")).toContainText("还没有排程");
+  await expect(page.locator("#main")).toContainText("到点自动创建运行", "调度器已接入的诚实标注");
 });
 
 test("设置页:开合与审批档位渲染", async ({ page }) => {
