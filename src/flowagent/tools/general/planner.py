@@ -33,7 +33,9 @@ __all__ = ["GeneralPlanner", "REPORT_PATH", "EXCERPT_CHARS", "GENERAL_MODES"]
 
 #: The delegation modes the general domain understands. ``open`` is the one
 #: whose plan the model may extend; the other two are blueprints and are closed.
-GENERAL_MODES: tuple[str, ...] = ("research", "script", "open")
+#: ``subagent`` 是运行时派生的内部角色模式：只读盘点 + 在**自己的**
+#: 沙箱里写发现笔记（子沙箱与父工作区物理隔离，写入不构成合并问题）。
+GENERAL_MODES: tuple[str, ...] = ("research", "script", "open", "subagent")
 
 REPORT_PATH = "research.md"
 #: Where an open delegation files its artifact when the operator named none.
@@ -146,11 +148,14 @@ class GeneralPlanner:
         report_path: str = REPORT_PATH,
         mode: str = "research",
         script_path: str = "script.py",
+        mock_spawn: list[str] | None = None,
     ) -> None:
         self.sources = list(sources)
         self.report_path = report_path
         self.mode = mode if mode in GENERAL_MODES else "research"
         self.script_path = script_path
+        #: 测试缝：委托 spec 的 mock_spawn_subagents（离线编排 E2E 用）
+        self.mock_spawn = [str(o) for o in (mock_spawn or []) if str(o).strip()]
         self._sections: list[dict[str, Any]] = []
         self._runs: list[dict[str, Any]] = []
         self._edits: list[dict[str, Any]] = []
@@ -158,6 +163,29 @@ class GeneralPlanner:
     def decompose(self, goal: str) -> Plan:
         self._sections = []
         self._runs = []
+        # 离线确定性编排缝（仅测试/E2E 用）：委托 spec 携带
+        # mock_spawn_subagents（子目标列表）时，蓝图先并行扇出再写产物——
+        # 让 spawn_subagents 的完整链路（审批→子运行→join→摘要回传）可以在
+        # 无真实模型的条件下被端到端验证。键由操作者自己的委托带入；
+        # 所有工具调用仍走同一套门禁与审批。
+        scripted = self.mock_spawn
+        if scripted:
+            return Plan(goal=goal, todos=[
+                Todo(
+                    id="ts",
+                    text="并行派只读子代理调查子问题，汇总结论",
+                    tool="spawn_subagents",
+                    done_when="spawned:subagents",
+                    arguments={"objectives": [str(o) for o in scripted][:4]},
+                ),
+                Todo(
+                    id="tw",
+                    text=f"汇总各方发现写入 {self.report_path}",
+                    tool="write_file",
+                    done_when=f"written:{self.report_path}",
+                    arguments={"path": self.report_path, "content": ""},
+                ),
+            ], revision=1)
         if self.mode == "open":
             # The one obligation the host keeps: there must be a verifiable
             # artifact, because that is what "succeeded" is recomputed from. All
@@ -176,6 +204,14 @@ class GeneralPlanner:
         if self.mode == "script":
             self._edits = []
             return Plan(goal=goal, todos=self._script_todos(), revision=1)
+        if self.mode == "subagent":
+            return Plan(goal=goal, todos=[
+                Todo("t1", "盘点工作区文件，确定与子问题相关的信息位置",
+                     "ls_workspace", "listed:workspace", {}),
+                Todo("t2", f"把与子问题相关的发现写进 {self.report_path}",
+                     "write_file", f"written:{self.report_path}",
+                     {"path": self.report_path, "content": ""}),
+            ], revision=1)
         if not self.sources:
             raise ValueError("a research delegation needs at least one source URL")
         todos: list[Todo] = []
@@ -227,6 +263,10 @@ class GeneralPlanner:
             return self._settle_sequential(plan, "edit_file", observation)
         if observation.tool == "write_file":
             return self._settle_write(plan, observation)
+        if observation.tool == "spawn_subagents":
+            return self._settle_sequential(plan, "spawn_subagents", observation)
+        if observation.tool == "ls_workspace":
+            return self._settle_sequential(plan, "ls_workspace", observation)
         return self._settle_by_identity(plan, observation)
 
     # ------------------------------------------------------------------ private

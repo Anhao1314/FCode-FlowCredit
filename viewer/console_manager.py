@@ -224,7 +224,7 @@ class RunManager:
         general = scenario.module != DOMAIN_KEY
         if general:
             mode = str(spec.get("mode") or "research")
-            if mode not in ("research", "script", "open"):
+            if mode not in ("research", "script", "open", "subagent"):
                 # ``open`` is the delegation whose plan the model extends; the
                 # other two are blueprints and stay closed.
                 raise ValueError("mode must be research, script or open")

@@ -637,9 +637,15 @@ async function renderLedger() {
     const cost = run.cost ? `${num(run.cost.costMicrousd)} µUSD` : "—";
     const created = String(run.created || "").replace("T", " ").slice(5, 16);
     const confirmDelete = ledgerConfirmId === run.id;
+    // 父子关系:子代理行亮"子代理"徽章;父运行行亮扇出计数(点击行可见 spawn 卡)
+    const parentId = (run.spec || {}).parent_run_id || "";
+    const childCount = runHistory.filter(r => (r.spec || {}).parent_run_id === run.id).length;
+    const lineage = parentId
+      ? ` <span class="led-lineage" title="父运行 ${esc(parentId)}">子代理</span>`
+      : (childCount ? ` <span class="led-lineage" title="${childCount} 个子代理运行">子代理 ×${childCount}</span>` : "");
     return `<tr data-led-row="${esc(run.id)}" title="${esc(run.objective)}">
       <td><span class="sdot ${run.status === "running" ? "live" : stateClass(run.status)}"></span> ${esc(stateText(run.status))}</td>
-      <td class="led-name">${esc(runLabel(run))}</td>
+      <td class="led-name">${esc(runLabel(run))}${lineage}</td>
       <td class="dim">${esc(tplTitle(run.template))}</td>
       <td class="num">${run.rounds || "—"}</td>
       <td class="num">${cost}</td>
@@ -1002,12 +1008,21 @@ function sessionHeadHtml(trace, title, note = "") {
   const originChip = origin
     ? `<button class="meta-button origin-chip" type="button" data-origin-thread="${esc(origin.threadId || "")}" title="来自对话${origin.threadTitle ? "：" + esc(origin.threadTitle) : ""} · 点击跳回">来自对话${origin.threadTitle ? " · " + esc(origin.threadTitle.slice(0, 18)) : ""}</button>`
     : "";
+  // 子代理谱系:子运行亮"子代理·可跳父";父运行亮扇出计数(可跳第一个子)
+  const parentRunId = (binding.spec || {}).parent_run_id || "";
+  const childRuns = runHistory.filter(r => (r.spec || {}).parent_run_id === task.id);
+  const lineageChip = parentRunId
+    ? `<button class="meta-button" type="button" data-led-row-jump="${esc(parentRunId)}" title="父运行 ${esc(parentRunId)} · 点击打开">子代理 · 父 ${esc(parentRunId.slice(-8))}</button>`
+    : (childRuns.length
+      ? `<button class="meta-button" type="button" data-led-row-jump="${esc(childRuns[0].id)}" title="${childRuns.length} 个子代理运行 · 点击打开">子代理 ×${childRuns.length}</button>`
+      : "");
   const name = (currentRun() && currentRun().name) || shortObjective(task.objective || "") || "未命名委托";
   return `<header class="session-head">
     <p class="session-kicker">${esc(title || task.id || "运行")}</p>
     <h1 class="session-title">${esc(name)}</h1>
     <div class="session-meta">
       <span>${meta}</span>
+      ${lineageChip}
       ${originChip}
       <span class="grow"></span>
       <button class="meta-button" type="button" data-rail-open>事件 / 链验证</button>
@@ -3347,6 +3362,8 @@ function bindMainInteractions() {
     }
     const ledRow = event.target.closest("[data-led-row]");
     if (ledRow && !event.target.closest("[data-led-del]")) { selectRun(ledRow.dataset.ledRow); return; }
+    const lineageJump = event.target.closest("[data-led-row-jump]");
+    if (lineageJump) { selectRun(lineageJump.dataset.ledRowJump); return; }
     const originChip = event.target.closest("[data-origin-thread]");
     if (originChip) {
       const threadId = originChip.dataset.originThread;

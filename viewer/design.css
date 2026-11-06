@@ -2869,3 +2869,11 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   .app.side-collapsed #sidebar-toggle { position: static; visibility: visible; }
   .workspace-menu { display: inline-flex; align-items: center; justify-content: center; }
 }
+
+/* ============ 子代理谱系徽章（账本/运行头） ============ */
+.led-lineage, .head-lineage {
+  display: inline-block; margin-left: 6px; padding: 1px 8px;
+  border-radius: 999px; font-size: 11px; vertical-align: 1px;
+  background: var(--accent-soft, rgba(0,0,0,.06)); color: var(--text-2);
+  border: 1px solid var(--line);
+}

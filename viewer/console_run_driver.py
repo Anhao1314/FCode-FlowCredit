@@ -180,8 +180,11 @@ class RunDriver:
             child = self.manager.create(
                 objective=objective,
                 template="general-subagent",
-                approval=self.run.approval,
-                spec={"mode": "open", "parent_run_id": self.run.id},
+                # 内部角色:操作者已通过 spawn 审批 consciously 批准了扇出;
+                # 子运行的写入被物理限制在自己的沙箱(runs/<child>/workspace),
+                # 不碰父工作区——审批挂起只会把 join 拖过超时,无治理增益。
+                approval="off",
+                spec={"mode": "subagent", "parent_run_id": self.run.id},
                 model_key=self.run.model,
                 effort=self.run.effort,
             )

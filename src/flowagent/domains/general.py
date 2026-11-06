@@ -75,6 +75,8 @@ def make_planner(world: GeneralWorld | None = None, **kwargs: Any) -> GeneralPla
         report_path=world.report_path,
         mode=world.mode,
         script_path=world.script_path,
+        mock_spawn=(world.spec or {}).get("mock_spawn_subagents")
+        if isinstance(world.spec, dict) else None,
     )
 
 
