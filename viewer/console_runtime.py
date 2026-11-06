@@ -214,7 +214,7 @@ class Runtime:
         # lead the picker even though the reference workload is declared first
         # in the scenario table. The sort is stable within each group.
         keys = sorted(
-            self.AVAILABLE,
+            (key for key in self.AVAILABLE if not self.SCENARIOS[key].internal),
             key=lambda key: 0 if self.SCENARIOS[key].module == "general-work" else 1,
         )
         out = []

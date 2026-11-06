@@ -32,7 +32,7 @@ __all__ = [
 #: definition so the system contract and user-context instruction cannot drift.
 GENERAL_INSTRUCTION = GENERAL_DOMAIN_INSTRUCTION
 
-APPROVAL_TOOLS = ("write_file", "edit_file", "run_command")
+APPROVAL_TOOLS = ("write_file", "edit_file", "run_command", "spawn_subagents")
 
 #: ``report_blocked`` is deliberately *not* an approval tool here. It is a
 #: read-effect declaration whose only consequence is that the runtime stops;
@@ -59,6 +59,7 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         command_runner=kwargs.get("command_runner"),
         command_config=kwargs.get("command_config"),
         ask_operator=kwargs.get("ask_operator"),
+        subagent_spawner=kwargs.get("subagent_spawner"),
     )
 
 

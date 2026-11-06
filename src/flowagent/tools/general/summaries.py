@@ -73,6 +73,18 @@ def summarize_git_status(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_spawn_subagents(result: dict[str, Any]) -> dict[str, Any]:
+    children = result.get("children", [])
+    return {
+        "count": len(children),
+        "timed_out": result.get("timed_out", False),
+        "head": [
+            f"{c.get('run_id')}: {c.get('status')} — {str(c.get('summary'))[:160]}"
+            for c in children[:6]
+        ],
+    }
+
+
 def summarize_write_file(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": result.get("path"),
@@ -160,4 +172,5 @@ GENERAL_SUMMARIZERS: dict[str, Any] = {
     "run_command": summarize_run_command,
     "fetch_url": summarize_fetch_url,
     "report_blocked": summarize_report_blocked,
+    "spawn_subagents": summarize_spawn_subagents,
 }

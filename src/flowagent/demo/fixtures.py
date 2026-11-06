@@ -36,6 +36,9 @@ class Scenario:
     #: to the reference workload without anyone deciding it.
     module: str
     policy: str = "research"
+    #: 内部场景不进模板选择器/定时任务表——它们是运行时自己派生的
+    #: 角色（如子代理），不是操作者可以直接委托的种类。
+    internal: bool = False
     fail_at_call: int | None = None
     reconcile: bool = False
     crash_at: str | None = None
@@ -183,6 +186,44 @@ SCENARIOS: dict[str, Scenario] = {
         partial_corpus=True,
         expected_status="failed",
     ),
+    "general-subagent": Scenario(
+        key="general-subagent",
+        title="内部：只读子代理",
+        objective="只读研究员：在父工作区里调查一个被圈定的子问题，回传带依据的发现",
+        story=(
+            "运行时派生的内部角色，不是操作者可直接委托的种类。只读工具集、"
+            "独立上下文、独立小预算；结果以摘要回流给父运行的 spawn 工具。"
+        ),
+        allowed_tools=(
+            "ls_workspace",
+            "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
+            "report_blocked",
+        ),
+        grant={
+            "grant_id": "subagent-host-grant",
+            "revision": 1,
+            "allowed_tools": [
+                "ls_workspace",
+                "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
+                "report_blocked",
+            ],
+            "allowed_effects": ["read"],
+            "max_calls": 8,
+            "max_reads": 24,
+            "max_cost_microusd": 100_000,
+            "max_tokens": 60_000,
+        },
+        limits=BudgetLimits(8, 24, 100_000, 60_000),
+        max_rounds=6,
+        module="general-work",
+        internal=True,
+    ),
     "general-research": Scenario(
         key="general-research",
         title="通用委托：抓取公开来源，写入 research.md",
@@ -202,6 +243,8 @@ SCENARIOS: dict[str, Scenario] = {
             "edit_file",
             "run_command",
             "fetch_url",
+            # 并行扇出:写 effect,进审批集——放大必须有意识。
+            "spawn_subagents",
             # Asking the operator is a host-granted capability like any other:
             # a general delegation with no way to ask has to guess.
             "ask_operator",
@@ -224,6 +267,7 @@ SCENARIOS: dict[str, Scenario] = {
                 "edit_file",
                 "run_command",
                 "fetch_url",
+                "spawn_subagents",
                 "ask_operator",
                 "report_blocked",
             ],
