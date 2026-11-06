@@ -66,6 +66,86 @@ def build_general_tools(
         record = sandbox.read(arguments["path"])
         return record
 
+    def grep_workspace(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Regex content search across the sandbox, jailed and capped.
+
+        Reads every file through ``sandbox.read`` (the same jail as
+        ``read_file``), skips binaries and oversized files, and caps matches
+        so one hot pattern cannot flood the context or the receipts.
+        """
+        import fnmatch
+        import re as _re
+
+        raw_pattern = str(arguments["pattern"])
+        if len(raw_pattern) > 200:
+            raise AgentError("GREP_PATTERN_TOO_LONG", "pattern must be at most 200 chars")
+        try:
+            matcher = _re.compile(raw_pattern)
+        except _re.error as error:
+            raise AgentError("GREP_PATTERN_INVALID", f"invalid regex: {error}") from error
+        glob_filter = str(arguments.get("glob") or "").strip()
+        max_results = min(int(arguments.get("max_results") or 80), 200)
+
+        matches: list[dict[str, Any]] = []
+        searched = 0
+        skipped_binary = 0
+        truncated = False
+        for entry in sandbox.ls():
+            relative = entry["path"]
+            if entry["bytes"] > 512 * 1024:
+                skipped_binary += 1
+                continue
+            if glob_filter and not fnmatch.fnmatch(relative, glob_filter):
+                continue
+            record = sandbox.read(relative)
+            text = record["content"]
+            if "\x00" in text[:8192]:
+                skipped_binary += 1
+                continue
+            searched += 1
+            file_matches = 0
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if matcher.search(line):
+                    matches.append({
+                        "path": relative,
+                        "line": line_number,
+                        "text": line.strip()[:240],
+                    })
+                    file_matches += 1
+                    if len(matches) >= max_results:
+                        truncated = True
+                        break
+                if file_matches >= 20:
+                    break  # per-file cap: one hot file cannot eat the budget
+            if truncated:
+                break
+        return {
+            "matches": matches,
+            "count": len(matches),
+            "searched_files": searched,
+            "skipped_binary": skipped_binary,
+            "truncated": truncated,
+        }
+
+    def find_files(arguments: dict[str, Any]) -> dict[str, Any]:
+        """fnmatch file listing over the jailed inventory."""
+        import fnmatch
+
+        pattern = str(arguments["pattern"] or "").strip()
+        if not pattern:
+            raise AgentError("FIND_PATTERN_REQUIRED", "pattern is required (e.g. *.md or src/*.py)")
+        matches = []
+        for entry in sandbox.ls():
+            relative = entry["path"]
+            if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(relative.split("/")[-1], pattern):
+                matches.append({"path": relative, "bytes": entry["bytes"]})
+            if len(matches) >= 200:
+                break
+        return {"paths": matches, "count": len(matches), "truncated": len(matches) >= 200}
+
+    def git_status(_: dict[str, Any]) -> dict[str, Any]:
+        return sandbox.status()
+
     def write_file(arguments: dict[str, Any]) -> dict[str, Any]:
         record = sandbox.write(arguments["path"], arguments["content"])
         record["computed"] = True
@@ -136,6 +216,75 @@ def build_general_tools(
                 _out("content", "string"),
                 _out("sha256", "string"),
                 _out("bytes", "integer"),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
+            name="grep_workspace",
+            summarize=summaries.summarize_grep_workspace,
+            summary="Regex content search across the workspace sandbox; jailed, binaries skipped, results capped",
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="pattern",
+                    kind="string",
+                    required=True,
+                    description="Python regular expression to search for",
+                ),
+                Param(
+                    name="glob",
+                    kind="string",
+                    required=False,
+                    description="optional file filter, e.g. *.py or src/*.md",
+                ),
+                Param(
+                    name="max_results",
+                    kind="integer",
+                    required=False,
+                    description="cap on returned matches (default 80, hard max 200)",
+                ),
+            ),
+            handler=grep_workspace,
+            outputs=(
+                _out("matches", "array"),
+                _out("count", "integer"),
+                _out("searched_files", "integer"),
+                _out("truncated", "boolean"),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
+            name="find_files",
+            summarize=summaries.summarize_find_files,
+            summary="List workspace files matching a glob pattern (e.g. *.md, src/*.py)",
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="pattern",
+                    kind="string",
+                    required=True,
+                    description="glob pattern matched against workspace-relative paths and basenames",
+                ),
+            ),
+            handler=find_files,
+            outputs=(
+                _out("paths", "array"),
+                _out("count", "integer"),
+                _out("truncated", "boolean"),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
+            name="git_status",
+            summarize=summaries.summarize_git_status,
+            summary="Read-only git query of the workspace sandbox: branch, pending changes, recent commits",
+            effect=EFFECT_READ,
+            params=(),
+            handler=git_status,
+            outputs=(
+                _out("branch", "string"),
+                _out("change_count", "integer"),
+                _out("commit_count", "integer"),
             ),
             version="1.0",
         ),
@@ -318,7 +467,10 @@ def build_general_tools(
 
 
 #: Registration order, pinned by tests the way finance pins its catalogue.
+#: 2026-11 工具广度批次：新增 grep_workspace / find_files / git_status
+#: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
-    "ls_workspace", "read_file", "write_file", "edit_file", "run_command", "fetch_url",
+    "ls_workspace", "read_file", "grep_workspace", "find_files", "git_status",
+    "write_file", "edit_file", "run_command", "fetch_url",
     "report_blocked",
 )

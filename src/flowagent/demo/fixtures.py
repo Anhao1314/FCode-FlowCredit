@@ -195,6 +195,9 @@ SCENARIOS: dict[str, Scenario] = {
         allowed_tools=(
             "ls_workspace",
             "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
             "write_file",
             "edit_file",
             "run_command",
@@ -214,6 +217,9 @@ SCENARIOS: dict[str, Scenario] = {
             "allowed_tools": [
                 "ls_workspace",
                 "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
                 "write_file",
                 "edit_file",
                 "run_command",
@@ -225,14 +231,14 @@ SCENARIOS: dict[str, Scenario] = {
             # finance grant omits the key and keeps the read-only promise.
             "allowed_effects": ["read", "write", "network"],
             "max_calls": 12,
-            "max_reads": 20,
+            "max_reads": 30,
             # Kimi K2.6 reserves 6,000 prompt + 8,192 completion tokens per
             # call. The default must fit at least one real paid reservation;
             # explicit operator overrides can still tighten these ceilings.
             "max_cost_microusd": 500_000,
             "max_tokens": 120_000,
         },
-        limits=BudgetLimits(12, 20, 500_000, 120_000),
+        limits=BudgetLimits(12, 30, 500_000, 120_000),
         max_rounds=12,
         approval_tools=("write_file", "edit_file", "run_command"),
         module="general-work",

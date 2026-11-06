@@ -40,6 +40,39 @@ def summarize_read_file(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def summarize_grep_workspace(result: dict[str, Any]) -> dict[str, Any]:
+    matches = result.get("matches", [])
+    return {
+        "count": result.get("count", len(matches)),
+        "searched_files": result.get("searched_files"),
+        "truncated": result.get("truncated", False),
+        "head": [
+            f"{m.get('path')}:{m.get('line')}: {m.get('text')}" for m in matches[:10]
+        ],
+    }
+
+
+def summarize_find_files(result: dict[str, Any]) -> dict[str, Any]:
+    paths = result.get("paths", [])
+    return {
+        "count": result.get("count", len(paths)),
+        "truncated": result.get("truncated", False),
+        "head": [p.get("path") for p in paths[:20]],
+    }
+
+
+def summarize_git_status(result: dict[str, Any]) -> dict[str, Any]:
+    changes = result.get("changes", [])
+    commits = result.get("commits", [])
+    return {
+        "branch": result.get("branch"),
+        "change_count": result.get("change_count", len(changes)),
+        "changes_head": [f"{c.get('status')} {c.get('path')}" for c in changes[:10]],
+        "commit_count": result.get("commit_count", len(commits)),
+        "last_commit": commits[0] if commits else None,
+    }
+
+
 def summarize_write_file(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": result.get("path"),
@@ -118,6 +151,9 @@ def summarize_report_blocked(result: dict[str, Any]) -> dict[str, Any]:
 GENERAL_SUMMARIZERS: dict[str, Any] = {
     "ask_operator": summarize_ask_operator,
     "ls_workspace": summarize_ls_workspace,
+    "grep_workspace": summarize_grep_workspace,
+    "find_files": summarize_find_files,
+    "git_status": summarize_git_status,
     "read_file": summarize_read_file,
     "write_file": summarize_write_file,
     "edit_file": summarize_edit_file,

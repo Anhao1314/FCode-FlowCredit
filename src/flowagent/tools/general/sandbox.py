@@ -168,6 +168,33 @@ class WorkspaceSandbox:
             "bytes": len(data),
         }
 
+    def status(self) -> dict[str, Any]:
+        """Read-only git query: branch, pending changes, recent commits.
+
+        The sandbox root is a git repository (one commit per write), so this
+        is the honest answer to "what state am I in" — no side effect.
+        """
+        self.ensure()
+        branch = self._git(self.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        porcelain = self._git(self.root, "status", "--porcelain")
+        changes = []
+        for line in porcelain.splitlines():
+            if not line.strip():
+                continue
+            changes.append({"status": line[:2].strip(), "path": line[3:].strip()})
+        commits = []
+        for line in self._git(self.root, "log", "--oneline", "-10").splitlines():
+            sha, _, subject = line.partition(" ")
+            if sha:
+                commits.append({"sha": sha[:12], "subject": subject[:120]})
+        return {
+            "branch": branch,
+            "changes": changes,
+            "change_count": len(changes),
+            "commits": commits,
+            "commit_count": len(commits),
+        }
+
     # ------------------------------------------------------------------ writes
 
     def write(self, path: str, content: str) -> dict[str, Any]:
