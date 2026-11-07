@@ -175,7 +175,17 @@ class WorkspaceSandbox:
         is the honest answer to "what state am I in" — no side effect.
         """
         self.ensure()
-        branch = self._git(self.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        try:
+            branch = self._git(self.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        except AgentError:
+            # 空仓库（零 commit）没有 HEAD——如实报告而非崩溃
+            return {
+                "branch": "(no commits yet)",
+                "changes": [],
+                "change_count": 0,
+                "commits": [],
+                "commit_count": 0,
+            }
         porcelain = self._git(self.root, "status", "--porcelain")
         changes = []
         for line in porcelain.splitlines():
