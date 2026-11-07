@@ -138,6 +138,16 @@ def summarize_run_command(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def summarize_terminal(result: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "exit_code": result.get("exit_code"),
+        "call_count": result.get("call_count"),
+        "truncated": result.get("truncated", False),
+    }
+    out.update(_head(result.get("output")))
+    return out
+
+
 def summarize_fetch_url(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "url": result.get("url"),
@@ -196,4 +206,5 @@ GENERAL_SUMMARIZERS: dict[str, Any] = {
     "spawn_subagents": summarize_spawn_subagents,
     "subagent_status": summarize_subagent_status,
     "subagent_read": summarize_subagent_read,
+    "terminal": summarize_terminal,
 }

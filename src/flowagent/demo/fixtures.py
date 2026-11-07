@@ -246,6 +246,7 @@ SCENARIOS: dict[str, Scenario] = {
             "write_file",
             "edit_file",
             "run_command",
+            "terminal",
             "fetch_url",
             # 并行扇出:写 effect,进审批集——放大必须有意识。
             "spawn_subagents",
@@ -270,6 +271,7 @@ SCENARIOS: dict[str, Scenario] = {
                 "write_file",
                 "edit_file",
                 "run_command",
+                "terminal",
                 "fetch_url",
                 "spawn_subagents",
                 "ask_operator",

@@ -49,7 +49,7 @@ class DomainModuleTests(unittest.TestCase):
         # spawn_subagents 是 write effect:进审批集(2026-11 子代理批次)
         self.assertEqual(
             GENERAL_DOMAIN.approval_tools,
-            ("write_file", "edit_file", "run_command", "spawn_subagents"),
+            ("write_file", "edit_file", "run_command", "terminal", "spawn_subagents"),
         )
         self.assertIsNotNone(GENERAL_DOMAIN.make_planner(
             GENERAL_DOMAIN.create_world(spec={"sources": ["https://example.com/doc"]}),

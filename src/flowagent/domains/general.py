@@ -32,7 +32,7 @@ __all__ = [
 #: definition so the system contract and user-context instruction cannot drift.
 GENERAL_INSTRUCTION = GENERAL_DOMAIN_INSTRUCTION
 
-APPROVAL_TOOLS = ("write_file", "edit_file", "run_command", "spawn_subagents")
+APPROVAL_TOOLS = ("write_file", "edit_file", "run_command", "terminal", "spawn_subagents")
 
 #: ``report_blocked`` is deliberately *not* an approval tool here. It is a
 #: read-effect declaration whose only consequence is that the runtime stops;

@@ -167,6 +167,24 @@ def build_general_tools(
             timeout_seconds=arguments.get("timeout_seconds"),
         )
 
+    _terminal_shell: list = []  # 惰性创建,闭包持有
+
+    def terminal(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Execute a command in a persistent bash session.
+
+        First call spawns the shell; subsequent calls reuse it —
+        cd, export, venv activation persist across calls. The session
+        dies with the run (daemon child of the server process).
+        """
+        from .terminal import PersistentShell
+
+        if not _terminal_shell:
+            _terminal_shell.append(PersistentShell(sandbox.root))
+        return _terminal_shell[0].execute(
+            str(arguments["command"]),
+            timeout=float(arguments.get("timeout_seconds") or 60),
+        )
+
     def fetch_url(arguments: dict[str, Any]) -> dict[str, Any]:
         url = arguments["url"].strip()
         if fetch_guard is not None:
@@ -410,6 +428,34 @@ def build_general_tools(
             version="1.0",
         ),
         ToolSpec(
+            name="terminal",
+            summarize=summaries.summarize_terminal,
+            summary="Execute a command in a persistent bash session; cd/export/pipes persist across calls",
+            effect=EFFECT_WRITE,
+            params=(
+                Param(
+                    name="command",
+                    kind="string",
+                    required=True,
+                    description="shell command to execute in the persistent session",
+                ),
+                Param(
+                    name="timeout_seconds",
+                    kind="integer",
+                    required=False,
+                    description="per-command timeout in seconds (default 60)",
+                ),
+            ),
+            handler=terminal,
+            outputs=(
+                _out("output", "string"),
+                _out("exit_code", "integer"),
+                _out("call_count", "integer"),
+                _out("truncated", "boolean"),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
             name="fetch_url",
             summarize=summaries.summarize_fetch_url,
             summary="Fetch one http(s) URL as text; SSRF-guarded, size-capped, content marked not-verified",
@@ -471,6 +517,6 @@ def build_general_tools(
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
     "ls_workspace", "read_file", "grep_workspace", "find_files", "git_status",
-    "write_file", "edit_file", "run_command", "fetch_url",
+    "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
 )

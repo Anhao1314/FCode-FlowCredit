@@ -48,7 +48,7 @@ __all__ = [
 #: 只读工具：任何档位直接执行。
 READ_TOOLS = ("ls_workspace", "read_file", "grep_workspace", "find_files", "git_status")
 #: 写工具：需要逐调用审批（APPROVAL_TOOLS 与 run 侧同集）。
-WRITE_TOOLS = ("write_file", "edit_file", "run_command")
+WRITE_TOOLS = ("write_file", "edit_file", "run_command", "terminal")
 #: 网络读取：逐调用审批（按域记住）。
 NETWORK_TOOLS = ("fetch_url",)
 #: Phase 1 名字保留：旧调用点用它表示"注册表允许的全部工具"。
