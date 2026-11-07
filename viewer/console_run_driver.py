@@ -13,6 +13,7 @@ import traceback
 from typing import Any
 
 from console_common import DOMAIN_KEY, TERMINAL_STATUS, _scaled_budget_for_prices
+from console_subagents import SubagentChannel
 from console_run_budget import budget_summary
 from console_runtime import LiveObserver, RunControl, ScopedPlanner, StopRequested, _run_crash, _watch
 
@@ -57,6 +58,9 @@ class RunDriver:
         self.store = rt.TaskStore(self.db)
         self.module = rt.get_domain(self.scenario.module)
         self.general = self.module.key != DOMAIN_KEY
+        # 子代理编排通道(spawn/status/read):治理硬限在 console_subagents;
+        # 通道对象持有 manager 与本运行,read 狱到"本运行的子代理"。
+        self.subagent_channel = SubagentChannel(self.manager, self.run) if self.general else None
         self.world = self._build_world()
         self.scope = list(((self.run.spec or {}).get("scope") or []))
         if self.scope and hasattr(self.world, "documents"):
@@ -145,7 +149,7 @@ class RunDriver:
                 "ask_operator": self._ask_channel,
                 # 子代理编排通道:深度/数量/预算的硬限在 console_subagents
                 # 的纯逻辑里;这里只提供"创建真实子运行并等它们终态"的能力。
-                "subagent_spawner": self._spawn_channel,
+                "subagent_channel": self.subagent_channel,
             }
         return self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
@@ -156,96 +160,6 @@ class RunDriver:
         if control is None:
             return {"answered": False, "reason": "this deployment has no operator channel"}
         return control.ask(**kwargs)
-
-    def _spawn_channel(self, objectives: list[str]) -> dict[str, Any]:
-        """子代理编排通道：创建真实子运行、阻塞至全部终态、回传摘要。
-
-        治理在这里落地：深度硬限（父运行自己是子代理则拒绝）、数量硬顶、
-        子运行经 mgr.create 走与手创运行相同的流水线（审批/门控/预算/链）。
-        阻塞等待发生在父运行自己的工具执行线程里——与审批等待同款语义。
-        """
-        import time as _time
-
-        from console_subagents import (
-            JOIN_TIMEOUT_SECONDS,
-            build_child_digest,
-            normalize_spawn_request,
-            wait_for_children,
-        )
-
-        objectives = normalize_spawn_request(objectives, (self.run.spec or {}).get("parent_run_id"))
-        started = _time.monotonic()
-        children = []
-        for objective in objectives:
-            child = self.manager.create(
-                objective=objective,
-                template="general-subagent",
-                # 内部角色:操作者已通过 spawn 审批 consciously 批准了扇出;
-                # 子运行的写入被物理限制在自己的沙箱(runs/<child>/workspace),
-                # 不碰父工作区——审批挂起只会把 join 拖过超时,无治理增益。
-                approval="off",
-                spec={"mode": "subagent", "parent_run_id": self.run.id},
-                model_key=self.run.model,
-                effort=self.run.effort,
-                source="subagent",
-            )
-            children.append({"run_id": child.id, "objective": objective})
-
-        def get_state(run_id: str) -> dict:
-            run = self.manager.runs.get(run_id)
-            if run is None:
-                return {"finished": True, "status": "error", "rounds": 0}
-            return {
-                "finished": bool(run.finished),
-                "status": run.status,
-                "rounds": run.rounds,
-            }
-
-        def request_stop(run_id: str) -> None:
-            run = self.manager.runs.get(run_id)
-            if run is not None:
-                with run.lock:
-                    run.stop_requested = True
-
-        join = wait_for_children(
-            children,
-            get_state=get_state,
-            deadline_monotonic=started + JOIN_TIMEOUT_SECONDS,
-            request_stop=request_stop,
-        )
-
-        digests = []
-        for child in children:
-            state = join["states"].get(child["run_id"]) or {}
-            run = self.manager.runs.get(child["run_id"])
-            files: list[str] = []
-            summary = ""
-            if run is not None and run.trace_path:
-                try:
-                    trace = json.loads(Path(run.trace_path).read_text(encoding="utf-8"))
-                    terminal = trace.get("terminal") or {}
-                    if terminal.get("failure"):
-                        summary = f"{terminal['failure'].get('code', '')}: {terminal['failure'].get('message', '')}"
-                    else:
-                        result = terminal.get("result") or {}
-                        summary = str(result.get("summary") or result.get("result_truth") or "")
-                except Exception:  # noqa: BLE001 — 摘要失败不给父模型编故事
-                    summary = ""
-                workspace = self.manager.runs_dir / child["run_id"] / "workspace"
-                if workspace.is_dir():
-                    files = sorted(
-                        p.relative_to(workspace).as_posix()
-                        for p in workspace.rglob("*")
-                        if p.is_file() and ".git" not in p.parts
-                    )[:20]
-            digests.append(build_child_digest(
-                objective=child["objective"],
-                run_id=child["run_id"],
-                state=state,
-                files=files,
-                summary=summary,
-            ))
-        return {"children": digests, "timed_out": bool(join.get("timed_out"))}
 
     def _issue(self, **kwargs):
         ref = self.receipts.issue(**kwargs)

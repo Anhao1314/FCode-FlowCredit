@@ -83,7 +83,7 @@ class GeneralWorld:
         command_runner: CommandRunner | None = None,
         command_config: str | None = None,
         ask_operator: Any = None,
-        subagent_spawner: Any = None,
+        subagent_channel: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -121,9 +121,9 @@ class GeneralWorld:
         #: console once the run's control exists; assignments after construction
         #: also work, because the tool resolves it when a question is asked.
         self.ask_operator = ask_operator
-        #: 子代理编排通道：console 接线（RunDriver._spawn_channel）。
-        #: None = 本部署不提供编排，spawn 工具诚实地不注册。
-        self.subagent_spawner = subagent_spawner
+        #: 子代理编排通道（console 的 SubagentChannel：spawn/status/read）。
+        #: None = 本部署不提供编排，编排工具诚实地不注册。
+        self.subagent_channel = subagent_channel
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -192,10 +192,16 @@ class GeneralWorld:
         tools.append(replace(build_ask_tool(channel), summarize=summarize_ask_operator))
         if self.memory_records_provider is not None:
             tools.append(build_recall_tool(self.memory_records_provider))
-        if self.subagent_spawner is not None:
-            from .subagents import build_spawn_tool
+        if self.subagent_channel is not None:
+            from .subagents import (
+                build_spawn_tool,
+                build_subagent_read_tool,
+                build_subagent_status_tool,
+            )
 
-            tools.append(build_spawn_tool(self.subagent_spawner))
+            tools.append(build_spawn_tool(self.subagent_channel.spawn))
+            tools.append(build_subagent_status_tool(self.subagent_channel.status))
+            tools.append(build_subagent_read_tool(self.subagent_channel.read))
         return tools
 
     def apply_state(self, state: dict[str, Any]) -> None:

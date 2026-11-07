@@ -200,6 +200,9 @@ SCENARIOS: dict[str, Scenario] = {
             "grep_workspace",
             "find_files",
             "git_status",
+            # 写在自己的沙箱(runs/<child>/workspace)——与父工作区物理隔离,
+            # 发现笔记/产物就是子代理的交付物,由 join 摘要与文件清单回传。
+            "write_file",
             "report_blocked",
         ),
         grant={
@@ -211,9 +214,10 @@ SCENARIOS: dict[str, Scenario] = {
                 "grep_workspace",
                 "find_files",
                 "git_status",
+                "write_file",
                 "report_blocked",
             ],
-            "allowed_effects": ["read"],
+            "allowed_effects": ["read", "write"],
             "max_calls": 8,
             "max_reads": 24,
             "max_cost_microusd": 100_000,

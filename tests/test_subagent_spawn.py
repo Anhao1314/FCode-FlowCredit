@@ -131,15 +131,29 @@ class DigestTest(unittest.TestCase):
 
 
 class ScenarioAndRegistryTest(unittest.TestCase):
-    def test_general_subagent_scenario_is_readonly_internal(self) -> None:
+    def test_general_subagent_scenario_scope(self) -> None:
+        """S3:子代理可写**自己的沙箱**(物理隔离),但无网络/编排/提问/命令。"""
         scenario = SCENARIOS["general-subagent"]
-        forbidden = {"write_file", "edit_file", "run_command", "fetch_url",
+        forbidden = {"edit_file", "run_command", "fetch_url",
                      "spawn_subagents", "ask_operator"}
         self.assertEqual(forbidden & set(scenario.allowed_tools), set(),
-                         "子代理不得持有写/网络/编排/提问能力")
+                         "子代理不得持有命令/网络/编排/提问能力")
+        self.assertIn("write_file", scenario.allowed_tools,
+                      "写只发生在子代理自己的沙箱,是交付物而非合并问题")
+        self.assertEqual(scenario.grant["allowed_effects"], ["read", "write"])
         self.assertIn("grep_workspace", scenario.allowed_tools)
         self.assertTrue(scenario.internal, "内部场景不进模板选择器")
-        self.assertEqual(scenario.grant["allowed_effects"], ["read"])
+
+    def _fake_channel(self):
+        class FakeChannel:
+            def spawn(self, arguments):
+                return {"children": [], "timed_out": False}
+            def status(self):
+                return {"children": [], "count": 0}
+            def read(self, run_id, path):
+                return {"path": path, "content": "x", "sha256": "h",
+                        "bytes": 1, "child_run_id": run_id}
+        return FakeChannel()
 
     def test_spawn_tool_registered_only_with_channel(self) -> None:
         from flowagent.domains.general import create_world
@@ -147,31 +161,40 @@ class ScenarioAndRegistryTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sandbox = WorkspaceSandbox(Path(tmp) / "ws")
             with_channel = create_world(
-                sandbox=sandbox, subagent_spawner=lambda objs: {}).build_tools()
+                sandbox=sandbox, subagent_channel=self._fake_channel()).build_tools()
             without_channel = create_world(sandbox=sandbox).build_tools()
             names_with = {spec.name for spec in with_channel}
             names_without = {spec.name for spec in without_channel}
             self.assertIn("spawn_subagents", names_with)
-            self.assertNotIn("spawn_subagents", names_without,
-                             "无编排通道的部署诚实缺席,而不是注册一个会失败的工具")
+            self.assertIn("subagent_status", names_with)
+            self.assertIn("subagent_read", names_with)
+            for name in ("spawn_subagents", "subagent_status", "subagent_read"):
+                self.assertNotIn(name, names_without,
+                                 "无编排通道的部署诚实缺席,而不是注册一个会失败的工具")
             spec = next(s for s in with_channel if s.name == "spawn_subagents")
             self.assertEqual(spec.effect, "write", "放大是写效果,进审批集")
+            for name in ("subagent_status", "subagent_read"):
+                self.assertEqual(
+                    next(s for s in with_channel if s.name == name).effect,
+                    "read", name)
 
     def test_spawn_handler_normalizes_and_refuses_empty(self) -> None:
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             sandbox = WorkspaceSandbox(Path(tmp) / "ws")
-            digests = [{"children": [{"run_id": "r1", "status": "succeeded",
-                                      "summary": "ok"}], "timed_out": False}]
+            seen = []
             from flowagent.domains.general import create_world
 
-            world = create_world(
-                sandbox=sandbox,
-                subagent_spawner=lambda objs: digests.pop() if objs == ["a", "b"] else None,
-            )
+            channel = self._fake_channel()
+            def spawn_capture(arguments):
+                seen.append(arguments)
+                return {"children": [{"run_id": "r1", "status": "succeeded",
+                                      "summary": "ok"}], "timed_out": False}
+            channel.spawn = spawn_capture
+            world = create_world(sandbox=sandbox, subagent_channel=channel)
             spec = next(s for s in world.build_tools() if s.name == "spawn_subagents")
             spec.handler({"objectives": [" a ", "", "b"]})
-            self.assertEqual(digests, [], "通道收到了规整后的目标列表")
+            self.assertEqual(seen, [{"objectives": ["a", "b"], "budget": None}],
+                             "通道收到了规整后的目标列表")
             from flowagent.core.contracts import AgentError
             with self.assertRaises(AgentError):
                 spec.handler({"objectives": ["", ""]})
@@ -188,3 +211,135 @@ class ScenarioAndRegistryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubagentChannelTest(unittest.TestCase):
+    """S3 通道治理:read 狱到自己的子代理、预算封底、status 只看自家。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.runs_dir = Path(self._tmp.name) / "runs"
+        self.runs_dir.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _fake_manager(self, parent_spec=None):
+        from types import SimpleNamespace
+
+        counter = {"n": 0}
+
+        class FakeRun:
+            def __init__(self, rid, spec, *, source="manual", approval="consequential"):
+                self.id = rid
+                self.spec = spec
+                self.status = "running"
+                self.rounds = 1
+                self.finished = False
+                self.lock = __import__("threading").RLock()
+                self.trace_path = ""
+                self.model = "mock"
+                self.effort = ""
+                self.objective = "测试运行"
+                self.template = "general-subagent"
+                self.source = source
+                self.approval = approval
+
+        class FakeManager:
+            runs = {}
+            def __init__(self):
+                self.runs_dir = self_run_dir
+            def create(self, *, objective, template, approval, spec, model_key, effort, source):
+                counter["n"] += 1
+                rid = f"run-child-{counter['n']:03d}"
+                run = FakeRun(rid, spec, source=source, approval=approval)
+                self.runs[rid] = run
+                return run
+
+        self_run_dir = self.runs_dir
+        parent = FakeRun("run-parent", parent_spec or {})
+        mgr = FakeManager()
+        mgr.runs["run-parent"] = parent
+        return mgr, parent
+
+    def _channel(self, mgr, parent):
+        from console_subagents import SubagentChannel
+
+        return SubagentChannel(mgr, parent)
+
+    def test_spawn_creates_children_with_budget_and_source(self) -> None:
+        mgr, parent = self._fake_manager()
+        channel = self._channel(mgr, parent)
+        # 子运行立即终态:把 create 出来的 run 标记完成
+        orig_create = mgr.create
+        def create_with_finish(**kwargs):
+            run = orig_create(**kwargs)
+            run.finished = True
+            run.status = "succeeded"
+            return run
+        mgr.create = create_with_finish
+        result = channel.spawn({"objectives": ["子任务A", "子任务B"],
+                                "budget": {"maxCalls": 10, "maxReads": 30}})
+        self.assertFalse(result["timed_out"])
+        self.assertEqual(len(result["children"]), 2)
+        kids = [r for r in mgr.runs.values() if r.id != "run-parent"]
+        for kid in kids:
+            self.assertEqual(kid.spec["parent_run_id"], "run-parent")
+            self.assertEqual(kid.spec["budget"]["maxCalls"], 10)
+            self.assertEqual(kid.template, "general-subagent")
+            self.assertEqual(kid.source, "subagent")
+            self.assertEqual(kid.approval, "off", "放大已由 spawn 审批覆盖")
+
+    def test_spawn_budget_caps_enforced(self) -> None:
+        mgr, parent = self._fake_manager()
+        channel = self._channel(mgr, parent)
+        with self.assertRaises(ValueError) as ctx:
+            channel.spawn({"objectives": ["x"], "budget": {"maxCalls": 999}})
+        self.assertIn("24", str(ctx.exception))
+
+    def test_depth_guard_in_channel(self) -> None:
+        mgr, parent = self._fake_manager(parent_spec={"parent_run_id": "run-grandpa"})
+        channel = self._channel(mgr, parent)
+        with self.assertRaises(ValueError) as ctx:
+            channel.spawn({"objectives": ["x"]})
+        self.assertIn("深度", str(ctx.exception))
+
+    def test_read_only_own_children_and_jail(self) -> None:
+        mgr, parent = self._fake_manager()
+        channel = self._channel(mgr, parent)
+        # 建一个子运行 + 它的工作区文件
+        child = mgr.create(objective="子", template="general-subagent",
+                           approval="off",
+                           spec={"mode": "subagent", "parent_run_id": "run-parent"},
+                           model_key="mock", effort="", source="subagent")
+        ws = self.runs_dir / child.id / "workspace"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "findings.md").write_text("# 发现\n依据充分", encoding="utf-8")
+        # 陌生运行的工作区(不是本运行的子代理)
+        stranger = self.runs_dir / "run-stranger" / "workspace"
+        stranger.mkdir(parents=True, exist_ok=True)
+        (stranger / "secret.txt").write_text("机密", encoding="utf-8")
+        mgr.runs["run-stranger"] = type("R", (), {"id": "run-stranger", "spec": {}})()
+
+        ok = channel.read(child.id, "findings.md")
+        self.assertIn("发现", ok["content"])
+        self.assertEqual(ok["child_run_id"], child.id)
+        from flowagent.core.contracts import AgentError
+
+        with self.assertRaises(ValueError, msg="陌生运行拒绝——不是本运行的子代理"):
+            channel.read("run-stranger", "secret.txt")
+        with self.assertRaises(AgentError, msg="路径越狱被沙箱狱拒绝"):
+            channel.read(child.id, "../../run-stranger/workspace/secret.txt")
+
+    def test_status_lists_only_own_children(self) -> None:
+        mgr, parent = self._fake_manager()
+        channel = self._channel(mgr, parent)
+        mgr.create(objective="子", template="general-subagent", approval="off",
+                   spec={"mode": "subagent", "parent_run_id": "run-parent"},
+                   model_key="mock", effort="", source="subagent")
+        mgr.runs["run-other"] = type("R", (), {"id": "run-other", "spec": {},
+                                               "status": "running", "rounds": 1,
+                                               "objective": "别人家"})()
+        status = channel.status()
+        self.assertEqual(status["count"], 1)
+        self.assertEqual(status["children"][0]["run_id"].startswith("run-child"), True)
