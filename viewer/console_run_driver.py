@@ -98,7 +98,7 @@ class RunDriver:
             receipts=self.receipts,
             verifier=lambda observation: self.module.verify(self.world, observation),
             state_fn=self.module.summarize_state,
-            instruction=self.module.instruction,
+            instruction=self._build_instruction(),
             prompt_profile=self.module.prompt_profile,
             plan_extension=self.module.plan_extension,
             verification=(
@@ -165,6 +165,23 @@ class RunDriver:
         ref = self.receipts.issue(**kwargs)
         self.issued["ref"] = ref
         return ref
+
+    def _build_instruction(self) -> str:
+        """模块协议指令 + 操作员长期记忆(M2)。
+
+        记忆来自 chat 服务的 MemoryStore(与 chat.sqlite 并排的独立库)。
+        chat 不可用或无记忆时返回原始指令——记忆是佐料，不是主菜。
+        """
+        instruction = self.module.instruction
+        chat = getattr(self.manager, "chat", None)
+        if chat is not None and hasattr(chat, "memory"):
+            try:
+                block = chat.memory.context_block()
+                if block:
+                    instruction = (instruction or "") + block
+            except Exception:  # noqa: BLE001 — 记忆注入失败不阻断运行
+                pass
+        return instruction
 
     def _limits(self):
         scenario = self.scenario

@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "viewer"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from types import SimpleNamespace
 from console_subagents import (  # noqa: E402
     build_child_digest,
     normalize_spawn_request,
