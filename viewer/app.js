@@ -8,6 +8,7 @@ import { createLatestGate, createRunsPoller, settleLatest } from "./core/latest.
 import { resolveModelLabel, traceModelLabel } from "./core/model-label.js";
 import { connectionPresentation, initialConnection, reduceConnection } from "./core/sse-status.js";
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
+import { composerMode } from "./core/composer-mode.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -1474,20 +1475,30 @@ const {
   fetchImpl: (...args) => fetch(...args),
 });
 
-/* 输入框统一入口：需求选择中 = 补充描述，运行中 = 发消息，空闲 = 开始新委托 */
-function composerSubmit() {
-  if (intake.active) {
+/* 输入框统一入口：S1 分态后 dispatch 只查模式表（core/composer-mode.js），
+   intake/chat/running 三类判据不再散布在提交路径里。 */
+const COMPOSER_SUBMIT = {
+  intake: () => {
     const ta = document.getElementById("composer-ta");
     const text = (ta.value || "").trim();
     if (!text) { toast("先选一个选项，或在下方描述你的需求"); return; }
     ta.value = "";
     autosize(ta);
     return intakeFreeText(text);
-  }
-  if (chat.active) return sendChatFromComposer();
+  },
+  chat: () => sendChatFromComposer(),
+  running: () => sendOperatorMessage(),
+  work: () => sendTask(),
+};
+
+function composerSubmit() {
   const s = activeSession();
-  if (s && s.running && !s.finished) return sendOperatorMessage();
-  return sendTask();
+  const mode = composerMode({
+    intakeActive: intake.active,
+    chatActive: chat.active,
+    sessionRunning: !!(s && s.running && !s.finished),
+  });
+  return COMPOSER_SUBMIT[mode]();
 }
 
 /* 运行中插话：入队渲染在排队面板，入链后由 snapshot 事件确认并移出队列 */
@@ -2751,10 +2762,12 @@ function bindComposer() {
   const apvBtn = document.getElementById("approval-btn");
   const apvMenu = document.getElementById("approval-menu");
   const modelBtn = document.getElementById("model-btn");
-  const modelMenu = document.getElementById("model-menu");
+  const chatModelMenu = document.getElementById("chat-model-menu");
+  const workModelMenu = document.getElementById("work-model-menu");
+  const closeModelMenus = () => { chatModelMenu.hidden = true; workModelMenu.hidden = true; };
   apvBtn.addEventListener("click", event => {
     event.stopPropagation();
-    modelMenu.hidden = true;
+    closeModelMenus();
     apvMenu.hidden = !apvMenu.hidden;
   });
   const plusBtn = document.getElementById("composer-open");
@@ -2762,7 +2775,7 @@ function bindComposer() {
   plusBtn.addEventListener("click", event => {
     event.stopPropagation();
     apvMenu.hidden = true;
-    modelMenu.hidden = true;
+    closeModelMenus();
     attach.open = !attach.open;
     renderAttachPanel();
     if (attach.open) refreshAttachData();
@@ -2883,21 +2896,26 @@ function bindComposer() {
     }
     apvMenu.hidden = true;
     if (attach.projectEditing) { attach.projectEditing = false; renderProjectComposer(); }
-    if (modelMenu.hidden) {
+    // S1 分态：模式决定开哪个菜单，另一个强制关闭——两个节点永不同现
+    const openMenu = chat.active ? chatModelMenu : workModelMenu;
+    const otherMenu = chat.active ? workModelMenu : chatModelMenu;
+    if (openMenu.hidden) {
       if (chat.active) {
         renderChatModelMenu();
-        loadChatModels().then(() => { if (!modelMenu.hidden) renderChatModelMenu(); });
+        loadChatModels().then(() => { if (!openMenu.hidden) renderChatModelMenu(); });
       } else {
         renderModelMenu();
       }
     }
-    modelMenu.hidden = !modelMenu.hidden;
-    if (!modelMenu.hidden) placeModelMenu();
+    otherMenu.hidden = true;
+    openMenu.hidden = !openMenu.hidden;
+    if (!openMenu.hidden) placeModelMenu(openMenu);
   });
-  modelMenu.addEventListener("click", event => {
+  /* 对话菜单：模型挑选 + 设置入口。 */
+  chatModelMenu.addEventListener("click", event => {
     const chatSettings = event.target.closest("[data-chatmodel-settings]");
     if (chatSettings) {
-      modelMenu.hidden = true;
+      chatModelMenu.hidden = true;
       renderMode("settings");
       activateSettingsSection("model");
       return;
@@ -2909,9 +2927,11 @@ function bindComposer() {
       saveChatModelChoice();
       renderChatModelMenu();
       paintModelBadge();
-      modelMenu.hidden = true;
-      return;
+      chatModelMenu.hidden = true;
     }
+  });
+  /* 工作菜单：委托模型挑选 + 思考强度档位。 */
+  workModelMenu.addEventListener("click", event => {
     const pick = event.target.closest("[data-model-pick]");
     if (pick && !pick.disabled) {
       modelChoice.key = pick.dataset.modelPick;
@@ -2921,7 +2941,7 @@ function bindComposer() {
       attach.budget = null;
       renderModelMenu();
       paintModelBadge();
-      modelMenu.hidden = true;
+      workModelMenu.hidden = true;
       return;
     }
     const effort = event.target.closest("[data-effort-pick]");
@@ -2942,12 +2962,15 @@ function bindGlobalActions() {
   const apvBtn = document.getElementById("approval-btn");
   const apvMenu = document.getElementById("approval-menu");
   const modelBtn = document.getElementById("model-btn");
-  const modelMenu = document.getElementById("model-menu");
+  const chatModelMenu = document.getElementById("chat-model-menu");
+  const workModelMenu = document.getElementById("work-model-menu");
   const plusBtn = document.getElementById("composer-open");
   const attachPanel = document.getElementById("attach-panel");
   document.addEventListener("click", event => {
     if (!apvMenu.hidden && !apvBtn.contains(event.target) && !apvMenu.contains(event.target)) apvMenu.hidden = true;
-    if (!modelMenu.hidden && !modelBtn.contains(event.target) && !modelMenu.contains(event.target)) modelMenu.hidden = true;
+    for (const menu of [chatModelMenu, workModelMenu]) {
+      if (!menu.hidden && !modelBtn.contains(event.target) && !menu.contains(event.target)) menu.hidden = true;
+    }
     if (attach.open && !plusBtn.contains(event.target) && !attachPanel.contains(event.target)) {
       attach.open = false;
       renderAttachPanel();
@@ -3639,8 +3662,9 @@ function bindShell() {
       if (menu && !menu.hidden) { menu.hidden = true; return; }
       const approval = document.getElementById("approval-menu");
       if (approval && !approval.hidden) { approval.hidden = true; return; }
-      const modelMenu = document.getElementById("model-menu");
-      if (modelMenu && !modelMenu.hidden) { modelMenu.hidden = true; return; }
+      const modelMenus = ["chat-model-menu", "work-model-menu"]
+        .map(id => document.getElementById(id)).filter(menu => menu && !menu.hidden);
+      if (modelMenus.length) { modelMenus.forEach(menu => { menu.hidden = true; }); return; }
       if (attach.open) { attach.open = false; renderAttachPanel(); return; }
       if (settingsOpen) { closeSettingsPage(true); return; }
       if (!typing && innerWidth <= 1100 && railOpen) setChromeState({ rail: false });

@@ -56,7 +56,7 @@ export function createChatConfig(deps) {
   }
 
   function renderChatModelMenu() {
-    const menu = document.getElementById("model-menu");
+    const menu = document.getElementById("chat-model-menu");
     if (!menu) return;
     const items = getChatModels().map(m => {
       const current = m.available && m.key === chatModelChoice.key;

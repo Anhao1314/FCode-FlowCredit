@@ -2,8 +2,10 @@
 
 /* Composer 的两个浮层面（自 app.js 拆分切片 4c 迁入）：
  *
- * 1. 模型与思考强度选择器——徽章按语境切换（运行中只读显示实际模型 /
- *    对话模式显示对话模型 / 空闲显示委托模型），菜单数据来自服务端枚举。
+ * 1. 模型与思考强度选择器——本模块**独占** #work-model-menu（委托模型 +
+ *    思考强度，数据来自服务端枚举）；对话模式的 #chat-model-menu 归
+ *    chat-config.js。S1 分态后不存在共节点覆写。徽章按语境三画家：
+ *    运行中只读显示实际模型 / 对话模式显示对话模型 / 空闲显示委托模型。
  * 2. “+”附加面板——真实委托输入：模板、本地项目、来源 URL / 语料选择、
  *    工具注册表（含 MCP 导入）、预算微调。手风琴单开，收起带 150ms 动画。
  *
@@ -48,35 +50,45 @@ export function createComposerPanel(deps) {
     const btn = document.getElementById("model-btn");
     if (!labelEl || !btn) return;
     const s = d.activeSession();
-    if (s && s.running && !s.finished) {
-      const label = d.sessionModelLabel(s) || "运行中";
-      const effort = liveRunEffortLabel(s.trace);
-      labelEl.textContent = `${label}${effort ? " · " + effort : ""}`;
-      btn.classList.add("readonly");
-      btn.title = "当前运行实际使用的模型（只读）；选择器只对新委托生效";
-      return;
+    if (s && s.running && !s.finished) return paintRunModelBadge(labelEl, btn, s);
+    if (d.chat.active) return paintChatModelBadge(labelEl, btn);
+    paintWorkModelBadge(labelEl, btn);
+  }
+
+  /* 运行中：徽章只读显示会话实际使用的模型与思考强度。 */
+  function paintRunModelBadge(labelEl, btn, s) {
+    const label = d.sessionModelLabel(s) || "运行中";
+    const effort = liveRunEffortLabel(s.trace);
+    labelEl.textContent = `${label}${effort ? " · " + effort : ""}`;
+    btn.classList.add("readonly");
+    btn.title = "当前运行实际使用的模型（只读）；选择器只对新委托生效";
+  }
+
+  /* 对话模式：徽章显示对话模型（chat-model-menu 的选择结果）。 */
+  function paintChatModelBadge(labelEl, btn) {
+    btn.classList.remove("readonly");
+    const chatModels = d.getChatModels();
+    const chatModelChoice = d.chatModelChoice;
+    if (chatModels.length && chatModelChoice.key !== "mock"
+        && !chatModels.some(m => m.key === chatModelChoice.key && m.available)) {
+      chatModelChoice.key = "mock";
+      d.saveChatModelChoice();
     }
+    const chatEntry = chatModels.find(m => m.key === chatModelChoice.key)
+      || chatModels.find(m => m.key === "mock");
+    labelEl.textContent = !chatEntry || chatEntry.key === "mock"
+      ? "offline-mock"
+      : chatEntry.model;
+    btn.title = "选择对话模型；在设置页填写 API 配置";
+  }
+
+  /* 空闲工作态：徽章显示委托模型与思考强度（work-model-menu 的选择结果）。 */
+  function paintWorkModelBadge(labelEl, btn) {
     btn.classList.remove("readonly");
     const health = d.getHealth();
     if (!health || !health.live) {
       labelEl.textContent = "未连接 runtime";
       btn.title = "静态回放模式：composer 已整体禁用";
-      return;
-    }
-    if (d.chat.active) {
-      const chatModels = d.getChatModels();
-      const chatModelChoice = d.chatModelChoice;
-      if (chatModels.length && chatModelChoice.key !== "mock"
-          && !chatModels.some(m => m.key === chatModelChoice.key && m.available)) {
-        chatModelChoice.key = "mock";
-        d.saveChatModelChoice();
-      }
-      const chatEntry = chatModels.find(m => m.key === chatModelChoice.key)
-        || chatModels.find(m => m.key === "mock");
-      labelEl.textContent = !chatEntry || chatEntry.key === "mock"
-        ? "offline-mock"
-        : chatEntry.model;
-      btn.title = "选择对话模型；在设置页填写 API 配置";
       return;
     }
     const modelChoice = d.getModelChoice();
@@ -342,9 +354,9 @@ export function createComposerPanel(deps) {
   }
 
   /* 浮窗默认向上展开（Kimi 的锚点规则）；但舞台态 composer 贴近页面下沿时，
-     向上会顶出画布顶部——最上面几行就点不到了。量一次：放不下就向下展开。 */
-  function placeModelMenu() {
-    const menu = document.getElementById("model-menu");
+     向上会顶出画布顶部——最上面几行就点不到了。量一次：放不下就向下展开。
+     默认量工作菜单；对话菜单打开时由 app.js 传节点进来。 */
+  function placeModelMenu(menu = document.getElementById("work-model-menu")) {
     if (!menu) return;
     menu.classList.remove("drop-down");
     const rect = menu.getBoundingClientRect();
@@ -352,7 +364,7 @@ export function createComposerPanel(deps) {
   }
 
   function renderModelMenu() {
-    const menu = document.getElementById("model-menu");
+    const menu = document.getElementById("work-model-menu");
     if (!menu) return;
     const modelCatalog = d.getModelCatalog();
     const modelChoice = d.getModelChoice();

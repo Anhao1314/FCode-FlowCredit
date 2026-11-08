@@ -131,7 +131,10 @@
           <div class="composer">
             <div class="composer-box" id="composer-box">
               <div class="tpl-menu approval-menu" id="approval-menu" hidden></div>
-              <div class="tpl-menu model-menu" id="model-menu" hidden></div>
+              <!-- S1 Chat/Work 分态：两个菜单各归各渲染器（chat-config → chat /
+                   composer-panel → work），不再共用一个节点按 chat.active 覆写 -->
+              <div class="tpl-menu model-menu" id="chat-model-menu" hidden></div>
+              <div class="tpl-menu model-menu" id="work-model-menu" hidden></div>
               <div class="attach-panel" id="attach-panel" hidden></div>
               <div class="chat-attach-chips" id="chat-attach-chips" hidden></div>
               <div class="project-composer" id="project-composer" hidden></div>
