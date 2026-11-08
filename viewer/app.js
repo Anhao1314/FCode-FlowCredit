@@ -10,7 +10,7 @@ import { connectionPresentation, initialConnection, reduceConnection } from "./c
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
 import { composerMode } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
-import { findingsCardHtml } from "./core/gov-cards.js";
+import { findingsCardHtml, chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -2460,6 +2460,8 @@ const SLASH_COMMANDS = [
   { cmd: "/定时", desc: "对话内查看定时任务", run: () => pushWorkspaceCard("scheduled") },
   { cmd: "/挖洞", desc: "治理台:对目标发起 REA 挖洞（/挖洞 <target>）", run: arg => startGovAudit(arg) },
   { cmd: "/audit", desc: "治理台:对目标发起 REA 挖洞（/audit <target>）", run: arg => startGovAudit(arg) },
+  { cmd: "/判断", desc: "治理台:操作员判断与审计处置汇总卡", run: () => showGovJudgments() },
+  { cmd: "/链", desc: "治理台:验证一次审计的签名链（/链 <audit_id>）", run: arg => showGovChain(arg) },
   { cmd: "/ledger", desc: "打开工作台账本", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/report", desc: "签发当前运行的审计报告", run: () => openReport() },
   { cmd: "/stop", desc: "在轮次边界停止当前运行", run: () => stopRun() },
@@ -2565,7 +2567,54 @@ async function pushWorkspaceCard(kind) {
 
 const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
 const govFindings = new Map(); // audit_dir → findings[]（G2 发现处置卡的内存投影,处置落链后同步更新）
+const govRespCards = []; // G3 命令响应卡快照(新在前,会话内存,重启即失)
 let govPollTimer = null;
+
+/* G3:命令响应卡落到治理台卡流顶部。快照语义——卡片记录命令时刻的
+   服务端事实,重进治理台仍在;最新事实以审计台为准。 */
+function pushGovRespCard(html) {
+  if (!html) return;
+  govRespCards.unshift(html);
+  if (govRespCards.length > 6) govRespCards.length = 6;
+  paintGovCards();
+}
+
+function paintGovCards() {
+  const host = document.getElementById("gov-cards");
+  if (!host) return;
+  host.innerHTML = govRespCards.join("");
+  if (document.querySelector(".main")) hydrateDoodles(host);
+}
+
+function showGovChain(dir) {
+  const d = String(dir || "").trim();
+  if (!d) { renderMode("gov"); toast("用法：/链 <audit_id>（如 /链 evox.app-2026-11-08-5c093a）"); return; }
+  (async () => {
+    try {
+      renderMode("gov");
+      const r = await fetch("/api/audit/chain/" + encodeURIComponent(d), { cache: "no-store" });
+      const chain = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(chain.error || `HTTP ${r.status}`);
+      pushGovRespCard(chainCardHtml(d, chain));
+    } catch (error) {
+      toast("链查询失败：" + error.message);
+    }
+  })();
+}
+
+function showGovJudgments() {
+  (async () => {
+    try {
+      renderMode("gov");
+      const r = await fetch("/api/review-profile", { cache: "no-store" });
+      const profile = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(profile.error || `HTTP ${r.status}`);
+      pushGovRespCard(judgmentsCardHtml(profile));
+    } catch (error) {
+      toast("判断汇总失败：" + error.message);
+    }
+  })();
+}
 
 function govJobCardHtml(job) {
   const state = job.status === "done" ? '<span class="gov-state ok">完成</span>'
@@ -2632,9 +2681,11 @@ async function renderGov() {
       <p class="page-meta">挖洞、判断、链——都以命令与卡片进行。模型不进环：审计证据由离线确定性管线产出，操作员处置直接落签名链。</p>
     </div>
     <div class="gov-stream" id="gov-stream">
+      <div id="gov-cards"></div>
       <div id="gov-jobs"></div>
       <div id="gov-bundles"><div class="gov-loading dim">读取审计 bundle…</div></div>
     </div>`, { mode: "gov" });
+  paintGovCards();
   paintGovStream();
   const epoch = viewGate.sequence;
   try {

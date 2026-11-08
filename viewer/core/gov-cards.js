@@ -61,3 +61,68 @@ export function findingsCardHtml(dir, findings) {
     <div class="gov-finding-list">${list.map(finding => findingRowHtml(dir, finding)).join("")}</div>
   </div>`;
 }
+
+/* G3 链验证卡：/链 <audit_dir> 的响应快照。状态语义与审计台一致：
+   完整（kernel 逐事件重算）/ 断裂（篡改证据原文）/ 仅链接校验（弱校验，
+   kernel 不可用的降级）/ 无会话日志。事件只列最近几条——全量在审计台。 */
+export function chainCardHtml(dir, chain) {
+  const events = Array.isArray(chain && chain.events) ? chain.events : [];
+  const intact = !!(chain && chain.chain_intact);
+  const verification = (chain && chain.verification) || "none";
+  const stateClass = intact ? (verification === "link-only" ? "live" : "ok") : "bad";
+  const stateText = !intact ? "链断裂"
+    : verification === "link-only" ? "链完整（仅链接校验）"
+    : verification === "none" ? "无会话日志"
+    : "链完整";
+  const tamper = !intact && chain.tamper
+    ? `<div class="wcard-meta">${esc(String(chain.tamper).slice(0, 160))}</div>` : "";
+  const tail = events.slice(-4).map((event, i) => {
+    const seq = events.length - events.slice(-4).length + i + 1;
+    const hash = event && event.hash ? String(event.hash).slice(0, 10) : "";
+    const payload = event && event.payload && typeof event.payload === "object"
+      ? Object.keys(event.payload).slice(0, 3).join(",") : "";
+    return `<div class="wcard-row"><span class="wcard-run-label">${num(seq)} · ${esc((event && event.type) || "?")}${payload ? " · " + esc(payload) : ""}</span>
+      <span class="wcard-run-meta">${esc(hash)}</span></div>`;
+  }).join("");
+  return `<div class="wcard govcard gov-chain" data-thread-item="govcard">
+    <div class="wcard-head"><span class="wcard-icon" data-doodle="link"></span>
+      <b class="wcard-title">签名链 · ${esc(dir)}</b>
+      <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(dir)}" title="在审计台查看完整链与处置">审计台 →</button></div>
+    <div class="gov-state-row"><span class="gov-state ${stateClass}">🔗 ${esc(stateText)}</span>
+      <span class="wcard-run-meta">${num(events.length)} 事件 · ${esc(verification)}</span></div>
+    ${tamper}
+    ${tail ? `<div class="gov-finding-list">${tail}</div>` : ""}
+  </div>`;
+}
+
+/* G3 判断卡：/判断 的响应快照——运行判断四类计数 + 审计处置三档,
+   语义不同、并列展示不并计数(与判断记录页同一原则)。 */
+export function judgmentsCardHtml(profile) {
+  const p = profile || {};
+  const counts = p.counts || {};
+  const four = [
+    ["接受判断", counts.accept], ["需要补材料", counts.needs_evidence],
+    ["保留意见", counts.qualified], ["退回重做", counts.redo],
+  ].map(pair => `${pair[0]} ${num(pair[1] ?? 0)}`).join(" · ");
+  const recent = (Array.isArray(p.recent) ? p.recent : []).slice(0, 4);
+  const judgeRows = recent.map(item => {
+    const what = item.reason || item.note || item.objective || "";
+    return `<div class="wcard-row"><span class="wcard-run-label">${esc(item.decision || item.decision_label || "—")}</span>
+      <span class="wcard-run-meta">${esc(String(what).slice(0, 40))} ${esc(item.at || item.created || "")}</span></div>`;
+  }).join("");
+  const dispositions = (Array.isArray(p.audit_dispositions) ? p.audit_dispositions : [])
+    .filter(item => item && item.disposition).slice(0, 4);
+  const dispRows = dispositions.map(item => `<div class="wcard-row"><span class="wcard-run-label">${esc(DISPOSITION_LABELS[item.disposition] || item.disposition)}</span>
+    <span class="wcard-run-meta">${esc(item.category || "")} · ${esc(item.finding_id || "")}</span></div>`).join("");
+  const empty = !recent.length && !dispositions.length
+    ? '<div class="wcard-empty">还没有判断记录——在运行的判断面里做出选择后开始积累。</div>' : "";
+  return `<div class="wcard govcard gov-judgments" data-thread-item="govcard">
+    <div class="wcard-head"><span class="wcard-icon" data-doodle="clipboard-list"></span>
+      <b class="wcard-title">操作员判断</b>
+      <button class="wcard-jump" type="button" data-open="reviews" title="打开判断记录页">判断记录 →</button></div>
+    <div class="wcard-meta">${esc(four)}</div>
+    ${empty}
+    ${judgeRows ? `<div class="gov-finding-list">${judgeRows}</div>` : ""}
+    ${dispRows ? `<div class="gov-finding-list gov-disp-list">${dispRows}</div>` : ""}
+  </div>`;
+}
