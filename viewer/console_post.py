@@ -69,6 +69,75 @@ _CHAT_ROUTES = {
     "/edit": post_chat_edit,
     "/regenerate": post_chat_regenerate,
 }
+def post_run_apply_patch(handler, run_id):
+    """把运行产出的 changes.patch 应用到原项目目录（operator 显式动作）。
+
+    治理边界：
+    - 只对终态运行；项目源目录必须是服务端记录的 project.json.source，
+      不接受客户端传路径；
+    - `git apply --check` 先做冲突检测——原目录在运行期间改过就拒绝，
+      绝不用旧补丁覆盖新改动；check 通过才 apply（git apply 本身原子，
+      全成或全不动）；
+    - 回执写 runs/<id>/apply.json（补丁 sha256 + 文件清单 + 时间），
+      应用过的证据留在运行目录，不依赖会话内存。
+    """
+    import hashlib
+    import json as _json
+    import subprocess
+    import time as _time
+    from pathlib import Path as _Path
+
+    mgr = type(handler).manager
+    run = mgr.get(str(run_id or ""))
+    if run is None:
+        return handler._json({"error": "no such run"}, 404)
+    if not getattr(run, "finished", False):
+        return handler._json({"error": "run is still in progress; wait for its terminal state"}, 409)
+    run_dir = _Path(mgr.runs_dir) / run.id
+    patch_path = run_dir / "changes.patch"
+    project_path = run_dir / "project.json"
+    if not patch_path.is_file():
+        return handler._json({"error": "this run has no changes.patch (no project was imported)"}, 404)
+    try:
+        project = _json.loads(project_path.read_text(encoding="utf-8")) if project_path.is_file() else {}
+    except (OSError, ValueError):
+        return handler._json({"error": "project delivery record is unreadable"}, 500)
+    source = str(project.get("source") or "").strip()
+    if not source or not _Path(source).is_dir():
+        return handler._json({"error": f"project source is unavailable: {source or '(none)'}"}, 400)
+    patch = patch_path.read_text(encoding="utf-8")
+    if not patch.strip():
+        return handler._json({"error": "the patch is empty — nothing to apply"}, 400)
+
+    def _apply(*args: str):
+        return subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", *args, "-"],
+            input=patch, cwd=source, capture_output=True, text=True, timeout=120,
+        )
+
+    check = _apply("--check")
+    if check.returncode != 0:
+        lines = (check.stderr or check.stdout or "").strip().splitlines()
+        detail = lines[-1] if lines else "patch does not apply"
+        return handler._json({"error": f"patch does not apply cleanly: {detail[:300]}"}, 409)
+    applied = _apply()
+    if applied.returncode != 0:
+        lines = (applied.stderr or "").strip().splitlines()
+        detail = lines[-1] if lines else "git apply failed"
+        return handler._json({"error": f"git apply failed: {detail[:300]}"}, 500)
+    receipt = {
+        "applied_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "source": source,
+        "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+        "files": project.get("filesChanged") or [],
+    }
+    (run_dir / "apply.json").write_text(
+        _json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    return handler._json({"applied": True, "source": source, "receipt": "apply.json",
+                          "files": receipt["files"]})
+
+
 _RUN_ROUTES = {
     "/review": post_run_review,
     "/stop": post_run_stop,
@@ -80,6 +149,7 @@ _RUN_ROUTES = {
     "/plan": post_run_plan,
     "/budget": post_run_budget,
     "/resume": post_run_resume,
+    "/apply-patch": post_run_apply_patch,
     "/meta": post_run_meta,
 }
 

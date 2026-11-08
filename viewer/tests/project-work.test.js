@@ -22,6 +22,7 @@ test("project UI escapes paths and separates file changes from patch", () => {
   } });
   assert.match(result, /data-project-file="app.py"/);
   assert.match(result, /下载 changes.patch/);
+  assert.match(result, /data-project-apply/, "补丁可应用到原项目（冲突检测在服务端）");
   assert.match(result, /project-diff-line del/);
   assert.match(projectDraftRows({ path: "/tmp/demo", verification: "pytest -q" }), /Runtime 独立复跑/);
   assert.equal(ui.projectContextHtml({ task: { binding: { spec: {} } } }), "");

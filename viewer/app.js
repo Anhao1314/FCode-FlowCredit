@@ -3387,6 +3387,12 @@ function bindGlobalActions() {
         `审计记录：work/audit/${dir}`,
         "要求：定位并修复根因（不掩盖症状）；保持现有行为，跑通相关测试后写清改了什么。",
       ].filter(Boolean).join("\n");
+      // 自动挂项目:修复运行拿到的是目标的隔离副本(基线 git),否则 agent
+      // 在空 workspace 里根本看不到要修的文件。终态后可一键把补丁应用回原目录。
+      if (meta.target) {
+        attach.project.path = meta.target;
+        attach.project.verification = "";
+      }
       startIntake(objective);
       return;
     }
@@ -3699,6 +3705,38 @@ function bindMainInteractions() {
         button.setAttribute("aria-selected", String(selected));
       });
       if (tab === "files" && shownTrace()) loadProjectWorkspace(shownTrace());
+      return;
+    }
+    const applyButton = event.target.closest("[data-project-apply]");
+    if (applyButton) {
+      // 两击确认:应用会修改原目录,第一次点击只进入待确认态。
+      if (applyButton.dataset.armed !== "1") {
+        applyButton.dataset.armed = "1";
+        applyButton.textContent = "再点一次确认应用";
+        setTimeout(() => {
+          if (applyButton.dataset.armed === "1") {
+            applyButton.dataset.armed = "0";
+            applyButton.textContent = "应用到原项目";
+          }
+        }, 4000);
+        return;
+      }
+      applyButton.dataset.armed = "0";
+      applyButton.textContent = "应用到原项目";
+      const owner = applyButton.closest("[data-project-result], [data-project-work]");
+      const taskId = owner?.dataset.projectResult || owner?.dataset.projectWork || "";
+      const runId = taskId.startsWith("task-") ? taskId.slice(5) : projectRunId(shownTrace());
+      if (!runId) { toast("找不到运行 id"); return; }
+      (async () => {
+        try {
+          const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/apply-patch`, { method: "POST" });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+          toast(`补丁已应用到原项目（${data.files?.length || 0} 个文件）· 建议重新挖洞验证`);
+        } catch (error) {
+          toast("应用失败：" + error.message);
+        }
+      })();
       return;
     }
     const patchButton = event.target.closest("[data-project-patch]");

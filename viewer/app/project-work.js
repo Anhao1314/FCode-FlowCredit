@@ -127,7 +127,7 @@ export function createProjectWork({ esc }) {
         <div class="project-diff">${patch ? diffHtml(patch) : '<div class="attach-empty">运行结束后可查看 Patch</div>'}</div>
       </div>
       <pre class="project-file-content" data-project-file-content hidden></pre>
-      <div class="project-result-foot"><span>${esc(project.stat || "无统计变更")}</span><span class="grow"></span><button class="a-btn" data-project-patch${project.patchAvailable && patch ? "" : " disabled"}>下载 changes.patch</button></div>
+      <div class="project-result-foot"><span>${esc(project.stat || "无统计变更")}</span><span class="grow"></span><button class="a-btn" data-project-apply${project.patchAvailable && patch ? "" : " disabled"} title="把补丁应用回原项目目录（先做冲突检测，失败不动原目录）">应用到原项目</button><button class="a-btn" data-project-patch${project.patchAvailable && patch ? "" : " disabled"}>下载 changes.patch</button></div>
     </section>`;
   }
 
