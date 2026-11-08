@@ -167,12 +167,25 @@ class RunDriver:
         return ref
 
     def _build_instruction(self) -> str:
-        """模块协议指令 + 操作员长期记忆(M2)。
+        """模块协议指令 + 验证目标 + 操作员长期记忆(M2)。
 
-        记忆来自 chat 服务的 MemoryStore(与 chat.sqlite 并排的独立库)。
-        chat 不可用或无记忆时返回原始指令——记忆是佐料，不是主菜。
+        验证命令从 spec.verification 提取——模型需要知道"什么算完成"。
+        记忆来自 chat 服务的 MemoryStore。两者都是佐料，不是主菜。
         """
         instruction = self.module.instruction
+
+        # 验证目标：模型需要知道成功的判定标准
+        verification = (self.run.spec or {}).get("verification")
+        if isinstance(verification, dict) and verification.get("command"):
+            cmd = verification["command"]
+            args = verification.get("args") or []
+            full_cmd = " ".join([cmd] + [str(a) for a in args])
+            instruction = (instruction or "") + (
+                f"\n\n【验证目标】你的产出将被以下命令独立验证——"
+                f"确保它通过：\n  {full_cmd}"
+            )
+
+        # 操作员长期记忆
         chat = getattr(self.manager, "chat", None)
         if chat is not None and hasattr(chat, "memory"):
             try:
