@@ -84,6 +84,7 @@ class GeneralWorld:
         command_config: str | None = None,
         ask_operator: Any = None,
         subagent_channel: Any = None,
+        budget_channel: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -124,6 +125,9 @@ class GeneralWorld:
         #: 子代理编排通道（console 的 SubagentChannel：spawn/status/read）。
         #: None = 本部署不提供编排，编排工具诚实地不注册。
         self.subagent_channel = subagent_channel
+        #: 预算延展通道（console 的 BudgetChannel）。None = 不注册延展工具
+        #: （chat/子代理/离线单测都没有"运行预算"可延）。
+        self.budget_channel = budget_channel
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -202,6 +206,10 @@ class GeneralWorld:
             tools.append(build_spawn_tool(self.subagent_channel.spawn))
             tools.append(build_subagent_status_tool(self.subagent_channel.status))
             tools.append(build_subagent_read_tool(self.subagent_channel.read))
+        if self.budget_channel is not None:
+            from .budget import build_budget_extension_tool
+
+            tools.append(build_budget_extension_tool(self.budget_channel.request))
         return tools
 
     def apply_state(self, state: dict[str, Any]) -> None:

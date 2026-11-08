@@ -250,6 +250,8 @@ SCENARIOS: dict[str, Scenario] = {
             "fetch_url",
             # 并行扇出:写 effect,进审批集——放大必须有意识。
             "spawn_subagents",
+            # 预算延展:effect=write,进审批集——追加必须有理由并由操作员批准。
+            "request_budget_extension",
             # Asking the operator is a host-granted capability like any other:
             # a general delegation with no way to ask has to guess.
             "ask_operator",
@@ -274,6 +276,7 @@ SCENARIOS: dict[str, Scenario] = {
                 "terminal",
                 "fetch_url",
                 "spawn_subagents",
+                "request_budget_extension",
                 "ask_operator",
                 "report_blocked",
             ],

@@ -208,3 +208,16 @@ GENERAL_SUMMARIZERS: dict[str, Any] = {
     "subagent_read": summarize_subagent_read,
     "terminal": summarize_terminal,
 }
+
+
+def summarize_budget_extension(result: dict[str, Any]) -> dict[str, Any]:
+    """预算延展是一笔账：追加量与生效后的上限都要留在观察里。"""
+    limits = result.get("limits") or {}
+    return {
+        "granted": bool(result.get("granted")),
+        "extra_calls": int(result.get("extra_calls") or 0),
+        "extra_cost_microusd": int(result.get("extra_cost_microusd") or 0),
+        "reason": str(result.get("reason") or "")[:300],
+        "max_calls": limits.get("max_calls"),
+        "max_cost_microusd": limits.get("max_cost_microusd"),
+    }

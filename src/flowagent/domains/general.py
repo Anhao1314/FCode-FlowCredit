@@ -60,6 +60,7 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         command_config=kwargs.get("command_config"),
         ask_operator=kwargs.get("ask_operator"),
         subagent_channel=kwargs.get("subagent_channel"),
+        budget_channel=kwargs.get("budget_channel"),
     )
 
 

@@ -13,6 +13,7 @@ import traceback
 from typing import Any
 
 from console_common import DOMAIN_KEY, TERMINAL_STATUS, _scaled_budget_for_prices
+from console_budget_extension import BudgetChannel
 from console_subagents import SubagentChannel
 from console_run_budget import budget_summary
 from console_runtime import LiveObserver, RunControl, ScopedPlanner, StopRequested, _run_crash, _watch
@@ -61,6 +62,9 @@ class RunDriver:
         # 子代理编排通道(spawn/status/read):治理硬限在 console_subagents;
         # 通道对象持有 manager 与本运行,read 狱到"本运行的子代理"。
         self.subagent_channel = SubagentChannel(self.manager, self.run) if self.general else None
+        # 预算延展通道(S2a):必须在 _build_world 之前存在(工具集在 limits
+        # 定稿前构建);原始上限由下面的 base_limits 提供。
+        self.budget_channel = BudgetChannel(self) if self.general else None
         self.world = self._build_world()
         self.scope = list(((self.run.spec or {}).get("scope") or []))
         if self.scope and hasattr(self.world, "documents"):
@@ -89,6 +93,8 @@ class RunDriver:
             if price is not None:
                 limits = rt.BudgetLimits(**_scaled_budget_for_prices(limits, price, max_completion))
         self.limits = limits
+        #: 延展封底参照的原始上限(价格缩放后的定稿值)——通道懒解析它。
+        self.base_limits = limits
         self.harness = rt.Harness(
             store=self.store,
             registry=registry,
@@ -117,6 +123,8 @@ class RunDriver:
                 except Exception:  # noqa: BLE001 — a damaged old trace must not block resume
                     pass
         approval_tools = tuple(self.scenario.approval_tools)
+        if self.budget_channel is not None:
+            approval_tools += ("request_budget_extension",)
         if self.mcp_bridge is not None:
             approval_tools += tuple(self.mcp_bridge.approval_names())
         self.control = RunControl(
@@ -150,6 +158,8 @@ class RunDriver:
                 # 子代理编排通道:深度/数量/预算的硬限在 console_subagents
                 # 的纯逻辑里;这里只提供"创建真实子运行并等它们终态"的能力。
                 "subagent_channel": self.subagent_channel,
+                # 预算延展通道(S2a):长任务在批前申请加预算,审批门后生效
+                "budget_channel": self.budget_channel,
             }
         return self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
