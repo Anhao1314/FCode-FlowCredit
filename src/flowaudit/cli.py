@@ -152,7 +152,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         for key in ("god_files", "todo_hotspots", "literal_sprawl",
                     "constant_conflicts", "duplicate_functions",
                     "placeholder_stubs", "ai_residue",
-                    "import_cycles", "complex_functions"):
+                    "import_cycles", "complex_functions",
+                    "secrets_in_source", "unpinned_dependencies"):
             neutralized[key] = []
         for issue in neutralized.get("issue_files", []):
             if isinstance(issue, dict) and "issues" in issue:

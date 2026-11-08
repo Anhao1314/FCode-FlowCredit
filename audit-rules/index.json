@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "rules": [
     {
       "id": "RULE-AGI02-001",
@@ -1369,6 +1369,134 @@
           "facts_path": "control-facts.json",
           "operation": "host",
           "selector": "vibe_scan.complex_functions"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no rows for this selector"
+        },
+        "negative_control": {
+          "spec": "zeroed facts must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
+      ]
+    },
+    {
+      "id": "RULE-VIBE07-001",
+      "status": "active",
+      "category": "VIBE-07",
+      "severity": "high",
+      "title": "Hardcoded secret in source tree",
+      "root_cause_group": "hardcoded-secret",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.secrets_in_source",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects secret-shaped rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty secrets_in_source; values are masked, file:line is the evidence"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.secrets_in_source"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.secrets_in_source"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no rows for this selector"
+        },
+        "negative_control": {
+          "spec": "zeroed facts must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
+      ]
+    },
+    {
+      "id": "RULE-VIBE07-002",
+      "status": "active",
+      "category": "VIBE-07",
+      "severity": "medium",
+      "title": "Unpinned dependency (supply-chain hygiene)",
+      "root_cause_group": "unpinned-dependency",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.unpinned_dependencies",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects unpinned dependency rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty unpinned_dependencies; each row names a manifest and package"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.unpinned_dependencies"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.unpinned_dependencies"
         },
         "control_oracle": {
           "kind": "host_decision",

@@ -476,10 +476,10 @@ class AuditRunTests(unittest.TestCase):
                 break
             time.sleep(1.0)
         self.assertEqual(outcome["status"], "done", outcome)
-        self.assertEqual(outcome["findings"], 2)
+        self.assertEqual(outcome["findings"], 3)
         with urllib.request.urlopen(f"{self.base}/api/audit/bundles", timeout=10) as res:
             bundles = json.loads(res.read())["bundles"]
-        self.assertTrue(any(b["audit_id"] and b["findings"] == 2 for b in bundles),
+        self.assertTrue(any(b["audit_id"] and b["findings"] == 3 for b in bundles),
                         "the spawned audit must land in the ledger feed")
 
     def test_traversal_target_is_refused_before_spawn(self) -> None:

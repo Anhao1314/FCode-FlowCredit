@@ -97,8 +97,8 @@ class EndToEndRegressionTests(unittest.TestCase):
                             "--operator", "ci"])
             self.assertEqual(rc2, 0)
             regression2 = json.loads((work / "out2" / "regression.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(regression2["known"]), 2,
-                             "同一缺陷再次出现 = known")
+            self.assertEqual(len(regression2["known"]), 3,
+                             "同一缺陷再次出现 = known（明文密钥被探针+通用扫描双命中）")
             self.assertEqual(regression2["new"], [])
             self.assertEqual(regression2["fixed"], [])
 

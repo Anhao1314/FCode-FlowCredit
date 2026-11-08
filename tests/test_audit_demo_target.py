@@ -23,7 +23,7 @@ DEMO_TARGET = ROOT / "fixtures" / "demo-target"
 
 
 class DemoTargetAuditTests(unittest.TestCase):
-    def test_demo_target_yields_both_declared_findings(self) -> None:
+    def test_demo_target_yields_declared_findings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = pathlib.Path(tmp) / "bundle"
             rc = cli.main(["audit", str(DEMO_TARGET), "--out", str(out),
@@ -32,8 +32,9 @@ class DemoTargetAuditTests(unittest.TestCase):
             bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
             groups = {f["root_cause_group"] for f in bundle["findings"]}
             self.assertEqual(
-                groups, {"approval-memory", "plaintext-secret"},
-                "the demo target declares exactly these two defects")
+                groups, {"approval-memory", "plaintext-secret", "hardcoded-secret"},
+                "声明的两条缺陷 + 明文密钥同时被通用 VIBE-07 扫描命中"
+                "（场景探针与通用规则双路径,SAST 常态）")
 
             schema = json.loads(
                 (ROOT / "audit-rules" / "schema" / "poc-evidence.schema.json")
@@ -56,7 +57,7 @@ class DemoTargetAuditTests(unittest.TestCase):
                 .TaskStore(out / "session.sqlite"),
                 f"audit-{bundle['audit_id']}")
             ledgers = reopened.ledgers()
-            self.assertEqual(len(ledgers["findings"]), 2)
+            self.assertEqual(len(ledgers["findings"]), 3)
             self.assertTrue(all(f["actor"] == "host" for f in ledgers["findings"]))
             self.assertTrue(all(c["status"] == "finding"
                                 for c in ledgers["candidates"]))

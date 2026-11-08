@@ -31,7 +31,7 @@ __all__ = ["scan_code_quality"]
 
 SOURCE_SUFFIXES = {".py", ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx"}
 SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv",
-             "dist", "build", ".next", ".cache", "vendor"}
+             "dist", "build", ".next", ".cache", "vendor", "work"}
 TEST_MARKERS = ("test_", "_test.", ".test.", ".spec.", "test-", "/tests/", "/test/")
 MAX_FILE_LINES = 1200
 GOD_FILE_LINES = 500
@@ -42,6 +42,21 @@ MAX_COMPLEXITY = 15
 #: 事实行封顶（与 MAX_QUALITY_ROWS 同量级，避免事实文件爆炸）。
 MAX_CYCLE_ROWS = 20
 MAX_COMPLEX_ROWS = 30
+MAX_SECRET_ROWS = 20
+MAX_DEP_ROWS = 30
+
+#: VIBE-07 安全卫生:硬编码密钥的强信号模式（宁可漏、不可吵）。
+_SECRET_PATTERNS = (
+    ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36}\b")),
+    ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
+    ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
+    ("generic-secret", re.compile(
+        r"(?i)\b(?:api[_-]?key|secret|token|password|passwd|credential)\b\s*[:=]\s*"
+        r"[\"'][A-Za-z0-9_\-+/=]{20,}[\"']")),
+)
+#: 供应链卫生:这些 spec 等于没有上限。
+_UNPINNED_SPECS = {"", "*", "latest", "x", ">=*"}
 MAX_FILE_BYTES = 512 * 1024
 MAX_FILES = 2000
 MAX_TOTAL_BYTES = 64 * 1024 * 1024
@@ -453,6 +468,98 @@ def _complex_functions(root: Path) -> list[dict[str, Any]]:
     return rows[:MAX_COMPLEX_ROWS]
 
 
+def _mask_secret(value: str) -> str:
+    """证据只留前缀与长度——bundle 不能成为二次泄漏源。"""
+    value = str(value)
+    return f"{value[:4]}…({len(value)} chars)"
+
+
+def _scan_secrets(root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in _walk_source_files(root):
+        rel = str(path.relative_to(root))
+        if _is_test(rel):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for kind, pattern in _SECRET_PATTERNS:
+                match = pattern.search(line)
+                if match:
+                    rows.append({"path": rel, "line": lineno, "kind": kind,
+                                 "masked": _mask_secret(match.group(0))})
+                    break
+            if len(rows) >= MAX_SECRET_ROWS:
+                return rows
+    return rows
+
+
+def _walk_manifests(root: Path) -> list[Path]:
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        for name in sorted(filenames):
+            if name == "package.json" or (name.startswith("requirements") and name.endswith(".txt")):
+                out.append(Path(dirpath) / name)
+    return out
+
+
+def _scan_unpinned_dependencies(root: Path) -> list[dict[str, Any]]:
+    """供应链卫生:requirements 没有 == 固定、package.json 用 */latest/>=。"""
+    import json as _json
+
+    rows: list[dict[str, Any]] = []
+    for path in _walk_manifests(root):
+        rel = str(path.relative_to(root))
+        if _is_test(rel):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if path.name == "package.json":
+            try:
+                data = _json.loads(text)
+            except ValueError:
+                continue
+            if not isinstance(data, dict):
+                continue
+            for section in ("dependencies", "devDependencies", "peerDependencies"):
+                deps = data.get(section)
+                if not isinstance(deps, dict):
+                    continue
+                for name, spec in sorted(deps.items()):
+                    spec_text = str(spec).strip()
+                    if spec_text in _UNPINNED_SPECS or spec_text.startswith(">"):
+                        rows.append({"path": rel, "package": str(name),
+                                     "spec": spec_text or "(empty)", "kind": "package-json"})
+        else:
+            for lineno, raw in enumerate(text.splitlines(), 1):
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                if "==" in line:
+                    continue
+                package = re.split(r"[<>=!~;\[\s]", line)[0]
+                if not package:
+                    continue
+                rows.append({"path": rel, "line": lineno, "package": package,
+                             "spec": line, "kind": "requirements"})
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for row in rows:
+        key = (row["path"], row["package"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+        if len(unique) >= MAX_DEP_ROWS:
+            break
+    return unique
+
+
 def scan_code_quality(root: Path) -> dict[str, Any]:
     """Scan a source tree for AI-generated code quality patterns.
 
@@ -598,6 +705,8 @@ def scan_code_quality(root: Path) -> dict[str, Any]:
         "ai_residue": ai_residue[:MAX_QUALITY_ROWS],
         "import_cycles": _python_import_cycles(root),
         "complex_functions": _complex_functions(root),
+        "secrets_in_source": _scan_secrets(root),
+        "unpinned_dependencies": _scan_unpinned_dependencies(root),
         "issue_files": findings_by_file,
         "truncated": truncated,
         "thresholds": {
