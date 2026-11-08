@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+/* R1: 从对话命令卡进入页面。必须等 boot 完成标记——boot 的 newChat()
+   会把视图打回首页并清空输入框，早于 boot 输入的斜杠命令会被吞掉。 */
+async function slashCommand(page, cmd) {
+  await page.waitForSelector('body[data-booted="1"]', { state: "attached" });
+  await page.locator("#composer-ta").fill(cmd);
+  await page.keyboard.press("Enter");
+}
+
+
 /* 定时任务调度器：UI 建排程 → 已排程可见 → 到点由调度器自动创建运行。
    触发证明用「时间已过 + 当天未触发」的排程（每天 00:00）——调度器
    下一轮（≤20s）必须补触发，这是调度器接入的核心承诺。 */
@@ -7,7 +16,8 @@ import { test, expect } from "@playwright/test";
 test("UI 建排程 → 列表可见 → 调度器自动补触发过期任务", async ({ page }) => {
   const marker = `E2E 排程 ${Date.now()}`;
   await page.goto("/");
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: "定时任务" }).click();
+  // R1: 定时任务从对话命令卡进入
+  await slashCommand(page, "/定时");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "scheduled");
 
   const ta = page.locator("#sch-objective");
@@ -36,12 +46,15 @@ test("UI 建排程 → 列表可见 → 调度器自动补触发过期任务", a
 
   // 页面重进后显示上次触发状态(reload 回默认首页,需重新进入定时任务页)
   await page.reload();
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: "定时任务" }).click();
+  // R1: 定时任务从对话命令卡进入
+  await slashCommand(page, "/定时");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "scheduled");
   await expect(page.locator("#main")).toContainText(marker);
   await expect(page.locator("#main")).toContainText("上次");
   // 来源可见性:触发的运行在账本亮「排程」chip——操作者能回答"这条运行是谁发起的"
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // 定时任务页不显示 composer——先回首页,再从对话命令卡进入账本
+  await page.goto("/");
+  await slashCommand(page, "/账本");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
   const firedRow = page.locator("[data-led-row]", { hasText: marker });
   await expect(firedRow).toBeVisible({ timeout: 15_000 });
@@ -75,7 +88,8 @@ test("删除排程后不再出现", async ({ page }) => {
     throw new Error("runs still progressing");
   }).toPass({ timeout: 150_000, intervals: [3_000] });
   await page.goto("/");
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: "定时任务" }).click();
+  // R1: 定时任务从对话命令卡进入
+  await slashCommand(page, "/定时");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "scheduled");
   const row = page.locator(".sch-row", { hasText: marker });
   test.setTimeout(180_000);

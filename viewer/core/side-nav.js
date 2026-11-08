@@ -26,10 +26,11 @@ import { esc, num } from "./format.js";
    DOM；四个真实功能面被拆散成「顶部两项 + 更多里两项」，审计台这种一等
    公民还藏在二级菜单里。重建后只有一套名单：
 
-   - SIDEBAR_NAV：4 个真实功能面 —— 第一眼全部可点，不做折叠。S2 起按
-     两区分组渲染（NAV_GROUPS）：工作区（看板·账本/定时任务）与治理区
-     （审计台/判断记录）；对话（hero 新对话按钮 + 对话/任务段）按用户的
-     两区决定划入工作区语境，不设独立对话分组。
+   - SIDEBAR_NAV：R1 收敛后只剩「治理台」——两区的对话面就是各自的入口，
+     工作区对话 = hero「新对话」，治理区对话 = 治理台。审计台/判断记录/
+     看板·账本/定时任务降级为**深路由详情面**：从对话卡片的锚点进入
+     （/账本 /定时 卡跳账本/定时页，/判断 卡跳判断记录，治理台卡深链
+     #/audit/<dir> 进审计台；顶栏还有审计台快捷入口），不再占导航位。
    - MORE_NAV：4 个 Kimi Work 预留槽位，收进「更多」二级区（默认收起），
      各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注的预留槽位
      页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
@@ -38,14 +39,6 @@ import { esc, num } from "./format.js";
 export const SIDEBAR_NAV = [
   { open: "gov", label: "治理台", icon: "stamp",
     title: "治理对话:/挖洞 发起审计,卡片流看发现与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "audit", label: "审计台", icon: "shield-check",
-    title: "发现账本:审计器产出的缺陷与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "ledger", label: "看板 · 账本", icon: "layout-grid",
-    title: "委托汇总与成本账本", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "reviews", label: "判断记录", icon: "clipboard-list",
-    title: "你在判断面里做过的选择", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "scheduled", label: "定时任务", icon: "calendar",
-    title: "把重复的委托排上日程", kimi: "cron（Kimi Work 的 Scheduled）" },
 ];
 
 export const MORE_NAV = [
@@ -74,14 +67,12 @@ export function reservedSlots() {
   return out;
 }
 
-/* S2 两区分组：工作区（做与看）与治理区（审与判）。对话按用户的两区决定
-   划入工作区语境——hero「新对话」按钮与对话/任务段在 nav 之外，天然属
-   工作区，不设对话分组。账本暂随工作区（它是运行的流水；挪治理区 =
-   挪一行数组）。分组必须恰好覆盖 SIDEBAR_NAV，未覆盖的条目兜底渲染在
-   末尾，避免加导航项忘了登记时按钮静默消失。 */
+/* R1 收敛后的分组：nav 只剩治理区的对话面「治理台」。工作区没有 nav
+   条目——hero「新对话」就是工作区对话入口，账本/定时/判断/审计从
+   对话卡锚点与深路由进入。分组必须恰好覆盖 SIDEBAR_NAV，未覆盖的
+   条目兜底渲染在末尾，避免加导航项忘了登记时按钮静默消失。 */
 export const NAV_GROUPS = [
-  { label: "工作区", open: ["ledger", "scheduled"] },
-  { label: "治理区", open: ["gov", "audit", "reviews"] },
+  { label: "治理区", open: ["gov"] },
 ];
 
 export function groupedNavHtml(items, groups, counts) {
@@ -109,8 +100,8 @@ export function groupedNavHtml(items, groups, counts) {
    这类路径打断。点击经 data-open 走 renderMode 一条路（着陆到该区主面：
    工作区→账本，治理区→审计台）。 */
 export const ZONES = [
-  { key: "work", label: "工作区", land: "ledger", icon: "layout-grid",
-    title: "对话、委托、账本与定时任务" },
+  { key: "work", label: "工作区", land: "chat", icon: "layout-grid",
+    title: "工作区对话：新对话（/账本 /状态 /定时 命令卡）" },
   { key: "gov", label: "治理区", land: "gov", icon: "shield-check",
     title: "治理台挖洞与操作员判断" },
 ];

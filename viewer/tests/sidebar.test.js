@@ -133,11 +133,12 @@ function harness(overrides = {}) {
   return { sidebar, els, doc, navItems, state, storage: globalThis.localStorage };
 }
 
-test("renderSidebarNav:4 个功能面与 4 个预留槽位各就各位", () => {
+test("renderSidebarNav:R1 收敛后治理台在 nav,四页与 4 个预留槽位各就各位", () => {
   const { sidebar, els } = harness();
   sidebar.renderSidebarNav();
+  assert.match(els["side-nav-items"].innerHTML, /data-open="gov"/, "治理台");
   for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
-    assert.match(els["side-nav-items"].innerHTML, new RegExp(`data-open="${key}"`), key);
+    assert.doesNotMatch(els["side-nav-items"].innerHTML, new RegExp(`data-open="${key}"`), `${key} 已降级为深路由`);
   }
   for (const key of ["canvas", "plugins", "remoteControl", "apps"]) {
     assert.match(els["more-nav"].innerHTML, new RegExp(`data-open="${key}"`), key);

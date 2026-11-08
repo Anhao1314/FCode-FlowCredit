@@ -9,10 +9,10 @@ test("首页舞台渲染:空态 + 模型徽章 + 侧栏导航", async ({ page })
   // 模型徽章来自 paintModelBadge(新 composer-panel 模块):全新档案的
   // 默认模型可能落在云端条目或离线 mock,断言"有可读徽章"而非具体值
   await expect(page.locator("#model-label")).toHaveText(/kimi|deepseek|offline-mock|未连接/);
-  // 侧栏四个功能面(顶栏还有同名链接,限定功能导航作用域)
+  // R1 收敛:导航只剩治理台(两区对话面之一);账本/定时/判断/审计
+  // 从对话卡锚点与深路由进入,不再占导航位
   const nav = page.getByRole("navigation", { name: "功能导航" });
-  await expect(nav.getByRole("button", { name: "审计台" })).toBeVisible();
-  await expect(nav.getByRole("button", { name: "判断记录" })).toBeVisible();
+  await expect(nav.getByRole("button", { name: "治理台" })).toBeVisible();
 });
 
 test("⌘K 命令面板:开合、过滤、键盘导航", async ({ page }) => {

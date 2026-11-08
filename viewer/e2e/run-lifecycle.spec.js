@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+/* R1: 从对话命令卡进入页面。必须等 boot 完成标记——boot 的 newChat()
+   会把视图打回首页并清空输入框，早于 boot 输入的斜杠命令会被吞掉。 */
+async function slashCommand(page, cmd) {
+  await page.waitForSelector('body[data-booted="1"]', { state: "attached" });
+  await page.locator("#composer-ta").fill(cmd);
+  await page.keyboard.press("Enter");
+}
+
+
 /* 委托全生命周期：失败回放(诚实终态) → + 面板配置来源 → 需求确认 →
    创建运行 → 接流投影 → 账本记录。
    确定性策略：终态断言走回放路径——API 预置一条必然失败的运行
@@ -27,7 +36,8 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
 
   await page.goto("/");
   // 1. 账本 → 打开失败运行 → 回放如实渲染错误条目
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // R1: 账本从对话命令卡进入
+  await slashCommand(page, "/账本");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
   await page.getByText("E2E 铺垫：调研审计规则").first().click();
   await expect(page.locator("#thread")).toBeVisible({ timeout: 20_000 });
@@ -75,7 +85,8 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
   await expect(thread.locator('[data-thread-item="status"]')).toBeVisible();
 
   // 5. 账本里出现这条运行(失败也是一条如实记录)
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // R1: 账本从对话命令卡进入
+  await slashCommand(page, "/账本");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
   await expect(page.locator("#main")).toContainText("调研 FCode 的审计规则");
 });

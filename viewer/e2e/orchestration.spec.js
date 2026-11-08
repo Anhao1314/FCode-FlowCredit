@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
 
+/* R1: 从对话命令卡进入页面。必须等 boot 完成标记——boot 的 newChat()
+   会把视图打回首页并清空输入框，早于 boot 输入的斜杠命令会被吞掉。 */
+async function slashCommand(page, cmd) {
+  await page.waitForSelector('body[data-booted="1"]', { state: "attached" });
+  await page.locator("#composer-ta").fill(cmd);
+  await page.keyboard.press("Enter");
+}
+
+
 /* 子代理编排 E2E：确定性脚本缝（FCODE_MOCK_SUBAGENTS）驱动完整链路——
    父运行提议 spawn → 审批卡批准 → 两个只读子代理并行创建 → join →
    摘要回父 → 父写产物终态；账本亮父子徽章。 */
@@ -23,7 +32,8 @@ test("spawn 审批 → 子代理并行 → 摘要回父 → 账本徽章", async
 
   await page.goto("/");
   // 从账本打开父运行(顺带覆盖 openLive 回放路径)
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // R1: 账本从对话命令卡进入
+  await slashCommand(page, "/账本");
   const parentRow = page.locator("[data-led-row]", { hasText: marker });
   await expect(parentRow).toBeVisible({ timeout: 15_000 });
   await parentRow.click();
@@ -56,7 +66,8 @@ test("spawn 审批 → 子代理并行 → 摘要回父 → 账本徽章", async
   }).toPass({ timeout: 120_000, intervals: [3_000] });
 
   // 账本父行亮扇出徽章
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // R1: 账本从对话命令卡进入
+  await slashCommand(page, "/账本");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
   await expect(parentRow.locator(".led-lineage")).toHaveText(/子代理 ×\d/);
 });
@@ -71,7 +82,8 @@ test("子代理行在账本亮子代理徽章", async ({ page }) => {
       spec: { mode: "open", parent_run_id: "run-parent-e2e" },
     },
   });
-  await page.getByRole("navigation", { name: "功能导航" }).getByRole("button", { name: /看板 · 账本/ }).click();
+  // R1: 账本从对话命令卡进入
+  await slashCommand(page, "/账本");
   const row = page.locator("[data-led-row]", { hasText: marker });
   await expect(row).toBeVisible({ timeout: 15_000 });
   await expect(row.locator(".led-lineage")).toHaveText("子代理");

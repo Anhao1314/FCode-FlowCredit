@@ -7,21 +7,20 @@ import {
   runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
-test("统一侧栏:5 个功能面分两组排布,不再拆两套名单", () => {
+test("R1 收敛:nav 只剩治理台,四页降级为深路由详情面", () => {
   const nav = navItemsHtml(SIDEBAR_NAV, {});
-  for (const key of ["gov", "audit", "ledger", "reviews", "scheduled"]) {
-    assert.match(nav, new RegExp(`data-open="${key}"`), `${key} 要在第一屏可见`);
-  }
-  // 适配重建后不存在第二套名单:功能面不重复出现在「更多」里。
+  assert.match(nav, /data-open="gov"/);
+  assert.equal(SIDEBAR_NAV.length, 1);
+  assert.equal(SIDEBAR_NAV[0].open, "gov", "两区对话面之一:治理台");
+  assert.match(nav, /data-doodle="stamp"/, "治理台用印章图标");
+  // 四页不再占导航位(卡内锚点与深路由可达),也不得藏进更多
   const more = navItemsHtml(MORE_NAV, {});
-  for (const key of ["gov", "audit", "ledger", "reviews", "scheduled"]) {
+  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
+    assert.equal((nav.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
+      `${key} 已降级,不得占导航位`);
     assert.equal((more.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
-      `${key} 不得再藏进更多`);
+      `${key} 不得藏进更多`);
   }
-  assert.equal(SIDEBAR_NAV.length, 5);
-  assert.equal(SIDEBAR_NAV.filter(item => item.reserved).length, 0);
-  assert.match(nav, /data-doodle="shield-check"/, "审计台用盾牌图标");
-  assert.equal(SIDEBAR_NAV[0].open, "gov", "治理台打头(治理区对话面)");
 });
 
 test("预留槽位带出处与落地条件,全部收进「更多」", () => {
@@ -41,30 +40,26 @@ test("预留槽位带出处与落地条件,全部收进「更多」", () => {
 });
 
 test("导航条目的图标与计数按 Kimi 的行结构渲染", () => {
-  const html = navItemsHtml(SIDEBAR_NAV, { scheduled: 7 });
+  const html = navItemsHtml(SIDEBAR_NAV, { gov: 7 });
   assert.match(html, /class="nav-item"/);
-  assert.match(html, /data-doodle="calendar"/);
+  assert.match(html, /data-doodle="stamp"/);
   assert.match(html, /<span class="side-count">7<\/span>/);
   assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
 });
 
-test("S2 两区分组:工作区与治理区,恰好覆盖全部功能面", () => {
+test("R1 分组:治理区分组恰好覆盖 nav 名单", () => {
   // 分组恰好覆盖:每个功能面进且只进一个区,登记遗漏会被兜底渲染暴露
   const covered = NAV_GROUPS.flatMap(group => group.open);
   assert.equal(new Set(covered).size, covered.length, "一个功能面不得同时进两个区");
   assert.deepEqual([...covered].sort(), SIDEBAR_NAV.map(item => item.open).sort());
-  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["工作区", "治理区"]);
+  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["治理区"]);
 });
 
-test("groupedNavHtml 按区渲染标签与行,计数随行", () => {
-  const html = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, { ledger: 12 });
-  const groups = html.match(/class="nav-group"/g) || [];
-  assert.equal(groups.length, 2);
-  assert.match(html, /<div class="nav-group-label">工作区<\/div>/);
+test("groupedNavHtml 按区渲染标签与行,计数随行(通用能力保持)", () => {
+  const html = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, { gov: 3 });
+  assert.equal((html.match(/class="nav-group"/g) || []).length, 1);
   assert.match(html, /<div class="nav-group-label">治理区<\/div>/);
-  // 治理区在第二组:审计台的位置要晚于工作区标签
-  assert.ok(html.indexOf("nav-group-label\">工作区") < html.indexOf("data-open=\"audit\""));
-  assert.match(html, /data-open="ledger"[\s\S]*?<span class="side-count">12<\/span>/);
+  assert.match(html, /data-open="gov"[\s\S]*?<span class="side-count">3<\/span>/);
   assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
 });
 
@@ -89,9 +84,10 @@ test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () 
 
 test("S2.1 zoneSwitchHtml:两键带 data-open 着陆与 aria-pressed 点亮", () => {
   assert.deepEqual(ZONES.map(z => z.key), ["work", "gov"]);
-  assert.deepEqual(ZONES.map(z => z.land), ["ledger", "gov"]);
+  // R1:两区的着陆点都是各自的对话面——工作区=新对话(chat),治理区=治理台
+  assert.deepEqual(ZONES.map(z => z.land), ["chat", "gov"]);
   const html = zoneSwitchHtml("gov");
-  assert.match(html, /data-zone="work" data-open="ledger"/);
+  assert.match(html, /data-zone="work" data-open="chat"/);
   assert.match(html, /data-zone="gov" data-open="gov" title="[^"]*" aria-pressed="true"/);
   assert.match(html, /data-zone="work"[^>]*aria-pressed="false"/);
   assert.equal((html.match(/<button/g) || []).length, 2);

@@ -372,6 +372,8 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
 /* 主区视图入口：只有导航动作走这里；各渲染函数是具体实现。 */
 const MODE_ENTRY = {
   run: payload => render(payload.trace, payload.title),
+  // R1:工作区对话的着陆点——区切换器的「工作区」= 全新对话,与治理台对称
+  chat: () => newChat(),
   intake: () => renderIntake(),
   ledger: () => openLedger(),
   settings: () => openSettingsPage(),
@@ -4017,6 +4019,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // #/audit 深链优先:审计面自成一体,不依赖 runHistory 就绪。
   if (auditHashTarget(location.hash) !== null) {
     renderMode("audit");
+    document.body.dataset.booted = "1";
     return;
   }
   if (runParam) {
@@ -4046,6 +4049,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     newChat();
     setUiMode();
   }
+  // boot 完成标记：以上 await（initLive/loadChatThreads）之后的首页渲染是
+  // 视图定稿点——在此之前进入的任何视图都会被这里的 newChat 打回首页。
+  // E2E（与外部集成）用它判定"可以开始交互"。
+  document.body.dataset.booted = "1";
 });
 
 /* #/audit 深链的统一入口:chat 完成卡片的链接、地址栏直达、前进后退都走这里。
