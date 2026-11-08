@@ -10,6 +10,7 @@ import { connectionPresentation, initialConnection, reduceConnection } from "./c
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
 import { composerMode } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
+import { findingsCardHtml } from "./core/gov-cards.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -2563,6 +2564,7 @@ async function pushWorkspaceCard(kind) {
    模型不进环——审计证据的公信力押在 "no model in the loop" 上。 */
 
 const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
+const govFindings = new Map(); // audit_dir → findings[]（G2 发现处置卡的内存投影,处置落链后同步更新）
 let govPollTimer = null;
 
 function govJobCardHtml(job) {
@@ -2598,9 +2600,26 @@ function paintGovStream() {
   if (!host) return;
   const jobCards = [...govJobs.values()]
     .sort((a, b) => String(b.job_id).localeCompare(String(a.job_id)))
-    .map(govJobCardHtml).join("");
+    .map(job => govJobCardHtml(job)
+      // G2:作业完成的后面跟一张发现处置卡（内存投影有数据才渲染）
+      + (job.status === "done" && job.audit_id && govFindings.get(job.audit_id)
+        ? findingsCardHtml(job.audit_id, govFindings.get(job.audit_id))
+        : ""))
+    .join("");
   host.innerHTML = jobCards;
   if (document.querySelector(".main")) hydrateDoodles(host);
+}
+
+/* G2:拉一个 bundle 的发现清单进内存投影（含 operator_disposition 当前值）。 */
+async function loadGovFindings(auditDir) {
+  if (!auditDir || govFindings.has(auditDir)) return;
+  try {
+    const r = await fetch("/api/audit/bundle/" + encodeURIComponent(auditDir), { cache: "no-store" });
+    const bundle = r.ok ? await r.json() : null;
+    if (bundle && Array.isArray(bundle.findings) && bundle.findings.length) {
+      govFindings.set(auditDir, bundle.findings);
+    }
+  } catch { /* 单次失败不影响卡流,下次进入重取 */ }
 }
 
 async function renderGov() {
@@ -2626,9 +2645,15 @@ async function renderGov() {
       .slice()
       .sort((a, b) => String(b.dir).localeCompare(String(a.dir)))
       .slice(0, 6);
+    // G2:最新一份 bundle 预取发现——刷新后治理台仍能直接处置最近一次挖洞
+    if (bundles[0]) await loadGovFindings(bundles[0].dir);
+    if (epoch !== viewGate.sequence) return;
     const host = document.getElementById("gov-bundles");
     if (host) host.innerHTML = bundles.length
       ? bundles.map(govBundleCard).join("")
+        + (govFindings.get(bundles[0].dir)
+          ? findingsCardHtml(bundles[0].dir, govFindings.get(bundles[0].dir))
+          : "")
       : '<div class="wcard-empty">还没有审计记录——/挖洞 <target> 发起第一次。</div>';
     if (document.querySelector(".main")) hydrateDoodles(host);
   } catch { /* 网络抖动：保留加载态，下次进入重取 */ }
@@ -2648,7 +2673,11 @@ function scheduleGovPoll() {
       try {
         const r = await fetch("/api/audit/jobs/" + encodeURIComponent(id), { cache: "no-store" });
         const data = r.ok ? await r.json() : null;
-        if (data && data.status && data.status !== job.status) Object.assign(job, data);
+        if (data && data.status && data.status !== job.status) {
+          Object.assign(job, data);
+          // G2:作业刚完成 → 拉发现清单,卡流补上处置卡
+          if (job.status === "done" && job.audit_id) await loadGovFindings(job.audit_id);
+        }
       } catch { /* 单次轮询失败保旧态 */ }
     }));
     if (document.getElementById("main")?.dataset.view === "gov") paintGovStream();
@@ -2679,6 +2708,39 @@ function startGovAudit(target) {
     }
   })();
 }
+
+/* G2 发现处置:change 事件文档级委托(卡流重绘频繁,逐卡绑定会被拆掉)。
+   POST 落盘+落链;失败回滚 select 并报原因——处置是操作员决定,
+   必须给出可见结果(与审计台的处置语义逐条一致)。 */
+document.addEventListener("change", event => {
+  const select = event.target.closest(".gov-disp");
+  if (!select) return;
+  const dir = select.dataset.dir;
+  const fid = select.dataset.finding;
+  const disposition = select.value;
+  if (!dir || !fid) return;
+  (async () => {
+    try {
+      const r = await fetch(
+        `/api/audit/disposition/${encodeURIComponent(dir)}/${encodeURIComponent(fid)}`,
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ disposition }) });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      // 内存投影同步:重绘/轮询后下拉仍显示操作员的选择
+      const findings = govFindings.get(dir);
+      const finding = findings && findings.find(f => f.finding_id === fid);
+      if (finding) finding.operator_disposition = disposition || null;
+      toast(`已记录 · ${fid} → ${disposition ? "已落链" : "已清除"}`);
+    } catch (error) {
+      // 回滚到投影中的当前值
+      const findings = govFindings.get(dir);
+      const finding = findings && findings.find(f => f.finding_id === fid);
+      select.value = (finding && finding.operator_disposition) || "";
+      toast("处置失败：" + error.message);
+    }
+  })();
+});
 
 /* ================================================================ Chat
    对话是“回答”，不是“运行”：每次回答仍是一笔受预算约束、进事件链的
@@ -3204,6 +3266,8 @@ function bindGlobalActions() {
       else location.hash = "#/audit/" + dir;
       return;
     }
+    // G2 治理台发现卡:处置下拉 change 事件在 document 级委托(见下方
+    // bindGovDisposition),落 POST /api/audit/disposition → 服务端原子写盘+落链。
     // 对话内写工具的逐调用审批（agentic chat）
     const toolAct = event.target.closest("[data-tool-allow], [data-tool-deny], [data-tool-remember]");
     if (toolAct) {

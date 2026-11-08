@@ -2885,3 +2885,23 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-state.ok { color: var(--ok); }
 .gov-state.bad { color: var(--bad); }
 .gov-loading { padding: 14px 2px; font-size: 12.5px; }
+
+/* G2 治理台发现处置卡:一行发现 = 严重度徽章 + 编号 + 类别 + 根因 +
+   操作员三档下拉。处置是治理动作,下拉与审计台同一套标签语义。 */
+.gov-finding { padding: 8px 0 6px; border-top: 1px dashed var(--line-soft); }
+.gov-finding:first-child { border-top: 0; }
+.gov-finding-id { display: flex; align-items: center; gap: 8px; }
+.gov-finding-id b { font: 550 12px/18px var(--font-mono); color: var(--text-1); }
+.gov-finding-cat { font: 10.5px/18px var(--font-mono); color: var(--text-3); }
+.gov-sev { flex: none; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 5px; }
+.gov-sev.sev-high { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.gov-sev.sev-medium { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.gov-sev.sev-low { color: var(--text-3); background: var(--inset); }
+.gov-finding-root { margin: 2px 0 6px; font-size: 12px; color: var(--text-2); }
+.gov-finding-disp { display: flex; align-items: center; gap: 8px; }
+.gov-disp-label { font: 10.5px var(--font-mono); color: var(--text-3); }
+.gov-disp {
+  height: 28px; padding: 0 8px; border: 1px solid var(--line);
+  border-radius: 7px; background: var(--canvas); color: var(--text-1);
+  font-size: 12px; cursor: pointer;
+}

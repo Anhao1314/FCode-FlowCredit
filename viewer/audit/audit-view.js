@@ -13,6 +13,7 @@
 
 import { esc } from "../core/format.js";
 import { auditHashTarget } from "../core/work-surface.js";
+import { DISPOSITION_LABELS } from "../core/gov-cards.js";
 
 const OUTCOME_MAP = {
   finding: { label: "已验证", tone: "ok" },
@@ -23,13 +24,9 @@ const OUTCOME_MAP = {
   __evidence_missing__: { label: "证据缺失", tone: "bad" },
 };
 
-// 操作员处置的单一标签来源:审计台下拉与工作台判断记录页共用。
-export const DISPOSITION_LABELS = {
-  "": "— 无 —",
-  accepted_risk: "接受风险",
-  false_positive_disputed: "误报争议",
-  wont_fix: "不修复",
-};
+// 操作员处置的单一标签来源已迁 core/gov-cards.js（治理台是第三个消费方）；
+// 这里转发导出，审计台下拉与判断记录页的旧导入路径不变。
+export { DISPOSITION_LABELS } from "../core/gov-cards.js";
 
 // 统一壳的审计 surface 外壳:bundle 列表 + 详情双栏,由 app.js 的
 // renderAudit() 注入 #main 后调用 init()。独立 audit.html 已退役,
