@@ -101,6 +101,36 @@ export function groupedNavHtml(items, groups, counts) {
   return html + navItemsHtml(rest, seen);
 }
 
+/* S2.1 区切换器：工作区/治理区的身份 UI（Kimi 的 Chat/Work 分段同型），
+   放在「新对话」hero 下方。指示 + 着陆，**不做内容过滤**——E2E 契约是
+   任意视图下 4 个导航项都可达，过滤会把 audit.spec「首页直达审计台」
+   这类路径打断。点击经 data-open 走 renderMode 一条路（着陆到该区主面：
+   工作区→账本，治理区→审计台）。 */
+export const ZONES = [
+  { key: "work", label: "工作区", land: "ledger", icon: "layout-grid",
+    title: "对话、委托、账本与定时任务" },
+  { key: "gov", label: "治理区", land: "audit", icon: "shield-check",
+    title: "审计挖洞与操作员判断" },
+];
+
+/* 当前视图属于哪个区；不属于任何区（设置、预留槽位页）返回 null——
+   切换器保持上一次的点亮态，不闪。 */
+export function zoneOf(view) {
+  if (view === "audit" || view === "reviews") return "gov";
+  if (["chat", "ledger", "run", "scheduled", "intake", "empty"].indexOf(view) >= 0) return "work";
+  return null;
+}
+
+export function zoneSwitchHtml(activeKey) {
+  return ZONES.map(function (zone) {
+    const active = zone.key === activeKey;
+    return '<button class="zone-btn' + (active ? " active" : "") + '" type="button"'
+      + ' data-zone="' + zone.key + '" data-open="' + zone.land + '"'
+      + ' title="' + esc(zone.title) + '" aria-pressed="' + (active ? "true" : "false") + '">'
+      + '<span data-doodle="' + zone.icon + '"></span><span>' + esc(zone.label) + "</span></button>";
+  }).join("");
+}
+
 /* 行状态点：Kimi 的任务行左侧是状态点（running 转动 / 完成 / 失败）。
    FCode 保留同一位置与语义，颜色走治理事实（PASS/DENIED/UNKNOWN）。 */
 export function statusDotHtml(cls) {

@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="design.css?v=84">
 <link rel="stylesheet" href="desktop.css?v=6">
 <link rel="stylesheet" href="chat.css?v=8">
-<link rel="stylesheet" href="thread.css?v=3">
+<link rel="stylesheet" href="thread.css?v=4">
 </head>
 <body>
 <div class="shell app rail-hidden" id="app">
@@ -34,6 +34,11 @@
     <button class="side-search" id="side-search" type="button" title="搜索与命令（⌘K）">
       <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
     </button>
+
+    <!-- S2.1 区切换器：工作区/治理区的身份 UI。指示当前视图所属区 +
+         一键着陆该区主面（不过滤导航——E2E 契约：任意视图 4 项都可达）。
+         inner 由 side-nav.js 的 zoneSwitchHtml 生成，active 跟随视图。 -->
+    <div class="zone-switch seg" id="zone-switch" role="group" aria-label="工作区与治理区"></div>
 
     <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
          结构：功能导航（4 个真实 surface 扁平排布）→ 更多（4 个预留槽位，

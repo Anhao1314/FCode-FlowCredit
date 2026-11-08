@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  MORE_NAV, NAV_GROUPS, SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
+  MORE_NAV, NAV_GROUPS, SIDEBAR_NAV, ZONES, chatRowsHtml, chatSectionHtml,
   groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
-  runRowsHtml, statusDotHtml, taskSectionHtml,
+  runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
 test("统一侧栏:4 个功能面扁平排布,不再拆两套名单", () => {
@@ -72,6 +72,27 @@ test("groupedNavHtml 兜底:未登记进任何区的条目仍渲染,不静默消
   const html = groupedNavHtml(extra, NAV_GROUPS, {});
   assert.match(html, /data-open="future"/);
   assert.equal((html.match(/<button/g) || []).length, extra.length);
+});
+
+test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () => {
+  assert.equal(zoneOf("audit"), "gov");
+  assert.equal(zoneOf("reviews"), "gov");
+  for (const view of ["chat", "ledger", "run", "scheduled", "intake", "empty"]) {
+    assert.equal(zoneOf(view), "work", `${view} 属工作区`);
+  }
+  for (const view of ["settings", "canvas", undefined, ""]) {
+    assert.equal(zoneOf(view), null, `${view} 不属任何区`);
+  }
+});
+
+test("S2.1 zoneSwitchHtml:两键带 data-open 着陆与 aria-pressed 点亮", () => {
+  assert.deepEqual(ZONES.map(z => z.key), ["work", "gov"]);
+  assert.deepEqual(ZONES.map(z => z.land), ["ledger", "audit"]);
+  const html = zoneSwitchHtml("gov");
+  assert.match(html, /data-zone="work" data-open="ledger"/);
+  assert.match(html, /data-zone="gov" data-open="audit" title="[^"]*" aria-pressed="true"/);
+  assert.match(html, /data-zone="work"[^>]*aria-pressed="false"/);
+  assert.equal((html.match(/<button/g) || []).length, 2);
 });
 
 test("置顶段只在真的置顶过东西时出现，任务行复用运行行", () => {

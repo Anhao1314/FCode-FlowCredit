@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, MORE_NAV, NAV_GROUPS, groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml } from "../core/side-nav.js";
+import { SIDEBAR_NAV, MORE_NAV, NAV_GROUPS, groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -20,12 +20,26 @@ export function createSidebar(deps) {
 
   /* ---------------------------------------------------------------- nav */
 
+  /* S2.1 区切换器点亮态：跟随当前视图所属区；视图不属于任何区（设置、
+     预留页）时保持上一次的区，不闪。 */
+  let zonePainted = "work";
+
+  function paintZoneSwitch() {
+    const host = document.getElementById("zone-switch");
+    if (!host) return;
+    const view = document.getElementById("main")?.dataset.view || "";
+    const zone = zoneOf(view);
+    if (zone) zonePainted = zone;
+    host.innerHTML = zoneSwitchHtml(zonePainted);
+  }
+
   function renderSidebarNav() {
     // 统一侧栏（S2 两区）:工作区/治理区两组渲染,4 个预留槽位进「更多」。
     const nav = document.getElementById("side-nav-items");
     if (nav) nav.innerHTML = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, navCounts);
     const more = document.getElementById("more-nav");
     if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
+    paintZoneSwitch();
     paintMoreNav();
   }
 
@@ -39,6 +53,9 @@ export function createSidebar(deps) {
       const ledgerActive = open === "ledger" || (d.getLedgerOpen() && open === "run");
       el.classList.toggle("active", isLedger ? ledgerActive : el.dataset.open === open);
     }
+    // 区切换器点亮必须挂这里：renderMode 先写 main.dataset.view 再调本函数，
+    // 而 renderNav 里的渲染发生在视图更新之前——挂那里会滞后一拍（冒烟抓到）。
+    paintZoneSwitch();
   }
 
   function renderNav() {
@@ -468,7 +485,7 @@ export function createSidebar(deps) {
   }
 
   return {
-    renderNav, renderSidebarNav, paintNavActive,
+    renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch,
     paintMoreNav, setMoreNav, moreOpen,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,

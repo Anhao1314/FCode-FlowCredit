@@ -3026,8 +3026,8 @@ function bindGlobalActions() {
       document.getElementById("foot-menu").hidden = true;
       document.getElementById("user-btn")?.setAttribute("aria-expanded", "false");
     }
-    // 侧栏 nav-item 与顶栏审计台按钮共用 data-open → renderMode 一条路。
-    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open]");
+    // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器共用 data-open → renderMode 一条路。
+    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     // 对话内写工具的逐调用审批（agentic chat）
     const toolAct = event.target.closest("[data-tool-allow], [data-tool-deny], [data-tool-remember]");
