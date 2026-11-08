@@ -1321,6 +1321,38 @@ function composerFooterText(running) {
   return `${selected ? selected + " · " : ""}可运行`;
 }
 
+/* 上下文容量圆圈：tokens_used / max_tokens，超过 60% 变黄、85% 变红。 */
+function paintCtxRing() {
+  const ring = document.getElementById("ctx-ring");
+  if (!ring) return;
+  // 从当前展示的 trace（回放或 live）取最新 budget_after
+  const trace = shownTrace() || (activeSession() && activeSession().trace) || null;
+  const rounds = trace ? (trace.rounds || []) : [];
+  let budget = null;
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const b = (rounds[i].budget_after || {});
+    if (b.tokens_used !== undefined && b.limits && b.limits.max_tokens) {
+      budget = b;
+      break;
+    }
+  }
+  if (!budget) {
+    ring.style.display = "none";
+    return;
+  }
+  const used = budget.tokens_used || 0;
+  const max = budget.limits.max_tokens || 1;
+  const pct = Math.min(100, Math.round((used / max) * 100));
+  const circumference = 2 * Math.PI * 7;
+  const arc = ring.querySelector(".ctx-arc");
+  const pctText = ring.querySelector(".ctx-pct");
+  if (arc) arc.setAttribute("stroke-dasharray", `${(pct / 100) * circumference} ${circumference}`);
+  if (pctText) pctText.textContent = `${pct}%`;
+  ring.classList.toggle("warn", pct >= 60 && pct < 85);
+  ring.classList.toggle("danger", pct >= 85);
+  ring.style.display = "";
+}
+
 function setComposerRunning(running) {
   const ta = document.getElementById("composer-ta");
   const btn = document.getElementById("send");
@@ -2641,6 +2673,9 @@ function bind() {
   bindEvidence();
   bindMainInteractions();
   bindShell();
+  // 上下文容量圆圈:每 3s 从 runHistory 取最新 budget 数据刷新
+  setInterval(paintCtxRing, 3000);
+  paintCtxRing();
 }
 
 function bindComposer() {

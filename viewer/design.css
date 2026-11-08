@@ -2879,3 +2879,13 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 }
 button.led-lineage { cursor: pointer; font: inherit; }
 button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
+
+/* ============ 上下文容量圆圈（composer 内，模型按钮旁） ============ */
+#ctx-ring { display: inline-flex; align-items: center; margin-right: 4px; cursor: default; }
+#ctx-ring .ctx-arc { transition: stroke-dasharray .4s ease, stroke .4s ease; }
+#ctx-ring .ctx-pct { font-family: var(--font-mono); transition: fill .4s ease; }
+/* 容量色阶: <60% 默认灰, 60-85% 暖黄, >85% 警告红 */
+#ctx-ring.warn .ctx-arc { stroke: var(--warn, #c8a000); }
+#ctx-ring.warn .ctx-pct { fill: var(--warn, #c8a000); }
+#ctx-ring.danger .ctx-arc { stroke: var(--bad, #cc4444); }
+#ctx-ring.danger .ctx-pct { fill: var(--bad, #cc4444); }
