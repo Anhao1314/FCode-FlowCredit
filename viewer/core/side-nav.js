@@ -200,6 +200,52 @@ export function panelHeadHtml(count, label) {
   return "<span>" + esc(label) + '</span><span class="side-count">' + num(count || 0) + "</span>";
 }
 
+/* 治理区历史（Kimi 式分区历史）：审计记录按日期分组（今天/昨天/更早）。
+   数据源 = /api/audit/bundles 的服务端事实；行点击深链 #/audit/<dir>
+   进审计台详情面。Work 区看到的是对话/任务历史，Governance 区看到的是
+   审计历史——两区各一套，互不混排（侧栏 DOM 都在，由 body[data-zone]
+   的 CSS 互斥显隐）。 */
+function localDayString(date) {
+  const pad = n => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function govHistorySectionHtml(bundles) {
+  const list = (bundles || []).slice();
+  const rows = list.map(entry => {
+    const dir = entry.dir || "";
+    const match = /(\d{4}-\d{2}-\d{2})/.exec(dir)
+      || /(\d{4}-\d{2}-\d{2})/.exec(String(entry.audit_id || ""));
+    const target = String(entry.target || dir || "审计记录");
+    return {
+      dir,
+      day: match ? match[1] : "",
+      label: target.split("/").filter(Boolean).pop() || target,
+      findings: Number(entry.findings || 0),
+      auditId: String(entry.audit_id || dir),
+    };
+  });
+  const now = new Date();
+  const today = localDayString(now);
+  const yesterday = localDayString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const groups = { "今天": [], "昨天": [], "更早": [] };
+  for (const row of rows) {
+    groups[row.day === today ? "今天" : row.day === yesterday ? "昨天" : "更早"].push(row);
+  }
+  let body = "";
+  for (const name of ["今天", "昨天", "更早"]) {
+    const items = groups[name];
+    if (!items.length) continue;
+    body += '<div class="side-head-label"><span>' + name + '</span><span class="grp-count">' + num(items.length) + "</span></div>";
+    body += items.map(row => '<button class="session chat-row" data-gov-hist="' + esc(row.dir) + '" title="' + esc(row.auditId) + '">'
+      + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + num(row.findings) + " 发现</span></button>").join("");
+  }
+  const inner = rows.length
+    ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
+    : '<div class="section-empty">还没有审计记录——在治理台输入 /挖洞 发起第一次。</div>';
+  return sectionHeadHtml("审计历史", { key: "govhist" }, rows.length) + inner;
+}
+
 /* 对话分组标题（kimi.com 的 history 段）。 */
 export function chatSectionHtml(count) {
   return sectionHeadHtml("对话", { key: "chats" }, count);

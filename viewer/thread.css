@@ -1002,3 +1002,14 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   .th-tool[data-open="true"] .th-tool-body { animation: none; }
   .th-badge.live .dot { animation: none; }
 }
+
+
+/* ================================================================ 分区历史（Kimi 式）
+   Work 区显示对话/任务/项目段；Governance 区显示审计历史。两套 DOM
+   都在侧栏里，由 body[data-zone] 互斥显隐——切换器负责写这个属性。 */
+body[data-zone="gov"] #chat-pinned,
+body[data-zone="gov"] #chat-projects,
+body[data-zone="gov"] #chat-chats,
+body[data-zone="gov"] #chat-tasks,
+body[data-zone="gov"] .side-list > .side-block-inner { display: none; }
+body[data-zone="work"] #gov-history { display: none; }

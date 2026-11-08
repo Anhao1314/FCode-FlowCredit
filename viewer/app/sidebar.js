@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { pinnedSectionHtml, projectSectionHtml, govHistorySectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -24,13 +24,36 @@ export function createSidebar(deps) {
      预留页）时保持上一次的区，不闪。 */
   let zonePainted = "work";
 
+  let govHistPainted = false;
+
   function paintZoneSwitch() {
     const host = document.getElementById("zone-switch");
     if (!host) return;
     const view = document.getElementById("main")?.dataset.view || "";
     const zone = zoneOf(view);
+    const changed = zone !== null && zone !== zonePainted;
     if (zone) zonePainted = zone;
     host.innerHTML = zoneSwitchHtml(zonePainted);
+    // 分区历史互斥：data-zone 驱动 CSS 显隐（Work=对话/任务，Governance=审计历史）
+    document.body.dataset.zone = zonePainted;
+    if (zonePainted === "gov" && (changed || !govHistPainted)) renderGovHistory();
+  }
+
+  /* 治理区历史：进 Governance 区时拉服务端审计记录（每次进入刷新，
+     挖洞完成后再进来能看到新记录）。 */
+  async function renderGovHistory() {
+    const host = document.getElementById("gov-history");
+    if (!host) return;
+    govHistPainted = true;
+    host.innerHTML = '<div class="section-empty">读取审计历史…</div>';
+    try {
+      const r = await fetch("/api/audit/bundles", { cache: "no-store" });
+      const data = r.ok ? await r.json() : { bundles: [] };
+      host.innerHTML = govHistorySectionHtml(data.bundles || []);
+      paintSections();
+    } catch {
+      host.innerHTML = '<div class="section-empty">审计历史读取失败</div>';
+    }
   }
 
   function renderSidebarNav() {

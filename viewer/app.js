@@ -3276,6 +3276,14 @@ function bindGlobalActions() {
       else location.hash = "#/audit/" + dir;
       return;
     }
+    // 治理区历史行:同样深链进审计台详情面(Kimi 式分区历史:点记录即打开记录)
+    const govHist = event.target.closest("[data-gov-hist]");
+    if (govHist) {
+      const dir = govHist.dataset.govHist;
+      if (dir && location.hash === "#/audit/" + dir) renderMode("audit");
+      else if (dir) location.hash = "#/audit/" + dir;
+      return;
+    }
     // G2 治理台发现卡:处置下拉 change 事件在 document 级委托(见下方
     // bindGovDisposition),落 POST /api/audit/disposition → 服务端原子写盘+落链。
     // 对话内写工具的逐调用审批（agentic chat）

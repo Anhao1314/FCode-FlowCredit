@@ -8,9 +8,9 @@
 <link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
 <script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=80">
 <link rel="stylesheet" href="design.css?v=87">
-<link rel="stylesheet" href="desktop.css?v=7">
+<link rel="stylesheet" href="desktop.css?v=8">
 <link rel="stylesheet" href="chat.css?v=10">
-<link rel="stylesheet" href="thread.css?v=7">
+<link rel="stylesheet" href="thread.css?v=8">
 </head>
 <body>
 <div class="shell app rail-hidden" id="app">
@@ -56,6 +56,10 @@
       <div id="chat-chats"></div>
       <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
       <div id="chat-tasks"></div>
+      <!-- 治理区历史（Kimi 式分区历史）：审计记录按日期分组。Work 区
+           显示对话/任务段，Governance 区显示审计历史——两套互斥显隐
+           （body[data-zone]）。行点击深链 #/audit/<dir>。 -->
+      <div id="gov-history"></div>
     </div>
 
     <div class="side-foot">
@@ -396,6 +400,6 @@
 <script src="report.js?v=56"></script>
 <script src="icons-doodle.js?v=54"></script>
   <script src="brand/seal-icons.js"></script>
-<script src="app.js?v=123" type="module"></script>
+<script src="app.js?v=124" type="module"></script>
 </body>
 </html>

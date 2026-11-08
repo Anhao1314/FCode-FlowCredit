@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ZONES, chatRowsHtml, chatSectionHtml,
+  ZONES, chatRowsHtml, chatSectionHtml, govHistorySectionHtml,
   pinnedSectionHtml, projectSectionHtml, quickStartHtml,
   runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
@@ -126,4 +126,45 @@ test("渲染对 HTML 做转义（标题来自模型/用户输入）", () => {
   const html = chatRowsHtml([{ id: "t1", title: '<img src=x onerror="alert(1)">' }], {});
   assert.equal(html.includes("<img"), false);
   assert.match(html, /&lt;img/);
+});
+
+
+/* ---------- 分区历史：治理区审计记录（Kimi 式按日期分组） ---------- */
+
+function localDay(offset) {
+  const d = new Date();
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + offset);
+  const pad = n => String(n).padStart(2, "0");
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+}
+
+test("治理历史:按今天/昨天/更早分组,行带发现数与审计 id", () => {
+  const html = govHistorySectionHtml([
+    { dir: `evox.app-${localDay(0)}-aaaaaa`, audit_id: "evox.app-today", target: "/Applications/EvoX.app", findings: 5 },
+    { dir: `demo-${localDay(-1)}-bbbbbb`, audit_id: "demo-y", target: "/repo/fixtures/demo-target", findings: 2 },
+    { dir: `old-${localDay(-9)}-cccccc`, audit_id: "old-x", target: "/tmp/Old.app", findings: 0 },
+  ]);
+  assert.match(html, /<span>今天<\/span><span class="grp-count">1<\/span>/);
+  assert.match(html, /<span>昨天<\/span><span class="grp-count">1<\/span>/);
+  assert.match(html, /<span>更早<\/span><span class="grp-count">1<\/span>/);
+  assert.match(html, /data-gov-hist="evox.app-\d{4}-\d{2}-\d{2}-aaaaaa" title="evox.app-today"/);
+  assert.match(html, /<span class="slabel">EvoX.app<\/span><span class="smeta">5 发现<\/span>/);
+  assert.match(html, /demo-target/);
+  assert.match(html, /审计历史/);
+  assert.match(html, /data-gov-hist-nav/);
+});
+
+test("治理历史:空列表给引导,不发假行", () => {
+  const html = govHistorySectionHtml([]);
+  assert.match(html, /还没有审计记录/);
+  assert.doesNotMatch(html, /data-gov-hist=/);
+});
+
+test("治理历史:目标名与 title 转义(来自 bundle 事实)", () => {
+  const html = govHistorySectionHtml([
+    { dir: "x", audit_id: "<b>id</b>", target: "/a/<script>.app", findings: 1 },
+  ]);
+  assert.equal(html.includes("<script>"), false);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /&lt;b&gt;id/);
 });
