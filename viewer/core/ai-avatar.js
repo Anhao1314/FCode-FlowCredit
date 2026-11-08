@@ -105,6 +105,18 @@ function qFace(state, ink) {
   return eyes + smile + blush;
 }
 
+/* 操作员头像：墨盘 + 画布人形（头 + 肩），与 FCode 头像同族黑白。
+   无状态——操作员的脸不随消息状态变化；形状全在 viewBox 内，
+   不用 clipPath（页面上会有多份实例，避免 id 冲突）。 */
+export function userAvatarHtml(size = 28) {
+  return '<span class="chat-user-avatar" style="--ai-avatar-size:' + size + 'px" role="img" aria-label="操作员">'
+    + '<svg viewBox="0 0 64 64" width="' + size + '" height="' + size + '" aria-hidden="true">'
+    + '<circle cx="32" cy="32" r="32" fill="' + AVATAR_INK + '"/>'
+    + '<circle cx="32" cy="25" r="9.5" fill="' + AVATAR_CANVAS + '"/>'
+    + '<ellipse cx="32" cy="54" rx="13.5" ry="11" fill="' + AVATAR_CANVAS + '"/>'
+    + "</svg></span>";
+}
+
 export function aiAvatarHtml(state = "idle", size = 28) {
   const key = AVATAR_STYLE[state] ? state : "idle";
   const style = AVATAR_STYLE[key];

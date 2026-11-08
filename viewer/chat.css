@@ -462,3 +462,12 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 }
 .wcard-run-meta { flex: none; font: 11px/1.6 var(--font-mono); color: var(--text-3); }
 .wcard-empty { padding: 10px 0 4px; font-size: 12.5px; color: var(--text-3); }
+
+/* 用户头像（core/ai-avatar.js 的 userAvatarHtml）：墨盘 + 画布人形，
+   与 FCode 头像同族黑白；气泡右侧，镜像助手侧的 ai-avatar 位置。 */
+.chat-msg-row.user-row { justify-content: flex-end; }
+.chat-user-avatar {
+  flex: none; width: var(--ai-avatar-size, 28px); height: var(--ai-avatar-size, 28px);
+  border-radius: 50%; overflow: hidden;
+}
+.chat-user-avatar svg { display: block; width: 100%; height: 100%; }

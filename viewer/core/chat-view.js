@@ -10,7 +10,7 @@
 
 import { esc, num } from "./format.js";
 import { renderMarkdown } from "./chat-format.js";
-import { aiAvatarHtml, avatarStateFor } from "./ai-avatar.js";
+import { aiAvatarHtml, avatarStateFor, userAvatarHtml } from "./ai-avatar.js";
 import { toolBlocksHtml } from "./tool-card.js";
 
 export function chatMessageHtml(message, editingId = null, extraHtml = "") {
@@ -35,8 +35,12 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     }
     const files = (message.attachments || [])
       .map(file => `<span class="chat-file">${esc(file.name || "")}</span>`).join("");
+    // 用户头像与 FCode 头像同族（core/ai-avatar.js）：气泡右侧墨盘人形
     return `<div class="chat-msg user" data-msg-id="${id}">
-      <div class="chat-bubble">${esc(message.text)}${files ? `<div class="chat-files">${files}</div>` : ""}</div>
+      <div class="chat-msg-row user-row">
+        <div class="chat-bubble">${esc(message.text)}${files ? `<div class="chat-files">${files}</div>` : ""}</div>
+        ${userAvatarHtml(28)}
+      </div>
       <div class="chat-msg-actions">
         <button class="chat-act" type="button" data-chat-edit="${id}">编辑</button>
         <button class="chat-act" type="button" data-chat-delegate="${id}">转为委托</button>
