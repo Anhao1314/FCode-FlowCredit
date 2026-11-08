@@ -6,9 +6,11 @@
    重建把两套名单合并为单一结构：
 
        header(折叠钮+logo) → 新对话(⌘N) + 搜索与命令(⌘K) →
-       SIDEBAR_NAV(审计台/看板/判断记录/定时任务，扁平) →
-       More(4 个预留槽位，默认收起) → Pinned → Projects → 对话 → 任务 →
+       区切换器(Work/Governance) → Pinned → Projects → 对话 → 任务 →
        footer(quickstart + 模型状态)
+
+   功能导航已撤除（2026-11-08）：治理台不再占侧栏条目，由 Governance
+   区切换器直达；审计台/判断记录/账本/定时走对话卡锚点与深路由。
 
    硬事实沿用（同一份 shell 样式表）：nav-item 高 36/内边距 8/圆角 12、
    悬停 F1、选中 F2；分组标题 12px/18px/Tertiary；滚动区 24px 渐变遮罩；
@@ -18,50 +20,8 @@
 
 import { esc, num } from "./format.js";
 
-/* 统一侧栏的平坦导航（2026-11 适配重建；2026-11-08 预留槽位整体清理）。
-
-   历史包袱：桌面版 Kimi 有工作/对话两套 sidebar，FCode 照抄过两份
-   （WORK_NAV 进隐藏的 pane-work、CHAT_NAV/CHAT_MORE_NAV 进 pane-chat）。
-   工作模式 2026-11-02 已收敛退役，pane-work 幽灵 DOM 已删。
-   2026-11-08 按用户要求清理「更多」下的 4 个预留槽位——占位页整体移除，
-   侧栏不再承诺任何未实现能力。
-
-   - SIDEBAR_NAV：R1 收敛后只剩「治理台」——两区的对话面就是各自的入口，
-     工作区对话 = hero「新对话」，治理区对话 = 治理台。审计台/判断记录/
-     看板·账本/定时任务降级为**深路由详情面**：从对话卡片的锚点进入
-     （/账本 /定时 卡跳账本/定时页，/判断 卡跳判断记录，治理台卡深链
-     #/audit/<dir> 进审计台；顶栏还有审计台快捷入口），不再占导航位。 */
-export const SIDEBAR_NAV = [
-  { open: "gov", label: "治理台", icon: "stamp",
-    title: "治理对话:/挖洞 发起审计,卡片流看发现与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
-];
-
-/* R1 收敛后的分组：nav 只剩治理区的对话面「治理台」。工作区没有 nav
-   条目——hero「新对话」就是工作区对话入口，账本/定时/判断/审计从
-   对话卡锚点与深路由进入。分组必须恰好覆盖 SIDEBAR_NAV，未覆盖的
-   条目兜底渲染在末尾，避免加导航项忘了登记时按钮静默消失。 */
-export const NAV_GROUPS = [
-  { label: "Governance", open: ["gov"] },
-];
-
-export function groupedNavHtml(items, groups, counts) {
-  const byKey = {};
-  for (const item of items || []) byKey[item.open] = item;
-  const seen = counts || {};
-  const covered = new Set();
-  const html = (groups || []).map(function (group) {
-    const rows = (group.open || []).map(function (key) {
-      const item = byKey[key];
-      if (!item) return "";
-      covered.add(key);
-      return navItemsHtml([item], seen);
-    }).join("");
-    if (!rows) return "";
-    return '<div class="nav-group"><div class="nav-group-label">' + esc(group.label) + "</div>" + rows + "</div>";
-  }).join("");
-  const rest = (items || []).filter(function (item) { return !covered.has(item.open); });
-  return html + navItemsHtml(rest, seen);
-}
+/* 侧栏导航已清空:治理台不再作为侧栏条目——两区对话面由区切换器直达
+   （Work → 新对话,Governance → 治理台）。此处只留两区定义与切换器渲染。 */
 
 /* S2.1 区切换器：工作区/治理区的身份 UI（Kimi 的 Chat/Work 分段同型），
    放在「新对话」hero 下方。指示 + 着陆，**不做内容过滤**——E2E 契约是
@@ -238,23 +198,6 @@ export function quickStartHtml(state) {
    对话侧栏（网页版）header 只有 logo 与折叠钮。 */
 export function panelHeadHtml(count, label) {
   return "<span>" + esc(label) + '</span><span class="side-count">' + num(count || 0) + "</span>";
-}
-
-/* 导航条目：Kimi 的 nav-item = 图标(18) + 标签 +（可选）计数/警示。
-   打开哪个页面用 data-open 表达，两侧栏可以各放一份而不打架。
-   预留槽位仍是可点的按钮（点开是标注过的预留页），只是多一个「预留」标记。 */
-export function navItemsHtml(items, counts) {
-  const seen = counts || {};
-  return (items || []).map(function (item) {
-    const count = seen[item.open];
-    const tail = count
-      ? '<span class="side-count">' + num(count) + "</span>"
-      : (item.badge ? '<span class="nav-warn" aria-hidden="true">!</span>' : "");
-    return '<button class="nav-item" type="button" data-open="' + esc(item.open) + '"'
-      + (item.title ? ' title="' + esc(item.title) + '"' : "") + ">"
-      + '<span data-doodle="' + esc(item.icon) + '"></span>'
-      + "<span>" + esc(item.label) + "</span>" + tail + "</button>";
-  }).join("");
 }
 
 /* 对话分组标题（kimi.com 的 history 段）。 */

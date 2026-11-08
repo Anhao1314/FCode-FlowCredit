@@ -40,7 +40,7 @@ import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
-  SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
+  chatRowsHtml, chatSectionHtml,
   pinnedSectionHtml, projectSectionHtml, quickStartHtml,
   runRowsHtml,
 } from "./core/side-nav.js";

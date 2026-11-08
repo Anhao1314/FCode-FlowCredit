@@ -2,62 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  NAV_GROUPS, SIDEBAR_NAV, ZONES, chatRowsHtml, chatSectionHtml,
-  groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml,
+  ZONES, chatRowsHtml, chatSectionHtml,
+  pinnedSectionHtml, projectSectionHtml, quickStartHtml,
   runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
-test("R1 收敛:nav 只剩治理台,四页降级为深路由详情面", () => {
-  const nav = navItemsHtml(SIDEBAR_NAV, {});
-  assert.match(nav, /data-open="gov"/);
-  assert.equal(SIDEBAR_NAV.length, 1);
-  assert.equal(SIDEBAR_NAV[0].open, "gov", "两区对话面之一:治理台");
-  assert.match(nav, /data-doodle="stamp"/, "治理台用印章图标");
-  // 四页不再占导航位(卡内锚点与深路由可达)
-  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
-    assert.equal((nav.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
-      `${key} 已降级,不得占导航位`);
-  }
-});
-
-test("预留槽位已整体清理:模块不再导出 MORE_NAV/reservedSlots", async () => {
+test("功能导航已撤除:治理台走 Governance 区切换器,不再有侧栏条目", async () => {
   const mod = await import("../core/side-nav.js");
-  assert.equal(mod.MORE_NAV, undefined, "MORE_NAV 不再存在");
-  assert.equal(mod.reservedSlots, undefined, "reservedSlots 不再存在");
-  // 行渲染不再产出预留标记/类名(清理后不存在任何 reserved 语义)
-  const html = navItemsHtml(SIDEBAR_NAV, {});
-  assert.doesNotMatch(html, /nav-reserved|nav-item--reserved|data-reserved/);
-});
-
-test("导航条目的图标与计数按 Kimi 的行结构渲染", () => {
-  const html = navItemsHtml(SIDEBAR_NAV, { gov: 7 });
-  assert.match(html, /class="nav-item"/);
-  assert.match(html, /data-doodle="stamp"/);
-  assert.match(html, /<span class="side-count">7<\/span>/);
-  assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
-});
-
-test("R1 分组:治理区分组恰好覆盖 nav 名单", () => {
-  // 分组恰好覆盖:每个功能面进且只进一个区,登记遗漏会被兜底渲染暴露
-  const covered = NAV_GROUPS.flatMap(group => group.open);
-  assert.equal(new Set(covered).size, covered.length, "一个功能面不得同时进两个区");
-  assert.deepEqual([...covered].sort(), SIDEBAR_NAV.map(item => item.open).sort());
-  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["Governance"]);
-});
-
-test("groupedNavHtml 按区渲染标签与行,计数随行(通用能力保持)", () => {
-  const html = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, { gov: 3 });
-  assert.equal((html.match(/class="nav-group"/g) || []).length, 1);
-  assert.match(html, /<div class="nav-group-label">Governance<\/div>/);
-  assert.match(html, /data-open="gov"[\s\S]*?<span class="side-count">3<\/span>/);
-  assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
-});
-
-test("groupedNavHtml 兜底:未登记进任何区的条目仍渲染,不静默消失", () => {
-  const extra = [...SIDEBAR_NAV, { open: "future", label: "新面", icon: "cube" }];
-  const html = groupedNavHtml(extra, NAV_GROUPS, {});
-  assert.match(html, /data-open="future"/);
-  assert.equal((html.match(/<button/g) || []).length, extra.length);
+  for (const key of ["SIDEBAR_NAV", "NAV_GROUPS", "navItemsHtml", "groupedNavHtml",
+    "MORE_NAV", "reservedSlots"]) {
+    assert.equal(mod[key], undefined, `${key} 不应再导出（导航/预留均已清理）`);
+  }
+  // 两区对话面仍在:Work/Governance 的切换器是唯一侧栏入口
+  assert.deepEqual(ZONES.map(z => z.label), ["Work", "Governance"]);
+  assert.deepEqual(ZONES.map(z => z.land), ["chat", "gov"]);
+  const html = zoneSwitchHtml("gov");
+  assert.match(html, /data-open="gov"/, "治理台经 Governance 区着陆");
 });
 
 test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () => {

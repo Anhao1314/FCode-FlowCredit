@@ -133,14 +133,11 @@ function harness(overrides = {}) {
   return { sidebar, els, doc, navItems, state, storage: globalThis.localStorage };
 }
 
-test("renderSidebarNav:R1 收敛后治理台在 nav,四页降级,预留区不再渲染", () => {
+test("renderSidebarNav:功能导航已撤除,不再写 nav/more 宿主", () => {
   const { sidebar, els } = harness();
   sidebar.renderSidebarNav();
-  assert.match(els["side-nav-items"].innerHTML, /data-open="gov"/, "治理台");
-  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
-    assert.doesNotMatch(els["side-nav-items"].innerHTML, new RegExp(`data-open="${key}"`), `${key} 已降级为深路由`);
-  }
-  // 预留槽位已清理:渲染不再触碰 more-nav 宿主
+  // 导航宿主整体撤除:渲染不再写任何 nav 内容(治理台由区切换器直达)
+  assert.equal(els["side-nav-items"].innerHTML, "", "nav 宿主不再被写入");
   assert.equal(els["more-nav"].innerHTML, "", "more-nav 不再被写入");
 });
 

@@ -4,7 +4,7 @@
 
    范围：
    - 段落折叠（fa.sections）
-   - 功能导航渲染（SIDEBAR_NAV）与 active 高亮（预留槽位已整体清理）
+   - 区切换器点亮（功能导航已撤除——治理台由 Governance 区直达）
    - 置顶段（对话）、首次使用卡（当前收敛为空壳）
    - 三类外壳接线：拖拽调宽 / 滚动遮罩淡入 / 长标题跑马灯
 
@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, NAV_GROUPS, groupedNavHtml, pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -34,9 +34,7 @@ export function createSidebar(deps) {
   }
 
   function renderSidebarNav() {
-    // R1 收敛:nav 只剩治理台(两区对话面在 hero 与治理台);预留槽位已清理。
-    const nav = document.getElementById("side-nav-items");
-    if (nav) nav.innerHTML = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, navCounts);
+    // 功能导航已撤除(nav 宿主删除);这里只剩区切换器的点亮渲染。
     paintZoneSwitch();
   }
 
