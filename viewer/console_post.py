@@ -34,7 +34,8 @@ from audit_jobs import start_audit_run
 
 
 def post_audit_run(handler):
-    """`/audit <target>` 斜杠命令的落点:离线审计管线跑成后台作业。"""
+    """`/挖洞 <target>` 与 `/audit <target>` 的落点:离线审计管线跑成后台作业。
+    adapter 可显式指定；缺省按目标位置解析（仓库内=repo,放行根内=rea）。"""
     repo = type(handler).repo
     if repo is None:
         return handler._json({"error": "no repo; audit unavailable"}, 503)
@@ -42,8 +43,9 @@ def post_audit_run(handler):
     target = str(body.get("target") or "").strip()
     if not target:
         return handler._json({"error": "target is required"}, 400)
+    adapter = str(body.get("adapter") or "").strip() or None
     try:
-        job_id = start_audit_run(repo, target)
+        job_id = start_audit_run(repo, target, adapter)
     except ValueError as error:
         return handler._json({"error": str(error)}, 400)
     return handler._json({"job_id": job_id, "status": "running"})

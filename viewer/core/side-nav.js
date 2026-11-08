@@ -36,6 +36,8 @@ import { esc, num } from "./format.js";
 
    每条都记 kimi 字段：预留页要把"它对应 Kimi 的什么"直接印出来，单一来源。 */
 export const SIDEBAR_NAV = [
+  { open: "gov", label: "治理台", icon: "stamp",
+    title: "治理对话:/挖洞 发起审计,卡片流看发现与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "audit", label: "审计台", icon: "shield-check",
     title: "发现账本:审计器产出的缺陷与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
   { open: "ledger", label: "看板 · 账本", icon: "layout-grid",
@@ -79,7 +81,7 @@ export function reservedSlots() {
    末尾，避免加导航项忘了登记时按钮静默消失。 */
 export const NAV_GROUPS = [
   { label: "工作区", open: ["ledger", "scheduled"] },
-  { label: "治理区", open: ["audit", "reviews"] },
+  { label: "治理区", open: ["gov", "audit", "reviews"] },
 ];
 
 export function groupedNavHtml(items, groups, counts) {
@@ -109,14 +111,14 @@ export function groupedNavHtml(items, groups, counts) {
 export const ZONES = [
   { key: "work", label: "工作区", land: "ledger", icon: "layout-grid",
     title: "对话、委托、账本与定时任务" },
-  { key: "gov", label: "治理区", land: "audit", icon: "shield-check",
-    title: "审计挖洞与操作员判断" },
+  { key: "gov", label: "治理区", land: "gov", icon: "shield-check",
+    title: "治理台挖洞与操作员判断" },
 ];
 
 /* 当前视图属于哪个区；不属于任何区（设置、预留槽位页）返回 null——
    切换器保持上一次的点亮态，不闪。 */
 export function zoneOf(view) {
-  if (view === "audit" || view === "reviews") return "gov";
+  if (["gov", "audit", "reviews"].indexOf(view) >= 0) return "gov";
   if (["chat", "ledger", "run", "scheduled", "intake", "empty"].indexOf(view) >= 0) return "work";
   return null;
 }

@@ -7,20 +7,21 @@ import {
   runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
-test("统一侧栏:4 个功能面扁平排布,不再拆两套名单", () => {
+test("统一侧栏:5 个功能面分两组排布,不再拆两套名单", () => {
   const nav = navItemsHtml(SIDEBAR_NAV, {});
-  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
+  for (const key of ["gov", "audit", "ledger", "reviews", "scheduled"]) {
     assert.match(nav, new RegExp(`data-open="${key}"`), `${key} 要在第一屏可见`);
   }
   // 适配重建后不存在第二套名单:功能面不重复出现在「更多」里。
   const more = navItemsHtml(MORE_NAV, {});
-  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
+  for (const key of ["gov", "audit", "ledger", "reviews", "scheduled"]) {
     assert.equal((more.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
       `${key} 不得再藏进更多`);
   }
-  assert.equal(SIDEBAR_NAV.length, 4);
+  assert.equal(SIDEBAR_NAV.length, 5);
   assert.equal(SIDEBAR_NAV.filter(item => item.reserved).length, 0);
   assert.match(nav, /data-doodle="shield-check"/, "审计台用盾牌图标");
+  assert.equal(SIDEBAR_NAV[0].open, "gov", "治理台打头(治理区对话面)");
 });
 
 test("预留槽位带出处与落地条件,全部收进「更多」", () => {
@@ -75,6 +76,7 @@ test("groupedNavHtml 兜底:未登记进任何区的条目仍渲染,不静默消
 });
 
 test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () => {
+  assert.equal(zoneOf("gov"), "gov");
   assert.equal(zoneOf("audit"), "gov");
   assert.equal(zoneOf("reviews"), "gov");
   for (const view of ["chat", "ledger", "run", "scheduled", "intake", "empty"]) {
@@ -87,10 +89,10 @@ test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () 
 
 test("S2.1 zoneSwitchHtml:两键带 data-open 着陆与 aria-pressed 点亮", () => {
   assert.deepEqual(ZONES.map(z => z.key), ["work", "gov"]);
-  assert.deepEqual(ZONES.map(z => z.land), ["ledger", "audit"]);
+  assert.deepEqual(ZONES.map(z => z.land), ["ledger", "gov"]);
   const html = zoneSwitchHtml("gov");
   assert.match(html, /data-zone="work" data-open="ledger"/);
-  assert.match(html, /data-zone="gov" data-open="audit" title="[^"]*" aria-pressed="true"/);
+  assert.match(html, /data-zone="gov" data-open="gov" title="[^"]*" aria-pressed="true"/);
   assert.match(html, /data-zone="work"[^>]*aria-pressed="false"/);
   assert.equal((html.match(/<button/g) || []).length, 2);
 });

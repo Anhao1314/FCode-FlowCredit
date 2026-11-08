@@ -375,6 +375,7 @@ const MODE_ENTRY = {
   ledger: () => openLedger(),
   settings: () => openSettingsPage(),
   reviews: () => renderReviews(),
+  gov: () => renderGov(),
   audit: () => renderAudit(),
   scheduled: () => renderScheduledPage(),
   // Kimi Work 侧的 4 个槽位：结构在侧栏里复刻到位，能力本身没有实现。
@@ -1487,6 +1488,14 @@ const COMPOSER_SUBMIT = {
     autosize(ta);
     return intakeFreeText(text);
   },
+  /* G1 治理台：零模型命令流——只接受斜杠命令，其余输入提示用法。 */
+  gov: () => {
+    const ta = document.getElementById("composer-ta");
+    const text = (ta.value || "").trim();
+    if (!text) return;
+    if (!text.startsWith("/")) { toast("治理台用命令交互：/挖洞 <target>（如 /挖洞 /Applications/EvoX.app）"); return; }
+    runSlash(text.slice(1).split(/\s+/)[0]);
+  },
   chat: () => sendChatFromComposer(),
   running: () => sendOperatorMessage(),
   work: () => sendTask(),
@@ -1496,6 +1505,7 @@ function composerSubmit() {
   const s = activeSession();
   const mode = composerMode({
     intakeActive: intake.active,
+    govActive: document.getElementById("main")?.dataset.view === "gov",
     chatActive: chat.active,
     sessionRunning: !!(s && s.running && !s.finished),
   });
@@ -2447,6 +2457,8 @@ const SLASH_COMMANDS = [
   { cmd: "/账本", desc: "对话内打开工作区账本卡", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/状态", desc: "对话内查看进行中的运行", run: () => pushWorkspaceCard("status") },
   { cmd: "/定时", desc: "对话内查看定时任务", run: () => pushWorkspaceCard("scheduled") },
+  { cmd: "/挖洞", desc: "治理台:对目标发起 REA 挖洞（/挖洞 <target>）", run: arg => startGovAudit(arg) },
+  { cmd: "/audit", desc: "治理台:对目标发起 REA 挖洞（/audit <target>）", run: arg => startGovAudit(arg) },
   { cmd: "/ledger", desc: "打开工作台账本", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/report", desc: "签发当前运行的审计报告", run: () => openReport() },
   { cmd: "/stop", desc: "在轮次边界停止当前运行", run: () => stopRun() },
@@ -2542,6 +2554,130 @@ async function pushWorkspaceCard(kind) {
   } catch (error) {
     toast("命令卡生成失败：" + error.message);
   }
+}
+
+/* ================================================================ 治理台（G1）
+   治理区的对话面：零模型操作员命令流。卡片 = 服务端事实的投影
+   （bundle 落盘持久 / 作业状态内存态，重启后以 bundle 为准），
+   命令 = 确定性动作（/挖洞 经 POST /api/audit/run → 离线审计管线）。
+   模型不进环——审计证据的公信力押在 "no model in the loop" 上。 */
+
+const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
+let govPollTimer = null;
+
+function govJobCardHtml(job) {
+  const state = job.status === "done" ? '<span class="gov-state ok">完成</span>'
+    : job.status === "failed" ? `<span class="gov-state bad">失败 · ${esc(String(job.error || "").slice(0, 120))}</span>`
+    : '<span class="gov-state live">挖掘中…</span>';
+  const stats = job.status === "done"
+    ? `<div class="wcard-meta">${num(job.findings || 0)} 发现 · ${num(job.evidence || 0)} 证据记录${job.audit_id ? " · " + esc(job.audit_id) : ""}</div>`
+    : "";
+  const jump = job.status === "done" && job.audit_id
+    ? `<button class="wcard-jump" type="button" data-gov-open-bundle="${esc(job.audit_id)}" title="在审计台查看证据与处置">查看证据 →</button>`
+    : "";
+  return `<div class="wcard govcard" data-thread-item="govcard">
+    <div class="wcard-head"><span class="wcard-icon" data-doodle="stamp"></span>
+      <b class="wcard-title">REA 挖洞 · ${esc(job.target || "")}</b>${jump}</div>
+    <div class="gov-state-row">${state}</div>${stats}
+  </div>`;
+}
+
+function govBundleCard(bundle) {
+  return `<div class="wcard govcard" data-thread-item="govcard">
+    <div class="wcard-head"><span class="wcard-icon" data-doodle="shield-check"></span>
+      <b class="wcard-title">${esc(bundle.audit_id || bundle.dir)}</b>
+      <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(bundle.dir)}" title="在审计台查看证据与处置">查看证据 →</button></div>
+    <div class="wcard-meta">${esc(bundle.target || "（未知目标）")} · ${num(bundle.findings || 0)} 发现 · ${num(bundle.evidence || 0)} 证据${bundle.rea_evidence ? " · REA " + num(bundle.rea_evidence) : ""}</div>
+  </div>`;
+}
+
+function paintGovStream() {
+  // 只重绘作业段——bundle 段由 renderGov 异步填充，轮询重绘整段会把它
+  // 打回"读取中"（冒烟抓到）。两段各一个宿主，互不覆盖。
+  const host = document.getElementById("gov-jobs");
+  if (!host) return;
+  const jobCards = [...govJobs.values()]
+    .sort((a, b) => String(b.job_id).localeCompare(String(a.job_id)))
+    .map(govJobCardHtml).join("");
+  host.innerHTML = jobCards;
+  if (document.querySelector(".main")) hydrateDoodles(host);
+}
+
+async function renderGov() {
+  document.getElementById("tb-title").textContent = "治理台";
+  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  setFoot("治理台 · 零模型操作员命令流（/挖洞 <target>）", "");
+  renderMain(`<div class="gov-head">
+      <p class="eyebrow">GOVERNANCE CONSOLE</p>
+      <h1 class="page-title">治理台</h1>
+      <p class="page-meta">挖洞、判断、链——都以命令与卡片进行。模型不进环：审计证据由离线确定性管线产出，操作员处置直接落签名链。</p>
+    </div>
+    <div class="gov-stream" id="gov-stream">
+      <div id="gov-jobs"></div>
+      <div id="gov-bundles"><div class="gov-loading dim">读取审计 bundle…</div></div>
+    </div>`, { mode: "gov" });
+  paintGovStream();
+  const epoch = viewGate.sequence;
+  try {
+    const r = await fetch("/api/audit/bundles", { cache: "no-store" });
+    const data = r.ok ? await r.json() : { bundles: [] };
+    if (epoch !== viewGate.sequence) return;
+    const bundles = (data.bundles || [])
+      .slice()
+      .sort((a, b) => String(b.dir).localeCompare(String(a.dir)))
+      .slice(0, 6);
+    const host = document.getElementById("gov-bundles");
+    if (host) host.innerHTML = bundles.length
+      ? bundles.map(govBundleCard).join("")
+      : '<div class="wcard-empty">还没有审计记录——/挖洞 <target> 发起第一次。</div>';
+    if (document.querySelector(".main")) hydrateDoodles(host);
+  } catch { /* 网络抖动：保留加载态，下次进入重取 */ }
+  scheduleGovPoll();
+}
+
+function scheduleGovPoll() {
+  if (govPollTimer) return;
+  govPollTimer = setInterval(async () => {
+    const running = [...govJobs.entries()].filter(([, job]) => job.status === "running");
+    if (!running.length) {
+      clearInterval(govPollTimer);
+      govPollTimer = null;
+      return;
+    }
+    await Promise.all(running.map(async ([id, job]) => {
+      try {
+        const r = await fetch("/api/audit/jobs/" + encodeURIComponent(id), { cache: "no-store" });
+        const data = r.ok ? await r.json() : null;
+        if (data && data.status && data.status !== job.status) Object.assign(job, data);
+      } catch { /* 单次轮询失败保旧态 */ }
+    }));
+    if (document.getElementById("main")?.dataset.view === "gov") paintGovStream();
+  }, 2500);
+}
+
+function startGovAudit(target) {
+  const t = String(target || "").trim();
+  if (!t) {
+    renderMode("gov");
+    toast("用法：/挖洞 <target>（如 /挖洞 /Applications/EvoX.app）");
+    return;
+  }
+  (async () => {
+    try {
+      const r = await fetch("/api/audit/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: t }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
+      renderMode("gov");
+      toast("挖洞作业已发起 · 治理台跟踪进度");
+      scheduleGovPoll();
+    } catch (error) {
+      toast("挖洞发起失败：" + error.message);
+    }
+  })();
 }
 
 /* ================================================================ Chat
@@ -3060,6 +3196,14 @@ function bindGlobalActions() {
     // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器 / W1 对话卡跳转共用 data-open → renderMode 一条路。
     const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
+    // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
+    const govBundle = event.target.closest("[data-gov-open-bundle]");
+    if (govBundle) {
+      const dir = govBundle.dataset.govOpenBundle;
+      if (location.hash === "#/audit/" + dir) renderMode("audit");
+      else location.hash = "#/audit/" + dir;
+      return;
+    }
     // 对话内写工具的逐调用审批（agentic chat）
     const toolAct = event.target.closest("[data-tool-allow], [data-tool-deny], [data-tool-remember]");
     if (toolAct) {

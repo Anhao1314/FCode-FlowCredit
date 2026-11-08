@@ -2872,3 +2872,16 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 #ctx-ring.warn .ctx-pct { fill: var(--warn, #c8a000); }
 #ctx-ring.danger .ctx-arc { stroke: var(--bad, #cc4444); }
 #ctx-ring.danger .ctx-pct { fill: var(--bad, #cc4444); }
+
+/* ================================================================ G1 治理台
+   零模型操作员命令流。卡片复用 chat.css 的 .wcard 家族；这里只放
+   治理台自身的页面骨架与作业状态色。 */
+.gov-head { padding: 28px 0 6px; }
+.gov-head .page-meta { max-width: 640px; }
+.gov-stream { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 40px; max-width: 720px; }
+.gov-state-row { margin-top: 6px; }
+.gov-state { font: 550 12px/18px var(--font-ui); }
+.gov-state.live { color: var(--warn); animation: kimiPulse 1.6s ease-in-out infinite; }
+.gov-state.ok { color: var(--ok); }
+.gov-state.bad { color: var(--bad); }
+.gov-loading { padding: 14px 2px; font-size: 12.5px; }
