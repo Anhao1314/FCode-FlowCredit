@@ -2525,7 +2525,7 @@ async function pushWorkspaceCard(kind) {
    模型不进环——审计证据的公信力押在 "no model in the loop" 上。 */
 
 const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
-const govFindings = new Map(); // audit_dir → findings[]（G2 发现处置卡的内存投影,处置落链后同步更新）
+const govFindings = new Map(); // audit_dir → {findings, target, profile}（G2 发现卡投影；S1 补 target/profile 支撑修洞闭环）
 const govRespCards = []; // G3 命令响应卡快照(新在前,会话内存,重启即失)
 let govPollTimer = null;
 
@@ -2611,11 +2611,18 @@ function paintGovStream() {
     .map(job => govJobCardHtml(job)
       // G2:作业完成的后面跟一张发现处置卡（内存投影有数据才渲染）
       + (job.status === "done" && job.audit_id && govFindings.get(job.audit_id)
-        ? findingsCardHtml(job.audit_id, govFindings.get(job.audit_id))
+        ? govFindingsCard(job.audit_id)
         : ""))
     .join("");
   host.innerHTML = jobCards;
   if (document.querySelector(".main")) hydrateDoodles(host);
+}
+
+/* S1:统一发现卡渲染——artifact 目标不可修（修洞只对源码树开放）。 */
+function govFindingsCard(dir) {
+  const meta = govFindings.get(dir);
+  if (!meta) return "";
+  return findingsCardHtml(dir, meta.findings, { repairable: meta.profile !== "artifact" });
 }
 
 /* G2:拉一个 bundle 的发现清单进内存投影（含 operator_disposition 当前值）。 */
@@ -2625,7 +2632,11 @@ async function loadGovFindings(auditDir) {
     const r = await fetch("/api/audit/bundle/" + encodeURIComponent(auditDir), { cache: "no-store" });
     const bundle = r.ok ? await r.json() : null;
     if (bundle && Array.isArray(bundle.findings) && bundle.findings.length) {
-      govFindings.set(auditDir, bundle.findings);
+      govFindings.set(auditDir, {
+        findings: bundle.findings,
+        target: (bundle.target || {}).identity || "",
+        profile: (bundle.target || {}).profile || "",
+      });
     }
   } catch { /* 单次失败不影响卡流,下次进入重取 */ }
 }
@@ -2661,9 +2672,7 @@ async function renderGov() {
     const host = document.getElementById("gov-bundles");
     if (host) host.innerHTML = bundles.length
       ? bundles.map(govBundleCard).join("")
-        + (govFindings.get(bundles[0].dir)
-          ? findingsCardHtml(bundles[0].dir, govFindings.get(bundles[0].dir))
-          : "")
+        + (govFindings.get(bundles[0].dir) ? govFindingsCard(bundles[0].dir) : "")
       : '<div class="wcard-empty">还没有审计记录——/挖洞 <target> 发起第一次。</div>';
     if (document.querySelector(".main")) hydrateDoodles(host);
   } catch { /* 网络抖动：保留加载态，下次进入重取 */ }
@@ -2738,14 +2747,14 @@ document.addEventListener("change", event => {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       // 内存投影同步:重绘/轮询后下拉仍显示操作员的选择
-      const findings = govFindings.get(dir);
-      const finding = findings && findings.find(f => f.finding_id === fid);
+      const meta = govFindings.get(dir);
+      const finding = meta && meta.findings.find(f => f.finding_id === fid);
       if (finding) finding.operator_disposition = disposition || null;
       toast(`已记录 · ${fid} → ${disposition ? "已落链" : "已清除"}`);
     } catch (error) {
       // 回滚到投影中的当前值
-      const findings = govFindings.get(dir);
-      const finding = findings && findings.find(f => f.finding_id === fid);
+      const meta = govFindings.get(dir);
+      const finding = meta && meta.findings.find(f => f.finding_id === fid);
       select.value = (finding && finding.operator_disposition) || "";
       toast("处置失败：" + error.message);
     }
@@ -3282,6 +3291,33 @@ function bindGlobalActions() {
       const dir = govHist.dataset.govHist;
       if (dir && location.hash === "#/audit/" + dir) renderMode("audit");
       else if (dir) location.hash = "#/audit/" + dir;
+      return;
+    }
+    // S1 修洞闭环:发现 → Work 委托(目标带发现上下文,验证目标由操作员在确认页补)
+    const govRepair = event.target.closest("[data-gov-repair]");
+    if (govRepair) {
+      const dir = govRepair.dataset.dir;
+      const fid = govRepair.dataset.govRepair;
+      const meta = govFindings.get(dir);
+      const finding = meta && meta.findings.find(f => f.finding_id === fid);
+      if (!finding) { toast("发现上下文缺失，请先重新挖洞"); return; }
+      const severity = { high: "高", medium: "中", low: "低" }[finding.severity] || finding.severity || "";
+      const objective = [
+        `修复审计发现 ${fid}（${finding.category || "?"} · ${finding.root_cause_group || "?"} · ${severity}）`,
+        meta.target ? `审计目标：${meta.target}` : "",
+        `审计记录：work/audit/${dir}`,
+        "要求：定位并修复根因（不掩盖症状）；保持现有行为，跑通相关测试后写清改了什么。",
+      ].filter(Boolean).join("\n");
+      startIntake(objective);
+      return;
+    }
+    // S1 修洞闭环:修复后重新挖洞——同目标再审计,回归对比看 fixed / regressed
+    const govRedig = event.target.closest("[data-gov-redig]");
+    if (govRedig) {
+      const dir = govRedig.dataset.govRedig;
+      const meta = govFindings.get(dir);
+      if (!meta || !meta.target) { toast("审计目标缺失，无法重新挖洞"); return; }
+      startGovAudit(meta.target);
       return;
     }
     // G2 治理台发现卡:处置下拉 change 事件在 document 级委托(见下方

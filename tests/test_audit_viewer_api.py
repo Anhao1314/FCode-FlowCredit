@@ -238,6 +238,24 @@ class AuditViewerApiTests(unittest.TestCase):
         self.assertEqual(detail.get("actor"), "operator")
         self.assertTrue(chain["chain_intact"], "处置事件本身不能破坏链")
 
+    def test_disposition_repaired_accepted_and_chained(self) -> None:
+        """「已修复」是修洞闭环的处置档:允许落 bundle 并进签名链。"""
+        import urllib.request
+
+        body = json.dumps({"disposition": "repaired"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req) as res:
+            self.assertEqual(json.loads(res.read())["operator_disposition"], "repaired")
+        with urllib.request.urlopen(f"{self.base}/api/audit/chain/demo-target-test") as res:
+            chain = json.loads(res.read())
+        events = [e for e in chain["events"] if e["type"] == "finding_disposition_set"]
+        detail = events[-1]["payload"].get("detail") or events[-1]["payload"]
+        self.assertEqual(detail.get("disposition"), "repaired")
+        self.assertTrue(chain["chain_intact"])
+
     def test_review_profile_aggregates_audit_dispositions(self) -> None:
         """判断记录页的「审计处置」区段:与 run 判断并列,不并入四类计数。"""
         import urllib.request

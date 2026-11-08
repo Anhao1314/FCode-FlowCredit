@@ -19,14 +19,16 @@ export const DISPOSITION_LABELS = {
   accepted_risk: "接受风险",
   false_positive_disputed: "误报争议",
   wont_fix: "不修复",
+  repaired: "已修复",
 };
 
-const DISPOSITION_VALUES = ["", "accepted_risk", "false_positive_disputed", "wont_fix"];
+const DISPOSITION_VALUES = ["", "accepted_risk", "false_positive_disputed", "wont_fix", "repaired"];
 
 const SEVERITY_LABEL = { high: "高", medium: "中", low: "低" };
 
-/* 一条发现 + 处置下拉。select 的 data-dir/data-finding 供 app.js 委托接线。 */
-function findingRowHtml(dir, finding) {
+/* 一条发现 + 处置下拉 +（源码目标）派修复。select 的 data-dir/data-finding
+   供 app.js 委托接线;修复按钮只在可修目标(非 artifact)上出现。 */
+function findingRowHtml(dir, finding, opts) {
   const fid = finding.finding_id || "";
   const current = finding.operator_disposition || "";
   const severity = SEVERITY_LABEL[finding.severity] || finding.severity || "?";
@@ -38,13 +40,14 @@ function findingRowHtml(dir, finding) {
       <b>${esc(fid)}</b><span class="gov-finding-cat">${esc(finding.category || "")}</span></div>
     <div class="gov-finding-root">${esc(finding.root_cause_group || "")}</div>
     <div class="gov-finding-disp"><span class="gov-disp-label">operator</span>
-      <select class="gov-disp" data-dir="${esc(dir)}" data-finding="${esc(fid)}">${options}</select></div>
+      <select class="gov-disp" data-dir="${esc(dir)}" data-finding="${esc(fid)}">${options}</select>
+      ${opts && opts.repairable === false ? "" : `<button class="gov-repair" type="button" data-gov-repair="${esc(fid)}" data-dir="${esc(dir)}" title="把这条发现派给 Work 区的 agent 修复">派 agent 修复</button>`}</div>
   </div>`;
 }
 
 /* 发现处置卡：dir = audit 目录名（深链与处置 POST 都用它）。
    findings 为空时不渲染空卡——调用方跳过。 */
-export function findingsCardHtml(dir, findings) {
+export function findingsCardHtml(dir, findings, opts) {
   const list = findings || [];
   if (!dir || !list.length) return "";
   const counts = list.reduce((acc, f) => {
@@ -56,9 +59,10 @@ export function findingsCardHtml(dir, findings) {
   return `<div class="wcard govcard gov-findings" data-thread-item="govcard">
     <div class="wcard-head"><span class="wcard-icon" data-doodle="shield-check"></span>
       <b class="wcard-title">发现 · ${esc(dir)}</b>
+      <button class="wcard-jump" type="button" data-gov-redig="${esc(dir)}" title="修复后重新挖洞:同目标再审计,回归对比看 fixed">重新挖洞 →</button>
       <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(dir)}" title="在审计台查看证据、oracle 与签名链">查看证据 →</button></div>
     <div class="wcard-meta">${esc(meta)}</div>
-    <div class="gov-finding-list">${list.map(finding => findingRowHtml(dir, finding)).join("")}</div>
+    <div class="gov-finding-list">${list.map(finding => findingRowHtml(dir, finding, opts)).join("")}</div>
   </div>`;
 }
 

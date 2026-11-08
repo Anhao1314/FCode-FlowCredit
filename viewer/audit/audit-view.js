@@ -298,7 +298,7 @@ export function renderAuthorization(bundle) {
 
 export function renderDisposition(finding, dir) {
   const current = finding.operator_disposition || "";
-  const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix"]
+  const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix", "repaired"]
     .map((value) => {
       const selected = value === current ? " selected" : "";
       return `<option value="${esc(value)}"${selected}>${esc(DISPOSITION_LABELS[value] || value)}</option>`;

@@ -19,7 +19,7 @@ test("发现处置卡:计数元数据 + 每条一行带类别与根因", () => {
   assert.equal((html.match(/class="gov-finding"/g) || []).length, 3);
 });
 
-test("处置下拉:四选项,当前处置选中,空串即清除", () => {
+test("处置下拉:五选项(含已修复),当前处置选中,空串即清除", () => {
   const html = findingsCardHtml("d", [
     { finding_id: "F-1", severity: "low", operator_disposition: "accepted_risk" },
   ]);
@@ -27,7 +27,8 @@ test("处置下拉:四选项,当前处置选中,空串即清除", () => {
   assert.match(html, /<option value="accepted_risk" selected>/);
   assert.doesNotMatch(html, /<option value="" selected>/);
   assert.doesNotMatch(html, /<option value="wont_fix" selected>/);
-  assert.equal((html.match(/<option/g) || []).length, 4);
+  assert.equal((html.match(/<option/g) || []).length, 5);
+  assert.match(html, /<option value="repaired">已修复<\/option>/);
   // 无处置时:空串选中(= 清除)
   const clean = findingsCardHtml("d", [{ finding_id: "F-2", severity: "low" }]);
   assert.match(clean, /<option value="" selected>— 无 —<\/option>/);
@@ -128,4 +129,21 @@ test("链卡与判断卡对事实文本转义", () => {
   assert.match(chain, /&lt;b&gt;tamper/);
   const judged = judgmentsCardHtml({ counts: {}, recent: [{ decision: "<i>x</i>" }], audit_dispositions: [] });
   assert.equal(judged.includes("<i>x</i>"), false);
+});
+
+
+/* ---------- S1 修洞闭环:派修复 / 重新挖洞 ---------- */
+
+test("发现行带「派 agent 修复」按钮,artifact 目标不出现", () => {
+  const source = findingsCardHtml("d", [{ finding_id: "F-1", severity: "high" }], { repairable: true });
+  assert.match(source, /data-gov-repair="F-1" data-dir="d"/);
+  assert.match(source, /派 agent 修复/);
+  const artifact = findingsCardHtml("d", [{ finding_id: "F-1", severity: "high" }], { repairable: false });
+  assert.doesNotMatch(artifact, /data-gov-repair/);
+});
+
+test("发现卡头带「重新挖洞」按钮(验证修复的闭环入口)", () => {
+  const html = findingsCardHtml("demo-2026", findings);
+  assert.match(html, /data-gov-redig="demo-2026"/);
+  assert.match(html, /重新挖洞 →/);
 });

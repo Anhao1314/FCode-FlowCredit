@@ -2879,3 +2879,10 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   border-radius: 7px; background: var(--canvas); color: var(--text-1);
   font-size: 12px; cursor: pointer;
 }
+/* S1 修洞:把发现派给 Work 区的 agent 修复(源码目标才出现) */
+.gov-repair {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px;
+  background: none; color: var(--text-2); font-size: 12px; cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.gov-repair:hover { color: var(--text-1); border-color: var(--text-3); }

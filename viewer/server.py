@@ -242,7 +242,7 @@ class Handler(SimpleHTTPRequestHandler):
         except (OSError, ValueError):
             return {"error": "unreadable REA evidence"}, 500
 
-    _DISPOSITIONS = ("accepted_risk", "false_positive_disputed", "wont_fix")
+    _DISPOSITIONS = ("accepted_risk", "false_positive_disputed", "wont_fix", "repaired")
     # 处置写回是读-改-写整个 bundle;ThreadingHTTPServer 下并发 POST 会互相
     # 覆盖,用一把进程内锁串行化(处置是罕见的操作员动作,全局锁足够)。
     _disposition_lock = threading.Lock()
