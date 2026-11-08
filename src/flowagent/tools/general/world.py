@@ -206,6 +206,11 @@ class GeneralWorld:
             tools.append(build_spawn_tool(self.subagent_channel.spawn))
             tools.append(build_subagent_status_tool(self.subagent_channel.status))
             tools.append(build_subagent_read_tool(self.subagent_channel.read))
+            # 写子代理的落地点:显式应用(冲突检测在通道里)。只读部署也注册
+            # 无害(没有写子代理就没有可应用的东西,通道会拒绝)。
+            from .apply_changes import build_apply_child_changes_tool
+
+            tools.append(build_apply_child_changes_tool(self.subagent_channel.apply_changes))
         if self.budget_channel is not None:
             from .budget import build_budget_extension_tool
 

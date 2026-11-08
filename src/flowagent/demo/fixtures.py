@@ -228,6 +228,49 @@ SCENARIOS: dict[str, Scenario] = {
         module="general-work",
         internal=True,
     ),
+    "general-subagent-writer": Scenario(
+        key="general-subagent-writer",
+        title="内部：写入子代理（隔离拷贝）",
+        objective="在父工作区的隔离副本里完成一个写入子任务；改动由父显式应用",
+        story=(
+            "运行时派生的内部角色。启动时把父工作区拷贝进自己的沙箱，"
+            "读写互不影响；改完回传摘要，父用 apply_child_changes 显式应用"
+            "（write effect → 审批，逐文件冲突检测）。"
+        ),
+        allowed_tools=(
+            "ls_workspace",
+            "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
+            "write_file",
+            "edit_file",
+            "report_blocked",
+        ),
+        grant={
+            "grant_id": "subagent-writer-host-grant",
+            "revision": 1,
+            "allowed_tools": [
+                "ls_workspace",
+                "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
+                "write_file",
+                "edit_file",
+                "report_blocked",
+            ],
+            "allowed_effects": ["read", "write"],
+            "max_calls": 12,
+            "max_reads": 40,
+            "max_cost_microusd": 200_000,
+            "max_tokens": 100_000,
+        },
+        limits=BudgetLimits(12, 40, 200_000, 100_000),
+        max_rounds=8,
+        module="general-work",
+        internal=True,
+    ),
     "general-research": Scenario(
         key="general-research",
         title="通用委托：抓取公开来源，写入 research.md",
@@ -252,6 +295,8 @@ SCENARIOS: dict[str, Scenario] = {
             "spawn_subagents",
             # 预算延展:effect=write,进审批集——追加必须有理由并由操作员批准。
             "request_budget_extension",
+            # 写子代理的落地:显式应用(冲突检测),同样是 write effect。
+            "apply_child_changes",
             # Asking the operator is a host-granted capability like any other:
             # a general delegation with no way to ask has to guess.
             "ask_operator",
@@ -277,6 +322,7 @@ SCENARIOS: dict[str, Scenario] = {
                 "fetch_url",
                 "spawn_subagents",
                 "request_budget_extension",
+                "apply_child_changes",
                 "ask_operator",
                 "report_blocked",
             ],

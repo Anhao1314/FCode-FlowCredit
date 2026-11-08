@@ -137,7 +137,8 @@ def build_spawn_tool(spawner: Callable[[list[str]], dict[str, Any]]) -> ToolSpec
         name="spawn_subagents",
         summarize=summaries.summarize_spawn_subagents,
         summary=(
-            "Spawn 1-4 subagent runs in parallel (each writes into its own sandbox), "
+            "Spawn 1-4 read-only subagent runs (or 1-3 write subagents with write_access=true, "
+            "each on an isolated copy of your workspace) in parallel, "
             "wait for all of them to finish, and return a bounded digest per child"
         ),
         effect=EFFECT_WRITE,
@@ -149,6 +150,16 @@ def build_spawn_tool(spawner: Callable[[list[str]], dict[str, Any]]) -> ToolSpec
                 description=(
                     "1-4 self-contained child objectives; each child is a researcher "
                     "over its own sandbox and cannot see the other children"
+                ),
+            ),
+            Param(
+                name="write_access",
+                kind="boolean",
+                required=False,
+                description=(
+                    "true = write subagents (max 3): each child gets an isolated COPY "
+                    "of your workspace and may edit it; apply results later with "
+                    "apply_child_changes (approval-gated, per-file conflict detection)"
                 ),
             ),
             # 预算覆盖用四个扁平整数参数(kind=object 不被参数 schema 支持,

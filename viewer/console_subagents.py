@@ -6,11 +6,18 @@
 - 目标是一句话而不是一篇文章（≤600 字），空列表显式拒绝；
 - 触发超时把未完成的子运行如实标为 stopped(timeout)，不伪造成功。
 
+S2b 写入子代理（隔离拷贝 + 显式应用）：
+- 写子代理拿父工作区的**拷贝**（零共享），改完的文件对父不可见；
+- 播种时写基线哈希快照；父要用 `apply_child_changes` 显式应用（write
+  effect → 审批），逐文件做冲突检测——父在等待期间改过同一文件即拒绝；
+- 删除不自动应用（v1 保守），只报告。
+
 等待/收集循环与墙钟解耦（sleep/now 可注入），单元测试用假时钟覆盖。
 """
 
 from __future__ import annotations
 
+import hashlib
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -24,6 +31,46 @@ STOP_GRACE_SECONDS = 30.0
 POLL_SECONDS = 2.0
 
 TERMINAL_STATUSES = ("succeeded", "failed", "denied", "stopped", "error")
+
+
+#: 写扇出的数量硬顶——写入比只读贵，乘数承诺更严。
+MAX_WRITE_CHILDREN = 3
+#: 应用改动的封底。
+MAX_APPLY_FILES = 20
+MAX_APPLY_BYTES = 2_000_000
+#: 子工作区拷贝的文件数上限（防止拷进巨型目录）。
+MAX_SEED_FILES = 2_000
+
+
+def snapshot_hashes(root: Path) -> dict[str, str]:
+    """{相对路径: sha256}；跳过 .git 与隐藏元数据。超限直接拒绝。"""
+    root = Path(root)
+    out: dict[str, str] = {}
+    if not root.is_dir():
+        return out
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(".git/") or "/.git/" in rel or path.name == ".DS_Store":
+            continue
+        if len(out) >= MAX_SEED_FILES:
+            raise ValueError(f"工作区文件超过 {MAX_SEED_FILES} 个，拒绝拷贝")
+        out[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return out
+
+
+def snapshot_hashes_single(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def diff_snapshot(baseline: dict[str, str], current: dict[str, str]) -> dict[str, list[str]]:
+    """基线 vs 当前：modified / added / deleted。"""
+    modified = [rel for rel, digest in current.items()
+                if rel in baseline and baseline[rel] != digest]
+    added = [rel for rel in current if rel not in baseline]
+    deleted = [rel for rel in baseline if rel not in current]
+    return {"modified": sorted(modified), "added": sorted(added), "deleted": sorted(deleted)}
 
 
 def normalize_spawn_request(
@@ -181,20 +228,31 @@ class SubagentChannel:
     def spawn(self, arguments: dict[str, Any]) -> dict[str, Any]:
         import time as _time
 
+        write_access = bool(arguments.get("write_access"))
         objectives = normalize_spawn_request(
             list(arguments.get("objectives") or []),
             (self.run.spec or {}).get("parent_run_id"),
         )
+        if write_access and len(objectives) > MAX_WRITE_CHILDREN:
+            raise ValueError(
+                f"写子代理一次最多 {MAX_WRITE_CHILDREN} 个（写入乘数比只读更贵）"
+            )
         budget = validate_spawn_budget(arguments.get("budget"))
+        parent_workspace = self.manager.runs_dir / self.run.id / "workspace"
         started = _time.monotonic()
         children = []
         for objective in objectives:
             child_spec: dict[str, Any] = {"mode": "subagent", "parent_run_id": self.run.id}
             if budget:
                 child_spec["budget"] = budget
+            template = "general-subagent"
+            if write_access:
+                # 隔离拷贝:子代理拿父工作区的副本改,改完由父显式 apply。
+                template = "general-subagent-writer"
+                child_spec["workspace_copy_from"] = str(parent_workspace)
             child = self.manager.create(
                 objective=objective,
-                template="general-subagent",
+                template=template,
                 # 内部角色:操作者已通过 spawn 审批 consciously 批准了扇出;
                 # 子运行的写入被物理限制在自己的沙箱(runs/<child>/workspace),
                 # 不碰父工作区——审批挂起只会把 join 拖过超时,无治理增益。
@@ -229,6 +287,91 @@ class SubagentChannel:
                 for c in children
             ],
             "count": len(children),
+        }
+
+    # --------------------------------------------------------------- apply
+
+    def apply_changes(self, run_id: str, paths: list[Any] | None = None) -> dict[str, Any]:
+        """把子代理的写入**显式**应用到父工作区（write effect，过审批）。
+
+        逐文件冲突检测：父在子代理运行期间改过同一文件（当前哈希 ≠ 播种
+        基线）即拒绝该文件并报告冲突——绝不用旧的子版本覆盖父的新改动。
+        应用 = 文本写回父沙箱（越狱与大小由 WorkspaceSandbox.write 把关）。
+        """
+        child = self.manager.runs.get(str(run_id or ""))
+        if child is None or (child.spec or {}).get("parent_run_id") != self.run.id:
+            raise ValueError("只能应用本运行派生的子代理改动")
+        if not child.finished:
+            raise ValueError("子代理还在运行——等它终态后再应用")
+        child_dir = self.manager.runs_dir / child.id
+        baseline_path = child_dir / "workspace_baseline.json"
+        if not baseline_path.is_file():
+            raise ValueError("该子代理没有隔离拷贝基线（不是写子代理？）")
+        import json as _json
+
+        baseline = _json.loads(baseline_path.read_text(encoding="utf-8"))
+        child_ws = child_dir / "workspace"
+        parent_ws = self.manager.runs_dir / self.run.id / "workspace"
+        if not child_ws.is_dir() or not parent_ws.is_dir():
+            raise ValueError("工作区缺失，无法应用")
+
+        current_child = snapshot_hashes(child_ws)
+        changes = diff_snapshot(baseline, current_child)
+        wanted = [str(p).strip() for p in (paths or []) if str(p).strip()]
+        candidates = wanted if wanted else sorted(changes["modified"] + changes["added"])
+        if len(candidates) > MAX_APPLY_FILES:
+            raise ValueError(
+                f"一次最多应用 {MAX_APPLY_FILES} 个文件——请用 paths 分批应用"
+            )
+        # 删除只报告不应用(v1 保守):子代理删的文件不会从父工作区消失。
+        deleted_reported = list(changes["deleted"])
+        candidates = [rel for rel in candidates if rel not in changes["deleted"]]
+
+        from flowagent.tools.general.sandbox import WorkspaceSandbox
+
+        parent = WorkspaceSandbox(parent_ws)
+        applied: list[str] = []
+        conflicts: list[dict[str, str]] = []
+        unchanged: list[str] = []
+        refused: list[dict[str, str]] = []
+        total_bytes = 0
+        for rel in candidates:
+            child_file = child_ws / rel
+            if not child_file.is_file():
+                refused.append({"path": rel, "reason": "子代理没有这个文件"})
+                continue
+            child_hash = current_child.get(rel)
+            if rel in baseline and baseline[rel] == child_hash:
+                unchanged.append(rel)
+                continue
+            parent_file = parent_ws / rel
+            parent_hash = None
+            if parent_file.is_file():
+                parent_hash = snapshot_hashes_single(parent_file)
+            if parent_hash != baseline.get(rel):
+                conflicts.append({
+                    "path": rel,
+                    "reason": "父工作区在子代理运行期间改过该文件（或状态不一致）",
+                })
+                continue
+            data = child_file.read_bytes()
+            total_bytes += len(data)
+            if total_bytes > MAX_APPLY_BYTES:
+                raise ValueError(f"累计应用超过 {MAX_APPLY_BYTES} 字节——请用 paths 分批")
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                refused.append({"path": rel, "reason": "非 UTF-8 文本，v1 不应用二进制"})
+                continue
+            parent.write(rel, text)
+            applied.append(rel)
+        return {
+            "applied": applied,
+            "conflicts": conflicts,
+            "unchanged": unchanged,
+            "refused": refused,
+            "deleted_reported": deleted_reported,
+            "child_run_id": child.id,
         }
 
     # ----------------------------------------------------------------- read

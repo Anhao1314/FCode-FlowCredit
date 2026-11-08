@@ -154,6 +154,10 @@ class ScenarioAndRegistryTest(unittest.TestCase):
             def read(self, run_id, path):
                 return {"path": path, "content": "x", "sha256": "h",
                         "bytes": 1, "child_run_id": run_id}
+            def apply_changes(self, run_id, paths=None):
+                return {"applied": [], "conflicts": [], "unchanged": [],
+                        "refused": [], "deleted_reported": [],
+                        "child_run_id": run_id}
         return FakeChannel()
 
     def test_spawn_tool_registered_only_with_channel(self) -> None:

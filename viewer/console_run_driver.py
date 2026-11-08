@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import traceback
+from pathlib import Path
 from typing import Any
 
 from console_common import DOMAIN_KEY, TERMINAL_STATUS, _scaled_budget_for_prices
@@ -125,6 +126,8 @@ class RunDriver:
         approval_tools = tuple(self.scenario.approval_tools)
         if self.budget_channel is not None:
             approval_tools += ("request_budget_extension",)
+        if self.subagent_channel is not None:
+            approval_tools += ("apply_child_changes",)
         if self.mcp_bridge is not None:
             approval_tools += tuple(self.mcp_bridge.approval_names())
         self.control = RunControl(
@@ -136,9 +139,38 @@ class RunDriver:
         if self.general:
             self.ask_holder["control"] = self.control
 
+    def _seed_workspace_copy(self) -> None:
+        """写子代理的隔离拷贝:从父工作区拷入自己的沙箱并写基线哈希。
+
+        源路径必须在 runs 目录之下（父运行工作区），否则拒绝——spec 来自
+        API，不能让任意路径被拷进运行沙箱。
+        """
+        spec = self.run.spec or {}
+        source = spec.get("workspace_copy_from")
+        if not source:
+            return
+        import shutil
+
+        from console_subagents import snapshot_hashes
+
+        src = Path(str(source)).resolve()
+        runs_root = Path(self.manager.runs_dir).resolve()
+        if runs_root not in src.parents:
+            raise ValueError("workspace_copy_from 必须位于 runs 目录之下")
+        dest = self.run_dir / "workspace"
+        if dest.exists() and any(dest.iterdir()):
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+        baseline = snapshot_hashes(dest)
+        (self.run_dir / "workspace_baseline.json").write_text(
+            json.dumps(baseline, ensure_ascii=False), encoding="utf-8",
+        )
+
     def _build_world(self):
         kwargs = {}
         if self.general:
+            self._seed_workspace_copy()
             self.sandbox = self.rt.WorkspaceSandbox(self.run_dir / "workspace")
             project_spec = (self.run.spec or {}).get("project")
             if project_spec:

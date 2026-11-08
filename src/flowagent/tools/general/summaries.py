@@ -221,3 +221,24 @@ def summarize_budget_extension(result: dict[str, Any]) -> dict[str, Any]:
         "max_calls": limits.get("max_calls"),
         "max_cost_microusd": limits.get("max_cost_microusd"),
     }
+
+
+def summarize_apply_child_changes(result: dict[str, Any]) -> dict[str, Any]:
+    """应用结果按文件清单回传：落地的、冲突的、拒绝的都要在观察里。"""
+    def _names(rows: Any) -> list[str]:
+        out: list[str] = []
+        for row in rows or []:
+            if isinstance(row, str):
+                out.append(row)
+            elif isinstance(row, dict) and row.get("path"):
+                out.append(str(row["path"]))
+        return out[:20]
+
+    return {
+        "child_run_id": str(result.get("child_run_id") or ""),
+        "applied": _names(result.get("applied")),
+        "conflicts": _names(result.get("conflicts")),
+        "refused": [row for row in (result.get("refused") or [])][:10],
+        "deleted_reported": _names(result.get("deleted_reported")),
+        "unchanged_count": len(result.get("unchanged") or []),
+    }
