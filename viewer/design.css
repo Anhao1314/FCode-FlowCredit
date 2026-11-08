@@ -2886,3 +2886,16 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   transition: color .15s ease, border-color .15s ease;
 }
 .gov-repair:hover { color: var(--text-1); border-color: var(--text-3); }
+
+
+/* 治理台命令提示条:三枚安静的等宽 chip,点击只填充不执行——
+   教界面而不写说明书。零模型控制台的输入只有命令。 */
+.gov-start { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; }
+.gov-cmd {
+  border: 1px solid var(--line); border-radius: 7px; background: none;
+  padding: 5px 10px; cursor: pointer; color: var(--text-2);
+  font: 12px var(--font-mono); transition: color .15s ease, border-color .15s ease;
+}
+.gov-cmd:hover { color: var(--text-1); border-color: var(--text-3); }
+.gov-cmd-key { color: var(--text-1); font-weight: 550; }
+.gov-cmd-arg { color: var(--text-3); }

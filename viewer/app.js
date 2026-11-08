@@ -10,6 +10,7 @@ import { connectionPresentation, initialConnection, reduceConnection } from "./c
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
 import { composerMode } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
+import { filterSlashCommands } from "./core/slash-scope.js";
 import { findingsCardHtml, chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
@@ -369,6 +370,38 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
 }
 
+/* 治理视图的 composer 瘦身（零模型承诺要看得见）：
+   隐藏模型徽章 / 审批按钮 / 附件按钮,placeholder 换成治理命令用法。
+   离开治理视图时只恢复模型徽章——审批/附件由 paintChatChrome 按语境
+   统一恢复(chat 隐藏、其余显示),避免两个画家互相打架。 */
+const GOV_PLACEHOLDER = "输入治理命令：/挖洞 <target> · /判断 · /链 <audit_id>";
+
+function paintGovChrome(gov) {
+  const modelBtn = document.getElementById("model-btn");
+  const apvBtn = document.getElementById("approval-btn");
+  const plusBtn = document.getElementById("composer-open");
+  const attach = document.getElementById("chat-attach");
+  const ta = document.getElementById("composer-ta");
+  if (gov) {
+    for (const el of [modelBtn, apvBtn, plusBtn]) if (el) el.style.display = "none";
+    if (attach) attach.hidden = true;
+    if (ta) {
+      if (ta.dataset.govPlaceholder !== "1") {
+        ta.dataset.prevPlaceholder = ta.placeholder;
+        ta.dataset.govPlaceholder = "1";
+      }
+      ta.placeholder = GOV_PLACEHOLDER;
+    }
+    return;
+  }
+  if (modelBtn) modelBtn.style.display = "";
+  if (ta && ta.dataset.govPlaceholder === "1") {
+    ta.placeholder = ta.dataset.prevPlaceholder || "给 FCode 发消息…";
+    delete ta.dataset.govPlaceholder;
+    delete ta.dataset.prevPlaceholder;
+  }
+}
+
 /* 主区视图入口：只有导航动作走这里；各渲染函数是具体实现。 */
 const MODE_ENTRY = {
   run: payload => render(payload.trace, payload.title),
@@ -403,7 +436,9 @@ function renderMode(mode, payload = {}) {
   const entry = MODE_ENTRY[mode];
   if (!entry) throw new Error(`unknown view mode: ${mode}`);
   store.mode = mode;
-  return entry(payload);
+  const result = entry(payload);
+  paintGovChrome(mode === "gov");
+  return result;
 }
 
 const runLabel = run => run.name || shortObjective(run.objective);
@@ -2462,7 +2497,9 @@ function updateSlashMenu() {
   // 只按命令词匹配（输入 /remember 一句话 时菜单保持开启）——
   // 此前用整段输入匹配，参数一打菜单就关，Enter 会把命令当普通消息发出
   const word = value.slice(1).trim().toLowerCase().split(/\s+/)[0] || "";
-  slashItems = SLASH_COMMANDS.filter(c =>
+  // 治理视图只列治理命令(零模型控制台:委托/记忆类命令在这里没有语义)
+  const govView = document.getElementById("main")?.dataset.view === "gov";
+  slashItems = filterSlashCommands(SLASH_COMMANDS, { gov: govView }).filter(c =>
     c.cmd.slice(1).startsWith(word) || c.desc.toLowerCase().includes(word));
   if (!slashItems.length) { menu.hidden = true; return; }
   slashIndex = Math.min(slashIndex, slashItems.length - 1);
@@ -2649,6 +2686,11 @@ async function renderGov() {
       <p class="eyebrow">GOVERNANCE CONSOLE</p>
       <h1 class="page-title">治理台</h1>
       <p class="page-meta">挖洞、判断、链——都以命令与卡片进行。模型不进环：审计证据由离线确定性管线产出，操作员处置直接落签名链。</p>
+    </div>
+    <div class="gov-start" aria-label="治理命令">
+      <button class="gov-cmd" type="button" data-gov-fill="/挖洞 "><span class="gov-cmd-key">/挖洞</span> <span class="gov-cmd-arg">&lt;target&gt;</span></button>
+      <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
+      <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
     </div>
     <div class="gov-stream" id="gov-stream">
       <div id="gov-cards"></div>
@@ -3291,6 +3333,17 @@ function bindGlobalActions() {
       const dir = govHist.dataset.govHist;
       if (dir && location.hash === "#/audit/" + dir) renderMode("audit");
       else if (dir) location.hash = "#/audit/" + dir;
+      return;
+    }
+    // 治理命令提示条:填充命令词(等操作员补参数后按 ↵),不直接执行
+    const govFill = event.target.closest("[data-gov-fill]");
+    if (govFill) {
+      const ta = document.getElementById("composer-ta");
+      if (ta) {
+        ta.value = govFill.dataset.govFill;
+        autosize(ta);
+        ta.focus();
+      }
       return;
     }
     // S1 修洞闭环:发现 → Work 委托(目标带发现上下文,验证目标由操作员在确认页补)
