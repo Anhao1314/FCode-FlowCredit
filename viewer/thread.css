@@ -191,24 +191,26 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
 /* 对话：操作按钮 12/18；行内码与正文同字号（Kimi markdown-InlineCode 16/26） */
 .chat-act { font-size: 12px; line-height: 18px; }
 
-/* 思考强度 = Kimi 规格行：label 14/20 + 右侧档位胶囊 28/r8 */
+/* 思考强度 = 极简文字档位（ZCode 风格）：label 与档位同行，active 只加重不加底。
+   本块是唯一规则源——design.css 的重复副本已删，避免双源级联分歧。 */
 .model-effort {
+  display: flex; align-items: center; gap: 8px;
   margin: 4px 0 2px; padding: 8px 10px;
   border: 0; border-radius: 8px; background: #F5F5F5;
 }
 .me-head {
-  font: 500 14px/20px var(--font-ui);
+  flex: none; font: 500 14px/20px var(--font-ui);
   letter-spacing: 0; text-transform: none; color: var(--text-1);
 }
+.me-opts { display: flex; gap: 2px; align-items: center; }
 .me-opt {
-  min-width: 40px; height: 28px; padding: 0 10px;
-  border: 0; border-radius: 8px; background: rgba(0, 0, 0, .04);
-  color: var(--text-2); font-size: 12px; line-height: 18px;
-  transition: background-color .15s, color .15s;
+  border: none; background: none; color: var(--text-3);
+  font-size: 12px; line-height: 18px; padding: 2px 8px;
+  cursor: pointer; border-radius: 4px;
+  transition: color .15s ease;
 }
-.me-opt:hover { background: rgba(0, 0, 0, .08); color: var(--text-1); border-color: transparent; }
-.me-opt.active { background: #000000; border-color: transparent; color: #FFFFFF; font-weight: 500; }
-.me-note { font-size: 12px; line-height: 18px; }
+.me-opt:hover { color: var(--text-1); }
+.me-opt.active { color: var(--text-1); font-weight: 600; }
 
 /* toast = 深色胶囊已收编 design.css「toast」节（生效值 #2B2B2B + workspace 的 r10/13px）。 */
 

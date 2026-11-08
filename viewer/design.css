@@ -697,33 +697,8 @@ details.raw pre {
 .model-item.disabled { opacity: .55; cursor: default; }
 .model-item.disabled:hover { background: none; }
 #model-btn.readonly { opacity: .8; cursor: default; }
-.model-effort {
-  display: flex; align-items: center; gap: 8px;
-  margin: 4px 6px 2px; padding: 7px 9px;
-  border: 1px solid var(--line); border-radius: 7px; background: var(--inset);
-}
-.me-head {
-  flex: none; font: 600 10px var(--font-mono); letter-spacing: .08em;
-  text-transform: uppercase; color: var(--text-3);
-}
-.me-opts {
-  display: flex; gap: 0; position: relative;
-  border: 1px solid var(--line); border-radius: var(--radius-pill);
-  background: var(--inset); overflow: hidden;
-}
-.me-opt {
-  flex: 1; min-width: 48px; border: none; border-radius: 0;
-  background: none; color: var(--text-3); font-size: 11px; padding: 4px 12px;
-  cursor: pointer; position: relative; z-index: 1;
-  transition: color var(--t) ease;
-}
-.me-opt + .me-opt { border-left: 1px solid var(--line); }
-.me-opt:hover { color: var(--text-1); }
-.me-opt.active {
-  background: var(--text-1); color: var(--canvas); font-weight: 600;
-  border-radius: var(--radius-pill);
-}
-.me-note { display: none; }
+/* 思考强度（.model-effort/.me-*）唯一规则源在 thread.css——这里曾有一份
+   重复副本，被后加载的 thread.css 压住造成"改了不生效"，已删。 */
 
 .empty { color: var(--text-3); padding: 72px 0; text-align: center; line-height: 2; font-size: var(--fs-3); }
 .empty code {
@@ -2784,7 +2759,6 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 #model-menu .tpl-item .t { white-space: nowrap; }
 #model-menu .tpl-item .m { max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
 #model-menu .model-item .check { color: var(--accent); }
-#model-menu .model-effort { border: 0; border-radius: 8px; background: #F5F5F5; }
 
 /* 会话标签条在隐藏时仍被 CSS 拉成 flex（1040×7 的透明带），会盖住向上展开的
    浮窗顶部。与其逐个修浮窗，不如让 [hidden] 真的消失。 */
