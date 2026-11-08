@@ -374,7 +374,7 @@ export function createComposerPanel(deps) {
       <div class="me-opts">${d.EFFORT_LEVELS.map(level =>
         `<button class="me-opt${modelChoice.key === effortHost.key && modelChoice.effort === level ? " active" : ""}" data-effort-pick="${level}">${d.EFFORT_LABEL[level]}</button>`
       ).join("")}</div>
-      <span class="me-note">不选 = 用 provider 默认档（Kimi 为低）；选了就按档位发送</span>
+  
     </div>` : "";
     menu.innerHTML = items + effortBlock + `<div class="tpl-note">模型由操作者选择；门控 / 预算 / 审计对任何模型同等生效</div>`;
     if (!menu.hidden) placeModelMenu();
