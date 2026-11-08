@@ -164,3 +164,96 @@ class VibeAuditIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# ---------------------------------------------------------------- VIBE-06 / 复杂度
+
+CYCLE_A = '''from helpers_b import helper_b
+
+def entry():
+    return helper_b()
+'''
+
+CYCLE_B = '''from helpers_a import entry
+
+def helper_b():
+    return entry()
+'''
+
+COMPLEX_FUNC = "def tangled(x):\n" + "".join(
+    f"    if x == {i}:\n        x += {i}\n" for i in range(20)
+) + "    return x\n"
+
+
+class ImportCycleAndComplexityTest(unittest.TestCase):
+    def test_import_cycles_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "helpers_a.py").write_text(CYCLE_A, encoding="utf-8")
+            (root / "helpers_b.py").write_text(CYCLE_B, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(len(facts["import_cycles"]), 1)
+        cycle = facts["import_cycles"][0]
+        self.assertEqual(cycle["cycle"], ["helpers_a.py", "helpers_b.py"])
+        self.assertEqual(cycle["size"], 2)
+        self.assertTrue(cycle["edges"], "环内边要带行号作证据")
+
+    def test_no_cycle_for_dag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.py").write_text("from b import f\n", encoding="utf-8")
+            (root / "b.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["import_cycles"], [])
+
+    def test_relative_imports_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "pkg").mkdir()
+            (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "pkg" / "x.py").write_text("from . import y\n", encoding="utf-8")
+            (root / "pkg" / "y.py").write_text("from . import x\n", encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(len(facts["import_cycles"]), 1)
+        self.assertEqual(facts["import_cycles"][0]["cycle"], ["pkg/x.py", "pkg/y.py"])
+
+    def test_complex_function_flagged_above_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "logic.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            facts = scan_code_quality(root)
+        rows = facts["complex_functions"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["function"], "tangled")
+        self.assertGreater(rows[0]["complexity"], 15)
+
+    def test_simple_function_not_flagged_and_tests_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "simple.py").write_text("def f(x):\n    return x + 1\n", encoding="utf-8")
+            (root / "test_big.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["complex_functions"], [], "测试文件的复杂度不算生产债")
+
+    def test_new_rules_match_facts_and_controls_zeroed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "target"
+            target.mkdir()
+            (target / "helpers_a.py").write_text(CYCLE_A, encoding="utf-8")
+            (target / "helpers_b.py").write_text(CYCLE_B, encoding="utf-8")
+            (target / "logic.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            out = pathlib.Path(tmp) / "bundle"
+            rc = cli.main(["audit", str(target), "--out", str(out),
+                           "--operator", "ci-test"])
+            self.assertEqual(rc, 0)
+            bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
+            groups = {f["root_cause_group"] for f in bundle["findings"]}
+            self.assertIn("import-cycle", groups)
+            self.assertIn("complex-function", groups)
+            for finding in bundle["findings"]:
+                if finding["root_cause_group"] not in ("import-cycle", "complex-function"):
+                    continue
+                record = json.loads(
+                    (out / f"{finding['poc_refs'][0]}.json").read_text(encoding="utf-8"))
+                self.assertEqual(record["replay"]["outcome"], "finding")
+                self.assertEqual(record["negative_control"]["result"], "as_expected",
+                                 f"{record['rule_id']} 的负对照必须 as_expected")

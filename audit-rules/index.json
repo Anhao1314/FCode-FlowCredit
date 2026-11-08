@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "rules": [
     {
       "id": "RULE-AGI02-001",
@@ -1252,6 +1252,134 @@
       "references": [
         "docs/integration-rea.md#rules",
         "docs/audit-methodology.md"
+      ]
+    },
+    {
+      "id": "RULE-VIBE06-001",
+      "status": "active",
+      "category": "VIBE-06",
+      "severity": "medium",
+      "title": "Import cycle between modules (architectural tangle)",
+      "root_cause_group": "import-cycle",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.import_cycles",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects import-cycle SCCs",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty import_cycles; each row names a strongly connected module set"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.import_cycles"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.import_cycles"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no rows for this selector"
+        },
+        "negative_control": {
+          "spec": "zeroed facts must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
+      ]
+    },
+    {
+      "id": "RULE-VIBE01-003",
+      "status": "active",
+      "category": "VIBE-01",
+      "severity": "medium",
+      "title": "Function complexity exceeds quality threshold",
+      "root_cause_group": "complex-function",
+      "trigger": {
+        "type": "rea",
+        "operation": "host",
+        "selector": "vibe_scan.complex_functions",
+        "predicate": {
+          "count_gt": 0
+        }
+      },
+      "poc": {
+        "scenario": "rea_fact_evidence",
+        "stimulus": "host re-reads the pinned code-quality facts and selects complex-function rows",
+        "capabilities": [
+          {
+            "kind": "filesystem_read",
+            "scope": "pinned REA facts snapshot",
+            "granted": true
+          },
+          {
+            "kind": "network",
+            "scope": "none",
+            "granted": false
+          },
+          {
+            "kind": "credentials",
+            "scope": "none",
+            "granted": false
+          }
+        ],
+        "oracle": {
+          "kind": "host_decision",
+          "spec": "the host selects non-empty complex_functions; each row names a function above the cyclomatic threshold"
+        },
+        "threshold": "1/1 (deterministic fact)",
+        "probe_params": {
+          "mode": "probe",
+          "facts_path": "facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.complex_functions"
+        },
+        "control_params": {
+          "mode": "control",
+          "facts_path": "control-facts.json",
+          "operation": "host",
+          "selector": "vibe_scan.complex_functions"
+        },
+        "control_oracle": {
+          "kind": "host_decision",
+          "spec": "the control projection has no rows for this selector"
+        },
+        "negative_control": {
+          "spec": "zeroed facts must not produce a finding"
+        }
+      },
+      "references": [
+        "docs/integration-rea.md#rules"
       ]
     }
   ]

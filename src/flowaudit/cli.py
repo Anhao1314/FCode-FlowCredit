@@ -151,7 +151,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         # 负对照：把每类 VIBE 事实清零——oracle 若"总是报"会在这里露馅。
         for key in ("god_files", "todo_hotspots", "literal_sprawl",
                     "constant_conflicts", "duplicate_functions",
-                    "placeholder_stubs", "ai_residue"):
+                    "placeholder_stubs", "ai_residue",
+                    "import_cycles", "complex_functions"):
             neutralized[key] = []
         for issue in neutralized.get("issue_files", []):
             if isinstance(issue, dict) and "issues" in issue:

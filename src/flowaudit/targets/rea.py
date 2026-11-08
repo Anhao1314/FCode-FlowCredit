@@ -317,7 +317,8 @@ def _neutralise(facts: dict[str, Any]) -> dict[str, Any]:
     if isinstance(vibe, dict):
         for key in ("god_files", "todo_hotspots", "literal_sprawl",
                     "constant_conflicts", "duplicate_functions",
-                    "placeholder_stubs", "ai_residue"):
+                    "placeholder_stubs", "ai_residue",
+                    "import_cycles", "complex_functions"):
             vibe[key] = []
         for issue in vibe.get("issue_files") or []:
             if isinstance(issue, dict) and isinstance(issue.get("issues"), dict):
