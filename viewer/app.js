@@ -36,7 +36,7 @@ import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
 import { chatMessageHtml } from "./core/chat-view.js";
-import { aiAvatarHtml } from "./core/ai-avatar.js";
+import { aiAvatarHtml, userAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
@@ -2569,11 +2569,23 @@ const govFindings = new Map(); // audit_dir → {findings, target, profile}（G2
 const govRespCards = []; // G3 命令响应卡快照(新在前,会话内存,重启即失)
 let govPollTimer = null;
 
+/* 治理对话流的条目包装:操作员动作右对齐回显(用户头像),控制台响应
+   左侧印章头像 + 卡片体。零模型不等于没有"对话感"——只是另一侧是控制台。 */
+function govEntryHtml(role, bodyHtml) {
+  if (!bodyHtml) return "";
+  if (role === "user") {
+    return `<div class="gov-entry user"><span class="gov-echo">${bodyHtml}</span>${userAvatarHtml(28)}</div>`;
+  }
+  return `<div class="gov-entry console">${aiAvatarHtml("idle", 28)}<div class="gov-entry-body">${bodyHtml}</div></div>`;
+}
+
 /* G3:命令响应卡落到治理台卡流顶部。快照语义——卡片记录命令时刻的
-   服务端事实,重进治理台仍在;最新事实以审计台为准。 */
-function pushGovRespCard(html) {
+   服务端事实,重进治理台仍在;最新事实以审计台为准。
+   echoText:操作员侧的回显(命令或动作),让每条响应有"谁发起的"。 */
+function pushGovRespCard(html, echoText) {
   if (!html) return;
-  govRespCards.unshift(html);
+  const entry = (echoText ? govEntryHtml("user", esc(echoText)) : "") + govEntryHtml("console", html);
+  govRespCards.unshift(entry);
   if (govRespCards.length > 6) govRespCards.length = 6;
   paintGovCards();
 }
@@ -2593,7 +2605,7 @@ async function openGovRecord(dir) {
       target: (bundle.target || {}).identity || "",
       profile: (bundle.target || {}).profile || "",
     });
-    pushGovRespCard(govFindingsCard(dir));
+    pushGovRespCard(govFindingsCard(dir), `打开记录 ${dir}`);
   } catch (error) {
     toast("打开审计记录失败：" + error.message);
   }
@@ -2615,7 +2627,7 @@ function showGovChain(dir) {
       const r = await fetch("/api/audit/chain/" + encodeURIComponent(d), { cache: "no-store" });
       const chain = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(chain.error || `HTTP ${r.status}`);
-      pushGovRespCard(chainCardHtml(d, chain));
+      pushGovRespCard(chainCardHtml(d, chain), `/链 ${d}`);
     } catch (error) {
       toast("链查询失败：" + error.message);
     }
@@ -2629,7 +2641,7 @@ function showGovJudgments() {
       const r = await fetch("/api/review-profile", { cache: "no-store" });
       const profile = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(profile.error || `HTTP ${r.status}`);
-      pushGovRespCard(judgmentsCardHtml(profile));
+      pushGovRespCard(judgmentsCardHtml(profile), "/判断");
     } catch (error) {
       toast("判断汇总失败：" + error.message);
     }
@@ -2653,14 +2665,6 @@ function govJobCardHtml(job) {
   </div>`;
 }
 
-function govBundleCard(bundle) {
-  return `<div class="wcard govcard" data-thread-item="govcard">
-    <div class="wcard-head"><span class="wcard-icon" data-doodle="shield-check"></span>
-      <b class="wcard-title">${esc(bundle.audit_id || bundle.dir)}</b>
-      <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(bundle.dir)}" title="在审计台查看证据与处置">查看证据 →</button></div>
-    <div class="wcard-meta">${esc(bundle.target || "（未知目标）")} · ${num(bundle.findings || 0)} 发现 · ${num(bundle.evidence || 0)} 证据${bundle.rea_evidence ? " · REA " + num(bundle.rea_evidence) : ""}</div>
-  </div>`;
-}
 
 function paintGovStream() {
   // 只重绘作业段——bundle 段由 renderGov 异步填充，轮询重绘整段会把它
@@ -2669,11 +2673,12 @@ function paintGovStream() {
   if (!host) return;
   const jobCards = [...govJobs.values()]
     .sort((a, b) => String(b.job_id).localeCompare(String(a.job_id)))
-    .map(job => govJobCardHtml(job)
+    .map(job => (job.echo ? govEntryHtml("user", esc(job.echo)) : "")
       // G2:作业完成的后面跟一张发现处置卡（内存投影有数据才渲染）
-      + (job.status === "done" && job.audit_id && govFindings.get(job.audit_id)
-        ? govFindingsCard(job.audit_id)
-        : ""))
+      + govEntryHtml("console", govJobCardHtml(job)
+        + (job.status === "done" && job.audit_id && govFindings.get(job.audit_id)
+          ? govFindingsCard(job.audit_id)
+          : "")))
     .join("");
   host.innerHTML = jobCards;
   if (document.querySelector(".main")) hydrateDoodles(host);
@@ -2719,7 +2724,7 @@ async function renderGov() {
     <div class="gov-stream" id="gov-stream">
       <div id="gov-cards"></div>
       <div id="gov-jobs"></div>
-      <div id="gov-bundles"><div class="gov-loading dim">读取审计 bundle…</div></div>
+      <div id="gov-empty" hidden><div class="gov-hint dim">还没有审计记录——输入 /挖洞 &lt;target&gt; 发起第一次。</div></div>
     </div>`, { mode: "gov" });
   paintGovCards();
   paintGovStream();
@@ -2730,17 +2735,15 @@ async function renderGov() {
     if (epoch !== viewGate.sequence) return;
     const bundles = (data.bundles || [])
       .slice()
-      .sort((a, b) => String(b.dir).localeCompare(String(a.dir)))
-      .slice(0, 6);
-    // G2:最新一份 bundle 预取发现——刷新后治理台仍能直接处置最近一次挖洞
-    if (bundles[0]) await loadGovFindings(bundles[0].dir);
-    if (epoch !== viewGate.sequence) return;
-    const host = document.getElementById("gov-bundles");
-    if (host) host.innerHTML = bundles.length
-      ? bundles.map(govBundleCard).join("")
-        + (govFindings.get(bundles[0].dir) ? govFindingsCard(bundles[0].dir) : "")
-      : '<div class="wcard-empty">还没有审计记录——/挖洞 <target> 发起第一次。</div>';
-    if (document.querySelector(".main")) hydrateDoodles(host);
+      .sort((a, b) => String(b.dir).localeCompare(String(a.dir)));
+    // 首进且对话流为空:把最新一条记录作为控制台陈述载入（无操作员回显）
+    if (bundles[0] && !govRespCards.length && !govJobs.size) {
+      await loadGovFindings(bundles[0].dir);
+      if (epoch !== viewGate.sequence) return;
+      if (govFindings.get(bundles[0].dir)) pushGovRespCard(govFindingsCard(bundles[0].dir));
+    }
+    const empty = document.getElementById("gov-empty");
+    if (empty) empty.hidden = !!(govRespCards.length || govJobs.size || bundles.length);
   } catch { /* 网络抖动：保留加载态，下次进入重取 */ }
   scheduleGovPoll();
 }
@@ -2784,7 +2787,7 @@ function startGovAudit(target) {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
+      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running", echo: `/挖洞 ${t}` });
       renderMode("gov");
       toast("挖洞作业已发起 · 治理台跟踪进度");
       scheduleGovPoll();

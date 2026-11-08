@@ -2899,3 +2899,18 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-cmd:hover { color: var(--text-1); border-color: var(--text-3); }
 .gov-cmd-key { color: var(--text-1); font-weight: 550; }
 .gov-cmd-arg { color: var(--text-3); }
+
+
+/* 治理对话流的头像语义：操作员动作右对齐回显（用户头像），控制台响应
+   左侧印章头像 + 卡片体——零模型的对话也要有"谁在说"。 */
+.gov-entry { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.gov-entry + .gov-entry { margin-top: 10px; }
+.gov-entry .ai-avatar, .gov-entry .chat-user-avatar { flex: none; }
+.gov-entry-body { flex: 1; min-width: 0; }
+.gov-entry.user { justify-content: flex-end; }
+.gov-echo {
+  max-width: 78%; padding: 7px 12px; border-radius: 12px 12px 4px 12px;
+  background: var(--raised); color: var(--text-2);
+  font: 12.5px/20px var(--font-mono); overflow-wrap: anywhere;
+}
+.gov-hint { padding: 18px 2px; font-size: 13px; }

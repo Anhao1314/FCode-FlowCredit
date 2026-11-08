@@ -471,3 +471,7 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   border-radius: 50%; overflow: hidden;
 }
 .chat-user-avatar svg { display: block; width: 100%; height: 100%; }
+
+
+/* 元数据并入操作行后的行内形态:与按钮同一基线上,不继承块级 margin。 */
+.chat-meta.inline { margin-top: 0; margin-right: 6px; }

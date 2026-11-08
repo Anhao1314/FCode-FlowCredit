@@ -66,10 +66,13 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
   const typing = streaming && !message.text
     ? `<span class="chat-typing" aria-label="正在生成"><i></i><i></i><i></i><i></i><i></i></span>`
     : "";
+  // 元数据并入操作行:每条回答底部只留一条安静碎行(悬停显现),
+  // 不再「思考过程 / 元数据 / 操作」三层竖排。
   const usage = message.usage && message.usage.total_tokens
-    ? `<div class="chat-meta">${num(message.usage.total_tokens)} tokens · ${num(message.usage.cost_microusd)} µUSD${message.receipt_ref ? " · 已签收据" : ""}</div>`
+    ? `<span class="chat-meta inline">${num(message.usage.total_tokens)} tokens · ${num(message.usage.cost_microusd)} µUSD${message.receipt_ref ? " · 已签收据" : ""}</span>`
     : "";
-  const stopped = message.status === "cancelled" ? `<div class="chat-meta">已停止生成</div>` : "";
+  const stopped = message.status === "cancelled"
+    ? `<span class="chat-meta inline">已停止生成</span>` : "";
   // 对话 AI 的头像（core/ai-avatar.js）：状态由这条消息自己决定；
   // 只有锚定的运行真的 succeeded 才换成「已完成」的脸。
   const avatar = aiAvatarHtml(avatarStateFor(message), 28);
@@ -81,7 +84,7 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     : `<div class="chat-md">${renderMarkdown(message.text)}</div>`;
   return `<div class="chat-msg assistant${streaming ? " streaming" : ""}${message.status === "cancelled" ? " cancelled" : ""}" data-msg-id="${id}"${streaming ? ' data-streaming="1"' : ""}>
     <div class="chat-msg-row">${avatar}<div class="chat-blocks">${body}</div></div>
-    ${wait}${typing}${reasoning}${error}${usage}${stopped}${extraHtml}
-    <div class="chat-msg-actions">${actions.join("")}</div>
+    ${wait}${typing}${reasoning}${error}${extraHtml}
+    ${(actions.length || usage || stopped) ? `<div class="chat-msg-actions">${usage}${stopped}${actions.join("")}</div>` : ""}
   </div>`;
 }
