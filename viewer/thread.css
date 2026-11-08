@@ -140,6 +140,15 @@ button.run-chip:hover { border-color: var(--accent); color: var(--text-1); }
 .s-icon { width: 18px; height: 18px; stroke-width: 1.8; }
 .side-new .s-icon, .side-nav .s-icon, .foot-item .s-icon { width: 18px; height: 18px; }
 
+/* S2 两区分组：工作区 / 治理区。标签走 Kimi 分组标题规格（小字号 +
+   Tertiary 色），区与区之间留呼吸；首个组贴住上面的搜索行不加顶距。 */
+.nav-group { margin-top: 10px; }
+.nav-group:first-child { margin-top: 2px; }
+.nav-group-label {
+  font: 500 11px/18px var(--font-ui); letter-spacing: .04em;
+  color: var(--text-3); padding: 0 8px; margin-bottom: 2px;
+}
+
 /* ================================================================ 动效 */
 @keyframes kimiPulse {
   from { opacity: .45; }

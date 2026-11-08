@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  MORE_NAV, SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
-  navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
+  MORE_NAV, NAV_GROUPS, SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
+  groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
   runRowsHtml, statusDotHtml, taskSectionHtml,
 } from "../core/side-nav.js";
 
@@ -45,6 +45,33 @@ test("导航条目的图标与计数按 Kimi 的行结构渲染", () => {
   assert.match(html, /data-doodle="calendar"/);
   assert.match(html, /<span class="side-count">7<\/span>/);
   assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
+});
+
+test("S2 两区分组:工作区与治理区,恰好覆盖全部功能面", () => {
+  // 分组恰好覆盖:每个功能面进且只进一个区,登记遗漏会被兜底渲染暴露
+  const covered = NAV_GROUPS.flatMap(group => group.open);
+  assert.equal(new Set(covered).size, covered.length, "一个功能面不得同时进两个区");
+  assert.deepEqual([...covered].sort(), SIDEBAR_NAV.map(item => item.open).sort());
+  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["工作区", "治理区"]);
+});
+
+test("groupedNavHtml 按区渲染标签与行,计数随行", () => {
+  const html = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, { ledger: 12 });
+  const groups = html.match(/class="nav-group"/g) || [];
+  assert.equal(groups.length, 2);
+  assert.match(html, /<div class="nav-group-label">工作区<\/div>/);
+  assert.match(html, /<div class="nav-group-label">治理区<\/div>/);
+  // 治理区在第二组:审计台的位置要晚于工作区标签
+  assert.ok(html.indexOf("nav-group-label\">工作区") < html.indexOf("data-open=\"audit\""));
+  assert.match(html, /data-open="ledger"[\s\S]*?<span class="side-count">12<\/span>/);
+  assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
+});
+
+test("groupedNavHtml 兜底:未登记进任何区的条目仍渲染,不静默消失", () => {
+  const extra = [...SIDEBAR_NAV, { open: "future", label: "新面", icon: "cube" }];
+  const html = groupedNavHtml(extra, NAV_GROUPS, {});
+  assert.match(html, /data-open="future"/);
+  assert.equal((html.match(/<button/g) || []).length, extra.length);
 });
 
 test("置顶段只在真的置顶过东西时出现，任务行复用运行行", () => {

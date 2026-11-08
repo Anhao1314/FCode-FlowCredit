@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, MORE_NAV, navItemsHtml, pinnedSectionHtml, projectSectionHtml } from "../core/side-nav.js";
+import { SIDEBAR_NAV, MORE_NAV, NAV_GROUPS, groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -21,9 +21,9 @@ export function createSidebar(deps) {
   /* ---------------------------------------------------------------- nav */
 
   function renderSidebarNav() {
-    // 统一侧栏（适配重建）:4 个真实 surface 扁平排布,4 个预留槽位进「更多」。
+    // 统一侧栏（S2 两区）:工作区/治理区两组渲染,4 个预留槽位进「更多」。
     const nav = document.getElementById("side-nav-items");
-    if (nav) nav.innerHTML = navItemsHtml(SIDEBAR_NAV, navCounts);
+    if (nav) nav.innerHTML = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, navCounts);
     const more = document.getElementById("more-nav");
     if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
     paintMoreNav();

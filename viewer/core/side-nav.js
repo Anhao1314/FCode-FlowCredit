@@ -26,8 +26,10 @@ import { esc, num } from "./format.js";
    DOM；四个真实功能面被拆散成「顶部两项 + 更多里两项」，审计台这种一等
    公民还藏在二级菜单里。重建后只有一套名单：
 
-   - SIDEBAR_NAV：4 个真实功能面，扁平排布 —— 第一眼全部可点，不做折叠。
-     顺序：审计台打头（统一壳的最新入口），其余按日常频率（看板/判断/定时）。
+   - SIDEBAR_NAV：4 个真实功能面 —— 第一眼全部可点，不做折叠。S2 起按
+     两区分组渲染（NAV_GROUPS）：工作区（看板·账本/定时任务）与治理区
+     （审计台/判断记录）；对话（hero 新对话按钮 + 对话/任务段）按用户的
+     两区决定划入工作区语境，不设独立对话分组。
    - MORE_NAV：4 个 Kimi Work 预留槽位，收进「更多」二级区（默认收起），
      各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注的预留槽位
      页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
@@ -68,6 +70,35 @@ export function reservedSlots() {
     if (item.reserved) out[item.open] = item;
   }
   return out;
+}
+
+/* S2 两区分组：工作区（做与看）与治理区（审与判）。对话按用户的两区决定
+   划入工作区语境——hero「新对话」按钮与对话/任务段在 nav 之外，天然属
+   工作区，不设对话分组。账本暂随工作区（它是运行的流水；挪治理区 =
+   挪一行数组）。分组必须恰好覆盖 SIDEBAR_NAV，未覆盖的条目兜底渲染在
+   末尾，避免加导航项忘了登记时按钮静默消失。 */
+export const NAV_GROUPS = [
+  { label: "工作区", open: ["ledger", "scheduled"] },
+  { label: "治理区", open: ["audit", "reviews"] },
+];
+
+export function groupedNavHtml(items, groups, counts) {
+  const byKey = {};
+  for (const item of items || []) byKey[item.open] = item;
+  const seen = counts || {};
+  const covered = new Set();
+  const html = (groups || []).map(function (group) {
+    const rows = (group.open || []).map(function (key) {
+      const item = byKey[key];
+      if (!item) return "";
+      covered.add(key);
+      return navItemsHtml([item], seen);
+    }).join("");
+    if (!rows) return "";
+    return '<div class="nav-group"><div class="nav-group-label">' + esc(group.label) + "</div>" + rows + "</div>";
+  }).join("");
+  const rest = (items || []).filter(function (item) { return !covered.has(item.open); });
+  return html + navItemsHtml(rest, seen);
 }
 
 /* 行状态点：Kimi 的任务行左侧是状态点（running 转动 / 完成 / 失败）。
