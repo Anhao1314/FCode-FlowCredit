@@ -19,15 +19,25 @@ test("分区历史:Work 显示对话段,Governance 显示审计历史并深链�
   await expect(page.locator("#chat-chats")).toBeHidden();
   await expect(page.locator("#chat-tasks")).toBeHidden();
 
-  // 审计历史行（E2E 仓库自带 bundle）→ 深链进审计台
+  // 审计历史行 → **在治理台对话内打开**（发现卡落卡流，可继续处置/派修复）
   const row = page.locator("#gov-history [data-gov-hist]").first();
   await expect(row).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("#gov-history")).toContainText("审计历史");
   await row.click();
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
+  const recordCard = page.locator("#gov-cards .gov-findings");
+  await expect(recordCard).toBeVisible({ timeout: 10_000 });
+  // 通用断言：处置下拉必须在（首行可能是 artifact 目标，无「派修复」按钮）
+  await expect(recordCard.locator(".gov-disp").first()).toBeVisible();
+
+  // 「查看证据」才进审计台密集视图——且保留治理 composer（零模型 console）
+  await recordCard.locator("[data-gov-open-bundle]").click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "audit");
   await expect(page).toHaveURL(/#\/audit\//);
-  // 审计台属治理区：切换器仍亮 Governance
   await expect(page.locator("body")).toHaveAttribute("data-zone", "gov");
+  await expect(page.locator(".composer-wrap")).toBeVisible();
+  await expect(page.locator("#model-btn")).toBeHidden();
+  await expect(page.locator("#composer-ta")).toHaveAttribute("placeholder", /治理命令/);
 
   // 回 Work：对话段恢复，审计历史隐藏
   await page.locator('#zone-switch [data-zone="work"]').click();

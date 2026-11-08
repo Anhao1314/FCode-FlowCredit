@@ -363,8 +363,10 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   renderProjectComposer();
   // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）不显示输入框
   const composerWrap = document.querySelector(".composer-wrap");
+  // 审计台属治理区:保留治理 composer(零模型 console 在证据页也应可用);
+  // reviews/scheduled/ledger/settings 仍是纯功能页,不显示输入框。
   if (composerWrap) composerWrap.hidden = (mode === "reviews" || mode === "scheduled"
-    || mode === "ledger" || mode === "audit" || mode === "settings");
+    || mode === "ledger" || mode === "settings");
   const scroller = document.querySelector(".main");
   if (scroll === "top" && scroller) scroller.scrollTop = 0;
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -437,7 +439,8 @@ function renderMode(mode, payload = {}) {
   if (!entry) throw new Error(`unknown view mode: ${mode}`);
   store.mode = mode;
   const result = entry(payload);
-  paintGovChrome(mode === "gov");
+  // 治理区两个视图(治理台/审计台)共用零模型 chrome
+  paintGovChrome(mode === "gov" || mode === "audit");
   return result;
 }
 
@@ -1500,7 +1503,7 @@ function composerSubmit() {
   const s = activeSession();
   const mode = composerMode({
     intakeActive: intake.active,
-    govActive: document.getElementById("main")?.dataset.view === "gov",
+    govActive: ["gov", "audit"].includes(document.getElementById("main")?.dataset.view),
     chatActive: chat.active,
     sessionRunning: !!(s && s.running && !s.finished),
   });
@@ -2498,7 +2501,7 @@ function updateSlashMenu() {
   // 此前用整段输入匹配，参数一打菜单就关，Enter 会把命令当普通消息发出
   const word = value.slice(1).trim().toLowerCase().split(/\s+/)[0] || "";
   // 治理视图只列治理命令(零模型控制台:委托/记忆类命令在这里没有语义)
-  const govView = document.getElementById("main")?.dataset.view === "gov";
+  const govView = ["gov", "audit"].includes(document.getElementById("main")?.dataset.view);
   slashItems = filterSlashCommands(SLASH_COMMANDS, { gov: govView }).filter(c =>
     c.cmd.slice(1).startsWith(word) || c.desc.toLowerCase().includes(word));
   if (!slashItems.length) { menu.hidden = true; return; }
@@ -2573,6 +2576,27 @@ function pushGovRespCard(html) {
   govRespCards.unshift(html);
   if (govRespCards.length > 6) govRespCards.length = 6;
   paintGovCards();
+}
+
+/* 治理历史 → 对话内打开记录:拉 bundle 进投影,发现卡落到命令卡区顶部。
+   零发现的 bundle 给出可见提示,不伪造空卡。 */
+async function openGovRecord(dir) {
+  renderMode("gov");
+  try {
+    const r = await fetch("/api/audit/bundle/" + encodeURIComponent(dir), { cache: "no-store" });
+    const bundle = r.ok ? await r.json() : null;
+    if (!bundle || bundle.error) throw new Error((bundle && bundle.error) || `HTTP ${r.status}`);
+    const findings = Array.isArray(bundle.findings) ? bundle.findings : [];
+    if (!findings.length) { toast("该审计没有发现"); return; }
+    govFindings.set(dir, {
+      findings,
+      target: (bundle.target || {}).identity || "",
+      profile: (bundle.target || {}).profile || "",
+    });
+    pushGovRespCard(govFindingsCard(dir));
+  } catch (error) {
+    toast("打开审计记录失败：" + error.message);
+  }
 }
 
 function paintGovCards() {
@@ -3327,12 +3351,11 @@ function bindGlobalActions() {
       else location.hash = "#/audit/" + dir;
       return;
     }
-    // 治理区历史行:同样深链进审计台详情面(Kimi 式分区历史:点记录即打开记录)
+    // 治理区历史行:在治理台对话内打开该记录(发现卡落卡流,可继续处置/
+    // 派修复/重挖)——「查看证据」才是进审计台密集视图的出口。
     const govHist = event.target.closest("[data-gov-hist]");
-    if (govHist) {
-      const dir = govHist.dataset.govHist;
-      if (dir && location.hash === "#/audit/" + dir) renderMode("audit");
-      else if (dir) location.hash = "#/audit/" + dir;
+    if (govHist && govHist.dataset.govHist) {
+      openGovRecord(govHist.dataset.govHist);
       return;
     }
     // 治理命令提示条:填充命令词(等操作员补参数后按 ↵),不直接执行
