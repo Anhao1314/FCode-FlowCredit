@@ -16,6 +16,11 @@ import { toolBlocksHtml } from "./tool-card.js";
 export function chatMessageHtml(message, editingId = null, extraHtml = "") {
   const id = esc(message.id);
   const streaming = message.status === "streaming";
+  /* W1 工作区命令卡：本地消息（不 POST、不进模型上下文），cardHtml 由
+     core/workspace-cards.js 生成（内部已转义，此处不再处理）。 */
+  if (message.role === "wcard") {
+    return `<div class="chat-msg wcard-msg" data-msg-id="${id}">${message.cardHtml || ""}</div>`;
+  }
   if (message.role === "user") {
     if (editingId === message.id) {
       return `<div class="chat-msg user editing" data-msg-id="${id}">

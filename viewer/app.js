@@ -9,6 +9,7 @@ import { resolveModelLabel, traceModelLabel } from "./core/model-label.js";
 import { connectionPresentation, initialConnection, reduceConnection } from "./core/sse-status.js";
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
 import { composerMode } from "./core/composer-mode.js";
+import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -2443,7 +2444,10 @@ const {
 /* Codex 式入口：输入框以 / 开头弹出命令面板，↑↓ 选择，Tab 补全，Enter 执行。 */
 const SLASH_COMMANDS = [
   { cmd: "/new", desc: "新建任务", run: () => startIntake("") },
-  { cmd: "/ledger", desc: "打开工作台账本", run: () => renderMode("ledger") },
+  { cmd: "/账本", desc: "对话内打开工作区账本卡", run: () => pushWorkspaceCard("ledger") },
+  { cmd: "/状态", desc: "对话内查看进行中的运行", run: () => pushWorkspaceCard("status") },
+  { cmd: "/定时", desc: "对话内查看定时任务", run: () => pushWorkspaceCard("scheduled") },
+  { cmd: "/ledger", desc: "打开工作台账本", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/report", desc: "签发当前运行的审计报告", run: () => openReport() },
   { cmd: "/stop", desc: "在轮次边界停止当前运行", run: () => stopRun() },
   { cmd: "/allow", desc: "批准挂起的审批请求", run: () => decideApproval(true) },
@@ -2511,6 +2515,33 @@ function pushHistory(text) {
   while (promptHistory.length > 50) promptHistory.shift();
   try { localStorage.setItem("fa.history", JSON.stringify(promptHistory)); } catch { /* quota */ }
   historyIndex = -1;
+}
+
+/* W1 工作区命令卡：把账本/状态/定时渲染成对话内的本地卡片（role:"wcard"，
+   不 POST、不进模型上下文）。没有打开的线程时回落到对应页面——
+   卡片是对话功能的入口，不是替代页面路由。 */
+async function pushWorkspaceCard(kind) {
+  if (!chat.current) {
+    renderMode(kind === "scheduled" ? "scheduled" : "ledger");
+    return;
+  }
+  try {
+    let cardHtml = "";
+    if (kind === "ledger") {
+      cardHtml = ledgerCardHtml(runHistory, { tplTitle });
+    } else if (kind === "status") {
+      cardHtml = statusCardHtml(runHistory);
+    } else if (kind === "scheduled") {
+      const r = await fetch("/api/schedules", { cache: "no-store" });
+      const data = r.ok ? await r.json() : { schedules: [] };
+      cardHtml = scheduledCardHtml(data.schedules || []);
+    }
+    if (!cardHtml) return;
+    chat.current.messages.push({ id: "wcard-" + Date.now(), role: "wcard", cardHtml });
+    renderChat({ forceBottom: true });
+  } catch (error) {
+    toast("命令卡生成失败：" + error.message);
+  }
 }
 
 /* ================================================================ Chat
@@ -3026,8 +3057,8 @@ function bindGlobalActions() {
       document.getElementById("foot-menu").hidden = true;
       document.getElementById("user-btn")?.setAttribute("aria-expanded", "false");
     }
-    // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器共用 data-open → renderMode 一条路。
-    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open]");
+    // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器 / W1 对话卡跳转共用 data-open → renderMode 一条路。
+    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     // 对话内写工具的逐调用审批（agentic chat）
     const toolAct = event.target.closest("[data-tool-allow], [data-tool-deny], [data-tool-remember]");

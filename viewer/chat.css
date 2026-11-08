@@ -431,3 +431,34 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 .chat-tool-approval { border-top: 2px solid var(--warn); background: rgba(180, 83, 9, .06); padding: 8px 10px 10px; }
 .chat-tool-approval-head { font-size: 12px; font-weight: 550; color: var(--warn); margin-bottom: 6px; }
 .chat-tool-approval-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* ================================================================ W1 工作区命令卡
+   对话内的 /账本 /状态 /定时 卡片（role:"wcard" 本地消息）。块级卡片
+   走阅读列，视觉上与工具卡同族（细边 + 软底 + 等宽元数据）。 */
+.wcard-msg { display: flex; justify-content: center; }
+.wcard {
+  width: min(100%, 560px); margin: 8px 0; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--raised);
+}
+.wcard-head { display: flex; align-items: center; gap: 8px; }
+.wcard-icon svg { width: 16px; height: 16px; display: block; }
+.wcard-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.wcard-jump {
+  margin-left: auto; border: 0; background: none; cursor: pointer;
+  font-size: 11.5px; color: var(--text-3); padding: 2px 4px; border-radius: 6px;
+  transition: color .15s ease;
+}
+.wcard-jump:hover { color: var(--text-1); }
+.wcard-meta { margin-top: 6px; font: 11px/1.6 var(--font-mono); color: var(--text-3); }
+.wcard-rows { margin-top: 4px; }
+.wcard-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 0; border-top: 1px dashed var(--line-soft);
+}
+.wcard-row:first-child { border-top: 0; }
+.wcard-run-label {
+  min-width: 0; flex: 1; font-size: 12.5px; color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wcard-run-meta { flex: none; font: 11px/1.6 var(--font-mono); color: var(--text-3); }
+.wcard-empty { padding: 10px 0 4px; font-size: 12.5px; color: var(--text-3); }
