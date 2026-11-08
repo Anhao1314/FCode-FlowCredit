@@ -41,7 +41,7 @@ export const SIDEBAR_NAV = [
    对话卡锚点与深路由进入。分组必须恰好覆盖 SIDEBAR_NAV，未覆盖的
    条目兜底渲染在末尾，避免加导航项忘了登记时按钮静默消失。 */
 export const NAV_GROUPS = [
-  { label: "治理区", open: ["gov"] },
+  { label: "Governance", open: ["gov"] },
 ];
 
 export function groupedNavHtml(items, groups, counts) {
@@ -69,9 +69,9 @@ export function groupedNavHtml(items, groups, counts) {
    这类路径打断。点击经 data-open 走 renderMode 一条路（着陆到该区主面：
    工作区→账本，治理区→审计台）。 */
 export const ZONES = [
-  { key: "work", label: "工作区", land: "chat", icon: "layout-grid",
-    title: "工作区对话：新对话（/账本 /状态 /定时 命令卡）" },
-  { key: "gov", label: "治理区", land: "gov", icon: "shield-check",
+  { key: "work", label: "Work", land: "chat", icon: "layout-grid",
+    title: "工作对话：新对话（/账本 /状态 /定时 命令卡）" },
+  { key: "gov", label: "Governance", land: "gov", icon: "shield-check",
     title: "治理台挖洞与操作员判断" },
 ];
 

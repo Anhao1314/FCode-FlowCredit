@@ -42,13 +42,13 @@ test("R1 分组:治理区分组恰好覆盖 nav 名单", () => {
   const covered = NAV_GROUPS.flatMap(group => group.open);
   assert.equal(new Set(covered).size, covered.length, "一个功能面不得同时进两个区");
   assert.deepEqual([...covered].sort(), SIDEBAR_NAV.map(item => item.open).sort());
-  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["治理区"]);
+  assert.deepEqual(NAV_GROUPS.map(group => group.label), ["Governance"]);
 });
 
 test("groupedNavHtml 按区渲染标签与行,计数随行(通用能力保持)", () => {
   const html = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, { gov: 3 });
   assert.equal((html.match(/class="nav-group"/g) || []).length, 1);
-  assert.match(html, /<div class="nav-group-label">治理区<\/div>/);
+  assert.match(html, /<div class="nav-group-label">Governance<\/div>/);
   assert.match(html, /data-open="gov"[\s\S]*?<span class="side-count">3<\/span>/);
   assert.equal((html.match(/<button/g) || []).length, SIDEBAR_NAV.length);
 });
