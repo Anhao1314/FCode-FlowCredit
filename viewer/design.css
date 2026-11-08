@@ -2165,16 +2165,6 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .gate-ico .s-icon { width: 14px; height: 14px; }
 .attach-sum .s-icon { width: 15px; height: 15px; color: var(--text-3); }
 
-/* 预留槽位页（Kimi Work 的 4 个未实现槽位）。页面直说"对应什么 / 需要什么 / 现在能做什么"，
-   所以样式照 .sch-honest 的克制路线：事实成行，不装扮成功能。 */
-.slot-facts { margin: 4px 0 18px; border-top: 1px solid var(--line); }
-.slot-row { display: flex; gap: 16px; padding: 12px 2px; border-bottom: 1px solid var(--line); align-items: baseline; }
-.slot-k { flex: 0 0 84px; color: var(--text-3); font-size: 12px; letter-spacing: .04em; }
-.slot-v { flex: 1 1 auto; min-width: 0; color: var(--text-1); font-size: 14px; }
-.slot-go { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.slot-note { margin-left: 10px; color: var(--text-3); font-size: 13px; }
-.slot-why { max-width: var(--reading-w, 768px); color: var(--text-2); font-size: 14px; line-height: 1.7; }
-
 /* Real-project Work: repository context, files and reviewable patch. */
 .project-attach-form { display: grid; gap: 12px; padding: 12px 10px 8px; }
 .project-attach-form label { display: grid; gap: 6px; color: var(--text-2); font-size: 12px; }
@@ -2651,14 +2641,6 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   font: 500 12px/20px var(--font-ui); letter-spacing: .2px;
 }
 .side-new:hover .nav-shortcut { background: rgba(0, 0, 0, .06); }
-#pane-chat #nav-more { width: 100%; }
-#pane-chat #nav-more .chev {
-  margin-left: auto; font-size: 12px; line-height: 1;
-  color: var(--k-label-3); transform: rotate(0deg); transition: transform 140ms var(--ease);
-}
-#pane-chat #nav-more.open .chev { transform: rotate(180deg); }
-.more-nav { padding-left: 0; }
-.more-nav[hidden] { display: none !important; }
 .side-section { display: flex; align-items: center; gap: 6px; }
 .section-title-button {
   flex: 1; min-width: 0; height: 18px; padding: 0; border: 0; background: none;
@@ -2726,14 +2708,6 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 }
 .quickstart-task .smeta { flex: 0 0 auto; }
 .quickstart-header .smeta { flex: 0 0 auto; }
-.nav-item--reserved { color: var(--k-label-2); }
-.nav-item--reserved .nav-reserved {
-  margin-left: auto; flex: 0 0 auto; height: 16px; padding: 0 5px; border-radius: 4px;
-  background: var(--k-fill-1); color: var(--k-label-3);
-  font: 400 10px/16px var(--font-ui); letter-spacing: .02em;
-}
-.nav-item--reserved:hover .nav-reserved { background: var(--k-fill-1-hover); }
-
 /* ================================================================ 菜单与浮层（thread.css 迁移）
    自 thread.css「菜单 / 浮层」段迁入（P0 切片 3）。design.css 上游已有同名
    菜单组件的旧版定义（.tpl-menu/.palette-box/.attach-panel 等），本段落在其后、

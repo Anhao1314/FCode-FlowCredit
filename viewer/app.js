@@ -40,8 +40,8 @@ import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
-  SIDEBAR_NAV, MORE_NAV, chatRowsHtml, chatSectionHtml,
-  navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
+  SIDEBAR_NAV, chatRowsHtml, chatSectionHtml,
+  pinnedSectionHtml, projectSectionHtml, quickStartHtml,
   runRowsHtml,
 } from "./core/side-nav.js";
 /* 审计台 surface:纯渲染模块原样复用,app.js 只加接线不改它(render* 全部留在 audit-view)。 */
@@ -381,52 +381,9 @@ const MODE_ENTRY = {
   gov: () => renderGov(),
   audit: () => renderAudit(),
   scheduled: () => renderScheduledPage(),
-  // Kimi Work 侧的 4 个槽位：结构在侧栏里复刻到位，能力本身没有实现。
-  // 打开的是**明确标注的预留页**，不是伪装成可用的空页。
-  canvas: () => renderReservedPage("canvas"),
-  plugins: () => renderReservedPage("plugins"),
-  remoteControl: () => renderReservedPage("remoteControl"),
-  apps: () => renderReservedPage("apps"),
 };
 
-/* 预留槽位页。Kimi Work 的这 4 个条目在 FCode 里没有对应能力，所以页面直说三件事：
-   它对应 Kimi 的哪一项、落地需要什么、现在能做什么（指向已有的近似能力）。
-   页面文案与侧栏条目同源（reservedSlots()），不在两处各写一遍。 */
-function renderReservedPage(key) {
-  const slot = reservedSlots()[key];
-  if (!slot) throw new Error(`unknown reserved slot: ${key}`);
-  document.getElementById("tb-title").textContent = slot.label;
-  document.getElementById("tb-chips").innerHTML = "";
-  setFoot(slot.label + " · 预留槽位", "");
-  const near = {
-    canvas: ["看板 · 账本", "ledger", "先把这一轮的产物与来源看全"],
-    plugins: ["MCP 桥", "ledger", "工具可以按 mcp.json 导入，但那是工具不是插件"],
-    remoteControl: ["设置 · 安全", "settings", "运行的访问边界目前固定在本机 loopback"],
-    apps: ["设置 · 模型", "settings", "目前只有本地模板与主机声明的兼容端点"],
-  }[key];
-  renderMain(
-    '<section class="page-head"><p class="eyebrow">RESERVED SLOT</p>'
-    + '<h1 class="page-title">' + esc(slot.label) + '</h1>'
-    + '<p class="page-meta">这个位置对应用户界面里 Kimi Work 侧栏的一项，'
-    + 'FCode 保留了这个槽位，但该能力<strong>尚未实现</strong>。它不会假装可用。</p></section>'
-    + '<div class="slot-facts">'
-    + '<div class="slot-row"><span class="slot-k">Kimi 对应</span><span class="slot-v">'
-    + esc(slot.kimi || "—") + '</span></div>'
-    + '<div class="slot-row"><span class="slot-k">落地需要</span><span class="slot-v">'
-    + esc(slot.needs || "—") + '</span></div>'
-    + '<div class="slot-row"><span class="slot-k">现在能做的</span><span class="slot-v">'
-    + '<button class="slot-go" data-open-slot="' + esc(near[1]) + '">' + esc(near[0]) + '</button>'
-    + '<span class="slot-note">' + esc(near[2]) + '</span></span></div>'
-    + '</div>'
-    + '<p class="slot-why">为什么留着它：侧栏是复刻 Kimi Work 的结构，'
-    + '槽位对齐才能一眼看出"哪些是已有的、哪些是还欠的"。'
-    + '把未实现的能力说成已实现，比留一个标好的空位更糟。</p>',
-    { mode: key });
-}
-
 document.addEventListener("click", event => {
-  const jump = event.target.closest("[data-open-slot]");
-  if (jump) renderMode(jump.dataset.openSlot);
   const suggestion = event.target.closest("[data-stage-prompt]");
   if (suggestion) {
     const input = document.getElementById("composer-ta");
@@ -2863,7 +2820,7 @@ const {
 /* 侧栏渲染与外壳交互已抽成独立模块（viewer/app/sidebar.js）。运行行/项目段
    仍在本文件，由 renderNav 通过 deps 编排；置顶状态也留在本文件（chat-ui 需读）。 */
 const {
-  renderNav, renderSidebarNav, paintNavActive, paintMoreNav, setMoreNav, moreOpen,
+  renderNav, renderSidebarNav, paintNavActive,
   renderPinned, renderQuickStart, markQuickStart, dismissQuickStart,
   paintSections, toggleSection, mountShell: mountSidebarShell,
   renderRuns, renderProjects, addProject, createProject, assignRunProject,
@@ -3344,7 +3301,6 @@ function bindGlobalActions() {
       });
       return;
     }
-    if (event.target.closest("#nav-more")) { setMoreNav(!moreOpen()); return; }
     if (event.target.closest("[data-new-task]")) { newTask(); return; }
     if (event.target.closest("[data-proj-add]")) { addProject(event.target.closest("[data-proj-add]")); return; }
     const sectionToggle = event.target.closest("[data-section-toggle]");

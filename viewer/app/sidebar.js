@@ -3,8 +3,8 @@
 /* 侧栏渲染与外壳交互（P2 自 app.js 抽离）。
 
    范围：
-   - 「更多」折叠（fa.sideMore.v2）、段落折叠（fa.sections）
-   - 功能导航渲染（SIDEBAR_NAV/MORE_NAV）与 active 高亮
+   - 段落折叠（fa.sections）
+   - 功能导航渲染（SIDEBAR_NAV）与 active 高亮（预留槽位已整体清理）
    - 置顶段（对话）、首次使用卡（当前收敛为空壳）
    - 三类外壳接线：拖拽调宽 / 滚动遮罩淡入 / 长标题跑马灯
 
@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, MORE_NAV, NAV_GROUPS, groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { SIDEBAR_NAV, NAV_GROUPS, groupedNavHtml, pinnedSectionHtml, projectSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -34,13 +34,10 @@ export function createSidebar(deps) {
   }
 
   function renderSidebarNav() {
-    // 统一侧栏（S2 两区）:工作区/治理区两组渲染,4 个预留槽位进「更多」。
+    // R1 收敛:nav 只剩治理台(两区对话面在 hero 与治理台);预留槽位已清理。
     const nav = document.getElementById("side-nav-items");
     if (nav) nav.innerHTML = groupedNavHtml(SIDEBAR_NAV, NAV_GROUPS, navCounts);
-    const more = document.getElementById("more-nav");
-    if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
     paintZoneSwitch();
-    paintMoreNav();
   }
 
   function paintNavActive() {
@@ -71,32 +68,6 @@ export function createSidebar(deps) {
     if (frame) d.hydrateDoodles(frame);
     // 内容换了但没滚动时，滚动遮罩的显隐也要跟上（否则停在上一轮的判断上）
     paintScrollMasks();
-  }
-
-  /* ------------------------------------------------------------- 更多折叠 */
-
-  /* 只装 4 个预留槽位（kimi.com 的 next-sidebar__more-list 手法）。
-     适配重建后功能面全部提到第一屏;v2 键不继承旧 IA 的持久化状态——旧状态
-     曾被 openLedger/renderAudit 强制写成"展开",按新结构应为默认收起。 */
-  const MORE_KEY = "fa.sideMore.v2";
-
-  function moreOpen() {
-    try { return localStorage.getItem(MORE_KEY) === "1"; } catch { return false; }
-  }
-
-  function paintMoreNav() {
-    const wrap = document.getElementById("more-nav");
-    const toggle = document.getElementById("nav-more");
-    if (!wrap || !toggle) return;
-    const open = moreOpen();
-    wrap.hidden = !open;
-    toggle.setAttribute("aria-expanded", String(open));
-    toggle.classList.toggle("open", open);
-  }
-
-  function setMoreNav(open) {
-    try { localStorage.setItem(MORE_KEY, open ? "1" : "0"); } catch { /* quota */ }
-    paintMoreNav();
   }
 
   /* --------------------------------------------------------------- 置顶 */
@@ -486,7 +457,6 @@ export function createSidebar(deps) {
 
   return {
     renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch,
-    paintMoreNav, setMoreNav, moreOpen,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,
     renderRuns, renderProjects, addProject, createProject, assignRunProject,

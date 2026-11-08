@@ -314,12 +314,6 @@ html.desktop-app .side-new .nav-shortcut {
   font: 500 12px/20px var(--font-ui); letter-spacing: .2px;
 }
 html.desktop-app .side-new:hover .nav-shortcut { background: rgba(0, 0, 0, .06); }
-html.desktop-app #pane-chat #nav-more { width: 100%; }
-html.desktop-app #pane-chat #nav-more .chev {
-  margin-left: auto; font-size: 12px; line-height: 1;
-  color: var(--k-label-3); transform: rotate(0deg); transition: transform 140ms var(--ease);
-}
-html.desktop-app .more-nav { padding-left: 0; }
 html.desktop-app .side-section { display: flex; align-items: center; gap: 6px; }
 html.desktop-app .section-title-button {
   flex: 1; min-width: 0; height: 18px; padding: 0; border: 0; background: none;
@@ -379,13 +373,6 @@ html.desktop-app .quickstart-task-title {
 }
 html.desktop-app .quickstart-task .smeta { flex: 0 0 auto; }
 html.desktop-app .quickstart-header .smeta { flex: 0 0 auto; }
-html.desktop-app .nav-item--reserved { color: var(--k-label-2); }
-html.desktop-app .nav-item--reserved .nav-reserved {
-  margin-left: auto; flex: 0 0 auto; height: 16px; padding: 0 5px; border-radius: 4px;
-  background: var(--k-fill-1); color: var(--k-label-3);
-  font: 400 10px/16px var(--font-ui); letter-spacing: .02em;
-}
-
 /* 行：36 高、内边距 8、gap 6；悬停 F1、选中 F2（v19 定稿值）。
    原规则的选择器列表与死类 .side-desk 混排，死类清理时整条被误删，
    此处按原值补回（切片 2 验收发现的漏网）。 */

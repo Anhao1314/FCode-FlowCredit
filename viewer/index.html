@@ -7,8 +7,8 @@
 <title>FCode · 本机 Agent 工作区</title>
 <link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
 <script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=80">
-<link rel="stylesheet" href="design.css?v=86">
-<link rel="stylesheet" href="desktop.css?v=6">
+<link rel="stylesheet" href="design.css?v=87">
+<link rel="stylesheet" href="desktop.css?v=7">
 <link rel="stylesheet" href="chat.css?v=10">
 <link rel="stylesheet" href="thread.css?v=4">
 </head>
@@ -41,10 +41,10 @@
     <div class="zone-switch seg" id="zone-switch" role="group" aria-label="工作区与治理区"></div>
 
     <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
-         结构：功能导航（4 个真实 surface 扁平排布）→ 更多（4 个预留槽位，
-         默认收起）→ 置顶 → Projects → 对话 → 任务。
-         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达，
-         四个功能面也不再拆散在「顶部两项 + 更多两项」。
+         结构：功能导航（治理台；R1 收敛后账本/定时/判断/审计走深路由与
+         对话卡锚点）→ 置顶 → Projects → 对话 → 任务。
+         预留槽位（原「更多」四项）已按用户要求整体清理——不再留占位。
+         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达。
          折叠区只包"行"（.side-block-inner = Kimi 的 .sidebar-reveal-content），
          段标题留在外面——第一版把标题一起包了进去，折叠后标题被裁掉，
          [data-section-toggle] 点不到，该段再也展不开（浏览器验收抓到的真 bug）。
@@ -53,12 +53,7 @@
       <div class="side-scroll-top-mask"></div>
       <div class="side-nav">
         <nav id="side-nav-items" aria-label="功能导航"></nav>
-        <button class="nav-item" id="nav-more" type="button" aria-expanded="false" aria-controls="more-nav" title="更多（预留槽位）">
-          <span data-doodle="ellipsis"></span><span>更多</span>
-          <span class="chev" aria-hidden="true">▾</span>
-        </button>
       </div>
-      <div class="side-nav more-nav" id="more-nav" hidden></div>
       <div id="chat-pinned"></div>
       <div id="chat-projects"></div>
       <div id="chat-chats"></div>

@@ -133,33 +133,15 @@ function harness(overrides = {}) {
   return { sidebar, els, doc, navItems, state, storage: globalThis.localStorage };
 }
 
-test("renderSidebarNav:R1 收敛后治理台在 nav,四页与 4 个预留槽位各就各位", () => {
+test("renderSidebarNav:R1 收敛后治理台在 nav,四页降级,预留区不再渲染", () => {
   const { sidebar, els } = harness();
   sidebar.renderSidebarNav();
   assert.match(els["side-nav-items"].innerHTML, /data-open="gov"/, "治理台");
   for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
     assert.doesNotMatch(els["side-nav-items"].innerHTML, new RegExp(`data-open="${key}"`), `${key} 已降级为深路由`);
   }
-  for (const key of ["canvas", "plugins", "remoteControl", "apps"]) {
-    assert.match(els["more-nav"].innerHTML, new RegExp(`data-open="${key}"`), key);
-  }
-  // 更多默认收起（v2 键未设）
-  assert.equal(els["more-nav"].hidden, true);
-  assert.equal(els["nav-more"].getAttribute("aria-expanded"), "false");
-});
-
-test("setMoreNav:展开/收起持久化并投影到 DOM", () => {
-  const { sidebar, els, storage } = harness();
-  sidebar.setMoreNav(true);
-  assert.equal(els["more-nav"].hidden, false);
-  assert.equal(els["nav-more"].getAttribute("aria-expanded"), "true");
-  assert.equal(els["nav-more"].classList.contains("open"), true);
-  assert.equal(storage.getItem("fa.sideMore.v2"), "1");
-  assert.equal(sidebar.moreOpen(), true);
-
-  sidebar.setMoreNav(false);
-  assert.equal(els["more-nav"].hidden, true);
-  assert.equal(storage.getItem("fa.sideMore.v2"), "0");
+  // 预留槽位已清理:渲染不再触碰 more-nav 宿主
+  assert.equal(els["more-nav"].innerHTML, "", "more-nav 不再被写入");
 });
 
 test("paintNavActive:普通视图按 data-open 高亮,账本特例只在 run 保留", () => {

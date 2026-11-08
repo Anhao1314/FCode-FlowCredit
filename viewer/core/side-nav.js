@@ -18,54 +18,23 @@
 
 import { esc, num } from "./format.js";
 
-/* 统一侧栏的平坦导航（2026-11 适配重建）。
+/* 统一侧栏的平坦导航（2026-11 适配重建；2026-11-08 预留槽位整体清理）。
 
    历史包袱：桌面版 Kimi 有工作/对话两套 sidebar，FCode 照抄过两份
    （WORK_NAV 进隐藏的 pane-work、CHAT_NAV/CHAT_MORE_NAV 进 pane-chat）。
-   工作模式 2026-11-02 已收敛退役（uiMode 恒为 chat），pane-work 只剩幽灵
-   DOM；四个真实功能面被拆散成「顶部两项 + 更多里两项」，审计台这种一等
-   公民还藏在二级菜单里。重建后只有一套名单：
+   工作模式 2026-11-02 已收敛退役，pane-work 幽灵 DOM 已删。
+   2026-11-08 按用户要求清理「更多」下的 4 个预留槽位——占位页整体移除，
+   侧栏不再承诺任何未实现能力。
 
    - SIDEBAR_NAV：R1 收敛后只剩「治理台」——两区的对话面就是各自的入口，
      工作区对话 = hero「新对话」，治理区对话 = 治理台。审计台/判断记录/
      看板·账本/定时任务降级为**深路由详情面**：从对话卡片的锚点进入
      （/账本 /定时 卡跳账本/定时页，/判断 卡跳判断记录，治理台卡深链
-     #/audit/<dir> 进审计台；顶栏还有审计台快捷入口），不再占导航位。
-   - MORE_NAV：4 个 Kimi Work 预留槽位，收进「更多」二级区（默认收起），
-     各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注的预留槽位
-     页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
-
-   每条都记 kimi 字段：预留页要把"它对应 Kimi 的什么"直接印出来，单一来源。 */
+     #/audit/<dir> 进审计台；顶栏还有审计台快捷入口），不再占导航位。 */
 export const SIDEBAR_NAV = [
   { open: "gov", label: "治理台", icon: "stamp",
     title: "治理对话:/挖洞 发起审计,卡片流看发现与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
 ];
-
-export const MORE_NAV = [
-  { open: "canvas", label: "Canvas", icon: "cube", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 canvas，FCode 尚未实现",
-    kimi: "canvas", needs: "一个可读写的画布对象模型 + 与工作区文件的双向同步" },
-  { open: "plugins", label: "插件", icon: "tool", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 plugins，FCode 尚未实现",
-    kimi: "pluginsHub / pluginDetail",
-    needs: "插件清单、权限声明与安装通道（现有 MCP 桥只覆盖工具导入）" },
-  { open: "remoteControl", label: "远程控制", icon: "link", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 remoteControl，FCode 尚未实现",
-    kimi: "remoteControl", needs: "远程序列与隧道；当前运行全部绑在本机 loopback" },
-  { open: "apps", label: "Apps", icon: "book-open", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 apps(Beta)，FCode 尚未实现",
-    kimi: "apps（Beta）", needs: "第三方应用目录与 OAuth；目前只有本地模板与 MCP" },
-];
-
-/* 预留槽位的索引：open 键 → 条目。页面用它在预留页上印出"对应 Kimi 的什么、
-   落地需要什么"，避免那两句在各处重复。 */
-export function reservedSlots() {
-  const out = {};
-  for (const item of [...SIDEBAR_NAV, ...MORE_NAV]) {
-    if (item.reserved) out[item.open] = item;
-  }
-  return out;
-}
 
 /* R1 收敛后的分组：nav 只剩治理区的对话面「治理台」。工作区没有 nav
    条目——hero「新对话」就是工作区对话入口，账本/定时/判断/审计从
@@ -281,14 +250,10 @@ export function navItemsHtml(items, counts) {
     const tail = count
       ? '<span class="side-count">' + num(count) + "</span>"
       : (item.badge ? '<span class="nav-warn" aria-hidden="true">!</span>' : "");
-    const mark = item.reserved
-      ? '<span class="nav-reserved" aria-hidden="true">预留</span>'
-      : "";
-    return '<button class="nav-item' + (item.reserved ? " nav-item--reserved" : "") + '" type="button" data-open="' + esc(item.open) + '"'
-      + (item.reserved ? ' data-reserved="1"' : "")
+    return '<button class="nav-item" type="button" data-open="' + esc(item.open) + '"'
       + (item.title ? ' title="' + esc(item.title) + '"' : "") + ">"
       + '<span data-doodle="' + esc(item.icon) + '"></span>'
-      + "<span>" + esc(item.label) + "</span>" + mark + tail + "</button>";
+      + "<span>" + esc(item.label) + "</span>" + tail + "</button>";
   }).join("");
 }
 

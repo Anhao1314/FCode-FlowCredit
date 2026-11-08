@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  MORE_NAV, NAV_GROUPS, SIDEBAR_NAV, ZONES, chatRowsHtml, chatSectionHtml,
-  groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml, reservedSlots,
+  NAV_GROUPS, SIDEBAR_NAV, ZONES, chatRowsHtml, chatSectionHtml,
+  groupedNavHtml, navItemsHtml, pinnedSectionHtml, projectSectionHtml, quickStartHtml,
   runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
@@ -13,30 +13,20 @@ test("R1 收敛:nav 只剩治理台,四页降级为深路由详情面", () => {
   assert.equal(SIDEBAR_NAV.length, 1);
   assert.equal(SIDEBAR_NAV[0].open, "gov", "两区对话面之一:治理台");
   assert.match(nav, /data-doodle="stamp"/, "治理台用印章图标");
-  // 四页不再占导航位(卡内锚点与深路由可达),也不得藏进更多
-  const more = navItemsHtml(MORE_NAV, {});
+  // 四页不再占导航位(卡内锚点与深路由可达)
   for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
     assert.equal((nav.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
       `${key} 已降级,不得占导航位`);
-    assert.equal((more.match(new RegExp(`data-open="${key}"`, "g")) || []).length, 0,
-      `${key} 不得藏进更多`);
   }
 });
 
-test("预留槽位带出处与落地条件,全部收进「更多」", () => {
-  const more = navItemsHtml(MORE_NAV, {});
-  const reserved = reservedSlots();
-  assert.deepEqual(Object.keys(reserved).sort(), ["apps", "canvas", "plugins", "remoteControl"]);
-  for (const [key, slot] of Object.entries(reserved)) {
-    assert.ok(slot.kimi, `${key} 要写明对应 Kimi 的哪一项`);
-    assert.ok(slot.needs, `${key} 要写明落地需要什么`);
-    assert.match(more, new RegExp(`data-open="${key}"`), `${key} 要出现在更多里`);
-  }
-  // 可点（不是 disabled）+ 带「预留」标记
-  assert.match(more, /class="nav-item nav-item--reserved" type="button" data-open="canvas" data-reserved="1"/);
-  assert.match(more, /<span class="nav-reserved" aria-hidden="true">预留<\/span>/);
-  assert.equal((more.match(/<button/g) || []).length, 4);
-  assert.equal(MORE_NAV.length, 4);
+test("预留槽位已整体清理:模块不再导出 MORE_NAV/reservedSlots", async () => {
+  const mod = await import("../core/side-nav.js");
+  assert.equal(mod.MORE_NAV, undefined, "MORE_NAV 不再存在");
+  assert.equal(mod.reservedSlots, undefined, "reservedSlots 不再存在");
+  // 行渲染不再产出预留标记/类名(清理后不存在任何 reserved 语义)
+  const html = navItemsHtml(SIDEBAR_NAV, {});
+  assert.doesNotMatch(html, /nav-reserved|nav-item--reserved|data-reserved/);
 });
 
 test("导航条目的图标与计数按 Kimi 的行结构渲染", () => {
