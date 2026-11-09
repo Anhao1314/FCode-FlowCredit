@@ -117,6 +117,19 @@ def post_run_decision(handler, run_id: str):
     if run is None:
         return None
     body = handler._read_body()
+    mgr = handler.manager
+    # LangGraph 引擎：审批挂起时 run 线程已结束（无 live control），
+    # 决策以 Command(resume) 送回挂起的图——必须在 live-control 回退之前分流。
+    if mgr.graph_approval_pending(run):
+        result = mgr.resume_graph_decision(
+            run_id,
+            str(body.get("approvalId") or ""),
+            allow=bool(body.get("allow")),
+            remember=bool(body.get("remember")),
+        )
+        if not result.get("ok"):
+            return handler._json({"error": result.get("error", "resume failed")}, 409)
+        return handler._json({"ok": True})
     control = getattr(run, "controller", None)
     if control is None:
         return handler._json({"error": "run is not waiting for a decision"}, 409)

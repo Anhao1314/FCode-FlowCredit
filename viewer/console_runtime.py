@@ -631,7 +631,8 @@ class RunControl:
             self._publish_queue()
         return self.RoundControl(task=task, plan=plan)
 
-    def before_tool(self, *, round_no: int, task, step: dict, decision):
+    def approval_required(self, *, round_no: int, task, step: dict) -> bool:
+        """before_tool 的判定段（无副作用）：这次调用是否需要操作员决策。"""
         mode = self.run.approval
         tool = step["tool"]
         required = mode == "all" or (mode == "consequential" and tool in self.approval_tools)
@@ -643,18 +644,29 @@ class RunControl:
                     required = False
             except Exception:  # noqa: BLE001 — 分类失败按需要审批处理
                 required = True
-        if not required:
-            return self.ToolControl(task=task, allowed=True)
+        return required
+
+    def prepare_approval(self, *, round_no: int, task, step: dict):
+        """before_tool 的挂起段（无等待）：提交 approval_requested + paused，
+        发布 pending，返回 interrupt() 的载荷。
+
+        remembered 的调用在此记录 approval_granted 并返回 None（直接放行）；
+        无需审批同样返回 None。事件 payload 与 before_tool 逐字节一致——
+        before_tool 现在就是 prepare→wait→apply 的同步组合。"""
+        tool = step["tool"]
+        if not self.approval_required(round_no=round_no, task=task, step=step):
+            return task, None
         if tool in self._remembered:
             task = self.harness.record(
                 task,
                 "approval_granted",
                 {"round": round_no, "tool": tool, "by": "operator-rule", "scope": "run"},
             )
-            return self.ToolControl(task=task, allowed=True)
+            return task, None
 
         if task.status == "planned":
             task = self.harness.transition(task, "running", "execution_started", {})
+        mode = self.run.approval
         approval = {
             "id": f"apv-{round_no}-{uuid.uuid4().hex[:6]}",
             "round": round_no,
@@ -677,44 +689,32 @@ class RunControl:
             self._decision = None
             self._wake.clear()
         self._publish()
+        return task, approval
 
-        deadline = time.monotonic() + self.timeout
-        try:
-            while True:
-                if self.run.stop_requested:
-                    with self._lock:
-                        self._approval = None
-                    self._publish()
-                    task = self.harness.record(
-                        task,
-                        "approval_aborted",
-                        {"round": round_no, "tool": tool, "by": "operator", "code": "STOPPED_BY_OPERATOR"},
-                    )
-                    task = self.harness.transition(
-                        task, "running", "execution_resumed", {"round": round_no}
-                    )
-                    raise StopRequested()
-                if self._wake.wait(0.1):
-                    break
-                if time.monotonic() >= deadline:
-                    with self._lock:
-                        self._decision = {"allow": False, "timeout": True}
-                    break
-        except BaseException:
+    def apply_approval_response(self, *, round_no: int, task, step: dict, response: dict):
+        """before_tool 的收尾段：提交 granted（回 running）/ denied / aborted。
+
+        返回 ``(task, allowed, flag)``；``flag`` 为
+        ``{"stop": True}``（操作员停止）/ ``{"code", "reason"}``（拒绝）/ None（放行）。"""
+        tool = step["tool"]
+        with self._lock:
+            result = dict(response) if response else {"allow": False, "timeout": True}
+            self._approval = None
+        self._publish()
+        if result.get("stop"):
             with self._lock:
                 self._approval = None
             self._publish()
-            if task.status == "paused":
-                task = self.harness.transition(
-                    task, "running", "execution_resumed", {"round": round_no, "reason": "controller interrupted"}
-                )
-            raise
-
-        with self._lock:
-            result = self._decision or {"allow": False, "timeout": True}
-            self._approval = None
-        self._publish()
-        if result["allow"]:
+            task = self.harness.record(
+                task,
+                "approval_aborted",
+                {"round": round_no, "tool": tool, "by": "operator", "code": "STOPPED_BY_OPERATOR"},
+            )
+            task = self.harness.transition(
+                task, "running", "execution_resumed", {"round": round_no}
+            )
+            return task, False, {"stop": True}
+        if result.get("allow"):
             task = self.harness.transition(
                 task,
                 "running",
@@ -729,7 +729,7 @@ class RunControl:
             if result.get("remember"):
                 with self._lock:
                     self._remembered.add(tool)
-            return self.ToolControl(task=task, allowed=True)
+            return task, True, None
 
         code = "APPROVAL_TIMEOUT" if result.get("timeout") else "OPERATOR_DENIED"
         reason = (
@@ -742,7 +742,54 @@ class RunControl:
             "approval_denied",
             {"round": round_no, "tool": tool, "by": "operator", "code": code},
         )
-        return self.ToolControl(task=task, allowed=False, code=code, reason=reason)
+        return task, False, {"code": code, "reason": reason}
+
+    def before_tool(self, *, round_no: int, task, step: dict, decision):
+        if not self.approval_required(round_no=round_no, task=task, step=step):
+            return self.ToolControl(task=task, allowed=True)
+        task, approval = self.prepare_approval(round_no=round_no, task=task, step=step)
+        if approval is None:
+            return self.ToolControl(task=task, allowed=True)
+
+        deadline = time.monotonic() + self.timeout
+        try:
+            while True:
+                if self.run.stop_requested:
+                    task, _allowed, flag = self.apply_approval_response(
+                        round_no=round_no, task=task, step=step,
+                        response={"stop": True},
+                    )
+                    raise StopRequested()
+                if self._wake.wait(0.1):
+                    with self._lock:
+                        result = self._decision or {"allow": False, "timeout": True}
+                    break
+                if time.monotonic() >= deadline:
+                    with self._lock:
+                        self._decision = {"allow": False, "timeout": True}
+                    with self._lock:
+                        result = self._decision or {"allow": False, "timeout": True}
+                    break
+        except BaseException:
+            with self._lock:
+                self._approval = None
+            self._publish()
+            if task.status == "paused":
+                task = self.harness.transition(
+                    task, "running", "execution_resumed", {"round": round_no, "reason": "controller interrupted"}
+                )
+            raise
+
+        task, allowed, flag = self.apply_approval_response(
+            round_no=round_no, task=task, step=step, response=result,
+        )
+        if flag is not None and flag.get("stop"):
+            raise StopRequested()
+        if allowed:
+            return self.ToolControl(task=task, allowed=True)
+        return self.ToolControl(
+            task=task, allowed=False, code=flag["code"], reason=flag["reason"],
+        )
 
     # ------------------------------------------------------------------ private
 

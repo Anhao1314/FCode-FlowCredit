@@ -77,6 +77,9 @@ class RunManager:
             except Exception:  # noqa: BLE001 — memory must never take the console down
                 traceback.print_exc()
         self.chat = None
+        #: LangGraph 引擎的审批挂起会话：run_id → {"driver", "loop"}。
+        #: 挂起时 run 线程已结束；决策端点据此以 Command(resume) 续跑图。
+        self.graph_sessions: dict[str, dict] = {}
         if runtime is not None:
             try:
                 # Chat lives next to the run history (Application Support in the
@@ -613,6 +616,53 @@ class RunManager:
         thread = threading.Thread(target=self._run_thread, args=(run,), name=f"run:{run.id}", daemon=True)
         thread.start()
         return run
+
+    # ----------------------------------------------------- LangGraph 审批恢复
+
+    def graph_approval_pending(self, run: Run) -> bool:
+        """该 run 是否被 LangGraph 引擎在审批处挂起（决策端点的分流依据）。"""
+        return (not run.finished) and run.id in self.graph_sessions
+
+    def resume_graph_decision(
+        self, run_id: str, approval_id: str, *, allow: bool, remember: bool,
+    ) -> dict:
+        """把操作员的审批决策以 Command(resume) 送回挂起的图。
+
+        校验 pending id 与会话存在；run 线程已在挂起时结束，这里起新线程
+        续跑图——下一个审批会再次挂起并登记，终态则走正常发布。"""
+        run = self.get(run_id)
+        session = self.graph_sessions.get(run_id)
+        if run is None or session is None:
+            return {"ok": False, "error": "no suspended graph session for this run"}
+        pending = run.pending or {}
+        if pending.get("id") != approval_id:
+            return {"ok": False, "error": "no pending approval with that id"}
+        if run.stop_requested:
+            response = {"allow": False, "remember": False, "stop": True}
+        else:
+            response = {"allow": allow, "remember": remember}
+        with run.lock:
+            run.pending = None
+            run.status = "running"
+            run.bump()
+        threading.Thread(
+            target=self._graph_resume_thread,
+            args=(run, session, response),
+            name=f"graph-resume:{run_id}",
+            daemon=True,
+        ).start()
+        return {"ok": True}
+
+    def _graph_resume_thread(self, run: Run, session: dict, response: dict) -> None:
+        try:
+            session["driver"].resume_from_decision(response)
+        except Exception:  # noqa: BLE001 — resume 线程的兜底（driver 内已尽力发布）
+            traceback.print_exc()
+            with run.lock:
+                if run.status not in ("succeeded", "failed", "denied", "stopped", "error"):
+                    run.status = "error"
+                    run.finished = True
+                run.bump()
 
     def resume(self, run: Run, *, limits: dict, extra_rounds: int = 6) -> Run:
         """Continue a run that stopped on a resource limit, without re-paying."""

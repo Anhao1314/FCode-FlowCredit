@@ -44,6 +44,11 @@ class RunDriver:
             self._assemble()
             task = self._prepare_task()
             status = self._execute_task(task)
+            if status == "paused" and getattr(self.loop, "suspended_payload", None):
+                # LangGraph 引擎在审批处挂起：run 线程到此结束，会话交给
+                # manager；操作员决策后经 resume_from_decision 续跑。
+                self._register_suspended()
+                return
             self._publish(task, status)
         except Exception as exc:  # noqa: BLE001 — setup failures belong on the run
             traceback.print_exc()
@@ -54,6 +59,57 @@ class RunDriver:
                 self.run.bump()
         finally:
             self._cleanup()
+
+    def _register_suspended(self) -> None:
+        """把审批挂起的图会话登记给 manager，并把 pending 发布到 run。"""
+        payload = self.loop.suspended_payload
+        self.manager.graph_sessions[self.run.id] = {"driver": self, "loop": self.loop}
+        with self.run.lock:
+            self.run.status = "paused"
+            self.run.pending = payload
+            self.run.finished = False
+            self.run.bump()
+        self._suspended = True
+
+    def resume_from_decision(self, response: dict) -> None:
+        """操作员审批决策后由 manager 的新线程调用：Command(resume) 续跑图，
+        直到下一个挂起点（再次登记）或终态（正常发布）。"""
+        try:
+            task = self.loop.resume(response)
+            if getattr(self.loop, "suspended_payload", None):
+                self._register_suspended()
+                return
+            self.manager.graph_sessions.pop(self.run.id, None)
+            self._suspended = False
+            self._publish(task, task.status)
+        except StopRequested:
+            task = self.store.load(self.run.task_id)
+            if task.status not in TERMINAL_STATUS:
+                task = self.harness.finalize(
+                    task, "failed",
+                    failure={"code": "STOPPED_BY_OPERATOR", "message": "操作员在轮次边界停止了这次运行", "retryable": False},
+                    event="task_failed", detail={"code": "STOPPED_BY_OPERATOR"},
+                )
+            self.observer.terminal(task, None)
+            self.manager.graph_sessions.pop(self.run.id, None)
+            self._suspended = False
+            self._publish(task, "stopped")
+        except Exception as exc:  # noqa: BLE001 — surface, never swallow
+            traceback.print_exc()
+            self.run.error = f"{type(exc).__name__}: {exc}"
+            task = self.store.load(self.run.task_id)
+            if task.status not in TERMINAL_STATUS:
+                target = "denied" if task.status == "created" else "failed"
+                task = self.harness.finalize(
+                    task, target,
+                    failure={"code": "VIEWER_RUNNER_ERROR", "message": str(exc)[:300], "retryable": False},
+                    event="tool_denied" if target == "denied" else "task_failed",
+                    detail={"code": "VIEWER_RUNNER_ERROR"},
+                )
+            self.observer.terminal(task, None)
+            self.manager.graph_sessions.pop(self.run.id, None)
+            self._suspended = False
+            self._publish(task, "error")
 
     # --------------------------------------------------------------- assembly
 
@@ -552,6 +608,10 @@ class RunDriver:
             self.run.bump()
 
     def _cleanup(self) -> None:
+        if getattr(self, "_suspended", False):
+            # 审批挂起：pending 是给操作员 UI 的活跃状态，会话仍活着；
+            # controller/检测器都要保留，resume 终态时再统一清理。
+            return
         with self.run.lock:
             if self.run.pending is not None:
                 self.run.pending = None

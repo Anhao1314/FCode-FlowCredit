@@ -1,13 +1,17 @@
 """LangGraph 编排引擎：把 :class:`~flowagent.runtime.loop.Loop` 的 while 控制流
 搬到 StateGraph 上，治理层（gate/预算/回执/哈希链/计划结算）原样保留为节点内卫兵。
 
-设计文档：fcode-langgraph-lab/DESIGN.md。要点：
-- **状态 = 控制流变量**（task/plan/memory/steps/flags 的活对象）。持久状态仍在
-  TaskStore（哈希链）；图状态只负责"下一节点拿什么"。checkpoint 集成是第二步。
-- **事件顺序逐字节对齐**：每个节点对应原 while 体的一段，节点内代码从原实现移植，
-  复用 Loop 的全部 helper（_extend_plan/_verify_result_set/_succeed/_deny/...）。
-- 路由 = 原 while 的 continue/return：repairable 拒绝、batch_recover、
-  completed_without_result → 回 round_head；终端路径置 terminal_task → END。
+设计文档：fcode-langgraph-lab/DESIGN.md。本版为第二步：
+- **逐步执行**：每轮的 step 一个一个过图（dispatch → approve → execute），
+  interrupt() 的"节点重放"因此永远只落在无副作用的审批节点上——不会把
+  已执行的 step 1..k-1 再执行一遍（at-least-once 问题的解法）。
+- **interrupt() 审批**：RunControl 拆出 prepare/apply 两段（无等待），
+  审批挂起 = 图暂停（`__interrupt__`），操作员决策 = Command(resume)。
+  同步 wait 语义保留在原生引擎的 before_tool 里，事件逐字节对齐。
+- **状态 = 控制流原语**（done/step_index/flags）。Task/Plan/WorkingMemory
+  留在实例属性上——持久事实在 TaskStore，图只回答"下一节点从哪继续"；
+  MemorySaver 检查点因此只序列化原始类型（跨进程 SqliteSaver 留第三步，
+  它需要先解决"陈旧对象 vs 事件链重建"的协调问题）。
 
 选型：``FCODE_ENGINE=langgraph`` 时由 runtime.engine.build_loop 构造本类；
 默认仍是原生 Loop（零依赖保证不变）。
@@ -15,7 +19,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Optional, TypedDict
 
 from ..core.contracts import PLAN_VERSION, AgentError, Task
@@ -32,7 +35,9 @@ from .loop import (
 from .policy import PacketProvider
 
 try:  # LangGraph 是可选依赖：编排引擎按需启用，仓库本体保持零第三方依赖
-    from langgraph.graph import END, START, MessagesState, StateGraph  # noqa: F401
+    from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command, interrupt
 
     _HAS_LANGGRAPH = True
 except ImportError:  # pragma: no cover - 无 langgraph 时本模块不可用
@@ -40,35 +45,64 @@ except ImportError:  # pragma: no cover - 无 langgraph 时本模块不可用
 
 
 class _GraphState(TypedDict, total=False):
-    """控制流状态。携带活对象（Task/Plan/WorkingMemory）——持久事实在 TaskStore，
-    图状态只回答"下一节点从哪继续"。"""
+    """控制流状态：只放原始类型。详见模块 docstring。"""
 
-    task_id: str
-    task: Task
-    memory: Any            # WorkingMemory
-    plan: Plan
-    pending: Optional[dict]
-    repairs: int
-    round_no: int
-    budget_snapshot: dict
-    steps: list
-    decisions: list
+    done: bool
     rejected: bool
     batch_recover: bool
+    batch_done: bool
     completed_without_result: bool
-    terminal_task: Optional[Task]
-    done: bool
+    round_no: int
+    repairs: int
+    step_index: int
+    steps: list
+    decisions: list
+    approval_payload: Optional[dict]
+    operator_response: Optional[dict]
 
 
 class GraphLoop(Loop):
     """Loop 的 LangGraph 编排变体。构造参数与 Loop 完全一致；
-    治理行为（事件序列、预算、审批、恢复）与原生实现逐字节对齐。"""
+    治理行为（事件序列、预算、审批、恢复）与原生实现逐字节对齐。
+    审批挂起：run()/resume() 返回 paused 任务并把载荷留在
+    ``suspended_payload``；操作员决策经 :meth:`resume` 以 Command(resume) 续跑。"""
+
+    def __init__(self, harness, **kwargs) -> None:
+        super().__init__(harness, **kwargs)
+        self._compiled = None
+        self._config: dict = {}
+        self._checkpointer = MemorySaver() if _HAS_LANGGRAPH else None
+        # 控制流活对象（同进程内持久；跨进程恢复走事件链重建，见第三步）
+        self._task: Optional[Task] = None
+        self._plan: Optional[Plan] = None
+        self._memory: Any = None
+        self._pending: Optional[dict] = None
+        self._repairs = 0
+        self._round_no = 0
+        self._steps: list = []
+        self._decision_gates: list = []
+        self._rejected = False
+        self._batch_recover = False
+        self._completed_without_result = False
+        self._step_index = 0
+        self._current_step: Optional[dict] = None
+        self._current_decision: Any = None
+        self._approval_payload: Optional[dict] = None
+        #: 审批挂起载荷（非 None = 图暂停等操作员）；driver 据此发布 run.pending
+        self.suspended_payload: Optional[dict] = None
+        self._terminal_task: Optional[Task] = None
+
+    # ------------------------------------------------------------------ 图构造
 
     def build_graph(self):
         graph = StateGraph(_GraphState)
         graph.add_node("round_head", self._node_round_head)
         graph.add_node("preflight", self._node_preflight)
-        graph.add_node("execute_batch", self._node_execute_batch)
+        graph.add_node("step_dispatch", self._node_step_dispatch)
+        graph.add_node("approve_prepare", self._node_approve_prepare)
+        graph.add_node("approve_wait", self._node_approve_wait)
+        graph.add_node("approve_apply", self._node_approve_apply)
+        graph.add_node("execute_step", self._node_execute_step)
         graph.add_edge(START, "round_head")
         graph.add_conditional_edges(
             "round_head",
@@ -77,101 +111,134 @@ class GraphLoop(Loop):
         )
         graph.add_conditional_edges(
             "preflight",
-            lambda s: "round_head" if s.get("rejected") else (END if s.get("done") else "execute_batch"),
-            {"round_head": "round_head", "execute_batch": "execute_batch", END: END},
+            lambda s: "round_head" if s.get("rejected") else (
+                END if s.get("done") else "step_dispatch"),
+            {"round_head": "round_head", "step_dispatch": "step_dispatch", END: END},
         )
         graph.add_conditional_edges(
-            "execute_batch",
-            lambda s: END if s.get("done") else "round_head",
-            {"round_head": "round_head", END: END},
+            "step_dispatch",
+            lambda s: END if s.get("done") else (
+                "round_head" if s.get("batch_done") else "approve_prepare"),
+            {"round_head": "round_head", "approve_prepare": "approve_prepare", END: END},
         )
-        return graph.compile()
+        graph.add_conditional_edges(
+            "approve_prepare",
+            lambda s: END if s.get("done") else (
+                "approve_wait" if s.get("approval_payload") else "execute_step"),
+            {"approve_wait": "approve_wait", "execute_step": "execute_step", END: END},
+        )
+        graph.add_edge("approve_wait", "approve_apply")
+        graph.add_conditional_edges(
+            "approve_apply",
+            lambda s: END if s.get("done") else "execute_step",
+            {"execute_step": "execute_step", END: END},
+        )
+        graph.add_conditional_edges(
+            "execute_step",
+            lambda s: END if s.get("done") else "step_dispatch",
+            {"step_dispatch": "step_dispatch", END: END},
+        )
+        return graph.compile(checkpointer=self._checkpointer)
+
+    # -------------------------------------------------------------------- run
 
     def run(self, task_id: str) -> Task:
         if not _HAS_LANGGRAPH:  # pragma: no cover
             raise AgentError("ENGINE_UNAVAILABLE", "langgraph is not installed")
-        task = self.harness.store.load(task_id)
-        memory = self.restore(task)
-        plan = self.rebuild_plan(task, memory)
+        self._task = self.harness.store.load(task_id)
+        self._memory = self.restore(self._task)
+        self._plan = self.rebuild_plan(self._task, self._memory)
         world = getattr(self.harness, "world", None)
         recall_holder = getattr(world, "recall_holder", None) if world is not None else None
         if recall_holder is not None:
-            recall_holder["memory"] = memory
+            recall_holder["memory"] = self._memory
+        self._pending = self.pending_step(self._task)
+        self._repairs = 0
+        self._rejected = False
+        self._batch_recover = False
+        self._completed_without_result = False
+        self._step_index = 0
+        self.suspended_payload = None
+        self._terminal_task = None
 
-        app = self.build_graph()
-        state: _GraphState = {
-            "task_id": task_id,
-            "task": task,
-            "memory": memory,
-            "plan": plan,
-            "pending": self.pending_step(task),
-            "repairs": 0,
-            "done": False,
-            "terminal_task": None,
-        }
-        # 每轮最多 3 个节点 + 余量；递归上限只限制图步数，
-        # 轮数语义仍由 ROUND_LIMIT（_decisions >= max_rounds）承担。
-        config = {
-            "recursion_limit": max(120, self.max_rounds * 6 + 50),
+        if self._compiled is None:
+            self._compiled = self.build_graph()
+        self._config = {
+            "recursion_limit": max(400, self.max_rounds * 30 + 100),
             "configurable": {"thread_id": task_id},
         }
-        final = app.invoke(state, config=config)
-        return final.get("terminal_task") or final["task"]
+        result = self._compiled.invoke({"done": False}, config=self._config)
+        return self._after_invoke(result)
+
+    def resume(self, response: dict) -> Task:
+        """操作员决策后续跑：interrupt() 返回决策值，图从挂起点继续。"""
+        result = self._compiled.invoke(Command(resume=response), config=self._config)
+        return self._after_invoke(result)
+
+    def _after_invoke(self, result: Any) -> Task:
+        interrupts = result.get("__interrupt__") if isinstance(result, dict) else None
+        if interrupts:
+            self.suspended_payload = interrupts[0].value
+        else:
+            self.suspended_payload = None
+        return self._terminal_task if self._terminal_task is not None else self._task
 
     # ------------------------------------------------------------------ 节点
 
     def _node_round_head(self, state: _GraphState) -> _GraphState:
-        """原 while 体的段 A+B：轮首控制 → 终止检查 → 观察/预算 → propose →
-        additions → steps → compaction 冲刷。终止路径置 done/terminal_task。"""
-        task_id = state["task_id"]
-        task: Task = state["task"]
-        memory = state["memory"]
-        plan: Plan = state["plan"]
-        pending = state.get("pending")
-        updates: _GraphState = {}
+        """原 while 体段 A：轮首控制 → 终止检查。终止路径置 done/terminal。"""
+        task_id = self._task.id
+        task, plan = self._task, self._plan
 
-        if pending is None and self.control is not None:
+        if self._pending is None and self.control is not None:
             controlled = self.control.before_round(
                 round_no=self._decisions(task) + 1,
                 task=task,
                 plan=plan,
             )
-            task, plan = controlled.task, controlled.plan
+            self._task, self._plan = controlled.task, controlled.plan
+            task, plan = self._task, self._plan
 
-        if pending is None:
+        if self._pending is None:
             if plan.is_blocked():
-                updates["terminal_task"] = self._stop(task, plan, "PLAN_BLOCKED")
-                updates["done"] = True
-                return {**state, **updates}
+                self._terminal_task = self._stop(task, plan, "PLAN_BLOCKED")
+                return {"done": True}
             if plan.is_complete() or plan.next_open() is None:
                 # 原 while 语义：域开放给模型的计划，模型仍可在本轮继续提议
                 # （以 report_blocked 收尾）；封闭计划没有可做的就停。
                 if not self.plan_extension:
-                    updates["terminal_task"] = self._stop(task, plan, "PLAN_EXHAUSTED")
-                    updates["done"] = True
-                    return {**state, **updates}
+                    self._terminal_task = self._stop(task, plan, "PLAN_EXHAUSTED")
+                    return {"done": True}
             if self._decisions(task) >= self.max_rounds:
-                updates["terminal_task"] = self._abort(
-                    task_id, AgentError("ROUND_LIMIT", f"no verified result after {self.max_rounds} rounds"))
-                updates["done"] = True
-                return {**state, **updates}
+                self._terminal_task = self._abort(
+                    task_id, AgentError(
+                        "ROUND_LIMIT",
+                        f"no verified result after {self.max_rounds} rounds"))
+                return {"done": True}
 
         # Operator notes（插话）每轮刷新：上一轮到达的插话在本轮 prompt 里。
-        memory.operator_messages = self.operator_notes(task)
-        budget_snapshot = self.harness.budget(task).snapshot()
-        updates["memory"] = memory
-        updates["task"] = task
-        updates["plan"] = plan
+        self._memory.operator_messages = self.operator_notes(task)
+        self._round_no = (
+            task.model.attempts if self._pending is not None
+            else self._decisions(task) + 1
+        )
+        return {"done": False}
 
-        if pending is not None:
+    def _node_preflight(self, state: _GraphState) -> _GraphState:
+        """原 while 体段 B：propose（pending/策略/模型）→ additions → steps →
+        compaction 冲刷 → 整批预检。schema 错误在任何派发前回绝。"""
+        task_id = self._task.id
+        task, plan, memory = self._task, self._plan, self._memory
+        round_no = self._round_no
+
+        budget_snapshot = self.harness.budget(task).snapshot()
+        if self._pending is not None:
             # A reconciled round: the proposal is already approved and paid
             # for. Execute it; do not ask the model again.
-            steps = [pending]
-            updates["pending"] = None
-            round_no = task.model.attempts
             self.observer.round_start(round_no, budget_snapshot, plan)
+            self._steps = [self._pending]
+            self._pending = None
         else:
-            round_no = self._decisions(task) + 1
             self.observer.round_start(round_no, budget_snapshot, plan)
             if self.policy is not None:
                 packet = self.compiler(
@@ -189,11 +256,10 @@ class GraphLoop(Loop):
                     "packet_bytes": packet.size_bytes,
                 })
                 if not packet.candidates:
-                    updates["terminal_task"] = self._abort(task_id, AgentError(
+                    self._terminal_task = self._abort(task_id, AgentError(
                         "POLICY_NO_ACTIONS", "the action compiler produced no legal action",
                     ))
-                    updates["done"] = True
-                    return {**state, **updates}
+                    return {"done": True}
                 if len(packet.candidates) == 1:
                     candidate = packet.candidates[0]
                     step = {"tool": candidate.tool, "arguments": dict(candidate.arguments)}
@@ -218,17 +284,16 @@ class GraphLoop(Loop):
                     provider = PacketProvider(packet, self.policy)
                     try:
                         task, proposal = self.harness.propose_with(
-                            task, {"round": round_no, "packet": packet, "state": packet.state}, provider,
+                            task, {"round": round_no, "packet": packet, "state": packet.state},
+                            provider,
                         )
                     except AgentError as error:
-                        updates["terminal_task"] = self._abort(task_id, error)
-                        updates["done"] = True
-                        return {**state, **updates}
+                        self._terminal_task = self._abort(task_id, error)
+                        return {"done": True}
                     if proposal is None:
                         self.observer.terminal(task, None)
-                        updates["terminal_task"] = task
-                        updates["done"] = True
-                        return {**state, **updates}
+                        self._terminal_task = task
+                        return {"done": True}
                     task = self.harness.record(task, "policy_decided", {
                         "round": round_no,
                         "candidate_id": proposal.metadata.get("candidate_id", ""),
@@ -238,25 +303,23 @@ class GraphLoop(Loop):
                         "latency_ms": proposal.latency_ms,
                     })
                 self.observer.proposal(round_no, proposal)
-                steps = self._round_steps(proposal)
+                self._steps = self._round_steps(proposal)
             else:
                 context = memory.build(round_no, budget_snapshot, plan)
                 try:
                     task, proposal = self.harness.propose(task, context)
                 except AgentError as error:
-                    updates["terminal_task"] = self._abort(task_id, error)
-                    updates["done"] = True
-                    return {**state, **updates}
+                    self._terminal_task = self._abort(task_id, error)
+                    return {"done": True}
                 if proposal is None:
                     self.observer.terminal(task, None)
-                    updates["terminal_task"] = task
-                    updates["done"] = True
-                    return {**state, **updates}
+                    self._terminal_task = task
+                    return {"done": True}
                 self.observer.proposal(round_no, proposal)
                 # A proposal may ask to extend the plan. The host judges it
                 # before the step runs; see _extend_plan.
                 task, plan = self._extend_plan(task, plan, round_no, memory)
-                steps = self._round_steps(proposal)
+                self._steps = self._round_steps(proposal)
 
         if memory.pending_compaction is not None:
             task = self.harness.record(
@@ -271,172 +334,228 @@ class GraphLoop(Loop):
             )
             memory.pending_pin_overflow = None
 
-        updates.update({
-            "task": task, "plan": plan, "round_no": round_no,
-            "steps": steps, "rejected": False, "batch_recover": False,
-            "completed_without_result": False,
-        })
-        return {**state, **updates}
+        self._task, self._plan = task, plan
+        # 新一轮的批从头开始：step 游标与批内标记必须归零，否则上一轮的
+        # 游标会让本轮 dispatch 直接判定"批已结束"，模型空转到 ROUND_LIMIT。
+        self._step_index = 0
+        self._batch_recover = False
+        self._completed_without_result = False
 
-    def _node_preflight(self, state: _GraphState) -> _GraphState:
-        """原"整批预检"段：schema 错误在任何派发前回绝；可修复 → 回 round_head。"""
-        task: Task = state["task"]
-        plan: Plan = state["plan"]
-        round_no = state["round_no"]
-        steps = state["steps"]
-        repairs = state.get("repairs", 0)
-        memory = state["memory"]
-
+        # 整批预检：schema 错误在任何派发前回绝；可修复 → 回 round_head。
         decisions = []
         rejected = False
-        terminal = None
-        for step in steps:
+        for step in self._steps:
             decision = self.harness.gate(task, step)
             self.observer.gate(round_no, decision)
             if decision.allowed:
                 decisions.append(decision)
                 continue
-            if decision.code in REPAIRABLE_DENIALS and repairs < MAX_PROPOSAL_REPAIRS:
+            if decision.code in REPAIRABLE_DENIALS and self._repairs < MAX_PROPOSAL_REPAIRS:
                 # Nothing was dispatched, nothing is unknown: the proposal
                 # did not fit the tool's schema. Handing the error back is
                 # not a silent retry — it is one visible event and one more
                 # model call, bounded, and the run still ends denied if the
                 # model cannot fix it.
-                repairs += 1
+                self._repairs += 1
                 task = self.harness.record(task, "proposal_rejected", {
                     "round": round_no,
                     "tool": step["tool"],
                     "code": decision.code,
                     "message": decision.reason,
                     "arguments": step.get("arguments") or {},
-                    "attempt": repairs,
+                    "attempt": self._repairs,
                 })
                 memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
                     "tool": step["tool"], "code": decision.code, "message": decision.reason,
                 }]
                 rejected = True
                 break
-            terminal = self._deny(task, decision, plan)
-            break
+            self._task = task
+            self._terminal_task = self._deny(task, decision, plan)
+            return {"done": True, "rejected": False}
+        self._task = task
+        self._decision_gates = decisions
+        self._rejected = rejected
+        return {"done": False, "rejected": rejected}
 
-        updates: _GraphState = {
-            "task": task, "memory": memory, "decisions": decisions,
-            "rejected": rejected, "repairs": repairs,
-        }
-        if terminal is not None:
-            updates["terminal_task"] = terminal
-            updates["done"] = True
-        return {**state, **updates}
-
-    def _node_execute_batch(self, state: _GraphState) -> _GraphState:
-        """原"批量执行"段：审批 → 执行 → 结算 → 观察 → 终止/完成检查。"""
-        task_id = state["task_id"]
-        task: Task = state["task"]
-        plan: Plan = state["plan"]
-        memory = state["memory"]
-        round_no = state["round_no"]
-        steps = state["steps"]
-        decisions = state["decisions"]
-
-        terminal = None
-        completed_without_result = False
-        batch_recover = False
-        for step, decision in zip(steps, decisions):
-            if self.control is not None:
-                approval = self.control.before_tool(
-                    round_no=round_no,
-                    task=task,
-                    step=step,
-                    decision=decision,
+    def _node_step_dispatch(self, state: _GraphState) -> _GraphState:
+        """批内步进：还有 step → 审批段；批结束 → round_end → 回 round_head。"""
+        if self._step_index >= len(self._steps):
+            if not self._batch_recover:
+                self.observer.round_end(
+                    self._round_no,
+                    self.harness.budget(self._task).snapshot(),
+                    self._plan,
                 )
-                task = approval.task
-                if not approval.allowed:
-                    if approval.terminated:
-                        self.observer.terminal(task, None)
-                        terminal = task
-                        break
-                    terminal = self._deny(
-                        task,
+            self._batch_recover = False
+            self._completed_without_result = False
+            return {"batch_done": True}
+        self._current_step = self._steps[self._step_index]
+        self._current_decision = self._decision_gates[self._step_index]
+        self._step_index += 1
+        return {"batch_done": False}
+
+    def _node_approve_prepare(self, state: _GraphState) -> _GraphState:
+        """审批段前半：需要操作员？→ 提交 approval_requested + paused 并发布
+        pending；remembered/not-required → 直接放行。"""
+        step = self._current_step
+        decision = self._current_decision
+        control = self.control
+        if control is None:
+            return {}
+        if not hasattr(control, "prepare_approval"):
+            # 同步控制（benchmark ApprovalControl / NullControl）：before_tool
+            # 从不阻塞，直接拿结论；不允许 → 终端拒绝。
+            result_ctrl = control.before_tool(
+                round_no=self._round_no, task=self._task, step=step, decision=decision,
+            )
+            self._task = result_ctrl.task
+            if not result_ctrl.allowed:
+                if result_ctrl.terminated:
+                    self.observer.terminal(self._task, None)
+                    self._terminal_task = self._task
+                else:
+                    self._terminal_task = self._deny(
+                        self._task,
                         Denial(
                             tool=step["tool"],
-                            code=approval.code or "OPERATOR_DENIED",
-                            reason=approval.reason or "operator denied the call",
+                            code=result_ctrl.code or "OPERATOR_DENIED",
+                            reason=result_ctrl.reason or "operator denied the call",
                         ),
-                        plan,
+                        self._plan,
                     )
-                    break
+                return {"done": True}
+            return {}
 
-            try:
-                task, observation = self.harness.execute(task, step, round_no=round_no)
-            except AgentError as error:
-                if self.harness.max_steps > 1 and error.code in RECOVERABLE_TOOL_ERRORS:
-                    # The tool call itself was malformed (a 600-char spawn
-                    # objective, a bad regex/range). The harness already
-                    # committed tool_failed; hand the error back in context
-                    # and let the model fix it next round instead of killing
-                    # the whole run. Fast mode only: the one-action contract
-                    # keeps terminal-on-tool-failure.
-                    memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
-                        "tool": step["tool"], "code": error.code,
-                        "message": error.message,
-                    }]
-                    # execute() committed tool_failed before raising; the
-                    # loop still holds the pre-execution snapshot. Reload the
-                    # durable task and clear the transient failure so the
-                    # next proposal starts from the committed sequence.
-                    task = self.harness.store.load(task_id)
-                    task.failure = None
-                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-                    batch_recover = True
-                    break
-                terminal = self._abort(task_id, error)
-                break
+        task, approval = control.prepare_approval(
+            round_no=self._round_no, task=self._task, step=step,
+        )
+        self._task = task
+        if approval is not None:
+            # prepare 提交了 paused 转移；task 已是链上最新（含 paused 转移），
+            # 后续事件基于同一序列号推进。
+            self._approval_payload = approval
+            return {"approval_payload": approval}
+        return {}
 
-            memory.record(round_no, observation,
-                          source_trust=trust_for_tool(observation.tool))
-            plan = self.planner.advance(plan, observation) if self.planner else plan
-            task = self._persist_plan(task, plan, round_no)
+    def _node_approve_wait(self, state: _GraphState) -> _GraphState:
+        """纯节点：interrupt() 挂起等决策；恢复时本节点重跑但无副作用，
+        interrupt() 直接返回保存的决策值——重放安全的唯一形态。"""
+        response = interrupt(self._approval_payload)
+        return {"operator_response": dict(response) if isinstance(response, dict) else {}}
 
-            self.observer.observation(round_no, observation)
+    def _node_approve_apply(self, state: _GraphState) -> _GraphState:
+        """审批段后半：提交 granted（回 running）/ denied；操作员停止 →
+        aborted + StopRequested（与原生引擎同一终止路径）。"""
+        control = self.control
+        step = self._current_step
+        response = dict(state.get("operator_response") or {})
+        if getattr(control.run, "stop_requested", False):
+            response["stop"] = True
+        task, allowed, flag = control.apply_approval_response(
+            round_no=self._round_no, task=self._task, step=step, response=response,
+        )
+        self._task = task
+        if flag is not None and flag.get("stop"):
+            # 操作员在审批挂起期间停止：approval_aborted/execution_resumed 已由
+            # apply 提交；终态在引擎内落定（flowagent 不反向依赖 viewer 的
+            # StopRequested），语义与 console 的 StopRequested 处理一致。
+            task = self.harness.finalize(
+                task, "failed",
+                failure={
+                    "code": "STOPPED_BY_OPERATOR",
+                    "message": "操作员在审批挂起期间停止了这次运行",
+                    "retryable": False,
+                },
+                event="task_failed", detail={"code": "STOPPED_BY_OPERATOR"},
+            )
+            self._task = task
+            self.observer.terminal(task, None)
+            self._terminal_task = task
+            return {"done": True}
+        if not allowed:
+            self._terminal_task = self._deny(
+                task,
+                Denial(
+                    tool=step["tool"],
+                    code=flag["code"] if flag else "OPERATOR_DENIED",
+                    reason=flag["reason"] if flag else "operator denied the call",
+                ),
+                self._plan,
+            )
+            return {"done": True}
+        return {}
 
-            if observation.tool == "report_blocked":
-                self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-                terminal = self._reported_blocked(task, plan, observation)
-                break
-            if plan.is_blocked():
-                self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-                terminal = self._stop(task, plan, "PLAN_BLOCKED")
-                break
-            if plan.is_complete():
-                # The batch may complete the plan on a step that is not
-                # itself a result tool. Verify whenever the plan *contains*
-                # a result obligation, not only when the last action is one.
-                if any(todo.tool in self.result_tools for todo in plan.todos):
-                    try:
-                        verified = self._verify_result_set(task.id, plan)
-                        sources = self._check_evidence(task, verified, round_no)
-                        task, obligation = self._verify_obligation(task, verified, plan, round_no)
-                    except AgentError as error:
-                        terminal = self._abort(task.id, error)
-                        break
-                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-                    terminal = self._succeed(task, verified, plan, obligation, sources)
-                    break
-                # No result obligation: stop consuming the rest of the batch
-                # and let the round-head completion check end the task.
-                completed_without_result = True
-                break
+    def _node_execute_step(self, state: _GraphState) -> _GraphState:
+        """单步执行：charge → run → 结算 → 观察 → 终止/完成检查。
+        可恢复的参数类错误（fast 批量模式）→ 记 rejected 回 round_head。"""
+        task_id = self._task.id
+        task, plan, memory = self._task, self._plan, self._memory
+        round_no = self._round_no
+        step = self._current_step
 
-        updates: _GraphState = {
-            "task": task, "plan": plan, "memory": memory,
-            "batch_recover": batch_recover,
-            "completed_without_result": completed_without_result,
-        }
-        if terminal is not None:
-            updates["terminal_task"] = terminal
-            updates["done"] = True
-        else:
-            # continue 语义（batch_recover）已在 break 前调用过 round_end；
-            # 正常批结束在这里收 round_end。
+        try:
+            task, observation = self.harness.execute(task, step, round_no=round_no)
+        except AgentError as error:
+            if self.harness.max_steps > 1 and error.code in RECOVERABLE_TOOL_ERRORS:
+                # The tool call itself was malformed (a 600-char spawn
+                # objective, a bad regex/range). The harness already
+                # committed tool_failed; hand the error back in context
+                # and let the model fix it next round instead of killing
+                # the whole run. Fast mode only: the one-action contract
+                # keeps terminal-on-tool-failure.
+                memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
+                    "tool": step["tool"], "code": error.code,
+                    "message": error.message,
+                }]
+                # execute() committed tool_failed before raising; reload the
+                # durable task and clear the transient failure so the next
+                # proposal starts from the committed sequence.
+                self._task = self.harness.store.load(task_id)
+                self._task.failure = None
+                self.observer.round_end(
+                    round_no, self.harness.budget(self._task).snapshot(), self._plan)
+                self._batch_recover = True
+                return {}
+            self._terminal_task = self._abort(task_id, error)
+            return {"done": True}
+
+        memory.record(round_no, observation,
+                      source_trust=trust_for_tool(observation.tool))
+        self._plan = self.planner.advance(self._plan, observation) if self.planner else self._plan
+        plan = self._plan
+        self._task = self._persist_plan(task, plan, round_no)
+        task = self._task
+
+        self.observer.observation(round_no, observation)
+
+        if observation.tool == "report_blocked":
             self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-        return {**state, **updates}
+            self._terminal_task = self._reported_blocked(task, plan, observation)
+            return {"done": True}
+        if plan.is_blocked():
+            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+            self._terminal_task = self._stop(task, plan, "PLAN_BLOCKED")
+            return {"done": True}
+        if plan.is_complete():
+            # The batch may complete the plan on a step that is not
+            # itself a result tool. Verify whenever the plan *contains*
+            # a result obligation, not only when the last action is one.
+            if any(todo.tool in self.result_tools for todo in plan.todos):
+                try:
+                    verified = self._verify_result_set(task.id, plan)
+                    sources = self._check_evidence(task, verified, round_no)
+                    task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                except AgentError as error:
+                    self._terminal_task = self._abort(task.id, error)
+                    return {"done": True}
+                self._task = task
+                self.observer.round_end(round_no, self.harness.budget(task).snapshot(), self._plan)
+                self._terminal_task = self._succeed(
+                    task, verified, self._plan, obligation, sources)
+                return {"done": True}
+            # No result obligation: finish the batch; the round-head
+            # completion check ends the task.
+            self._completed_without_result = True
+        return {}
+
