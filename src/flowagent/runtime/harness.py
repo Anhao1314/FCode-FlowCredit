@@ -46,6 +46,12 @@ class Harness:
     RESERVED_TOKENS = 1_000
     RESERVED_COST_MICROUSD = 500
 
+    #: Dispatches per round. The second one exists because truncated JSON and
+    #: dropped transports are transient model-side failures, not task-level
+    #: verdicts; it is charged like any other dispatch.
+    PROPOSAL_ATTEMPTS = 2
+    RETRYABLE_PROPOSAL_CODES = frozenset({"PROPOSAL_MALFORMED", "MODEL_CALL_FAILED"})
+
     def __init__(
         self,
         *,
@@ -202,71 +208,110 @@ class Harness:
         intent = self._intent(task, context)
         call_context = {**context, "intent": intent}
 
-        # Charge before dispatch. A provider that never answers still costs.
-        # Providers may declare a context-aware upper bound; local providers
-        # fall back to the historical constants.
-        reserve = getattr(provider, "reserve", None)
-        if callable(reserve):
-            reserve_tokens, reserve_cost = reserve(call_context)
-        else:
-            reserve_tokens = int(getattr(provider, "reserve_tokens", self.RESERVED_TOKENS))
-            reserve_cost = int(getattr(provider, "reserve_cost_microusd", self.RESERVED_COST_MICROUSD))
-        reserve_tokens = int(reserve_tokens)
-        reserve_cost = int(reserve_cost)
-        self.budget(task).charge_call(
-            tokens=reserve_tokens,
-            cost_microusd=reserve_cost,
-        )
-
-        try:
-            proposal = provider.propose(call_context)
-        except AgentError as error:
-            return self._unknown(task, intent, error), None
-
-        try:
-            self.budget(task).settle_call(
-                reserved_tokens=reserve_tokens,
-                reserved_cost_microusd=reserve_cost,
-                actual_tokens=proposal.tokens,
-                actual_cost_microusd=proposal.cost_microusd,
+        # One paid retry for transient/parse failures. A truncated JSON body or
+        # a dropped transport is not evidence that the task is unsalvageable;
+        # the second dispatch is charged like any other call, and the failed
+        # first one is never refunded (we already sent it).
+        for attempt in range(1, self.PROPOSAL_ATTEMPTS + 1):
+            # Charge before dispatch. A provider that never answers still costs.
+            # Providers may declare a context-aware upper bound; local providers
+            # fall back to the historical constants.
+            reserve = getattr(provider, "reserve", None)
+            if callable(reserve):
+                reserve_tokens, reserve_cost = reserve(call_context)
+            else:
+                reserve_tokens = int(getattr(provider, "reserve_tokens", self.RESERVED_TOKENS))
+                reserve_cost = int(getattr(provider, "reserve_cost_microusd", self.RESERVED_COST_MICROUSD))
+            reserve_tokens = int(reserve_tokens)
+            reserve_cost = int(reserve_cost)
+            self.budget(task).charge_call(
+                tokens=reserve_tokens,
+                cost_microusd=reserve_cost,
             )
-            plan = validate_plan(proposal.plan)
-        except AgentError as error:
-            # A response arrived and it was illegal. That is a confirmed failure,
-            # not an unknown one: we know exactly what the model said.
-            failed = task.with_model(status="failed", receipt=proposal.receipt())
-            failed.failure = {"code": error.code, "message": error.message, "retryable": False}
-            return self._commit(task, failed.advance("failed"), "model_invalid", {"code": error.code}), None
 
-        updated = task.with_model(
-            status="validated",
-            proposal=plan.to_dict(),
-            receipt=proposal.receipt(),
-        )
-        if first:
-            updated = updated.advance("planned")
-        try:
-            return self._commit(task, updated, "plan_validated", {"plan": plan.to_dict(), "round": context["round"]}), proposal
-        except TypeError as error:
-            # The integrity layer rejected the model-authored body (e.g. a
-            # float where the runtime requires int micro-units or basis
-            # points). The model said it, so this is a confirmed failure,
-            # not an unknown outcome.
-            failed = task.with_model(status="failed", receipt=proposal.receipt())
-            failed.failure = {
-                "code": "PROPOSAL_MALFORMED",
-                "message": f"plan body rejected by integrity layer: {error}",
-                "retryable": False,
-            }
-            return (
-                self._commit(
-                    task,
-                    failed.advance("failed"),
-                    "model_invalid",
-                    {"code": "PROPOSAL_MALFORMED"},
-                ),
-                None,
+            try:
+                proposal = provider.propose(call_context)
+            except AgentError as error:
+                if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    task = self._retry_proposal(task, context, attempt, error)
+                    continue
+                return self._unknown(task, intent, error), None
+
+            try:
+                self.budget(task).settle_call(
+                    reserved_tokens=reserve_tokens,
+                    reserved_cost_microusd=reserve_cost,
+                    actual_tokens=proposal.tokens,
+                    actual_cost_microusd=proposal.cost_microusd,
+                )
+                plan = validate_plan(proposal.plan)
+            except AgentError as error:
+                if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    task = self._retry_proposal(task, context, attempt, error)
+                    continue
+                # A response arrived and it was illegal. That is a confirmed failure,
+                # not an unknown one: we know exactly what the model said.
+                failed = task.with_model(status="failed", receipt=proposal.receipt())
+                failed.failure = {"code": error.code, "message": error.message, "retryable": False}
+                return self._commit(task, failed.advance("failed"), "model_invalid", {"code": error.code}), None
+
+            updated = task.with_model(
+                status="validated",
+                proposal=plan.to_dict(),
+                receipt=proposal.receipt(),
             )
+            if first:
+                updated = updated.advance("planned")
+            try:
+                return self._commit(task, updated, "plan_validated", {"plan": plan.to_dict(), "round": context["round"]}), proposal
+            except TypeError as error:
+                # The integrity layer rejected the model-authored body (e.g. a
+                # float where the runtime requires int micro-units or basis
+                # points). The model said it, so this is a confirmed failure,
+                # not an unknown outcome — but one retry may still produce a
+                # well-formed body.
+                if attempt < self.PROPOSAL_ATTEMPTS:
+                    task = self._retry_proposal(
+                        task, context, attempt,
+                        AgentError("PROPOSAL_MALFORMED", f"plan body rejected by integrity layer: {error}"),
+                    )
+                    continue
+                failed = task.with_model(status="failed", receipt=proposal.receipt())
+                failed.failure = {
+                    "code": "PROPOSAL_MALFORMED",
+                    "message": f"plan body rejected by integrity layer: {error}",
+                    "retryable": False,
+                }
+                return (
+                    self._commit(
+                        task,
+                        failed.advance("failed"),
+                        "model_invalid",
+                        {"code": "PROPOSAL_MALFORMED"},
+                    ),
+                    None,
+                )
+        raise AssertionError("proposal loop must return on its last attempt")
+
+    def _retry_proposal(
+        self,
+        task: Task,
+        context: dict[str, Any],
+        failed_attempt: int,
+        error: AgentError,
+    ) -> Task:
+        """Record one paid retry before dispatching the same round again."""
+        return self._commit(
+            task,
+            task,
+            "proposal_retry",
+            {
+                "round": context["round"],
+                "attempt": failed_attempt + 1,
+                "cause": error.code,
+                "message": error.message,
+            },
+        )
 
     def auto_step(
         self,
