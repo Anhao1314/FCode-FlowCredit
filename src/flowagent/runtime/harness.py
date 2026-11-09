@@ -224,6 +224,15 @@ class Harness:
 
         intent = self._intent(task, context)
         call_context = {**context, "intent": intent}
+        if self.native_tools:
+            # Advertise only what this task may actually call. A tool the gate
+            # would deny must not appear in the schema list: the model cannot
+            # "try" an unjailed terminal just because it is registered.
+            from ..providers.tool_schema import to_openai_tools
+
+            setter = getattr(provider, "set_native_tools", None)
+            if callable(setter):
+                setter(to_openai_tools(self.registry, allowed=set(task.allowed_tools)))
 
         # One paid retry for transient/parse failures. A truncated JSON body or
         # a dropped transport is not evidence that the task is unsalvageable;

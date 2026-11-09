@@ -50,6 +50,7 @@ def build_general_tools(
     *,
     fetch_guard: Callable[[str], None] | None = None,
     command_runner: CommandRunner | None = None,
+    terminal_jail: bool = False,
 ) -> list[ToolSpec]:
     """Bind the sandbox, fetcher and command runner to their tool specs.
 
@@ -216,7 +217,7 @@ def build_general_tools(
         from .terminal import PersistentShell
 
         if not _terminal_shell:
-            _terminal_shell.append(PersistentShell(sandbox.root))
+            _terminal_shell.append(PersistentShell(sandbox.root, jail=terminal_jail))
         return _terminal_shell[0].execute(
             str(arguments["command"]),
             timeout=float(arguments.get("timeout_seconds") or 60),

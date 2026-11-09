@@ -124,6 +124,16 @@ class SandboxJailTests(unittest.TestCase):
         self.assertEqual(result["count"], len(result["files"]))
         self.assertFalse(result["truncated"])
 
+    def test_tool_schema_can_be_filtered_to_the_grant(self) -> None:
+        from flowagent.providers.tool_schema import to_openai_tools
+        from flowagent.tools.general.tools import build_general_tools
+        from flowagent.tools.registry import ToolRegistry
+
+        registry = ToolRegistry(build_general_tools(self.sandbox, None))
+        names = [item["function"]["name"] for item in to_openai_tools(
+            registry, allowed={"read_file"})]
+        self.assertEqual(names, ["read_file"], "未授权的 terminal 不能被广告给模型")
+
     def test_read_file_raw_keeps_a_usable_slice(self) -> None:
         from flowagent.tools.general.summaries import summarize_read_file_raw
 

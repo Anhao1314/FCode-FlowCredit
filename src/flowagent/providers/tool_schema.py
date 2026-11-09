@@ -22,10 +22,16 @@ _KIND_MAP = {
 }
 
 
-def to_openai_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
-    """Render every registered tool as an OpenAI ``tools`` entry."""
+def to_openai_tools(
+    registry: ToolRegistry,
+    *,
+    allowed: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Render every registered tool (or only the granted subset) as tools."""
     tools: list[dict[str, Any]] = []
     for name in registry.names:
+        if allowed is not None and name not in allowed:
+            continue
         spec = registry.get(name)
         properties: dict[str, Any] = {}
         required: list[str] = []

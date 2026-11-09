@@ -18,6 +18,7 @@ from console_budget_extension import BudgetChannel
 from console_subagents import SubagentChannel
 from console_run_budget import budget_summary
 from console_runtime import LiveObserver, RunControl, ScopedPlanner, StopRequested, _run_crash, _watch
+from flowagent.providers.prompt import GENERAL_FAST_INSTRUCTION
 
 
 class RunDriver:
@@ -285,6 +286,10 @@ class RunDriver:
         记忆来自 chat 服务的 MemoryStore。两者都是佐料，不是主菜。
         """
         instruction = self.module.instruction
+        if getattr(self, "fast", False) and getattr(self, "general", False):
+            # The fast toolset has no terminal; the domain instruction that
+            # advertises it would send the model straight into a denial.
+            instruction = GENERAL_FAST_INSTRUCTION
 
         # 验证目标：模型需要知道成功的判定标准
         verification = (self.run.spec or {}).get("verification")
@@ -421,12 +426,13 @@ class RunDriver:
             grant = dict(self.scenario.grant)
             if self.extra_allowed:
                 grant["allowed_tools"] = list(grant.get("allowed_tools") or []) + self.extra_allowed
+            allowed_tools = list(self.scenario.allowed_tools) + self.extra_allowed
             task = self.harness.create(
                 task_id=f"task-{self.run.id}",
                 objective=self.run.objective,
                 principal="console-operator",
                 binding=binding,
-                allowed_tools=list(self.scenario.allowed_tools) + self.extra_allowed,
+                allowed_tools=allowed_tools,
                 grant=grant,
             )
             if self.manager.case_index is not None:

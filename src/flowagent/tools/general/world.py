@@ -181,7 +181,10 @@ class GeneralWorld:
                         f"the declared verification command cannot run under this host's "
                         f"command policy: {error.code}: {error.message}",
                     ) from error
-        tools = build_general_tools(self.sandbox, self.fetcher, command_runner=runner)
+        tools = build_general_tools(
+            self.sandbox, self.fetcher, command_runner=runner,
+            terminal_jail=bool(self.spec.get("fast")),
+        )
         # The tool is always registered; the *channel* is resolved when a
         # question is actually asked. Assemblies wire it after the world exists
         # (the console's control needs the harness, which needs the world), and

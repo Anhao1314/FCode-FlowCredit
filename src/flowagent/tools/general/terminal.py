@@ -15,7 +15,9 @@ bash 进程，``cd`` / ``export`` / 管道 / venv 激活跨调用存活——适
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -32,16 +34,42 @@ TERMINAL_OUTPUT_CAP = 8_000
 _MARKER_FMT = "__FCODE_DONE_{n}_"
 
 
+def _seatbelt_profile(root: Path) -> str:
+    """macOS Seatbelt: read everywhere, write only under the workspace.
+
+    The persistent shell is the one tool that can carry ``cd /abs`` and
+    absolute paths. A fast run must not edit the original project through it
+    (that would bypass the worktree and the apply-patch receipt). Reads stay
+    broad so interpreters and toolchains keep working; writes are the line.
+    """
+    resolved = root.resolve()
+    quoted = str(resolved).replace("\\", "\\\\").replace('"', '\\"')
+    return (
+        "(version 1)\n"
+        "(deny default)\n"
+        "(allow process*)\n"
+        "(allow file-read*)\n"
+        f'(allow file-write* (subpath "{quoted}") (literal "/dev/null"))\n'
+        "(allow sysctl-read)\n"
+        "(allow mach-lookup)\n"
+    )
+
+
 class PersistentShell:
     """跨工具调用存活的 bash 会话，绑定一个工作目录。
 
     线程安全：``execute`` 由运行线程串行调用（loop 不并行工具调用），
     但加锁以防未来的并行执行或 stop 请求竞争。
+
+    ``jail=True`` wraps the shell in macOS Seatbelt (write only under
+    ``cwd``); on other platforms it is a no-op and the caller must decide
+    whether that deployment can accept an unjailed shell.
     """
 
-    def __init__(self, cwd: Path) -> None:
+    def __init__(self, cwd: Path, *, jail: bool = False) -> None:
         self.cwd = Path(cwd)
         self.cwd.mkdir(parents=True, exist_ok=True)
+        self.jail = bool(jail) and sys.platform == "darwin"
         self._lock = threading.Lock()
         self._call_count = 0
         self._proc: subprocess.Popen | None = None
@@ -51,13 +79,26 @@ class PersistentShell:
             # 进程已退出（模型发了 exit 或 crash）——诚实重置
             self._proc = None
         if self._proc is None:
+            command = ["/bin/bash", "--noprofile", "--norc"]
+            env = None
+            if self.jail:
+                self.cwd = self.cwd.resolve()
+                command = ["/usr/bin/sandbox-exec", "-p", _seatbelt_profile(self.cwd), *command]
+                env = dict(os.environ)
+                # Keep caches/temp inside the writable jail; otherwise Python
+                # writes to $HOME and fails with EPERM.
+                env["HOME"] = str(self.cwd / ".shell-home")
+                env["TMPDIR"] = str(self.cwd / ".shell-tmp")
+                (self.cwd / ".shell-home").mkdir(exist_ok=True)
+                (self.cwd / ".shell-tmp").mkdir(exist_ok=True)
             self._proc = subprocess.Popen(
-                ["/bin/bash", "--noprofile", "--norc"],
+                command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(self.cwd),
                 text=True,
+                env=env,
             )
         return self._proc
 
