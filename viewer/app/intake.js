@@ -141,11 +141,12 @@ export function createIntake(deps) {
     const headTag = general
       ? (template.title ? template.title.split("：")[0] : "通用委托")
       : "内置合成资料 · 恒星智算";
+    const fast = !!(d.getFastMode && d.getFastMode());
     const detailRows = general
       ? `<div class="intake-row"><span>模式</span><b>${esc(modeText)}</b></div>
          <div class="intake-row"><span>来源</span><b>${esc(sourcesText)}</b>${d.attach.sources.length && !projectMode ? `<span class="intake-scale-note">只有 + 面板里列出的地址可被 fetch_url 访问</span>` : ""}</div>
          ${projectDraftRows(d.attach.project)}
-         <div class="intake-row"><span>审批</span><b>${esc(approval)}</b></div>`
+         <div class="intake-row"><span>审批</span><b>${fast ? "Fast：免逐步审批" : esc(approval)}</b></div>`
       : `<div class="intake-row"><span>问题</span><b>${esc(intent)}</b></div>
          <div class="intake-row"><span>输出</span><b>${esc(output)}</b></div>
          <div class="intake-row"><span>审批</span><b>${esc(approval)}</b></div>

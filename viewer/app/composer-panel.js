@@ -48,11 +48,22 @@ export function createComposerPanel(deps) {
   function paintModelBadge() {
     const labelEl = document.getElementById("model-label");
     const btn = document.getElementById("model-btn");
+    paintFastToggle();
     if (!labelEl || !btn) return;
     const s = d.activeSession();
     if (s && s.running && !s.finished) return paintRunModelBadge(labelEl, btn, s);
     if (d.chat.active) return paintChatModelBadge(labelEl, btn);
     paintWorkModelBadge(labelEl, btn);
+  }
+
+  /* Fast 开关的点亮态。对话/治理视图隐藏按钮（paintChatChrome/paintGovChrome），
+     这里只负责 Work 视图的 on/off 形态。 */
+  function paintFastToggle() {
+    const btn = document.getElementById("fast-btn");
+    if (!btn) return;
+    const on = d.getFastMode();
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
   /* 运行中：徽章只读显示会话实际使用的模型与思考强度。 */
@@ -116,7 +127,12 @@ export function createComposerPanel(deps) {
   function effectiveDraftBudget() {
     const template = d.getTemplates().find(t => t.key === d.getTplKey()) || {};
     if (isGeneralTemplate() && d.attach.project.path.trim()) {
-      return { max_calls: 40, max_reads: 160, max_cost_microusd: 1000000, max_tokens: 300000 };
+      // 预览必须与实际执行一致：fast 信封(60/300/3M/1.2M)与严格信封不同，
+      // 且 fast 不做价格折算收缩（服务端是单一事实源）。
+      if (d.getFastMode()) {
+        return { max_calls: 60, max_reads: 300, max_cost_microusd: 3_000_000, max_tokens: 1_200_000 };
+      }
+      return { max_calls: 40, max_reads: 160, max_cost_microusd: 1_000_000, max_tokens: 300_000 };
     }
     const entry = (d.getModelBudget().models || []).find(m => m.key === d.getModelChoice().key);
     return (entry && entry.budget) || template.limits || {};
@@ -334,6 +350,9 @@ export function createComposerPanel(deps) {
   function delegationSpecExtras() {
     const spec = {};
     if (isGeneralTemplate()) {
+      // Fast（默认开）：一轮多动作 + 原生工具调用 + 免逐步审批；
+      // 服务端据此走 worktree/信封/批量协议。关闭 = 严格路径。
+      if (d.getFastMode()) spec.fast = true;
       if (d.attach.sources.length) spec.sources = [...d.attach.sources];
       if (d.attach.project.path.trim()) {
         const verification = parseVerificationCommand(d.attach.project.verification);

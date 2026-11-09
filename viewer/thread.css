@@ -87,6 +87,15 @@ html.desktop-app .side-new { height: 40px; }
   background: transparent; color: var(--text-2); font-size: 14px;
   transition: background-color .3s ease-in-out, color .3s ease-in-out, box-shadow .15s;
 }
+/* Fast 开关：点亮 = 绿点 + 正常字色；关闭 = 灰点 + 淡字色（ZCode 极简）。 */
+#fast-btn { gap: 6px; }
+#fast-btn .fdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-3); transition: background-color .2s;
+}
+#fast-btn.on { color: var(--text-1); }
+#fast-btn.on .fdot { background: #2f9e44; }
+#fast-btn:not(.on) { color: var(--text-3); }
 .c-btn:hover { background: #F5F5F5; color: var(--text-1); }
 .c-btn.static { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
 .c-btn.static:hover { background: none; }

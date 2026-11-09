@@ -287,6 +287,16 @@ modelChoice = {
 /* 草稿预览的预算联动：/api/models?template= 返回各模型在该模板下真实生效的
    预算顶（服务端是缩放的单一事实源），按模板缓存，选择器变更即失效。 */
 let modelBudget = { template: "", models: null };
+/* Fast 模式（Work 委托默认开启）：一轮多动作 + 原生工具调用 + 免逐步审批；
+   项目走 git worktree，terminal 只能写工作区。关闭即回退严格路径
+   （JSON 单动作 + 逐动作审批）。对话/治理/财务不受影响。 */
+let fastMode = (() => {
+  try { return localStorage.getItem("fa.fastMode") !== "0"; } catch { return true; }
+})();
+function setFastMode(on) {
+  fastMode = on;
+  try { localStorage.setItem("fa.fastMode", on ? "1" : "0"); } catch { /* 私有模式忽略 */ }
+}
 /* “+”附加面板：资料选择 / 工具注册表 / 预算微调。
    三项都是真实委托输入：scope 与 budget 随 spec 提交并被 run 线程消费。 */
 const attach = {
@@ -385,7 +395,8 @@ function paintGovChrome(gov) {
   const attach = document.getElementById("chat-attach");
   const ta = document.getElementById("composer-ta");
   if (gov) {
-    for (const el of [modelBtn, apvBtn, plusBtn]) if (el) el.style.display = "none";
+    const fastBtn = document.getElementById("fast-btn");
+    for (const el of [modelBtn, apvBtn, plusBtn, fastBtn]) if (el) el.style.display = "none";
     if (attach) attach.hidden = true;
     if (ta) {
       if (ta.dataset.govPlaceholder !== "1") {
@@ -397,6 +408,8 @@ function paintGovChrome(gov) {
     return;
   }
   if (modelBtn) modelBtn.style.display = "";
+  const fastBtn = document.getElementById("fast-btn");
+  if (fastBtn) fastBtn.style.display = "";
   if (ta && ta.dataset.govPlaceholder === "1") {
     ta.placeholder = ta.dataset.prevPlaceholder || "给 FCode 发消息…";
     delete ta.dataset.govPlaceholder;
@@ -1470,6 +1483,7 @@ const {
   getModelCatalog: () => modelCatalog,
   getModelBudget: () => modelBudget,
   setModelBudget: value => { modelBudget = value; },
+  getFastMode: () => fastMode,
   getSettingsOpen: () => settingsOpen,
   closeSettingsPage: (...a) => closeSettingsPage(...a),
   leaveChat: (...args) => leaveChat(...args),
@@ -1827,6 +1841,8 @@ const {
   getModelChoice: () => modelChoice,
   getModelBudget: () => modelBudget,
   setModelBudget: value => { modelBudget = value; },
+  getFastMode: () => fastMode,
+  setFastMode,
   getChatModels: () => chatModels,
   fetchImpl: (...args) => fetch(...args),
 });
@@ -3087,6 +3103,15 @@ function bindComposer() {
     event.stopPropagation();
     closeModelMenus();
     apvMenu.hidden = !apvMenu.hidden;
+  });
+  const fastBtn = document.getElementById("fast-btn");
+  fastBtn?.addEventListener("click", () => {
+    const next = !getFastMode();
+    setFastMode(next);
+    paintModelBadge();
+    toast(next
+      ? "Fast 已开：一轮多动作 · 免逐步审批 · 项目走隔离副本"
+      : "Fast 已关：恢复逐步审批与单动作");
   });
   const plusBtn = document.getElementById("composer-open");
   const attachPanel = document.getElementById("attach-panel");

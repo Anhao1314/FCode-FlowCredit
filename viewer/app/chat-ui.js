@@ -245,6 +245,7 @@ export function createChatUI(deps) {
     show("chain-badge", !on);
     show("rail-toggle", !on);
     show("approval-btn", !on);
+    show("fast-btn", !on);
     show("composer-open", !on);
     const attach = document.getElementById("chat-attach");
     if (attach) { attach.hidden = !on; attach.style.display = on ? "" : "none"; }
