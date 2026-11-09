@@ -30,9 +30,12 @@ from flowagent.tools.registry import ToolRegistry  # noqa: E402
 from flowagent.trajectory.recorder import TraceRecorder  # noqa: E402
 
 
-def _proposal(*steps: dict) -> Proposal:
+def _proposal(*steps: dict, additions: list[dict] | None = None) -> Proposal:
+    plan: dict = {"version": PLAN_VERSION, "steps": list(steps)}
+    if additions:
+        plan["additions"] = additions
     return Proposal(
-        plan={"version": PLAN_VERSION, "steps": list(steps)},
+        plan=plan,
         provider="scripted", model="scripted-v1", tokens=10, cost_microusd=1,
     )
 
@@ -59,6 +62,31 @@ class BatchProvider:
                  "arguments": {"path": "report.md", "content": "# done\n"}},
             )
         return _proposal({"id": "extra", "tool": "read_file", "arguments": {"path": "a.txt"}})
+
+
+class PlannedBatchProvider(BatchProvider):
+    """Round 1 submits a 3-todo plan alongside reads; round 2 edits; then report."""
+
+    def propose(self, context):
+        self.calls += 1
+        if self.calls == 1:
+            return _proposal(
+                {"id": "read-a", "tool": "read_file", "arguments": {"path": "a.txt"}},
+                additions=[
+                    {"id": "m1", "text": "读 b.txt", "tool": "read_file",
+                     "done_when": "done:m1", "arguments": {"path": "b.txt"}},
+                    {"id": "m2", "text": "写报告", "tool": "write_file",
+                     "done_when": "done:m2", "arguments": {"path": "report.md"}},
+                ],
+            )
+        if self.calls == 2:
+            return _proposal(
+                {"id": "read-b", "tool": "read_file", "arguments": {"path": "b.txt"}},
+            )
+        return _proposal(
+            {"id": "write-report", "tool": "write_file",
+             "arguments": {"path": "report.md", "content": "# done\n"}},
+        )
 
 
 class BadBatchProvider(BatchProvider):
@@ -122,6 +150,7 @@ class BatchLoopTest(unittest.TestCase):
             receipts=ReceiptStore(self.store),
             verifier=lambda observation: self.world.verify_observation(observation),
             prompt_profile="general-fast",
+            plan_extension=True,
         )
         task = harness.create(
             task_id="task-batch",
@@ -163,6 +192,35 @@ class BatchLoopTest(unittest.TestCase):
         self.assertEqual(first["observation"]["arguments"]["path"], "b.txt")
         self.assertEqual(harness.budget(final).snapshot()["reads_used"], 3)
 
+    def test_model_plan_enters_plan_and_settles(self) -> None:
+        provider = PlannedBatchProvider()
+        final, recorder, harness = self._run(provider)
+        self.assertEqual(final.status, "succeeded")
+        events = self._events(final)
+        steered = [e for e in events if e["type"] == "plan_steered"]
+        self.assertEqual(len(steered), 1, "模型计划经 plan_steered 入链")
+        detail = steered[0]["payload"]["detail"]
+        self.assertEqual(detail["added"], ["m1"])
+        # 结算看终态 plan：round 2 的 read b.txt 观察把 m1 打勾
+        by_id = {todo["id"]: todo for todo in final.plan_state["todos"]}
+        self.assertEqual(by_id["m1"]["status"], "done", "read b.txt 观察结算 m1")
+        # 写报告的 todo 与蓝图自带的结果步骤重复 → 拒绝但保留合法条目（部分接受）
+        rejected = [e for e in events if e["type"] == "control_rejected"]
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["payload"]["detail"]["rejected"][0]["code"],
+                         "PLAN_ADDITION_RESULT_DUPLICATE")
+        self.assertEqual(rejected[0]["payload"]["detail"]["accepted_ids"], ["m1"])
+        # fast 运行的观察预算翻倍：批量轮的观察不再两轮就被折叠
+        self.assertEqual(harness.max_steps, 4)
+
+    def test_fast_memory_budget_is_doubled(self) -> None:
+        provider = BatchProvider()
+        final, _recorder, harness = self._run(provider)
+        loop = Loop(harness, planner=GENERAL_DOMAIN.make_planner(self.world), max_rounds=2,
+                    result_tools=GENERAL_DOMAIN.result_tools)
+        memory = loop.restore(final)
+        self.assertEqual(memory.observation_budget, 48_000)
+
     def test_invalid_action_aborts_the_whole_batch_before_dispatch(self) -> None:
         provider = BadBatchProvider()
         final, _recorder, harness = self._run(provider)
@@ -188,6 +246,10 @@ class BatchLoopTest(unittest.TestCase):
         started = [event["payload"]["detail"]["tool"]
                    for event in self._events(final) if event["type"] == "tool_started"]
         self.assertEqual(started, ["grep_workspace", "write_file"])
+
+
+def harness_max_steps(harness) -> int:
+    return harness.max_steps
 
 
 if __name__ == "__main__":

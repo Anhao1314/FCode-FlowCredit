@@ -121,8 +121,22 @@ class SandboxJailTests(unittest.TestCase):
         self.assertIn("src/a.py", by_path)
         self.assertIn("README.md", by_path)
         self.assertEqual(by_path["src/a.py"]["symbols"], ["def alpha:1", "class Beta:4"])
+        # import 边：模块名:行号，修依赖类问题第一眼就看得到
+        (root / "src" / "a.py").write_text(
+            "import json\nfrom pathlib import Path\n\ndef alpha():\n    pass\n",
+            encoding="utf-8")
+        result = tool.handler({"max_files": 50})
+        by_path = {item["path"]: item for item in result["files"]}
+        self.assertEqual(by_path["src/a.py"]["imports"],
+                         ["json:1", "pathlib:2"])
+        self.assertEqual(result["imports"], 2)
         self.assertEqual(result["count"], len(result["files"]))
         self.assertFalse(result["truncated"])
+        # 观察摘要必须带结构进上下文：path · sym · imp 一行一个文件
+        from flowagent.tools.general.summaries import summarize_repo_map
+        summary = summarize_repo_map(result)
+        self.assertTrue(any("alpha" in line and "imp: json" in line
+                            for line in summary["tree"]))
 
     def test_tool_schema_can_be_filtered_to_the_grant(self) -> None:
         from flowagent.providers.tool_schema import to_openai_tools

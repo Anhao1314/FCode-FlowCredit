@@ -94,6 +94,9 @@ class Harness:
 
         profile = PROMPT_PROFILES.get(prompt_profile or "")
         self.max_steps = profile.max_steps if profile is not None else 1
+        #: Fast profiles ask the model to commit to a plan first (native:
+        #: submit_plan tool call; JSON: additions field).
+        self.plan_tool = bool(profile.plan_tool) if profile is not None else False
         #: Native function calling needs the registry schemas at the provider
         #: boundary. They are attached once, outside the prompt context, so the
         #: user message does not duplicate every tool schema on every round.
@@ -228,11 +231,15 @@ class Harness:
             # Advertise only what this task may actually call. A tool the gate
             # would deny must not appear in the schema list: the model cannot
             # "try" an unjailed terminal just because it is registered.
+            from ..providers.openai_compat import SUBMIT_PLAN_SCHEMA
             from ..providers.tool_schema import to_openai_tools
 
             setter = getattr(provider, "set_native_tools", None)
             if callable(setter):
-                setter(to_openai_tools(self.registry, allowed=set(task.allowed_tools)))
+                schemas = to_openai_tools(self.registry, allowed=set(task.allowed_tools))
+                if self.plan_tool:
+                    schemas = [*schemas, SUBMIT_PLAN_SCHEMA]
+                setter(schemas)
 
         # One paid retry for transient/parse failures. A truncated JSON body or
         # a dropped transport is not evidence that the task is unsalvageable;

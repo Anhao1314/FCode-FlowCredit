@@ -31,11 +31,29 @@ def summarize_ls_workspace(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def summarize_repo_map(result: dict[str, Any]) -> dict[str, Any]:
+    """The map the model sees: path + top symbols + import edges per file.
+
+    Without this the observation keeps only file names, and the model pays a
+    read round-trip for the structure it already asked for. Bounded: 40 files,
+    8 symbols / 6 imports each, one line per file.
+    """
     entries = result.get("files", [])
+    lines: list[str] = []
+    for entry in entries[:40]:
+        parts = [str(entry.get("path") or "")]
+        symbols = entry.get("symbols") or []
+        if symbols:
+            names = ", ".join(str(item).split(":")[0] for item in symbols[:8])
+            parts.append("sym: " + names)
+        imports = entry.get("imports") or []
+        if imports:
+            mods = ", ".join(str(item).split(":")[0] for item in imports[:6])
+            parts.append("imp: " + mods)
+        lines.append(" · ".join(parts))
     return {
         "count": result.get("count", len(entries)),
-        "files": [entry.get("path") for entry in entries[:30]],
-        "truncated": bool(result.get("truncated")) or len(entries) > 30,
+        "tree": lines,
+        "truncated": bool(result.get("truncated")) or len(entries) > 40,
         "symbols": result.get("symbols", 0),
     }
 

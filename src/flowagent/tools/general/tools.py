@@ -281,16 +281,30 @@ def build_general_tools(
                     except (SyntaxError, OSError):
                         tree = None
                     names: list[str] = []
+                    imports: list[str] = []
                     for node in (tree.body if tree is not None else []):
                         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            names.append(f"def {node.name}:{node.lineno}")
+                            if len(names) < 40:
+                                names.append(f"def {node.name}:{node.lineno}")
                         elif isinstance(node, ast.ClassDef):
-                            names.append(f"class {node.name}:{node.lineno}")
-                        if len(names) >= 40:
-                            break
+                            if len(names) < 40:
+                                names.append(f"class {node.name}:{node.lineno}")
+                        elif isinstance(node, ast.ImportFrom) and node.module:
+                            # Local import edges: "who imports whom" is what a
+                            # repair needs first — one map call replaces the
+                            # grep round-trips the model used to spend.
+                            if len(imports) < 12:
+                                imports.append(f"{node.module}:{node.lineno}")
+                        elif isinstance(node, ast.Import):
+                            for alias in node.names:
+                                if len(imports) >= 12:
+                                    break
+                                imports.append(f"{alias.name}:{node.lineno}")
                     if names:
                         entry["symbols"] = names
                         symbols += len(names)
+                    if imports:
+                        entry["imports"] = imports
                 files.append(entry)
                 if len(files) >= max_files:
                     truncated = True
@@ -302,6 +316,7 @@ def build_general_tools(
             "files": files,
             "count": len(files),
             "symbols": symbols,
+            "imports": sum(len(item.get("imports") or []) for item in files),
             "truncated": truncated,
         }
 
@@ -362,9 +377,10 @@ def build_general_tools(
                 ),
             ),
             handler=repo_map,
-            outputs=(_out("files", "array"), _out("count", "integer"),
-                     _out("symbols", "integer"), _out("truncated", "boolean")),
-            version="1.0",
+            outputs=(_out("files", "array"), _out("tree", "array"), _out("count", "integer"),
+                     _out("symbols", "integer"), _out("imports", "integer"),
+                     _out("truncated", "boolean")),
+            version="1.1",
         ),
         ToolSpec(
             name="read_file",

@@ -417,11 +417,16 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(verdict.rejected[0]["code"], "TOOL_NOT_REGISTERED")
 
     def test_a_schema_invalid_argument_set_is_refused(self) -> None:
-        """F. A step whose arguments cannot be formed is not a step yet."""
+        """F. Plan-time arguments are settlement hints, not the execution payload.
+
+        A "write the report" todo cannot know `content` at planning time; the
+        dispatch-time gate re-validates the real arguments, so nothing bypasses
+        the schema — the plan just stops demanding the unknowable.
+        """
         verdict = self._judge([addition("p1", "edit_file", {"path": "stats.py"})])
-        self.assertFalse(verdict.ok)
-        self.assertEqual(verdict.rejected[0]["code"], "TOOL_ARGUMENTS_INVALID")
-        self.assertIn("old_text", verdict.rejected[0]["message"])
+        self.assertTrue(verdict.ok)
+        self.assertEqual(verdict.accepted[0].arguments, {"path": "stats.py"})
+        self.assertTrue(verdict.accepted[0].required)
 
     def test_a_tool_outside_the_task_scope_is_refused(self) -> None:
         """H."""
@@ -480,16 +485,17 @@ class HostValidationTests(unittest.TestCase):
         self.assertFalse(verdict.ok)
         self.assertEqual(verdict.rejected[0]["code"], "PLAN_EXTENSION_DISABLED")
 
-    def test_one_bad_entry_refuses_the_whole_extension(self) -> None:
-        """All-or-nothing: a half-applied plan is not auditable."""
+    def test_one_bad_entry_does_not_sink_valid_siblings(self) -> None:
+        """Partial acceptance: plan_steered records what entered, control_rejected
+        records the refusal with its reason — both lists verbatim on the chain."""
         verdict = self._judge([
             addition("p1", "read_file", {"path": "stats.py"}),
             addition("p2", "write_document", {"doc_id": "d"}),
         ])
-        self.assertFalse(verdict.ok)
-        self.assertEqual(verdict.accepted, [])
+        self.assertEqual([todo.id for todo in verdict.accepted], ["p1"])
         self.assertEqual(len(verdict.rejected), 1)
         self.assertEqual(verdict.rejected[0]["id"], "p2")
+        self.assertTrue(verdict.reason)
 
     def test_judging_changes_nothing_by_itself(self) -> None:
         """I, R. Validation is a read: no plan mutation, no budget, no execution."""
@@ -635,8 +641,9 @@ class LoopIntegrationTests(unittest.TestCase):
         reopened.close()
         self.stack = Stack(self._tmp.name, make_ws=False)  # keep tearDown happy
 
-    def test_a_rejected_extension_is_not_in_the_replayed_plan(self) -> None:
-        """D. A refusal cannot come back as accepted work."""
+    def test_a_rejected_entry_stays_out_of_the_replayed_plan(self) -> None:
+        """D. A refusal cannot come back as accepted work — but its valid
+        siblings still enter, and replay reconstructs exactly that plan."""
         rounds = [
             (step("ls_workspace", {}), [
                 addition("p_ok", "ls_workspace"),
@@ -647,10 +654,12 @@ class LoopIntegrationTests(unittest.TestCase):
         provider, harness, _, loop, final = self.stack.run(rounds, max_rounds=6)
         self.assertEqual(final.status, "succeeded")
         ids = [t["id"] for t in final.plan_state["todos"]]
-        self.assertNotIn("p_ok", ids)
+        self.assertIn("p_ok", ids)
         self.assertNotIn("p_bad", ids)
         opened = [e for e in harness.store.events(final.id) if e["type"] == "plan_steered"]
-        self.assertEqual(opened, [])
+        self.assertEqual([t for e in opened for t in e["payload"]["detail"]["added"]], ["p_ok"])
+        refused = [e for e in harness.store.events(final.id) if e["type"] == "control_rejected"]
+        self.assertEqual(refused[0]["payload"]["detail"]["rejected"][0]["id"], "p_bad")
         # Replay agrees.
         memory = loop.restore(harness.store.load(final.id))
         replayed = loop.rebuild_plan(harness.store.load(final.id), memory)

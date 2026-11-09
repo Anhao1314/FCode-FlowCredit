@@ -455,13 +455,19 @@ class Loop:
         if not extension.present:
             return task, plan
 
-        if not extension.ok:
+        # Partial acceptance: a plan proposal is not all-or-nothing. The model
+        # often includes "write the report" — which the blueprint's own result
+        # todo already covers — and losing the three valid todos over that one
+        # duplicate would teach the model to stop planning at all. Rejections
+        # are recorded (and reach the next context); acceptances still enter.
+        if extension.rejected:
             task = self.harness.record(task, "control_rejected", {
                 "round": round_no,
                 "kind": "plan_extension",
                 "by": "model",
                 "reason": extension.reason[:200],
                 "rejected": [dict(item) for item in extension.rejected],
+                "accepted_ids": [todo.id for todo in extension.accepted],
                 "plan_revision": plan.revision,
             })
             memory.rejected_proposals = list(memory.rejected_proposals or []) + [
@@ -472,7 +478,8 @@ class Loop:
                 }
                 for item in extension.rejected
             ][-3:]
-            return task, plan
+            if not extension.accepted:
+                return task, plan
 
         # Addition only: nothing is dropped here, so ``revise``'s ``reason``
         # (which explains an abandonment) has nothing to describe.
@@ -806,6 +813,10 @@ class Loop:
             prompt_profile=self.memory_prompt_profile,
             summary_cache=self.memory_summary_cache,
             summarizer_config=self.memory_summarizer_config,
+            # Batch rounds carry up to 4 observations each; the default 24k
+            # budget folds them away after ~2 rounds, which is what sent the
+            # fast model back to re-read the same files. Double it for fast.
+            observation_budget=48_000 if getattr(self.harness, "max_steps", 1) > 1 else 24_000,
         )
         for event in self.harness.store.events(task.id):
             if event["type"] == "memory_recalled":

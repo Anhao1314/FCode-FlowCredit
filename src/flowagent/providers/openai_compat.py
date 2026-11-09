@@ -86,6 +86,44 @@ def _ceil_div(value: int, divisor: int) -> int:
 #: variable. Each prefix names its own ``{PREFIX}_*`` configuration set.
 COMPAT_PROVIDERS_ENV = "FCODE_OPENAI_COMPAT_PROVIDERS"
 
+#: The fast profile's plan-proposal "tool". It never executes: the provider
+#: intercepts the call and converts it into the JSON contract's ``additions``,
+#: so the existing plan governance (validate → plan_steered → settle by
+#: identity) applies unchanged. Todos without arguments settle on the first
+#: observation of their tool — that is the lenient path the general planner
+#: already gives identity-settled todos.
+SUBMIT_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "submit_plan",
+        "description": (
+            "Submit this run's 3-5 step plan once at the start. Each todo is "
+            "{text, tool, arguments?}; read/grep todos should omit arguments so "
+            "any call of that tool marks them done. Not executed directly."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "description": "what this step does"},
+                            "tool": {"type": "string", "description": "tool that performs it"},
+                            "arguments": {"type": "object", "description": "optional; omit for read/grep todos"},
+                        },
+                        "required": ["text", "tool"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["todos"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 #: Defaults for host-declared generic entries. ``require_https`` is False so
 #: a local server (LM Studio, Ollama's OpenAI shim on 127.0.0.1) can be
 #: declared; a cloud endpoint simply configures an https base URL. The
@@ -787,8 +825,13 @@ class OpenAICompatProvider:
         calls: list[dict[str, Any]],
         max_steps: int,
         request_id: str,
-    ) -> tuple[list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         """Map native ``tool_calls`` onto plan steps, preserving call order.
+
+        A ``submit_plan`` call is not a step: it is the fast profile's plan
+        proposal, converted into the JSON contract's ``additions`` entries so
+        the existing host-side plan governance (validate → plan_steered →
+        settle-by-identity) applies unchanged.
 
         A malformed arguments blob is a model failure the paid retry can fix, so
         it raises PROPOSAL_MALFORMED rather than executing a guessed call. Calls
@@ -796,7 +839,9 @@ class OpenAICompatProvider:
         what the profile did not promise to execute.
         """
         steps: list[dict[str, Any]] = []
-        for index, call in enumerate(calls[:max_steps]):
+        additions: list[dict[str, Any]] = []
+        dropped = 0
+        for index, call in enumerate(calls):
             if not isinstance(call, dict):
                 continue
             function = call.get("function") or {}
@@ -821,17 +866,74 @@ class OpenAICompatProvider:
                     "tool call is missing a function name",
                     details={"raw_tool_calls": calls[:4], "request_id": request_id},
                 )
+            if name == "submit_plan":
+                additions.extend(self._additions_from_submit_plan(arguments, request_id))
+                continue
+            if len(steps) >= max_steps:
+                dropped += 1
+                continue
             call_id = str(call.get("id") or "")
             if not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", call_id):
                 call_id = f"call-{index + 1}"
             steps.append({"id": call_id, "tool": name, "arguments": arguments})
-        if not steps:
+        if not steps and not additions:
             raise AgentError(
                 "PROPOSAL_MALFORMED",
                 "native reply carried no usable tool calls",
                 details={"raw_tool_calls": calls[:4], "request_id": request_id},
             )
-        return steps, max(0, len(calls) - len(steps))
+        return steps, additions, dropped
+
+    def _additions_from_submit_plan(
+        self, arguments: dict[str, Any], request_id: str,
+    ) -> list[dict[str, Any]]:
+        """Convert one submit_plan call into plan-addition entries.
+
+        ``done_when`` is host-generated (`done:<id>`): settlement for these
+        todos is by tool identity, not by the predicate sentence, so asking the
+        model to author one is friction without governance value.
+        """
+        todos = arguments.get("todos") if isinstance(arguments, dict) else None
+        if not isinstance(todos, list) or not todos:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "submit_plan needs a non-empty todos list",
+                details={"request_id": request_id},
+            )
+        if len(todos) > 8:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "submit_plan carries at most 8 todos",
+                details={"request_id": request_id},
+            )
+        entries: list[dict[str, Any]] = []
+        for index, raw in enumerate(todos):
+            if not isinstance(raw, dict):
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan todos[{index}] must be an object",
+                    details={"request_id": request_id},
+                )
+            text = str(raw.get("text") or "").strip()
+            tool = str(raw.get("tool") or "").strip()
+            if not text or not tool:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan todos[{index}] needs non-empty text and tool",
+                    details={"request_id": request_id},
+                )
+            todo_id = str(raw.get("id") or "")
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", todo_id):
+                todo_id = f"m{index + 1}"
+            todo_arguments = raw.get("arguments")
+            entries.append({
+                "id": todo_id,
+                "text": text[:400],
+                "tool": tool,
+                "done_when": f"done:{todo_id}",
+                "arguments": todo_arguments if isinstance(todo_arguments, dict) else {},
+            })
+        return entries
 
     def propose(self, context: dict[str, Any]) -> Proposal:
         profile = prompt_profile_for(context)
@@ -865,10 +967,12 @@ class OpenAICompatProvider:
 
         dropped_tool_calls = 0
         if use_native:
-            steps, dropped_tool_calls = self._steps_from_tool_calls(
+            steps, plan_additions, dropped_tool_calls = self._steps_from_tool_calls(
                 tool_calls or [], profile.max_steps, request_id,
             )
             data: dict[str, Any] = {"version": PLAN_VERSION, "steps": steps}
+            if plan_additions:
+                data["additions"] = plan_additions
         else:
             try:
                 data = parse_proposal_text(content, max_steps=profile.max_steps)
