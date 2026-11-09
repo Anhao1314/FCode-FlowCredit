@@ -105,6 +105,39 @@ class SandboxJailTests(unittest.TestCase):
         self._denied(".git/config")
         self._denied("sub/.git/config")
 
+    def test_repo_map_returns_paths_and_top_level_symbols(self) -> None:
+        from flowagent.tools.general.tools import build_general_tools
+
+        self.sandbox.ensure()
+        root = pathlib.Path(self._tmp.name) / "ws"
+        (root / "src").mkdir()
+        (root / "src" / "a.py").write_text(
+            "def alpha():\n    pass\n\nclass Beta:\n    pass\n", encoding="utf-8")
+        (root / "README.md").write_text("hello\n", encoding="utf-8")
+        tool = next(spec for spec in build_general_tools(self.sandbox, None)
+                    if spec.name == "repo_map")
+        result = tool.handler({"max_files": 50})
+        by_path = {item["path"]: item for item in result["files"]}
+        self.assertIn("src/a.py", by_path)
+        self.assertIn("README.md", by_path)
+        self.assertEqual(by_path["src/a.py"]["symbols"], ["def alpha:1", "class Beta:4"])
+        self.assertEqual(result["count"], len(result["files"]))
+        self.assertFalse(result["truncated"])
+
+    def test_read_file_raw_keeps_a_usable_slice(self) -> None:
+        from flowagent.tools.general.summaries import summarize_read_file_raw
+
+        long = summarize_read_file_raw({
+            "path": "a.py", "content": "x" * 5_000, "sha256": "s", "bytes": 5_000,
+        })
+        self.assertEqual(len(long["content"]), 3_500)
+        self.assertTrue(long["truncated"])
+        short = summarize_read_file_raw({
+            "path": "b.py", "content": "def f(): pass\n", "sha256": "s", "bytes": 14,
+        })
+        self.assertEqual(short["content"], "def f(): pass\n")
+        self.assertFalse(short["truncated"])
+
     def test_git_prefixed_regular_files_are_readable(self) -> None:
         """回归：子串判断 ".git" 会把 .gitignore/.gitattributes 也拒掉，
         模型的全仓 grep 会在第一份清单文件上整轮失败。"""

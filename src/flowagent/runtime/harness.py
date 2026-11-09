@@ -87,6 +87,23 @@ class Harness:
         #: more importantly, emits no selector into the context — which is what
         #: keeps finance contexts byte-identical to the frozen SFT set.
         self.prompt_profile = prompt_profile
+        #: How many actions one validated proposal may contain. Derived from the
+        #: prompt profile so the parser bound and the loop bound cannot drift:
+        #: the one-action default stays 1, ``general-fast`` executes all four.
+        from ..providers.prompt import PROMPT_PROFILES
+
+        profile = PROMPT_PROFILES.get(prompt_profile or "")
+        self.max_steps = profile.max_steps if profile is not None else 1
+        #: Native function calling needs the registry schemas at the provider
+        #: boundary. They are attached once, outside the prompt context, so the
+        #: user message does not duplicate every tool schema on every round.
+        self.native_tools = bool(profile.native_tools) if profile is not None else False
+        if self.native_tools:
+            from ..providers.tool_schema import to_openai_tools
+
+            setter = getattr(provider, "set_native_tools", None)
+            if callable(setter):
+                setter(to_openai_tools(registry))
         #: Whether the model may propose additional plan todos (see
         #: DomainModule.plan_extension). Carried on the harness so every caller
         #: that builds one — demo, console, tests — gets the domain's own

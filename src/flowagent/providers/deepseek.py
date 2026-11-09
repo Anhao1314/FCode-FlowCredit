@@ -61,6 +61,7 @@ class DeepSeekProvider(OpenAICompatProvider):
         max_tokens: int = 256,
         max_prompt_tokens: int = 4_096,
         json_mode: bool = True,
+        reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(
             api_key=api_key,
@@ -70,7 +71,7 @@ class DeepSeekProvider(OpenAICompatProvider):
             label="deepseek",
             timeout=timeout,
             max_completion_tokens=max_tokens,
-            reasoning_effort=None,
+            reasoning_effort=reasoning_effort,
             temperature=None,
             min_call_interval_seconds=0.0,
             completion_field="max_tokens",
@@ -100,6 +101,7 @@ class DeepSeekPolicy:
         max_tokens: int = 64,
         max_packet_tokens: int = 4_096,
         json_mode: bool = True,
+        reasoning_effort: str | None = None,
     ) -> None:
         self.client = CompatClient(
             label="deepseek",
@@ -111,7 +113,7 @@ class DeepSeekPolicy:
             completion_field="max_tokens",
             temperature_mode="pin-zero",
             temperature=None,
-            reasoning_effort=None,
+            reasoning_effort=reasoning_effort,
             json_mode=json_mode,
             require_https=True,
         )

@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -504,7 +505,14 @@ class CompatClient:
         self.reasoning_effort = reasoning_effort or ""
         self.json_mode = json_mode
 
-    def chat(self, system: str, user: str) -> tuple[str, dict[str, Any], str]:
+    def _post(
+        self,
+        system: str,
+        user: str,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -523,7 +531,13 @@ class CompatClient:
                 body["temperature"] = self.temperature
         else:  # send-configured: deterministic by default
             body["temperature"] = 0 if self.temperature is None else self.temperature
-        if self.json_mode:
+        if tools:
+            # Native function calling replaces the JSON reply contract. Sending
+            # response_format alongside tools is rejected by some endpoints and
+            # redundant everywhere: the tool schema already constrains the shape.
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice or "auto"
+        elif self.json_mode:
             body["response_format"] = {"type": "json_object"}
         if self.reasoning_effort:
             body["reasoning_effort"] = self.reasoning_effort
@@ -556,22 +570,54 @@ class CompatClient:
         if not choices:
             raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned no choices")
         message = choices[0].get("message") or {}
+        return message, dict(payload.get("usage") or {}), str(payload.get("id") or "")
+
+    def _empty_content_error(self, message: dict[str, Any]) -> AgentError:
+        # A reasoning model whose completion budget ran out during the reasoning
+        # channel returns reasoning_content and no content. That is not "no
+        # answer": it is a budget that was too small, and the operator can fix
+        # exactly one number.
+        reasoning = str(message.get("reasoning_content") or "")
+        if reasoning.strip():
+            return AgentError(
+                "MODEL_CALL_FAILED",
+                f"{self.label} 的补全预算被推理占满"
+                f"（reasoning {len(reasoning)} 字，content 为空）；"
+                f"把 {self.label.upper()}_MAX_COMPLETION_TOKENS 调大后重试",
+            )
+        return AgentError("MODEL_CALL_FAILED", f"{self.label} returned empty content")
+
+    def chat(self, system: str, user: str) -> tuple[str, dict[str, Any], str]:
+        message, usage, request_id = self._post(system, user)
         content = message.get("content") or ""
         if not isinstance(content, str) or not content.strip():
-            # A reasoning model whose completion budget ran out during the
-            # reasoning channel returns reasoning_content and no content. That
-            # is not "no answer": it is a budget that was too small, and the
-            # operator can fix exactly one number.
-            reasoning = str(message.get("reasoning_content") or "")
-            if reasoning.strip():
-                raise AgentError(
-                    "MODEL_CALL_FAILED",
-                    f"{self.label} 的补全预算被推理占满"
-                    f"（reasoning {len(reasoning)} 字，content 为空）；"
-                    f"把 {self.label.upper()}_MAX_COMPLETION_TOKENS 调大后重试",
-                )
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned empty content")
-        return content, dict(payload.get("usage") or {}), str(payload.get("id") or "")
+            raise self._empty_content_error(message)
+        return content, usage, request_id
+
+    def chat_with_tools(
+        self,
+        system: str,
+        user: str,
+        *,
+        tools: list[dict[str, Any]],
+        tool_choice: str | None = "auto",
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any], str]:
+        """One native-tool dispatch. Returns ``(content, tool_calls, usage, id)``.
+
+        Empty content with populated ``tool_calls`` is the normal shape for a
+        function-calling reply; empty both ways keeps the honest budget/failure
+        error instead of pretending a tool call happened.
+        """
+        message, usage, request_id = self._post(
+            system, user, tools=tools, tool_choice=tool_choice,
+        )
+        content = message.get("content") if isinstance(message.get("content"), str) else ""
+        calls = message.get("tool_calls") or []
+        if not isinstance(calls, list):
+            calls = []
+        if not calls and not content.strip():
+            raise self._empty_content_error(message)
+        return content, list(calls), usage, request_id
 
 
 # ------------------------------------------------------------------ provider
@@ -655,6 +701,9 @@ class OpenAICompatProvider:
         self.raw_sink = raw_sink
         self.calibration_reports: list[dict[str, Any]] = []
         self.receipt_detail = receipt_detail
+        #: Native function-calling schemas, attached by the runtime that owns
+        #: the registry. Empty keeps the JSON-proposal contract.
+        self.native_tool_schemas: list[dict[str, Any]] = []
         # Fixed pre-dispatch reservation (the deepseek preset contract):
         # reserved once from the configured prompt ceiling, not per prompt.
         self.max_prompt_tokens = max_prompt_tokens
@@ -698,9 +747,19 @@ class OpenAICompatProvider:
     def price_snapshot(self) -> PriceSnapshot:
         return self.price
 
+    def set_native_tools(self, tools: list[dict[str, Any]]) -> None:
+        """Attach registry schemas; called once by the owning Harness."""
+        self.native_tool_schemas = list(tools or [])
+
+    def _tool_schema_tokens(self) -> int:
+        if not self.native_tool_schemas:
+            return 0
+        chars = len(json.dumps(self.native_tool_schemas, ensure_ascii=False))
+        return max(1, chars // 4)
+
     def reserve(self, context: dict[str, Any]) -> tuple[int, int]:
         system, user = render_prompt(context)
-        prompt_tokens = self.calibration.estimate(system, user)
+        prompt_tokens = self.calibration.estimate(system, user) + self._tool_schema_tokens()
         return (
             prompt_tokens + self.max_completion_tokens,
             _micro(prompt_tokens, self.price.input_microusd_per_mtok)
@@ -723,36 +782,102 @@ class OpenAICompatProvider:
         if wait > 0:
             time.sleep(wait)
 
+    def _steps_from_tool_calls(
+        self,
+        calls: list[dict[str, Any]],
+        max_steps: int,
+        request_id: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Map native ``tool_calls`` onto plan steps, preserving call order.
+
+        A malformed arguments blob is a model failure the paid retry can fix, so
+        it raises PROPOSAL_MALFORMED rather than executing a guessed call. Calls
+        beyond the batch bound are dropped and counted; the loop cannot execute
+        what the profile did not promise to execute.
+        """
+        steps: list[dict[str, Any]] = []
+        for index, call in enumerate(calls[:max_steps]):
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function") or {}
+            name = str(function.get("name") or "").strip()
+            raw_arguments = function.get("arguments")
+            if isinstance(raw_arguments, str):
+                try:
+                    arguments = json.loads(raw_arguments) if raw_arguments.strip() else {}
+                except ValueError as error:
+                    raise AgentError(
+                        "PROPOSAL_MALFORMED",
+                        f"tool call arguments are not JSON: {raw_arguments[:120]!r}",
+                        details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                    ) from error
+            elif isinstance(raw_arguments, dict):
+                arguments = dict(raw_arguments)
+            else:
+                arguments = {}
+            if not name:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    "tool call is missing a function name",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                )
+            call_id = str(call.get("id") or "")
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", call_id):
+                call_id = f"call-{index + 1}"
+            steps.append({"id": call_id, "tool": name, "arguments": arguments})
+        if not steps:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "native reply carried no usable tool calls",
+                details={"raw_tool_calls": calls[:4], "request_id": request_id},
+            )
+        return steps, max(0, len(calls) - len(steps))
+
     def propose(self, context: dict[str, Any]) -> Proposal:
         profile = prompt_profile_for(context)
         system, user = render_prompt(context)
         chars = len(system) + len(user)
-        reserved_prompt_tokens = self.calibration.estimate(system, user)
+        reserved_prompt_tokens = self.calibration.estimate(system, user) + self._tool_schema_tokens()
+        use_native = bool(profile.native_tools and self.native_tool_schemas)
         self._pace()
         started = time.monotonic()
-        content, usage, request_id = self.client.chat(system, user)
+        tool_calls: list[dict[str, Any]] | None = None
+        if use_native:
+            content, tool_calls, usage, request_id = self.client.chat_with_tools(
+                system, user, tools=self.native_tool_schemas,
+            )
+        else:
+            content, usage, request_id = self.client.chat(system, user)
         latency_ms = int((time.monotonic() - started) * 1000)
 
         if self.raw_sink is not None:
-            self.raw_sink(
-                {
-                    "round": context.get("round"),
-                    "provider": self.label,
-                    "model": self.model,
-                    "request_id": request_id,
-                    "content": content,
-                    "usage": dict(usage),
-                }
-            )
+            raw = {
+                "round": context.get("round"),
+                "provider": self.label,
+                "model": self.model,
+                "request_id": request_id,
+                "content": content,
+                "usage": dict(usage),
+            }
+            if tool_calls is not None:
+                raw["tool_calls"] = tool_calls
+            self.raw_sink(raw)
 
-        try:
-            data = parse_proposal_text(content)
-        except ValueError as error:
-            raise AgentError(
-                "PROPOSAL_MALFORMED",
-                f"{error}: {content[:120]!r}",
-                details={"raw_content": content, "request_id": request_id},
-            ) from error
+        dropped_tool_calls = 0
+        if use_native:
+            steps, dropped_tool_calls = self._steps_from_tool_calls(
+                tool_calls or [], profile.max_steps, request_id,
+            )
+            data: dict[str, Any] = {"version": PLAN_VERSION, "steps": steps}
+        else:
+            try:
+                data = parse_proposal_text(content, max_steps=profile.max_steps)
+            except ValueError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"{error}: {content[:120]!r}",
+                    details={"raw_content": content, "request_id": request_id},
+                ) from error
 
         prompt_tokens, _, total_tokens = _usage_tokens(usage)
         plan = build_proposal_plan(data)
@@ -763,7 +888,10 @@ class OpenAICompatProvider:
             "provider_request_id": request_id,
             "price_as_of": self.price.as_of,
             "price_source": self.price.source,
+            "native_tools": use_native,
         }
+        if dropped_tool_calls:
+            metadata["dropped_tool_calls"] = dropped_tool_calls
         if self.receipt_detail == "full":
             metadata.update({
                 "input_microusd_per_mtok": self.price.input_microusd_per_mtok,

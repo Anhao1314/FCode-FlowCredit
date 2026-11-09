@@ -39,6 +39,14 @@ from .plan_extension import validate_additions
 #: an unregistered tool, a scope or effect violation — keeps today's semantics
 #: (a governance event, and the run stops on it).
 REPAIRABLE_DENIALS = ("TOOL_ARGUMENTS_INVALID",)
+#: Execution-time request errors the model can fix by changing arguments. Only
+#: batch fast mode downgrades these to a visible tool_failed + next round; the
+#: one-action contract keeps today's terminal semantics untouched.
+RECOVERABLE_TOOL_ERRORS = frozenset({
+    "SPAWN_REQUEST_INVALID", "READ_RANGE_INVALID", "GREP_PATTERN_INVALID",
+    "TOOL_ARGUMENTS_INVALID", "COMMAND_GIT_FLAG_REFUSED", "COMMAND_FLAG_REFUSED",
+    "COMMAND_NOT_FOUND", "COMMAND_LAUNCH_FAILED",
+})
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
 
@@ -189,7 +197,7 @@ class Loop:
             if pending is not None:
                 # A reconciled round: the proposal is already approved and paid
                 # for. Execute it; do not ask the model again.
-                step = pending
+                steps = [pending]
                 pending = None
                 round_no = task.model.attempts
                 self.observer.round_start(round_no, budget_snapshot, plan)
@@ -255,7 +263,7 @@ class Loop:
                             "latency_ms": proposal.latency_ms,
                         })
                     self.observer.proposal(round_no, proposal)
-                    step = proposal.plan["steps"][0]
+                    steps = self._round_steps(proposal)
                 else:
                     context = memory.build(round_no, budget_snapshot, plan)
                     try:
@@ -271,7 +279,7 @@ class Loop:
                     # accepted todos are on the chain — so this round's action
                     # and every later round both see the same durable plan.
                     task, plan = self._extend_plan(task, plan, round_no, memory)
-                    step = proposal.plan["steps"][0]
+                    steps = self._round_steps(proposal)
 
             if memory.pending_compaction is not None:
                 task = self.harness.record(
@@ -286,9 +294,17 @@ class Loop:
                 )
                 memory.pending_pin_overflow = None
 
-            decision = self.harness.gate(task, step)
-            self.observer.gate(round_no, decision)
-            if not decision.allowed:
+            # Preflight the whole batch before dispatching anything: a schema error in
+            # action 3 must not leave actions 1-2 already executed. Approvals stay
+            # per action below (fast runs use approval=off, so they do not pause).
+            rejected = False
+            decisions = []
+            for step in steps:
+                decision = self.harness.gate(task, step)
+                self.observer.gate(round_no, decision)
+                if decision.allowed:
+                    decisions.append(decision)
+                    continue
                 if decision.code in REPAIRABLE_DENIALS and repairs < MAX_PROPOSAL_REPAIRS:
                     # Nothing was dispatched, nothing is unknown: the proposal
                     # did not fit the tool's schema. Handing the error back is
@@ -307,54 +323,98 @@ class Loop:
                     memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
                         "tool": step["tool"], "code": decision.code, "message": decision.reason,
                     }]
-                    continue
+                    rejected = True
+                    break
                 return self._deny(task, decision, plan)
+            if rejected:
+                continue
 
-            if self.control is not None:
-                approval = self.control.before_tool(
-                    round_no=round_no,
-                    task=task,
-                    step=step,
-                    decision=decision,
-                )
-                task = approval.task
-                if not approval.allowed:
-                    if approval.terminated:
-                        self.observer.terminal(task, None)
-                        return task
-                    return self._deny(
-                        task,
-                        Denial(
-                            tool=step["tool"],
-                            code=approval.code or "OPERATOR_DENIED",
-                            reason=approval.reason or "operator denied the call",
-                        ),
-                        plan,
+            completed_without_result = False
+            batch_recover = False
+            for step, decision in zip(steps, decisions):
+                if self.control is not None:
+                    approval = self.control.before_tool(
+                        round_no=round_no,
+                        task=task,
+                        step=step,
+                        decision=decision,
                     )
+                    task = approval.task
+                    if not approval.allowed:
+                        if approval.terminated:
+                            self.observer.terminal(task, None)
+                            return task
+                        return self._deny(
+                            task,
+                            Denial(
+                                tool=step["tool"],
+                                code=approval.code or "OPERATOR_DENIED",
+                                reason=approval.reason or "operator denied the call",
+                            ),
+                            plan,
+                        )
 
-            try:
-                task, observation = self.harness.execute(task, step, round_no=round_no)
-            except AgentError as error:
-                return self._abort(task_id, error)
-
-            memory.record(round_no, observation,
-                          source_trust=trust_for_tool(observation.tool))
-            plan = self.planner.advance(plan, observation) if self.planner else plan
-            task = self._persist_plan(task, plan, round_no)
-
-            self.observer.observation(round_no, observation)
-            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-
-            if observation.tool == "report_blocked":
-                return self._reported_blocked(task, plan, observation)
-            if observation.tool in self.result_tools and plan.is_complete():
                 try:
-                    verified = self._verify_result_set(task.id, plan)
-                    sources = self._check_evidence(task, verified, round_no)
-                    task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                    task, observation = self.harness.execute(task, step, round_no=round_no)
                 except AgentError as error:
-                    return self._abort(task.id, error)
-                return self._succeed(task, verified, plan, obligation, sources)
+                    if self.harness.max_steps > 1 and error.code in RECOVERABLE_TOOL_ERRORS:
+                        # The tool call itself was malformed (a 600-char spawn
+                        # objective, a bad regex/range). The harness already
+                        # committed tool_failed; hand the error back in context
+                        # and let the model fix it next round instead of killing
+                        # the whole run. Fast mode only: the one-action contract
+                        # keeps terminal-on-tool-failure.
+                        memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
+                            "tool": step["tool"], "code": error.code,
+                            "message": error.message,
+                        }]
+                        # execute() committed tool_failed before raising; the
+                        # loop still holds the pre-execution snapshot. Reload the
+                        # durable task and clear the transient failure so the
+                        # next proposal starts from the committed sequence.
+                        task = self.harness.store.load(task_id)
+                        task.failure = None
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        batch_recover = True
+                        break
+                    return self._abort(task_id, error)
+
+                memory.record(round_no, observation,
+                              source_trust=trust_for_tool(observation.tool))
+                plan = self.planner.advance(plan, observation) if self.planner else plan
+                task = self._persist_plan(task, plan, round_no)
+
+                self.observer.observation(round_no, observation)
+
+                if observation.tool == "report_blocked":
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._reported_blocked(task, plan, observation)
+                if plan.is_blocked():
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._stop(task, plan, "PLAN_BLOCKED")
+                if plan.is_complete():
+                    # The batch may complete the plan on a step that is not
+                    # itself a result tool. Verify whenever the plan *contains*
+                    # a result obligation, not only when the last action is one.
+                    if any(todo.tool in self.result_tools for todo in plan.todos):
+                        try:
+                            verified = self._verify_result_set(task.id, plan)
+                            sources = self._check_evidence(task, verified, round_no)
+                            task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                        except AgentError as error:
+                            return self._abort(task.id, error)
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        return self._succeed(task, verified, plan, obligation, sources)
+                    # No result obligation: stop consuming the rest of the batch
+                    # and let the top-of-loop completion check end the task.
+                    completed_without_result = True
+                    break
+
+            if batch_recover:
+                continue
+            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+            if completed_without_result:
+                continue
 
     # ----------------------------------------------------------- plan extension
 
@@ -807,6 +867,18 @@ class Loop:
                 ),
             )
         return base
+
+    def _round_steps(self, proposal: Proposal) -> list[dict[str, Any]]:
+        """Actions this round is allowed to execute.
+
+        The historical contract is one; a batch profile (``general-fast``)
+        executes every validated step in order. The bound comes from the same
+        prompt profile the parser used, so the two cannot drift.
+        """
+        steps = [dict(step) for step in (proposal.plan.get("steps") or [])]
+        if getattr(self.harness, "max_steps", 1) <= 1:
+            return steps[:1]
+        return steps[: self.harness.max_steps]
 
     def pending_step(self, task: Task) -> dict[str, Any] | None:
         """Return an approved-but-unexecuted step, if reconciliation left one."""

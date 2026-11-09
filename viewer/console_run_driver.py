@@ -27,6 +27,10 @@ class RunDriver:
         self.rt = manager.runtime
         self.resume_limits = resume_limits
         self.extra_rounds = extra_rounds
+        #: Opt-in fast experiment: batch actions per model round, native tool
+        #: calling, operator envelope without price-scaled call shrink.
+        self.fast = bool((getattr(run, "spec", None) or {}).get("fast")) \
+            or os.environ.get("FCODE_FAST_MODE") == "1"
         self.store = None
         self.watcher = None
         self.sandbox = None
@@ -88,7 +92,7 @@ class RunDriver:
         provider = self.manager._build_provider(
             rt, self.run, self.scenario, self.receipts, self._issue,
         )
-        if self.run.model != "mock":
+        if self.run.model != "mock" and not self.fast:
             price = getattr(provider, "price", None)
             max_completion = int(getattr(provider, "max_completion_tokens", 512) or 512)
             if price is not None:
@@ -96,6 +100,13 @@ class RunDriver:
         self.limits = limits
         #: 延展封底参照的原始上限(价格缩放后的定稿值)——通道懒解析它。
         self.base_limits = limits
+        # Fast runs opt into the batch/native contract; `fastProfile` lets the
+        # experiment compare JSON batching (`general-fast`) with native tools
+        # (`general-fast-native`, the default).
+        fast_profile = str((self.run.spec or {}).get("fastProfile") or "").strip()
+        prompt_profile = (
+            fast_profile or "general-fast-native"
+        ) if (self.fast and self.general) else self.module.prompt_profile
         self.harness = rt.Harness(
             store=self.store,
             registry=registry,
@@ -106,7 +117,7 @@ class RunDriver:
             verifier=lambda observation: self.module.verify(self.world, observation),
             state_fn=self.module.summarize_state,
             instruction=self._build_instruction(),
-            prompt_profile=self.module.prompt_profile,
+            prompt_profile=prompt_profile,
             plan_extension=self.module.plan_extension,
             verification=(
                 self.module.make_verification(self.world)
@@ -177,6 +188,10 @@ class RunDriver:
                 project_path = self.run_dir / "project.json"
                 if project_path.is_file():
                     self.project = json.loads(project_path.read_text(encoding="utf-8"))
+                elif self.fast and self._try_worktree(project_spec):
+                    project_path.write_text(
+                        json.dumps(self.project, ensure_ascii=False, indent=2), encoding="utf-8",
+                    )
                 else:
                     self.project = self.rt.import_project(project_spec["path"], self.sandbox)
                     project_path.write_text(
@@ -196,6 +211,61 @@ class RunDriver:
         return self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
         )
+
+    def _try_worktree(self, project_spec: dict) -> bool:
+        """Fast-mode workspace: git worktree instead of a full copy.
+
+        Only a clean git checkout is eligible: a dirty source has no HEAD that
+        matches what the operator sees, and applying a patch generated from a
+        different baseline would be dishonest. Anything unexpected falls back to
+        ``import_project`` (the isolated copy keeps the same patch contract).
+        """
+        import subprocess
+
+        source = Path(str(project_spec.get("path") or "")).expanduser().resolve()
+        if not source.is_dir():
+            return False
+        try:
+            top = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if top.returncode != 0 or Path(top.stdout.strip()).resolve() != source:
+                return False
+            dirty = subprocess.run(
+                ["git", "-C", str(source), "status", "--porcelain"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if dirty.returncode != 0 or dirty.stdout.strip():
+                return False
+            head = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+            if not head:
+                return False
+        except (OSError, subprocess.SubprocessError):
+            return False
+        workspace = self.run_dir / "workspace"
+        if workspace.exists() and any(workspace.iterdir()):
+            return False
+        try:
+            added = subprocess.run(
+                ["git", "-C", str(source), "worktree", "add", "--detach",
+                 str(workspace), "HEAD"],
+                capture_output=True, text=True, timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        if added.returncode != 0:
+            return False
+        self.project = {
+            "source": str(source),
+            "baselineCommit": head,
+            "isolatedCopy": True,
+            "worktree": True,
+        }
+        return True
 
     def _ask_channel(self, **kwargs: Any) -> dict[str, Any]:
         control = self.ask_holder.get("control")
@@ -245,12 +315,23 @@ class RunDriver:
         if spec.get("project") and not self.resume_limits:
             # More room to inspect and repair a real repository; the operator's
             # hard cost ceiling and the provider price scaling still apply.
-            limits = self.rt.BudgetLimits(
-                max_calls=max(40, scenario.limits.max_calls),
-                max_reads=max(160, scenario.limits.max_reads),
-                max_cost_microusd=max(1_000_000, scenario.limits.max_cost_microusd),
-                max_tokens=max(300_000, scenario.limits.max_tokens),
-            )
+            # Fast mode is an experiment: it keeps the operator envelope instead
+            # of shrinking calls by the worst-case reserve (which is what forced
+            # the 21-call ceiling in the observed run).
+            if self.fast:
+                limits = self.rt.BudgetLimits(
+                    max_calls=max(60, scenario.limits.max_calls),
+                    max_reads=max(300, scenario.limits.max_reads),
+                    max_cost_microusd=max(3_000_000, scenario.limits.max_cost_microusd),
+                    max_tokens=max(1_200_000, scenario.limits.max_tokens),
+                )
+            else:
+                limits = self.rt.BudgetLimits(
+                    max_calls=max(40, scenario.limits.max_calls),
+                    max_reads=max(160, scenario.limits.max_reads),
+                    max_cost_microusd=max(1_000_000, scenario.limits.max_cost_microusd),
+                    max_tokens=max(300_000, scenario.limits.max_tokens),
+                )
         override = spec.get("budget") if not self.resume_limits else None
         if override:
             limits = self.rt.BudgetLimits(
@@ -354,7 +435,11 @@ class RunDriver:
                     task = self.harness.record_recall(task, hits)
                 except Exception:  # noqa: BLE001 — memory must never kill a run
                     traceback.print_exc()
-            self.max_rounds = max(24, self.scenario.max_rounds) if (self.run.spec or {}).get("project") else self.scenario.max_rounds
+            self.max_rounds = (
+                max(60 if self.fast else 24, self.scenario.max_rounds)
+                if (self.run.spec or {}).get("project")
+                else self.scenario.max_rounds
+            )
         self.run.task_id = task.id
         self.observer = LiveObserver(self.run, self.recorder, self.store, task.id)
         self.watcher = threading.Thread(

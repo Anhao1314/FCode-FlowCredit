@@ -194,9 +194,26 @@ class RendererTests(unittest.TestCase):
         self.assertIs(DEFAULT_PROMPT_PROFILE, FINANCE_PROMPT_PROFILE)
         self.assertTrue(FINANCE_PROMPT_PROFILE.frozen)
         self.assertFalse(GENERAL_PROMPT_PROFILE.frozen)
-        self.assertEqual(set(PROMPT_PROFILES), {"finance", "general"})
+        self.assertEqual(set(PROMPT_PROFILES),
+                         {"finance", "general", "general-fast", "general-fast-native"})
         self.assertIs(prompt_profile_for({}), FINANCE_PROMPT_PROFILE)
         self.assertIs(prompt_profile_for({"prompt_profile": "general"}), GENERAL_PROMPT_PROFILE)
+        # Fast is opt-in and only it lifts the parser's one-action bound.
+        self.assertEqual(GENERAL_PROMPT_PROFILE.max_steps, 1)
+        self.assertEqual(PROMPT_PROFILES["general-fast"].max_steps, 4)
+
+    def test_batch_parsing_is_opt_in(self) -> None:
+        from flowagent.providers.prompt import parse_proposal_text
+
+        two = ('{"version": "%s", "steps": ['
+               '{"id": "a", "tool": "read_file", "arguments": {"path": "a"}},'
+               '{"id": "b", "tool": "read_file", "arguments": {"path": "b"}}]}') % PLAN_VERSION
+        with self.assertRaises(ValueError):
+            parse_proposal_text(two)
+        parsed = parse_proposal_text(two, max_steps=4)
+        self.assertEqual([step["id"] for step in parsed["steps"]], ["a", "b"])
+        with self.assertRaises(ValueError):
+            parse_proposal_text(two, max_steps=0)
 
     def test_an_unknown_profile_fails_loudly_instead_of_misrouting(self) -> None:
         """G. Never silently Finance, never silently General."""

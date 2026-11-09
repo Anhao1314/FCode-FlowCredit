@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .core.contracts import AgentError
+from .providers.tool_schema import to_openai_tools
 from .runtime.budget import Budget
 from .runtime.permissions import Permissions
 from .tools.general.commands import CommandPolicy
@@ -85,48 +86,6 @@ def build_chat_permissions(registry: ToolRegistry) -> Permissions:
         grant={"allowed_tools": list(allowed)},
         allowed_effects=("read", "write", "network"),
     )
-
-
-_KIND_MAP = {
-    "string": "string",
-    "integer": "integer",
-    "number": "number",
-    "boolean": "boolean",
-    "array": "array",
-}
-
-
-def to_openai_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
-    """ToolSpec → OpenAI tools 数组（function calling 的请求形状）。"""
-    tools: list[dict[str, Any]] = []
-    for name in registry.names:
-        spec = registry.get(name)
-        properties: dict[str, Any] = {}
-        required: list[str] = []
-        for param in spec.params:
-            schema = param.to_schema()
-            schema.pop("required", None)
-            schema.pop("nullable", None)
-            schema["type"] = _KIND_MAP.get(str(schema.get("type")), "string")
-            if param.enum is not None:
-                schema["enum"] = list(param.enum)
-            properties[param.name] = schema
-            if param.required:
-                required.append(param.name)
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.summary,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                    "additionalProperties": False,
-                },
-            },
-        })
-    return tools
 
 
 def run_command_verdict(ctx, parsed: dict[str, Any]) -> dict[str, Any]:

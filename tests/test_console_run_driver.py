@@ -70,6 +70,58 @@ class ConsoleRunDriverTests(unittest.TestCase):
         self.assertEqual(task.status, "failed")
         self.assertEqual(driver.harness.event, "task_failed")
 
+    def _limits_driver(self, *, fast: bool):
+        from flowagent.runtime.budget import BudgetLimits
+
+        driver = RunDriver.__new__(RunDriver)
+        driver.fast = fast
+        driver.resume_limits = None
+        driver.run = SimpleNamespace(
+            spec={"project": {"path": "/tmp/repo"}, "fast": fast},
+        )
+        driver.scenario = SimpleNamespace(
+            limits=BudgetLimits(8, 16, 200_000, 100_000),
+        )
+        driver.rt = SimpleNamespace(BudgetLimits=BudgetLimits)
+        return driver
+
+    def test_fast_project_envelope_is_not_price_shrunk(self):
+        limits = self._limits_driver(fast=True)._limits()
+        self.assertEqual(limits.max_calls, 60)
+        self.assertEqual(limits.max_reads, 300)
+        self.assertEqual(limits.max_cost_microusd, 3_000_000)
+        self.assertEqual(limits.max_tokens, 1_200_000)
+        slow = self._limits_driver(fast=False)._limits()
+        self.assertEqual(slow.max_tokens, 300_000)
+        self.assertEqual(slow.max_cost_microusd, 1_000_000)
+
+    def test_worktree_is_used_for_a_clean_git_source(self):
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = pathlib.Path(tmp) / "src"
+            source.mkdir()
+            subprocess.run(["git", "init", "-q", str(source)], check=True)
+            subprocess.run(["git", "-C", str(source), "config", "user.email", "t@e.st"], check=True)
+            subprocess.run(["git", "-C", str(source), "config", "user.name", "t"], check=True)
+            (source / "a.txt").write_text("hi\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(source), "add", "a.txt"], check=True)
+            subprocess.run(["git", "-C", str(source), "commit", "-qm", "init"], check=True)
+            driver = RunDriver.__new__(RunDriver)
+            driver.run_dir = pathlib.Path(tmp) / "runs" / "r1"
+            driver.run_dir.mkdir(parents=True)
+            self.assertTrue(driver._try_worktree({"path": str(source)}))
+            self.assertTrue((driver.run_dir / "workspace" / "a.txt").is_file())
+            self.assertEqual(driver.project["worktree"], True)
+            self.assertEqual(driver.project["source"], str(source.resolve()))
+            # A dirty source has no baseline that matches what the operator sees.
+            (source / "a.txt").write_text("changed\n", encoding="utf-8")
+            driver2 = RunDriver.__new__(RunDriver)
+            driver2.run_dir = pathlib.Path(tmp) / "runs" / "r2"
+            driver2.run_dir.mkdir(parents=True)
+            self.assertFalse(driver2._try_worktree({"path": str(source)}))
+
 
 if __name__ == "__main__":
     unittest.main()

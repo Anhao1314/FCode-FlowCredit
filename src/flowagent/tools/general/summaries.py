@@ -30,6 +30,16 @@ def summarize_ls_workspace(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_repo_map(result: dict[str, Any]) -> dict[str, Any]:
+    entries = result.get("files", [])
+    return {
+        "count": result.get("count", len(entries)),
+        "files": [entry.get("path") for entry in entries[:30]],
+        "truncated": bool(result.get("truncated")) or len(entries) > 30,
+        "symbols": result.get("symbols", 0),
+    }
+
+
 def summarize_read_file(result: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "path": result.get("path"),
@@ -37,6 +47,32 @@ def summarize_read_file(result: dict[str, Any]) -> dict[str, Any]:
         "sha256": result.get("sha256"),
     }
     out.update(_head(result.get("content")))
+    return out
+
+
+def summarize_read_file_raw(result: dict[str, Any]) -> dict[str, Any]:
+    """Fast-mode code read: keep a usable slice, not just its first 600 chars.
+
+    The default ``read_file`` summary deliberately drops the body (the file is
+    re-readable), but a coding agent that only sees 600 chars per read can never
+    see a function body and ends up re-reading the same slice forever. This
+    variant keeps up to 3,500 chars in context; the workspace jail, hashes and
+    caps are identical.
+    """
+    content = str(result.get("content") or "")
+    cap = 3_500
+    out: dict[str, Any] = {
+        "path": result.get("path"),
+        "bytes": result.get("bytes"),
+        "sha256": result.get("sha256"),
+        "chars": len(content),
+        "truncated": len(content) > cap,
+        "content": content[:cap],
+    }
+    if result.get("start_line") is not None:
+        out["start_line"] = result.get("start_line")
+        out["end_line"] = result.get("end_line")
+        out["total_lines"] = result.get("total_lines")
     return out
 
 
@@ -194,6 +230,8 @@ def summarize_report_blocked(result: dict[str, Any]) -> dict[str, Any]:
 GENERAL_SUMMARIZERS: dict[str, Any] = {
     "ask_operator": summarize_ask_operator,
     "ls_workspace": summarize_ls_workspace,
+    "repo_map": summarize_repo_map,
+    "read_file_raw": summarize_read_file_raw,
     "grep_workspace": summarize_grep_workspace,
     "find_files": summarize_find_files,
     "git_status": summarize_git_status,

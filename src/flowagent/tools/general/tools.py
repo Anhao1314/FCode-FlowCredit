@@ -23,6 +23,7 @@ that instruction was refused as ``TOOL_NOT_REGISTERED`` and the run ended
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from ...core.contracts import AgentError
@@ -221,6 +222,88 @@ def build_general_tools(
             timeout=float(arguments.get("timeout_seconds") or 60),
         )
 
+    def repo_map(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Bounded structural map: file inventory + top-level Python symbols.
+
+        Fast-mode exploration aid: one call replaces several grep/read rounds
+        without executing anything. It walks the sandbox root directly (no git
+        commit, no hashing every byte) and caps both files and symbols.
+        """
+        import ast
+        import os as _os
+        from pathlib import PurePosixPath
+
+        sandbox.ensure()
+        root = sandbox.root.resolve()
+        subtree = str(arguments.get("path") or "").strip().strip("/")
+        if subtree:
+            rel = PurePosixPath(subtree)
+            if rel.is_absolute() or any(part in ("..", ".", "") for part in rel.parts):
+                raise AgentError("SANDBOX_PATH_DENIED", "repo_map path must be a plain relative directory")
+            base = (root / subtree).resolve()
+            if base != root and root not in base.parents:
+                raise AgentError("SANDBOX_PATH_DENIED", "repo_map path escapes the workspace sandbox")
+            if not base.is_dir():
+                raise AgentError("SANDBOX_PATH_DENIED", "repo_map path is not a directory")
+        else:
+            base = root
+        try:
+            max_files = int(arguments.get("max_files") or 200)
+        except (TypeError, ValueError):
+            raise AgentError("REPO_MAP_ARGUMENTS_INVALID", "max_files must be an integer")
+        max_files = max(1, min(max_files, 400))
+        skip = {
+            ".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
+            ".mypy_cache", ".pytest_cache", ".ruff_cache", "work",
+        }
+        files: list[dict[str, Any]] = []
+        symbols = 0
+        truncated = False
+        for dirpath, dirnames, filenames in _os.walk(base):
+            dirnames[:] = sorted(
+                name for name in dirnames
+                if name not in skip and not name.startswith(".") and name != "work"
+            )
+            for name in sorted(filenames):
+                path = root / Path(dirpath).relative_to(base) / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                relative = path.relative_to(root).as_posix()
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                entry: dict[str, Any] = {"path": relative, "bytes": size}
+                if name.endswith(".py") and symbols < 1_500:
+                    try:
+                        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                    except (SyntaxError, OSError):
+                        tree = None
+                    names: list[str] = []
+                    for node in (tree.body if tree is not None else []):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            names.append(f"def {node.name}:{node.lineno}")
+                        elif isinstance(node, ast.ClassDef):
+                            names.append(f"class {node.name}:{node.lineno}")
+                        if len(names) >= 40:
+                            break
+                    if names:
+                        entry["symbols"] = names
+                        symbols += len(names)
+                files.append(entry)
+                if len(files) >= max_files:
+                    truncated = True
+                    break
+            if truncated:
+                break
+        return {
+            "path": subtree or ".",
+            "files": files,
+            "count": len(files),
+            "symbols": symbols,
+            "truncated": truncated,
+        }
+
     def fetch_url(arguments: dict[str, Any]) -> dict[str, Any]:
         url = arguments["url"].strip()
         if fetch_guard is not None:
@@ -249,6 +332,37 @@ def build_general_tools(
             params=(),
             handler=ls_workspace,
             outputs=(_out("entries", "array"),),
+            version="1.0",
+        ),
+        ToolSpec(
+            name="repo_map",
+            summarize=summaries.summarize_repo_map,
+            summary=(
+                "Bounded repository map: file inventory plus top-level Python "
+                "def/class names and line numbers (read-only, one call replaces "
+                "several exploration rounds)"
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="path",
+                    kind="string",
+                    required=False,
+                    nullable=True,
+                    description="optional subdirectory relative to the workspace root",
+                ),
+                Param(
+                    name="max_files",
+                    kind="integer",
+                    required=False,
+                    nullable=True,
+                    minimum=1, maximum=400,
+                    description="file cap (default 200, max 400)",
+                ),
+            ),
+            handler=repo_map,
+            outputs=(_out("files", "array"), _out("count", "integer"),
+                     _out("symbols", "integer"), _out("truncated", "boolean")),
             version="1.0",
         ),
         ToolSpec(
@@ -290,6 +404,45 @@ def build_general_tools(
                 _out("total_lines", "integer", required=False, nullable=True),
             ),
             version="1.1",
+        ),
+        ToolSpec(
+            name="read_file_raw",
+            summarize=summaries.summarize_read_file_raw,
+            summary=(
+                "Read one file/slice with up to 3,500 chars kept in context "
+                "(same jail as read_file; use for code you intend to edit)"
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="path",
+                    kind="string",
+                    required=True,
+                    description="path relative to the workspace root",
+                ),
+                Param(
+                    name="offset",
+                    kind="integer",
+                    required=False,
+                    minimum=1,
+                    description="optional 1-based start line",
+                ),
+                Param(
+                    name="limit",
+                    kind="integer",
+                    required=False,
+                    minimum=1, maximum=400,
+                    description="optional max lines (1-400)",
+                ),
+            ),
+            handler=read_file,
+            outputs=(
+                _out("path", "string"),
+                _out("content", "string"),
+                _out("sha256", "string"),
+                _out("bytes", "integer"),
+            ),
+            version="1.0",
         ),
         ToolSpec(
             name="grep_workspace",
@@ -570,7 +723,7 @@ def build_general_tools(
 #: 2026-11 工具广度批次：新增 grep_workspace / find_files / git_status
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
-    "ls_workspace", "read_file", "grep_workspace", "find_files", "git_status",
+    "ls_workspace", "repo_map", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
     "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
 )

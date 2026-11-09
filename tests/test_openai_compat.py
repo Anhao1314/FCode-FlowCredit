@@ -192,6 +192,91 @@ class GenericWireTests(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
 
 
+class NativeToolTests(unittest.TestCase):
+    """Native function calling is opt-in by prompt profile and schema presence."""
+
+    def _provider(self) -> OpenAICompatProvider:
+        settings = load_compat_settings(
+            "OLLAMA", env=_generic_env(), defaults=GENERIC_COMPAT_DEFAULTS,
+        )
+        provider = OpenAICompatProvider.from_settings(settings)
+        provider.set_native_tools([{
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "read",
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        }])
+        return provider
+
+    def _native_reply(self, tool_calls, content=None) -> dict:
+        return {
+            "id": "chatcmpl-tools",
+            "choices": [{"message": {"content": content, "tool_calls": tool_calls}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
+        }
+
+    def test_tool_calls_become_batched_steps_without_json_mode(self) -> None:
+        provider = self._provider()
+        seen: dict = {}
+
+        def fake_urlopen(request, timeout):  # noqa: ARG001
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return _Response(self._native_reply([
+                {"id": "call_1", "type": "function",
+                 "function": {"name": "read_file", "arguments": '{"path": "a.txt"}'}},
+                {"id": "call_2", "type": "function",
+                 "function": {"name": "grep_workspace", "arguments": '{"pattern": "x"}'}},
+            ]))
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            proposal = provider.propose({
+                "objective": "t", "round": 1, "prompt_profile": "general-fast-native",
+            })
+        self.assertNotIn("response_format", seen["body"], "tools replace the JSON reply contract")
+        self.assertEqual(seen["body"]["tools"], provider.native_tool_schemas)
+        self.assertEqual(seen["body"]["tool_choice"], "auto")
+        self.assertEqual([step["tool"] for step in proposal.plan["steps"]],
+                         ["read_file", "grep_workspace"])
+        self.assertEqual(proposal.plan["steps"][1]["id"], "call_2")
+        self.assertTrue(proposal.metadata["native_tools"])
+
+    def test_default_profile_keeps_json_even_with_schemas_attached(self) -> None:
+        provider = self._provider()
+        seen: dict = {}
+
+        def fake_urlopen(request, timeout):  # noqa: ARG001
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return _Response({
+                "id": "x",
+                "choices": [{"message": {"content": PLAN_TEXT}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            })
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            proposal = provider.propose({"objective": "t", "round": 1})
+        self.assertNotIn("tools", seen["body"])
+        self.assertEqual(seen["body"]["response_format"], {"type": "json_object"})
+        self.assertFalse(proposal.metadata["native_tools"])
+
+    def test_bad_tool_arguments_are_a_malformed_proposal(self) -> None:
+        provider = self._provider()
+
+        def fake_urlopen(request, timeout):  # noqa: ARG001
+            return _Response(self._native_reply([
+                {"id": "call_1", "type": "function",
+                 "function": {"name": "read_file", "arguments": "{not json"}},
+            ]))
+
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            with self.assertRaises(AgentError) as raised:
+                provider.propose({
+                    "objective": "t", "round": 1, "prompt_profile": "general-fast-native",
+                })
+        self.assertEqual(raised.exception.code, "PROPOSAL_MALFORMED")
+
+
 class PresetsAreTheEngineTests(unittest.TestCase):
     def test_preset_providers_are_engine_instances(self) -> None:
         price = PriceSnapshot(input_microusd_per_mtok=1, output_microusd_per_mtok=2, as_of="d", billing="input-price-v1")
