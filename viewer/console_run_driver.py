@@ -463,7 +463,9 @@ class RunDriver:
         return task
 
     def _new_loop(self):
-        return self.rt.Loop(
+        from flowagent.runtime.engine import build_loop
+
+        return build_loop(
             self.harness,
             planner=self.planner,
             max_rounds=self.max_rounds,

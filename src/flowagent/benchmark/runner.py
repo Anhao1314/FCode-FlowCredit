@@ -26,7 +26,7 @@ from ..core.store import TaskStore, utc_now
 from ..domains.general import GENERAL_DOMAIN, summarize_state
 from ..runtime.budget import BudgetLimits
 from ..runtime.harness import Harness
-from ..runtime.loop import Loop
+from ..runtime.engine import build_loop
 from ..runtime.recovery import reconcile_unknown_tool
 from ..runtime.replay import equivalent_projection
 from ..tools.general.sandbox import WorkspaceSandbox
@@ -143,7 +143,7 @@ def build_stack(definition: dict[str, Any], run_dir: Path, *, provider_offset: i
     if definition["approval"]["mode"] != "none":
         control = ApprovalControl(harness, definition["approval"]["mode"])
     planner = BenchmarkPlanner(definition)
-    loop = Loop(
+    loop = build_loop(
         harness,
         planner=planner,
         max_rounds=len(definition["model_input"]["actions"]) + 3,

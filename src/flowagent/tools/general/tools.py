@@ -377,7 +377,7 @@ def build_general_tools(
                 ),
             ),
             handler=repo_map,
-            outputs=(_out("files", "array"), _out("tree", "array"), _out("count", "integer"),
+            outputs=(_out("files", "array"), _out("count", "integer"),
                      _out("symbols", "integer"), _out("imports", "integer"),
                      _out("truncated", "boolean")),
             version="1.1",
