@@ -3406,13 +3406,19 @@ function bindGlobalActions() {
             if (note) evidenceNote = note.slice(0, 600);
           }
         } catch { /* 证据拉取失败不阻断派修 */ }
-        const objective = [
+        // 服务端 objective 上限 600 字符；证据摘要只能吃剩余预算，
+        // 否则"头 + 证据 + 尾"超限会让委托直接 400。
+        const head = [
           `修复审计发现 ${fid}（${finding.category || "?"} · ${finding.root_cause_group || "?"} · ${severity}）`,
           meta.target ? `审计目标：${meta.target}` : "",
           "你的工作区是审计目标的隔离副本（work/ 等目录不在副本内，不要去找审计记录文件）。",
-          evidenceNote ? `证据摘要：${evidenceNote}` : "",
-          "要求：在工作区副本里定位并修复根因（不掩盖症状）；保持现有行为，跑通相关测试后写清改了什么。",
         ].filter(Boolean).join("\n");
+        const tail = "要求：在工作区副本里定位并修复根因（不掩盖症状）；优先最小改动，保持现有行为，跑通相关测试后写清改了什么。";
+        const evidenceBudget = 600 - head.length - tail.length - 2;
+        const evidence = evidenceNote && evidenceBudget > 20
+          ? `证据摘要：${evidenceNote.slice(0, evidenceBudget - "证据摘要：".length)}`
+          : "";
+        const objective = [head, evidence, tail].filter(Boolean).join("\n");
         startIntake(objective);
       })();
       return;

@@ -62,6 +62,17 @@ from .core.store import TaskStore, utc_now
 from .pacing import pace_key, reserve_slot
 from .runtime.budget import Budget, BudgetLimits
 
+
+from .chat_protocol import (  # noqa: F401 - re-exported protocol helpers
+    CHAT_VERSION,
+    _ACTION_BLOCK,
+    ACTION_MODES,
+    _ACTION_MAX_BYTES,
+    _ACTION_MAX_SOURCES,
+    _read_action,
+    parse_action_block,
+)
+
 __all__ = [
     "CHAT_VERSION",
     "CHAT_CONFIG_VERSION",
@@ -76,7 +87,6 @@ __all__ = [
     "parse_sse_data",
 ]
 
-CHAT_VERSION = "flowagent.chat/v1"
 
 CHAT_SYSTEM_PROMPT = (
     "你是 FCode 里的对话助手。用中文、清楚、简洁地回答。"
@@ -98,76 +108,6 @@ CHAT_SYSTEM_PROMPT = (
 )
 
 DEFAULT_CHAT_LIMITS = BudgetLimits(60, 0, 300_000, 200_000)
-
-#: The model's execution proposal travels as a fenced block. Parsing is
-#: deliberately strict and fail-closed: a malformed proposal yields no card
-#: (and the visible text keeps the raw block), because silently repairing it
-#: would put an execution button under something the model did not propose.
-_ACTION_BLOCK = re.compile(r"```fcode_action\s*\n(.*?)\n```", re.DOTALL)
-ACTION_MODES = ("script", "research")
-_ACTION_MAX_BYTES = 2_000
-_ACTION_MAX_SOURCES = 5
-
-
-def _read_action(payload_text: str) -> dict[str, Any] | None:
-    """One candidate block to a proposal, or None if it is not one."""
-    if len(payload_text.encode("utf-8")) > _ACTION_MAX_BYTES:
-        return None
-    try:
-        payload = json.loads(payload_text)
-    except ValueError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    goal = payload.get("goal")
-    if not isinstance(goal, str) or not 5 <= len(goal.strip()) <= 600:
-        return None
-    mode = str(payload.get("mode") or "script").strip().lower()
-    if mode not in ACTION_MODES:
-        return None
-    action: dict[str, Any] = {"goal": goal.strip(), "mode": mode}
-    reason = payload.get("reason")
-    if isinstance(reason, str) and reason.strip():
-        action["reason"] = reason.strip()[:200]
-    sources = payload.get("sources")
-    if isinstance(sources, list):
-        clean: list[str] = []
-        for item in sources:
-            if not isinstance(item, str):
-                continue
-            text = item.strip()
-            if text and text not in clean:
-                clean.append(text)
-        if clean:
-            action["sources"] = clean[:_ACTION_MAX_SOURCES]
-    return action
-
-
-def parse_action_block(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Split one finished answer into (visible_text, action | None).
-
-    The last block that reads as a whole proposal wins: a model may quote the
-    format while explaining it, and a malformed tail (or an earlier draft) must
-    not void a proposal it really made. Every candidate is validated by the
-    same rules — invalid JSON, an out-of-range goal, an unknown mode or an
-    oversized payload simply are not proposals. With no valid block the answer
-    is returned exactly as written, a malformed one included: no silent repair.
-    """
-    raw = str(text or "")
-    action: dict[str, Any] | None = None
-    found = False
-    for candidate in _ACTION_BLOCK.finditer(raw):
-        found = True
-        valid = _read_action(candidate.group(1).strip())
-        if valid is not None:
-            action = valid
-    if not found:
-        return raw, None
-    if action is None:
-        return raw, None
-    # The machinery leaves the bubble: every block goes, whichever one won.
-    visible = _ACTION_BLOCK.sub("", raw).strip()
-    return visible, action
 
 
 def merge_action(

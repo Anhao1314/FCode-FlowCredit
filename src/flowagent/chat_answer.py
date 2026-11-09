@@ -476,7 +476,7 @@ class AnswerStream:
         return summary
 
     def _complete(self) -> dict[str, Any]:
-        from .chat import CHAT_VERSION, parse_action_block
+        from .chat_protocol import CHAT_VERSION, parse_action_block
 
         raw_text = "".join(self.text_parts)
         usage = self._aggregate_usage()
