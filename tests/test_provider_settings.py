@@ -233,6 +233,28 @@ class DelegationConstructionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.build(env=merged_env(overlay, env={}))
 
+    def test_deepseek_gets_reasoning_headroom_and_env_override(self) -> None:
+        """回归：硬编码 256 会被 reasoning 吃光，content 为空整轮判死。"""
+        from flowagent.demo.provider_factory import build_provider
+
+        base = {
+            "DEEPSEEK_API_KEY": "sk-test-deepseek",
+            "DEEPSEEK_INPUT_PRICE_MICROUSD_PER_MTOK": "300000",
+            "DEEPSEEK_OUTPUT_PRICE_MICROUSD_PER_MTOK": "1200000",
+            "DEEPSEEK_PRICE_AS_OF": "2026-11-09",
+        }
+        provider = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store), env=base,
+        )
+        self.assertEqual(provider.max_completion_tokens, 8192)
+        tuned = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store),
+            env={**base, "DEEPSEEK_MAX_TOKENS": "12000"},
+        )
+        self.assertEqual(tuned.max_completion_tokens, 12000)
+
 
 class ConsoleWiringTests(unittest.TestCase):
     """The console's own resolution path uses the settings overlay."""

@@ -128,7 +128,17 @@ def build_spawn_tool(spawner: Callable[[list[str]], dict[str, Any]]) -> ToolSpec
             "maxTokens": arguments.get("budget_max_tokens"),
         }
         budget = {k: v for k, v in budget.items() if v is not None} or None
-        result = spawner({"objectives": cleaned, "budget": budget})
+        # write_access 必须转发：通道据此选 writer 模板与隔离拷贝源。
+        # 通道的 ValueError 是"这次请求不合法"（目标过长/数量超限/深度递归），
+        # 模型能改参数重试；不能让它击穿成 VIEWER_RUNNER_ERROR 杀掉整轮。
+        try:
+            result = spawner({
+                "objectives": cleaned,
+                "budget": budget,
+                "write_access": bool(arguments.get("write_access")),
+            })
+        except ValueError as error:
+            raise AgentError("SPAWN_REQUEST_INVALID", str(error)) from error
         if not isinstance(result, dict):
             raise AgentError("SPAWN_CHANNEL_INVALID", "orchestration channel returned no digest")
         return result

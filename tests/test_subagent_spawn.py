@@ -192,17 +192,27 @@ class ScenarioAndRegistryTest(unittest.TestCase):
             channel = self._fake_channel()
             def spawn_capture(arguments):
                 seen.append(arguments)
+                if arguments["objectives"] == ["boom"]:
+                    raise ValueError("子任务目标最长 600 字")
                 return {"children": [{"run_id": "r1", "status": "succeeded",
                                       "summary": "ok"}], "timed_out": False}
             channel.spawn = spawn_capture
             world = create_world(sandbox=sandbox, subagent_channel=channel)
             spec = next(s for s in world.build_tools() if s.name == "spawn_subagents")
             spec.handler({"objectives": [" a ", "", "b"]})
-            self.assertEqual(seen, [{"objectives": ["a", "b"], "budget": None}],
-                             "通道收到了规整后的目标列表")
+            spec.handler({"objectives": ["c"], "write_access": True})
+            self.assertEqual(seen, [
+                {"objectives": ["a", "b"], "budget": None, "write_access": False},
+                {"objectives": ["c"], "budget": None, "write_access": True},
+            ], "通道收到了规整后的目标列表，write_access 一并转发")
             from flowagent.core.contracts import AgentError
             with self.assertRaises(AgentError):
                 spec.handler({"objectives": ["", ""]})
+            # 通道的请求校验失败 → 可恢复的工具错误，不能击穿运行
+            with self.assertRaises(AgentError) as ctx:
+                spec.handler({"objectives": ["boom"]})
+            self.assertEqual(ctx.exception.code, "SPAWN_REQUEST_INVALID")
+            self.assertIn("600", ctx.exception.message)
 
     def test_approval_membership_and_whitelist(self) -> None:
         from flowagent.domains.general import GENERAL_DOMAIN, APPROVAL_TOOLS

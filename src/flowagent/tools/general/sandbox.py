@@ -124,7 +124,9 @@ class WorkspaceSandbox:
         if not parts:
             raise AgentError("SANDBOX_PATH_DENIED", "path must name a file")
         relative = "/".join(parts)
-        if relative.startswith(".git") or "/.git" in f"/{relative}":
+        # 只拒绝名为 .git 的路径组件（元数据目录 / gitfile）。不能用子串判断：
+        # ".gitignore"、".gitattributes" 是普通可读文件，子串会把全仓 grep 打死。
+        if ".git" in parts:
             raise AgentError("SANDBOX_PATH_DENIED", "the sandbox metadata directory is not addressable")
 
         root_resolved = self.root.resolve()

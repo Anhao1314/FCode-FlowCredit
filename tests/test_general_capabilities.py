@@ -103,6 +103,18 @@ class SandboxJailTests(unittest.TestCase):
 
     def test_git_metadata_is_not_addressable(self) -> None:
         self._denied(".git/config")
+        self._denied("sub/.git/config")
+
+    def test_git_prefixed_regular_files_are_readable(self) -> None:
+        """回归：子串判断 ".git" 会把 .gitignore/.gitattributes 也拒掉，
+        模型的全仓 grep 会在第一份清单文件上整轮失败。"""
+        self.sandbox.ensure()
+        root = pathlib.Path(self._tmp.name) / "ws"
+        (root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (root / "sub").mkdir()
+        (root / "sub" / ".gitattributes").write_text("* text=auto\n", encoding="utf-8")
+        self.assertEqual(self.sandbox.read(".gitignore")["content"], "__pycache__/\n")
+        self.assertTrue(self.sandbox.read("sub/.gitattributes")["content"].startswith("* text=auto"))
 
     def test_symlink_escape_is_refused(self) -> None:
         self.sandbox.ensure()
