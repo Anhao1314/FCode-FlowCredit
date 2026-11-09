@@ -278,6 +278,38 @@ class GeneralToolContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def test_read_file_range_slices_with_its_own_hash(self) -> None:
+        self.sandbox.write("lines.txt", "\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+        obs = self.registry.execute("read_file", {"path": "lines.txt", "offset": 3, "limit": 4})
+        rec = obs.result
+        self.assertEqual(rec["content"], "line 3\nline 4\nline 5\nline 6")
+        self.assertEqual((rec["start_line"], rec["end_line"], rec["total_lines"]), (3, 6, 10))
+        import hashlib
+        self.assertEqual(rec["sha256"], hashlib.sha256(rec["content"].encode()).hexdigest(),
+                         "切片的 sha256 是切片自身的哈希")
+        self.assertEqual(len(rec["file_sha256"]), 64, "整文件哈希另存")
+        # 无区间读取保持原形状
+        full = self.registry.execute("read_file", {"path": "lines.txt"}).result
+        self.assertNotIn("start_line", full)
+
+    def test_read_file_range_rejects_bad_bounds(self) -> None:
+        self.sandbox.write("lines.txt", "a\nb\n")
+        # 门级 schema 先拦（min/max/kind）
+        for args in (
+            {"path": "lines.txt", "offset": 0},
+            {"path": "lines.txt", "limit": 0},
+            {"path": "lines.txt", "limit": 401},
+            {"path": "lines.txt", "offset": "x"},
+        ):
+            with self.subTest(args=args), self.assertRaises(AgentError) as ctx:
+                self.registry.execute("read_file", args)
+            self.assertEqual(ctx.exception.code, "TOOL_ARGUMENTS_INVALID")
+        # handler 自身也兜底（纵深防御:直接调 handler 的部署）
+        spec = self.registry.get("read_file")
+        with self.assertRaises(AgentError) as ctx:
+            spec.handler({"path": "lines.txt", "offset": 0, "limit": 5})
+        self.assertEqual(ctx.exception.code, "READ_RANGE_INVALID")
+
     def test_registration_order_is_pinned(self) -> None:
         self.assertEqual(tuple(self.registry.names), GENERAL_TOOLS)
         effects = {spec.name: spec.effect for spec in

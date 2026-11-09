@@ -1467,6 +1467,7 @@ const {
   getTplKey: () => tplKey,
   getApprovalMode: () => approvalMode,
   getModelChoice: () => modelChoice,
+  getModelCatalog: () => modelCatalog,
   getModelBudget: () => modelBudget,
   setModelBudget: value => { modelBudget = value; },
   getSettingsOpen: () => settingsOpen,
@@ -3219,7 +3220,12 @@ function bindComposer() {
     if (openMenu.hidden) {
       if (chat.active) {
         renderChatModelMenu();
-        loadChatModels().then(() => { if (!openMenu.hidden) renderChatModelMenu(); });
+        // 服务端枚举回来后会重渲染（行数变化 → 高度/锚点变化），重渲染后要重新量一次
+        loadChatModels().then(() => {
+          if (openMenu.hidden) return;
+          renderChatModelMenu();
+          placeModelMenu(openMenu);
+        });
       } else {
         renderModelMenu();
       }
@@ -3381,19 +3387,34 @@ function bindGlobalActions() {
       const finding = meta && meta.findings.find(f => f.finding_id === fid);
       if (!finding) { toast("发现上下文缺失，请先重新挖洞"); return; }
       const severity = { high: "高", medium: "中", low: "低" }[finding.severity] || finding.severity || "";
-      const objective = [
-        `修复审计发现 ${fid}（${finding.category || "?"} · ${finding.root_cause_group || "?"} · ${severity}）`,
-        meta.target ? `审计目标：${meta.target}` : "",
-        `审计记录：work/audit/${dir}`,
-        "要求：定位并修复根因（不掩盖症状）；保持现有行为，跑通相关测试后写清改了什么。",
-      ].filter(Boolean).join("\n");
       // 自动挂项目:修复运行拿到的是目标的隔离副本(基线 git),否则 agent
       // 在空 workspace 里根本看不到要修的文件。终态后可一键把补丁应用回原目录。
       if (meta.target) {
         attach.project.path = meta.target;
         attach.project.verification = "";
       }
-      startIntake(objective);
+      (async () => {
+        // 把 POC 证据摘要注入目标:agent 在隔离副本里无法读 work/audit
+        // (work/ 被拷贝排除),不注入摘要它就无从得知具体文件与行号。
+        let evidenceNote = "";
+        try {
+          const pocRef = (finding.poc_refs || [])[0];
+          if (pocRef) {
+            const r = await fetch(`/api/audit/evidence/${encodeURIComponent(dir)}/${encodeURIComponent(pocRef)}`, { cache: "no-store" });
+            const record = r.ok ? await r.json() : null;
+            const note = String((record && (record.notes || record.expectation)) || "").replace(/\s+/g, " ").trim();
+            if (note) evidenceNote = note.slice(0, 600);
+          }
+        } catch { /* 证据拉取失败不阻断派修 */ }
+        const objective = [
+          `修复审计发现 ${fid}（${finding.category || "?"} · ${finding.root_cause_group || "?"} · ${severity}）`,
+          meta.target ? `审计目标：${meta.target}` : "",
+          "你的工作区是审计目标的隔离副本（work/ 等目录不在副本内，不要去找审计记录文件）。",
+          evidenceNote ? `证据摘要：${evidenceNote}` : "",
+          "要求：在工作区副本里定位并修复根因（不掩盖症状）；保持现有行为，跑通相关测试后写清改了什么。",
+        ].filter(Boolean).join("\n");
+        startIntake(objective);
+      })();
       return;
     }
     // S1 修洞闭环:修复后重新挖洞——同目标再审计,回归对比看 fixed / regressed

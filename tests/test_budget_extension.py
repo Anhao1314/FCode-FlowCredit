@@ -60,25 +60,28 @@ class BudgetChannelTest(unittest.TestCase):
             with self.assertRaises(AgentError):
                 BudgetChannel(_driver()).request(reason="理由", extra_calls=bad)
 
-    def test_per_request_cap_is_half_of_original(self) -> None:
+    def test_per_request_cap_clamps_to_half_of_original(self) -> None:
+        # 超封底夹取而不是拒绝:申请 6、封底 5 → 授 5 并标注 capped
         driver = _driver(max_calls=10)
-        with self.assertRaises(AgentError) as ctx:
-            BudgetChannel(driver).request(reason="理由", extra_calls=6)
-        self.assertEqual(ctx.exception.code, "BUDGET_EXTENSION_REFUSED")
-        self.assertEqual(ctx.exception.details.get("cap"), "per_request")
-        # 恰好 50% 允许
-        result = BudgetChannel(_driver(max_calls=10)).request(reason="理由", extra_calls=5)
+        result = BudgetChannel(driver).request(reason="理由", extra_calls=6)
         self.assertTrue(result["granted"])
+        self.assertEqual(result["extra_calls"], 5)
+        self.assertEqual(result["requested_calls"], 6)
+        self.assertTrue(result["capped"])
+        self.assertEqual(driver.harness.limits.max_calls, 15)
+        # 恰好 50% → 不夹取
+        exact = BudgetChannel(_driver(max_calls=10)).request(reason="理由", extra_calls=5)
+        self.assertFalse(exact["capped"])
 
-    def test_cumulative_cap_is_original_ceiling(self) -> None:
+    def test_cumulative_cap_clamps_then_exhausts(self) -> None:
         driver = _driver(max_calls=10)
         channel = BudgetChannel(driver)
         channel.request(reason="第一次", extra_calls=5)   # 累计 5
-        channel.request(reason="第二次", extra_calls=5)   # 累计 10 = 原始上限(总预算 2x)
+        third = channel.request(reason="第二次", extra_calls=5)  # 累计 10 = 封底
+        self.assertEqual(third["extra_calls"], 5)
         with self.assertRaises(AgentError) as ctx:
-            channel.request(reason="第三次", extra_calls=1)  # 累计 11 > 10 → 拒
-        self.assertEqual(ctx.exception.details.get("cap"), "cumulative")
-        # 失败请求不污染已生效的上限
+            channel.request(reason="第三次", extra_calls=1)  # 没有额度了 → 诚实拒绝
+        self.assertEqual(ctx.exception.code, "BUDGET_EXTENSION_EXHAUSTED")
         self.assertEqual(driver.harness.limits.max_calls, 20)
 
     def test_base_limits_lazy_resolution(self) -> None:
@@ -99,10 +102,20 @@ class BudgetToolTest(unittest.TestCase):
         self.assertTrue(result["granted"])
         self.assertEqual(driver.harness.limits.max_calls, 24)
 
-    def test_tool_raises_agent_error_on_refusal(self) -> None:
+    def test_tool_grants_clamped_amount(self) -> None:
         tool = build_budget_extension_tool(BudgetChannel(_driver(max_calls=4)).request)
-        with self.assertRaises(AgentError):
-            tool.handler({"reason": "理由", "extra_calls": 4})
+        result = tool.handler({"reason": "理由", "extra_calls": 4})
+        self.assertEqual(result["extra_calls"], 2, "超封底夹取到 50%")
+        self.assertTrue(result["capped"])
+
+    def test_tool_raises_agent_error_when_headroom_exhausted(self) -> None:
+        channel = BudgetChannel(_driver(max_calls=4))
+        channel.request(reason="先占满", extra_calls=2)
+        channel.request(reason="再占满", extra_calls=2)
+        tool = build_budget_extension_tool(channel.request)
+        with self.assertRaises(AgentError) as ctx:
+            tool.handler({"reason": "理由", "extra_calls": 1})
+        self.assertEqual(ctx.exception.code, "BUDGET_EXTENSION_EXHAUSTED")
 
 
 def _world_with(tmp: str, **kwargs):

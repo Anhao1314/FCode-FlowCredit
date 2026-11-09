@@ -25,6 +25,10 @@ const runsDir = join(stateRoot, "runs");
 // 加载期是唯一早于 webServer 的窗口。
 if (process.env.TEST_WORKER_INDEX === undefined) {
   rmSync(runsDir, { recursive: true, force: true });
+  // 配置目录也必须隔离：否则 server 读开发者本机的 chat-config.json，
+  // 真实默认模型(如 deepseek)会覆盖 E2E 固定 mock 的选择，且把真实
+  // API key 带进离线用例。
+  rmSync(join(stateRoot, "config"), { recursive: true, force: true });
   for (const db of ["scheduler.sqlite", "chat.sqlite", "chat.sqlite-shm", "chat.sqlite-wal",
     "chat-memory.sqlite", "artifacts.sqlite"]) {
     rmSync(join(stateRoot, db), { force: true });
@@ -61,6 +65,7 @@ export default defineConfig({
     env: {
       ...process.env,
       FCODE_RUNS_DIR: runsDir,     // runs + chat.sqlite 全部落临时目录
+      FCODE_CONFIG_DIR: join(stateRoot, "config"),  // 不读开发者本机 provider 配置
       FCODE_CHAT_MOCK_TOOLS: JSON.stringify([
         { name: "write_file", arguments: { path: "e2e-note.txt", content: "written by e2e" } },
       ]),

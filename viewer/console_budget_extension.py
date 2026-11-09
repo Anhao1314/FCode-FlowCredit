@@ -81,35 +81,23 @@ class BudgetChannel:
                 "request at least one dimension: extra_calls or extra_cost_microusd",
             )
         # 封底：单次 ≤ 原始 50%，累计 ≤ 原始 100%（总预算最多翻倍）。
+        # 超出封底时**夹取而不是拒绝**：治理边界内可获得的部分照给，并把
+        # "申请了多少、实际给了多少、还剩多少额度"如实回给模型——拒绝会
+        # 终结运行，而通常模型只是要得比封底多（真实踩过：+10/封底 4）。
         base = self._base
-        max_single_calls = max(1, base.max_calls // 2)
-        max_single_cost = max(1, base.max_cost_microusd // 2)
-        if calls > max_single_calls:
+        requested_calls, requested_cost = calls, cost
+        calls = min(calls, max(1, base.max_calls // 2))
+        cost = min(cost, max(1, base.max_cost_microusd // 2))
+        calls = max(0, min(calls, base.max_calls - self._granted_calls))
+        cost = max(0, min(cost, base.max_cost_microusd - self._granted_cost))
+        if calls == 0 and cost == 0:
             raise AgentError(
-                "BUDGET_EXTENSION_REFUSED",
-                f"extra_calls exceeds the per-request cap ({calls}/{max_single_calls})",
-                details={"cap": "per_request", "dimension": "calls"},
+                "BUDGET_EXTENSION_EXHAUSTED",
+                "no extension headroom remains for this run "
+                f"(granted so far: +{self._granted_calls} calls / +{self._granted_cost} µUSD)",
+                details={"cap": "cumulative", "dimension": "both"},
             )
-        if cost > max_single_cost:
-            raise AgentError(
-                "BUDGET_EXTENSION_REFUSED",
-                f"extra_cost_microusd exceeds the per-request cap ({cost}/{max_single_cost})",
-                details={"cap": "per_request", "dimension": "cost"},
-            )
-        if self._granted_calls + calls > base.max_calls:
-            raise AgentError(
-                "BUDGET_EXTENSION_REFUSED",
-                f"cumulative call extensions exceed the run cap "
-                f"({self._granted_calls + calls}/{base.max_calls})",
-                details={"cap": "cumulative", "dimension": "calls"},
-            )
-        if self._granted_cost + cost > base.max_cost_microusd:
-            raise AgentError(
-                "BUDGET_EXTENSION_REFUSED",
-                f"cumulative cost extensions exceed the run cap "
-                f"({self._granted_cost + cost}/{base.max_cost_microusd})",
-                details={"cap": "cumulative", "dimension": "cost"},
-            )
+        capped = (calls, cost) != (requested_calls, requested_cost)
         current = self._driver.harness.limits
         extended = replace(
             current,
@@ -125,6 +113,9 @@ class BudgetChannel:
             "granted": True,
             "extra_calls": calls,
             "extra_cost_microusd": cost,
+            "requested_calls": requested_calls,
+            "requested_cost_microusd": requested_cost,
+            "capped": capped,
             "reason": text,
             "limits": extended.to_dict(),
         }

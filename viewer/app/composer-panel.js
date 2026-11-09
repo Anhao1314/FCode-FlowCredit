@@ -116,7 +116,7 @@ export function createComposerPanel(deps) {
   function effectiveDraftBudget() {
     const template = d.getTemplates().find(t => t.key === d.getTplKey()) || {};
     if (isGeneralTemplate() && d.attach.project.path.trim()) {
-      return { max_calls: 24, max_reads: 64, max_cost_microusd: 500000, max_tokens: 120000 };
+      return { max_calls: 40, max_reads: 160, max_cost_microusd: 1000000, max_tokens: 300000 };
     }
     const entry = (d.getModelBudget().models || []).find(m => m.key === d.getModelChoice().key);
     return (entry && entry.budget) || template.limits || {};
@@ -349,15 +349,43 @@ export function createComposerPanel(deps) {
         spec.scope = [...d.attach.scope];
       }
     }
-    if (d.attach.budget) spec.budget = { ...d.attach.budget };
+    if (d.attach.budget) {
+      spec.budget = { ...d.attach.budget };
+    } else if (isGeneralTemplate() && d.attach.project.path.trim()) {
+      // 项目模式:草稿预览的预算必须与实际执行一致(真实踩过 24 vs 8)
+      const draft = effectiveDraftBudget();
+      if (draft && draft.max_calls) {
+        spec.budget = {
+          maxCalls: draft.max_calls,
+          maxReads: draft.max_reads,
+          maxCostMicrousd: draft.max_cost_microusd,
+          ...(draft.max_tokens ? { maxTokens: draft.max_tokens } : {}),
+        };
+      }
+    }
     return spec;
   }
 
   /* 浮窗默认向上展开（Kimi 的锚点规则）；但舞台态 composer 贴近页面下沿时，
      向上会顶出画布顶部——最上面几行就点不到了。量一次：放不下就向下展开。
+     水平锚点按 #model-btn 实测右缘写内联 right：CSS 的 54px 是常规 composer
+     的常量，桌面变体 bar padding 更紧（51px），且窄屏媒体查询会改写 right。
      默认量工作菜单；对话菜单打开时由 app.js 传节点进来。 */
   function placeModelMenu(menu = document.getElementById("work-model-menu")) {
     if (!menu) return;
+    const btn = document.getElementById("model-btn");
+    const box = document.getElementById("composer-box");
+    if (btn && box && box.contains(btn) && btn.getBoundingClientRect().width > 0) {
+      // 绝对定位坐标相对包含块 padding box（composer-box 有 1px 边框），
+      // 右对齐到按钮右缘；异常几何下不动内联值，退回 CSS 锚点。
+      const border = 1;
+      const right = Math.round(box.getBoundingClientRect().right - border
+        - btn.getBoundingClientRect().right);
+      if (right >= 0 && right < box.getBoundingClientRect().width / 2) {
+        menu.style.right = `${right}px`;
+        menu.style.left = "auto";
+      }
+    }
     menu.classList.remove("drop-down");
     const rect = menu.getBoundingClientRect();
     if (rect.top < 8) menu.classList.add("drop-down");

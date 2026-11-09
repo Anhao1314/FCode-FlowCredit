@@ -63,8 +63,44 @@ def build_general_tools(
         return {"entries": entries, "count": len(entries)}
 
     def read_file(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Read one file, optionally a 1-based line range.
+
+        分段读是为大文件准备的：返回的 content/sha256/bytes 都是**这个切片**
+        自身（读到的就是被哈希的），另附 file_sha256 与行号范围——模型不用
+        再写内联脚本去数行（真实踩过：模型为看一段代码用 python3 -c，被
+        命令策略反复拒绝）。
+        """
         record = sandbox.read(arguments["path"])
-        return record
+        offset = arguments.get("offset")
+        limit = arguments.get("limit")
+        if offset is None and limit is None:
+            return record
+        try:
+            start = int(offset) if offset is not None else 1
+            count = int(limit) if limit is not None else 200
+        except (TypeError, ValueError):
+            raise AgentError("READ_RANGE_INVALID", "offset/limit must be integers")
+        if start < 1:
+            raise AgentError("READ_RANGE_INVALID", "offset is 1-based and must be >= 1")
+        if count < 1 or count > 400:
+            raise AgentError("READ_RANGE_INVALID", "limit must be between 1 and 400")
+        lines = str(record.get("content") or "").splitlines()
+        total = len(lines)
+        sl = lines[start - 1:start - 1 + count]
+        from ...core.hashing import digest_bytes  # noqa: PLC0415 — 局部导入避免环
+
+        slice_text = "\n".join(sl)
+        return {
+            "path": record["path"],
+            "content": slice_text,
+            "sha256": digest_bytes(slice_text.encode("utf-8")),
+            "bytes": len(slice_text.encode("utf-8")),
+            "file_sha256": record.get("sha256"),
+            "start_line": start,
+            "end_line": start - 1 + len(sl),
+            "total_lines": total,
+            "range": True,
+        }
 
     def grep_workspace(arguments: dict[str, Any]) -> dict[str, Any]:
         """Regex content search across the sandbox, jailed and capped.
@@ -227,6 +263,20 @@ def build_general_tools(
                     required=True,
                     description="path relative to the workspace root (absolute and .. are refused)",
                 ),
+                Param(
+                    name="offset",
+                    kind="integer",
+                    required=False,
+                    minimum=1,
+                    description="optional 1-based start line for a ranged read of a large file",
+                ),
+                Param(
+                    name="limit",
+                    kind="integer",
+                    required=False,
+                    minimum=1, maximum=400,
+                    description="optional max lines for a ranged read (1-400)",
+                ),
             ),
             handler=read_file,
             outputs=(
@@ -234,8 +284,12 @@ def build_general_tools(
                 _out("content", "string"),
                 _out("sha256", "string"),
                 _out("bytes", "integer"),
+                _out("file_sha256", "string", required=False, nullable=True),
+                _out("start_line", "integer", required=False, nullable=True),
+                _out("end_line", "integer", required=False, nullable=True),
+                _out("total_lines", "integer", required=False, nullable=True),
             ),
-            version="1.0",
+            version="1.1",
         ),
         ToolSpec(
             name="grep_workspace",

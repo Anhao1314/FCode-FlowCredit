@@ -247,10 +247,13 @@ body.reduce-motion .side-block-inner > .nav > .session {
 }
 
 /* ================================================================ composer 菜单锚点（自 kimi.css 迁入）
-   模型浮窗贴触发芯片右缘（bar padding 10 + send 36 + gap 8 = 54px），上方 4px，
-   原点右下角；审批浮窗镜像到左缘。id 选择器（1,0,0）压过 design.css 的同名
-   class 规则，与加载顺序无关——迁移前后生效值一致。 */
-#model-menu {
+   模型浮窗贴触发芯片右缘（bar padding 10 + send 36 + gap 8 = 54px；桌面变体
+   9 + 34 + 8 = 51px——精确值由 placeModelMenu 按按钮实测右缘写内联 right），
+   上方 4px，原点右下角；审批浮窗镜像到左缘。id 选择器（1,0,0）压过
+   design.css 的同名 class 规则，与加载顺序无关——迁移前后生效值一致。
+   S1 拆分后菜单节点是 #chat-model-menu / #work-model-menu；旧 id 一并保留，
+   否则新节点落回 .tpl-menu 的贴左定位（left:10px），浮窗跑到对话框左上角。 */
+#model-menu, #chat-model-menu, #work-model-menu {
   left: auto; right: 54px; bottom: calc(100% + 4px);
   width: 290px; transform-origin: bottom right;
   animation: kimiMenuIn .15s cubic-bezier(0, 0, .2, 1) both;
@@ -258,7 +261,7 @@ body.reduce-motion .side-block-inner > .nav > .session {
 }
 /* 上方放不下时向下展开：舞台态 composer 位置低，向上会顶出画布。
    JS 量完高度后加这个类。 */
-#model-menu.drop-down {
+#model-menu.drop-down, #chat-model-menu.drop-down, #work-model-menu.drop-down {
   top: calc(100% + 4px); bottom: auto;
   transform-origin: top right;
 }
@@ -270,7 +273,9 @@ body.reduce-motion .side-block-inner > .nav > .session {
 }
 /* 窄屏：芯片锚点会让浮窗越出画布，退回贴边。 */
 @media (max-width: 480px) {
-  #model-menu { right: 10px; width: min(290px, calc(100% - 20px)); }
+  #model-menu, #chat-model-menu, #work-model-menu {
+    right: 10px; width: min(290px, calc(100% - 20px));
+  }
   #approval-menu { left: 10px; right: 10px; width: auto; }
 }
 

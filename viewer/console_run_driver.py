@@ -246,10 +246,10 @@ class RunDriver:
             # More room to inspect and repair a real repository; the operator's
             # hard cost ceiling and the provider price scaling still apply.
             limits = self.rt.BudgetLimits(
-                max_calls=max(24, scenario.limits.max_calls),
-                max_reads=max(64, scenario.limits.max_reads),
-                max_cost_microusd=max(500_000, scenario.limits.max_cost_microusd),
-                max_tokens=max(120_000, scenario.limits.max_tokens),
+                max_calls=max(40, scenario.limits.max_calls),
+                max_reads=max(160, scenario.limits.max_reads),
+                max_cost_microusd=max(1_000_000, scenario.limits.max_cost_microusd),
+                max_tokens=max(300_000, scenario.limits.max_tokens),
             )
         override = spec.get("budget") if not self.resume_limits else None
         if override:

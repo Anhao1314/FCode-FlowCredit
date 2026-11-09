@@ -258,6 +258,8 @@ def post_run_resume(handler, run_id: str):
         max_reads = int(body["maxReads"])
         max_cost = int(body["maxCostMicrousd"])
         extra_rounds = int(body.get("extraRounds") or 6)
+        # 可选:token 顶。价格缩放按 tokens 换算可负担调用数,长任务需要它。
+        max_tokens = int(body["maxTokens"]) if body.get("maxTokens") is not None else None
     except (KeyError, TypeError, ValueError):
         return handler._json(
             {"error": "maxCalls, maxReads and maxCostMicrousd are required integers"}, 400,
@@ -266,12 +268,13 @@ def post_run_resume(handler, run_id: str):
         return handler._json(
             {"error": "limits must be positive and extraRounds between 0 and 50"}, 400,
         )
+    limits = {"maxCalls": max_calls, "maxReads": max_reads, "maxCostMicrousd": max_cost}
+    if max_tokens is not None:
+        if max_tokens < 1:
+            return handler._json({"error": "maxTokens must be positive"}, 400)
+        limits["maxTokens"] = max_tokens
     try:
-        handler.manager.resume(
-            run,
-            limits={"maxCalls": max_calls, "maxReads": max_reads, "maxCostMicrousd": max_cost},
-            extra_rounds=extra_rounds,
-        )
+        handler.manager.resume(run, limits=limits, extra_rounds=extra_rounds)
     except ValueError as exc:
         return handler._json({"error": str(exc)}, 409)
     return handler._json(run.to_json(detail=True), 202)

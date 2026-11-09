@@ -151,14 +151,14 @@ class RendererTests(unittest.TestCase):
         for expected in ("additions", "run_command", "read_file", "report_blocked"):
             self.assertIn(expected, system)
 
-    def test_general_v4_is_structured_consistent_and_single_owned(self) -> None:
+    def test_general_v8_is_structured_consistent_and_single_owned(self) -> None:
         from dataclasses import replace
 
         from flowagent.domains import DOMAINS, get_domain
         from flowagent.domains.general import GENERAL_INSTRUCTION
         from flowagent.providers.prompt import GENERAL_DOMAIN_INSTRUCTION
 
-        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v4")
+        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v8")
         self.assertIs(GENERAL_INSTRUCTION, GENERAL_DOMAIN_INSTRUCTION)
         for heading in ("【输出协议】", "【工作方式】", "【拒绝与恢复】", "【证据与验收】"):
             self.assertIn(heading, GENERAL_SYSTEM_PROMPT)

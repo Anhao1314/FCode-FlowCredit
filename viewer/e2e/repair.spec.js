@@ -43,5 +43,5 @@ test("修洞闭环:重新挖洞到完成;派 agent 修复进委托确认页", as
   await expect(page.locator("#main")).toHaveAttribute("data-view", "intake", { timeout: 15_000 });
   await expect(page.locator("#main")).toContainText("修复审计发现");
   await expect(page.locator("#main")).toContainText(findingId);
-  await expect(page.locator("#main")).toContainText("要求：定位并修复根因");
+  await expect(page.locator("#main")).toContainText("要求：在工作区副本里定位并修复根因");
 });

@@ -192,6 +192,9 @@ def _refuse(
     # enters the plan at all.
     decision = permissions.gate(tool, entry["arguments"])
     if not decision.allowed:
+        if decision.code == "TOOL_ARGUMENTS_INVALID":
+            return no(decision.code,
+                      f"{tool!r} addition has missing/invalid arguments: {decision.reason}")
         return no(decision.code, f"{tool!r} is not available to this run: {decision.reason}")
 
     existing = {todo.id for todo in plan.todos} | {todo.id for todo in accepted}

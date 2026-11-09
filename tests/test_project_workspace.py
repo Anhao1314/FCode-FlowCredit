@@ -76,6 +76,13 @@ class ProjectWorkspaceTests(unittest.TestCase):
             import_project(self.source, WorkspaceSandbox(self.root / "small"), max_bytes=1)
         with self.assertRaisesRegex(AgentError, "contain one another"):
             import_project(self.source, WorkspaceSandbox(self.source / "run"))
+        # 排除子树内的嵌套是安全的（修复本仓库自身:工作区在 work/runs 下）
+        nested = import_project(
+            self.source, WorkspaceSandbox(self.source / "work" / "runs" / "r1" / "workspace"))
+        self.assertEqual(nested["source"], str(self.source.resolve()))
+        self.assertNotIn("work", {entry["path"] for entry in
+                                  WorkspaceSandbox(self.source / "work" / "runs" / "r1" / "workspace").ls()},
+                         "排除目录不得被拷进副本")
         empty = self.root / "empty"
         empty.mkdir()
         with self.assertRaisesRegex(AgentError, "no importable files"):

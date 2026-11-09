@@ -70,6 +70,11 @@ _KILL_GRACE_SECONDS = 3.0
 #: shell, and a proposal written in shell grammar is not a legal proposal.
 _SHELL_META = (";", "&&", "||", "|", "<", ">", "`", "$(", "\n", "\r")
 
+#: 正则工具例外：grep 的模式参数里 `|` 是 ERE 交替，不是 shell 管道——
+#: run_command 用 execve 传参、没有 shell，`|` 是字面字节，交给 grep 解释
+#: 正是模型的本意（真实踩过：`grep -E "A|B"` 被判 shell 语法终结了整次运行）。
+_SHELL_META_BY_PROGRAM = {"grep": tuple(meta for meta in _SHELL_META if meta != "|")}
+
 #: git subcommands the host allows. Everything else — network (push/pull/
 #: fetch), history rewrite (reset/rebase/filter-branch), config — is out.
 _GIT_SUBCOMMANDS = {
@@ -213,7 +218,7 @@ class CommandPolicy:
         for arg in args:
             if not isinstance(arg, str) or not arg:
                 raise AgentError("COMMAND_DENIED", "every argument must be a non-empty string")
-            for meta in _SHELL_META:
+            for meta in _SHELL_META_BY_PROGRAM.get(program, _SHELL_META):
                 if meta in arg:
                     raise AgentError(
                         "COMMAND_SHELL_SYNTAX",

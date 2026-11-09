@@ -11,6 +11,7 @@
  */
 
 import { esc, num } from "../core/format.js";
+import { runModelFields } from "../core/model-choice.js";
 import { parseVerificationCommand, projectDraftRows } from "./project-work.js";
 
 const INTAKE_KEY = "fa.intake";
@@ -399,6 +400,10 @@ export function createIntake(deps) {
     const button = document.querySelector("[data-intake-start]");
     if (button) { button.disabled = true; button.textContent = "提交中…"; }
     try {
+      // effort 只随支持思考强度的模型发送：服务端对不支持的组合是硬拒绝
+      // (400 模型 X 不支持思考强度选择)，而 modelChoice.effort 会保留上一次
+      // 支持 effort 的模型的档位——换到 deepseek 等模型后不能沿用。
+      const modelFields = runModelFields(d.getModelChoice(), d.getModelCatalog());
       const response = await d.fetchImpl("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -407,9 +412,7 @@ export function createIntake(deps) {
           template: task.template,
           approval: task.approval,
           spec: { ...task.spec, ...d.delegationSpecExtras(), ...(intake.origin ? { origin_thread: intake.origin } : {}) },
-          ...(d.getModelChoice().key !== "mock"
-            ? { model: d.getModelChoice().key, effort: d.getModelChoice().effort || "medium" }
-            : {}),
+          ...modelFields,
         }),
       });
       if (!response.ok) {
