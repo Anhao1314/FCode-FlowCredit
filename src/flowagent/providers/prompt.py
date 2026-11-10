@@ -77,9 +77,9 @@ SYSTEM_PROMPT = (
 )
 
 #: General contracts are versioned independently from the frozen finance data.
-#: v3 makes the one-action wire contract explicit, removes contradictory denial
-#: semantics, and separates the work loop, recovery rules and evidence duties.
-GENERAL_PROMPT_VERSION = "fcode.prompt/general-v8"
+#: v9 removes the stale "additions are fatal" instruction: the host now
+#: partially accepts valid additions and returns rejected items with reasons.
+GENERAL_PROMPT_VERSION = "fcode.prompt/general-v9"
 
 #: This is the only domain-instruction definition. ``domains.general`` re-exports
 #: it for the DomainModule; keeping a second behavioural contract there caused
@@ -141,13 +141,11 @@ _GENERAL_WORK_LOOP = (
     "1.5 你可以直接调 tools 中任何已声明的工具——不需要先在 plan 里加 todo；"
     "steps 的 id 用一个描述性的小写标识符即可（如 search-price、check-git），"
     "不必对应已有 todo。只有需要追踪多步目标时才用 additions。\n"
-    "2. **不要使用 additions/计划扩展**（当前运行时版本对扩展条目的形状校验是致命的：缺 done_when/参数就整轮失败）——"
-    "所有动作直接放进 steps，用描述性的 step id 即可；计划扩展机制保留但暂不开放给模型。"
-    "（原规则供参考：每项须映射到 tools 并给出可判定 done_when，id 小写 ≤40 字符）"
-    "additions 的 id 用小写字母开头的小写字母/数字/下划线/连字符（≤40 字符，不与已有步骤重复）；"
-    "每项**必须**带该工具 schema 要求的完整 arguments（如 edit_file 的 path/old_text/new_text），"
-    "否则整批 additions 会被拒绝并浪费一轮；没把握写全参数就**不要写 additions**，直接把动作放进 steps；"
-    "主机接受后才会进入计划，additions 本身不会执行。\n"
+    "2. 需要追踪多步目标时，可以在 additions 里提议新 todo：每项必须带 id（小写字母开头，"
+    "≤40 字符，不与已有或同批重复）、text、tool、可判定的 done_when，以及该工具 schema 要求的完整 "
+    "arguments（如 edit_file 的 path/old_text/new_text）。主机逐项校验并**部分接受**：合法条目进入计划，"
+    "非法条目带原因退回；不要把最终产物写入列为 todo（out 步骤已覆盖），additions 本身也不会执行——"
+    "下一条动作仍要从 steps 发出。没把握写全参数就只放 steps。\n"
     "3. 根据真实观测继续：检查 read_file 的内容、run_command 的退出码与输出以及测试失败原因；"
     "需要修复时就修改并重跑，不要把写计划或写文件等同于任务完成。\n"
     "4. 缺少关键信息且猜错代价高时，用 ask_operator 提出一个具体问题；"

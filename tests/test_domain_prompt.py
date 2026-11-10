@@ -158,7 +158,7 @@ class RendererTests(unittest.TestCase):
         from flowagent.domains.general import GENERAL_INSTRUCTION
         from flowagent.providers.prompt import GENERAL_DOMAIN_INSTRUCTION
 
-        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v8")
+        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v9")
         self.assertIs(GENERAL_INSTRUCTION, GENERAL_DOMAIN_INSTRUCTION)
         for heading in ("【输出协议】", "【工作方式】", "【拒绝与恢复】", "【证据与验收】"):
             self.assertIn(heading, GENERAL_SYSTEM_PROMPT)
