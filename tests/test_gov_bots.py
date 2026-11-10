@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +62,12 @@ class GovBotServiceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.audit = FakeAudit()
-        self.service = GovBotService(self.audit, Path(self.tmp.name) / "governance.sqlite")
+        self.service = GovBotService(
+            self.audit, Path(self.tmp.name) / "governance.sqlite", start_scheduler=False,
+        )
 
     def tearDown(self):
+        self.service.shutdown()
         self.tmp.cleanup()
 
     def test_snapshot_lists_two_idle_bots(self):
@@ -101,6 +105,45 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(settled["status"], "failed")
         self.assertIn("chain unavailable", settled["error"])
 
+    def test_routine_is_validated_and_listed_with_next_run(self):
+        routine = self.service.create_routine("auditor", {
+            "target": "fixtures/demo-target", "frequency": "每天", "time": "09:00",
+        })
+        self.assertEqual(routine["bot_id"], "auditor")
+        self.assertTrue(routine["enabled"])
+        self.assertTrue(routine["next"])
+        listed = self.service.routines("auditor")
+        self.assertEqual([item["id"] for item in listed], [routine["id"]])
+        snapshot = self.service.snapshot()
+        self.assertEqual(snapshot["bots"][0]["counts"]["routines"], 1)
+        self.assertEqual(len(snapshot["bots"][0]["routines"]), 1)
+
+    def test_routine_fires_due_run_with_trigger(self):
+        now = datetime.now()
+        due = (now - timedelta(minutes=1)).strftime("%H:%M")
+        routine = self.service.create_routine("auditor", {
+            "target": "fixtures/demo-target", "frequency": "每天", "time": due,
+        })
+        fired = self.service.fire_due(now)
+        self.assertEqual(len(fired), 1)
+        run = wait_run(self.service, fired[0]["run_id"])
+        self.assertEqual(run["trigger"], "routine")
+        self.assertEqual(run["status"], "done")
+        updated = self.service.get_routine(routine["id"])
+        self.assertEqual(updated["last_run_id"], run["run_id"])
+
+    def test_paused_routine_does_not_fire_and_can_be_deleted(self):
+        now = datetime.now()
+        due = (now - timedelta(minutes=1)).strftime("%H:%M")
+        routine = self.service.create_routine("auditor", {
+            "target": "fixtures/demo-target", "frequency": "每天", "time": due,
+        })
+        self.service.set_routine_enabled(routine["id"], False)
+        self.assertEqual(self.service.fire_due(now), [])
+        self.service.set_routine_enabled(routine["id"], True)
+        self.assertTrue(self.service.delete_routine(routine["id"]))
+        self.assertEqual(self.service.routines("auditor"), [])
+
     def test_invalid_inputs_are_refused(self):
         with self.assertRaises(ValueError):
             self.service.start_run("nope", "x")
@@ -120,7 +163,9 @@ class GovBotServiceTest(unittest.TestCase):
                 (run["run_id"],),
             )
             self.service._db.commit()
-        restarted = GovBotService(self.audit, Path(self.tmp.name) / "governance.sqlite")
+        restarted = GovBotService(
+            self.audit, Path(self.tmp.name) / "governance.sqlite", start_scheduler=False,
+        )
         recovered = restarted.get_run(run["run_id"])
         self.assertEqual(recovered["status"], "failed")
         self.assertIn("server restarted", recovered["error"])

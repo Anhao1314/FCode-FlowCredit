@@ -5,6 +5,7 @@ import {
   botStatusLabel, botStatusClass,
   govBotSummaryHtml, govBotCardHtml, govBotRosterHtml,
   govBotDispatchHtml, govBotRunHtml, govBotChannelHtml,
+  govBotRoutineFormHtml, govBotRoutinesHtml,
 } from "../core/gov-bots.js";
 
 const bots = [
@@ -39,14 +40,16 @@ test("团队摘要:角色数、执行中、运行数与 Phase A 标注", () => {
   assert.match(html, /<b>2<\/b> 个常驻角色/);
   assert.match(html, /<b>1<\/b> 执行中/);
   assert.match(html, /<b>4<\/b> 次运行/);
-  assert.match(html, /Phase A/);
+  assert.match(html, /<b>0<\/b> 个排程/);
+  assert.match(html, /Phase B/);
   assert.match(html, /确定性管线/);
 });
 
 test("Bot 卡片:头像、职责、运行态、最近目标与派活入口", () => {
   const html = govBotCardHtml(bots[0]);
   assert.match(html, /data-bot-id="auditor"/);
-  assert.match(html, /<span class="gov-bot-avatar" aria-hidden="true">审<\/span>/);
+  assert.match(html, /class="bot-avatar bot-avatar-auditor is-running"/);
+  assert.match(html, /aria-label="审计员 · 执行中"/);
   assert.match(html, /REA Auditor/);
   assert.match(html, /执行中/);
   assert.match(html, /demo-target/);
@@ -114,6 +117,50 @@ test("运行消息:失败与运行中都不伪造完成", () => {
   });
   assert.match(running, /正在执行/);
   assert.doesNotMatch(running, /data-gov-hist/);
+});
+
+test("排程表单:Bot/目标/频率/时间四字段，默认当前 Bot", () => {
+  const html = govBotRoutineFormHtml(bots, "verifier");
+  assert.match(html, /id="gov-routine-form"/);
+  assert.match(html, /<option value="verifier" selected>复核员/);
+  assert.match(html, /id="gov-routine-target"/);
+  assert.match(html, /<option value="每天">每天<\/option>/);
+  assert.match(html, /id="gov-routine-time" type="time" value="09:00"/);
+  assert.match(html, /添加排程/);
+});
+
+test("排程列表:身份头像、下次触发、启停与删除", () => {
+  const withRoutine = [{
+    ...bots[0],
+    routines: [{
+      id: "rt-1", bot_id: "auditor", target: "fixtures/demo-target",
+      frequency: "每天", time: "09:00", enabled: true,
+      next: "每天 09:00", last_fired_at: "2026-11-10T09:00:00",
+      last_status: "running",
+    }],
+  }];
+  const html = govBotRoutinesHtml(withRoutine);
+  assert.match(html, /data-routine-id="rt-1"/);
+  assert.match(html, /class="bot-avatar bot-avatar-auditor is-idle"/);
+  assert.match(html, /fixtures\/demo-target/);
+  assert.match(html, /每天 09:00/);
+  assert.match(html, /data-gov-routine-toggle="rt-1" checked/);
+  assert.match(html, /data-gov-routine-delete="rt-1"/);
+  assert.doesNotMatch(html, /running/);
+});
+
+test("排程列表空态与转义", () => {
+  assert.match(govBotRoutinesHtml([]), /还没有定时排程/);
+  const html = govBotRoutinesHtml([{
+    ...bots[0],
+    routines: [{
+      id: "rt-2", bot_id: "auditor", target: "<img>", frequency: "每天",
+      enabled: false, next: "<script>", last_status: "error: <bad>",
+    }],
+  }]);
+  assert.equal(html.includes("<img>"), false);
+  assert.equal(html.includes("<script>"), false);
+  assert.match(html, /&lt;img&gt;/);
 });
 
 test("团队频道按时间正序，并对失败文本转义", () => {

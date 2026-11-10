@@ -11,8 +11,15 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
 
   await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
   await expect(page.locator("#gov-team-summary")).toContainText("常驻角色");
-  await expect(page.locator("#gov-team-summary")).toContainText("Phase A");
+  await expect(page.locator("#gov-team-summary")).toContainText("Phase B");
+  await expect(page.locator("#gov-team-roster .bot-avatar-auditor")).toBeVisible();
+  await expect(page.locator("#gov-team-roster .bot-avatar-verifier")).toBeVisible();
   await expect(page.locator(".composer-wrap")).toBeHidden();
+  // 身份头像不是静态图案：审计员扫掠、复核员轨道都有 CSS 动画
+  await expect.poll(async () => page.locator(".bot-avatar-auditor .ba-sweep")
+    .evaluate(el => getComputedStyle(el).animationName)).toBe("botSweep");
+  await expect.poll(async () => page.locator(".bot-avatar-verifier .ba-orbit")
+    .evaluate(el => getComputedStyle(el).animationName)).toBe("botOrbit");
 
   // 审计员：目标路径 → 团队频道出现运行消息并完成
   await page.locator("#gov-bot-select").selectOption("auditor");

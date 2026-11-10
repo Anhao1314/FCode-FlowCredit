@@ -18,6 +18,7 @@ import {
 } from "./core/gov-workbench.js";
 import {
   govBotSummaryHtml, govBotRosterHtml, govBotDispatchHtml, govBotChannelHtml,
+  govBotRoutineFormHtml, govBotRoutinesHtml,
 } from "./core/gov-bots.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
@@ -2633,7 +2634,9 @@ const govTeam = {
 };
 let govTeamSeq = 0;
 let govTeamTimer = null;
+let govTeamSig = "";
 let govBotSelected = "auditor";
+let govRoutineSelected = "auditor";
 
 function govActive() {
   return document.getElementById("main")?.dataset.view === "gov";
@@ -2900,6 +2903,22 @@ function paintGovTeam() {
       ? govBotChannelHtml(govTeam.runs, govTeam.bots)
       : `<div class="gov-loading dim">正在读取团队频道…</div>`;
   }
+  const routineListHost = document.getElementById("gov-routine-list-host");
+  if (routineListHost) {
+    routineListHost.innerHTML = govTeam.loaded
+      ? govBotRoutinesHtml(govTeam.bots)
+      : `<div class="gov-loading dim">正在读取排程…</div>`;
+  }
+  const routineFormHost = document.getElementById("gov-routine-form-host");
+  if (routineFormHost) {
+    const signature = govTeam.bots.map(bot => bot.id).join(",") + "|" + govRoutineSelected;
+    if (routineFormHost.dataset.govSig !== signature) {
+      routineFormHost.innerHTML = govTeam.loaded && govTeam.bots.length
+        ? govBotRoutineFormHtml(govTeam.bots, govRoutineSelected)
+        : "";
+      routineFormHost.dataset.govSig = signature;
+    }
+  }
   hydrateDoodles(summaryHost);
 }
 
@@ -2919,11 +2938,18 @@ async function loadGovTeam() {
     if (!govTeam.bots.some(bot => bot.id === govBotSelected) && govTeam.bots[0]) {
       govBotSelected = govTeam.bots[0].id;
     }
-    if (govActive() && govSurface === "team") paintGovTeam();
+    if (!govTeam.bots.some(bot => bot.id === govRoutineSelected) && govTeam.bots[0]) {
+      govRoutineSelected = govTeam.bots[0].id;
+    }
+    const signature = JSON.stringify([govTeam.bots, govTeam.runs]);
+    if (govActive() && govSurface === "team" && signature !== govTeamSig) {
+      govTeamSig = signature;
+      paintGovTeam();
+    }
   } catch {
     if (seq !== govTeamSeq) return;
     govTeam.loaded = true;
-    if (govActive() && govSurface === "team") paintGovTeam();
+    if (govActive() && govSurface === "team" && !govTeamSig) paintGovTeam();
   }
 }
 
@@ -2935,6 +2961,7 @@ function stopGovTeamPoll() {
 
 function scheduleGovTeamPoll() {
   if (govTeamTimer) return;
+  // 常驻团队需要感知后台 routine 触发，空闲时也要轻量轮询。
   govTeamTimer = setInterval(async () => {
     if (!govActive() || govSurface !== "team") {
       clearInterval(govTeamTimer);
@@ -2942,12 +2969,7 @@ function scheduleGovTeamPoll() {
       return;
     }
     await loadGovTeam();
-    const running = govTeam.runs.some(run => run.status === "queued" || run.status === "running");
-    if (!running) {
-      clearInterval(govTeamTimer);
-      govTeamTimer = null;
-    }
-  }, 2000);
+  }, 5000);
 }
 
 function syncGovBotDispatch() {
@@ -2989,6 +3011,67 @@ async function startGovBotRun() {
   }
 }
 
+async function startGovRoutine() {
+  const botSelect = document.getElementById("gov-routine-bot");
+  const targetInput = document.getElementById("gov-routine-target");
+  const frequency = document.getElementById("gov-routine-frequency");
+  const time = document.getElementById("gov-routine-time");
+  const botId = botSelect ? botSelect.value : govRoutineSelected;
+  const bot = govTeam.bots.find(item => item.id === botId);
+  if (!bot) { toast("团队还没加载完成"); return; }
+  try {
+    const response = await fetch("/api/gov/routines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bot_id: botId,
+        target: targetInput ? targetInput.value.trim() : "",
+        frequency: frequency ? frequency.value : "每天",
+        time: time ? time.value : "09:00",
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    govRoutineSelected = botId;
+    if (targetInput) targetInput.value = "";
+    toast(`${bot.name} 的排程已创建`);
+    await loadGovTeam();
+  } catch (error) {
+    toast("添加排程失败：" + error.message);
+  }
+}
+
+async function setGovRoutineEnabled(routineId, enabled, checkbox) {
+  try {
+    const response = await fetch(`/api/gov/routines/${encodeURIComponent(routineId)}/toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast(enabled ? "排程已启用" : "排程已暂停");
+    await loadGovTeam();
+  } catch (error) {
+    if (checkbox) checkbox.checked = !enabled;
+    toast("排程状态更新失败：" + error.message);
+  }
+}
+
+async function deleteGovRoutine(routineId) {
+  try {
+    const response = await fetch(`/api/gov/routines/${encodeURIComponent(routineId)}/delete`, {
+      method: "POST",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast("排程已删除");
+    await loadGovTeam();
+  } catch (error) {
+    toast("删除排程失败：" + error.message);
+  }
+}
+
 function renderGovTeam() {
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
@@ -3010,6 +3093,11 @@ function renderGovTeam() {
     <section class="gov-team-section">
       <div class="gov-team-section-head"><span>DISPATCH</span><b>派活</b></div>
       <div id="gov-team-dispatch"></div>
+    </section>
+    <section class="gov-team-section">
+      <div class="gov-team-section-head"><span>ROUTINES</span><b>定时排程</b></div>
+      <div id="gov-routine-list-host"></div>
+      <div id="gov-routine-form-host"></div>
     </section>
     <section class="gov-team-section">
       <div class="gov-team-section-head"><span>CHANNEL</span><b>团队频道</b></div>
@@ -3262,6 +3350,11 @@ document.addEventListener("submit", event => {
     startGovBotRun();
     return;
   }
+  if (event.target.closest("#gov-routine-form")) {
+    event.preventDefault();
+    startGovRoutine();
+    return;
+  }
   const form = event.target.closest("#gov-new-audit");
   if (!form) return;
   event.preventDefault();
@@ -3270,8 +3363,21 @@ document.addEventListener("submit", event => {
 });
 
 document.addEventListener("change", event => {
-  if (!event.target.closest("#gov-bot-select")) return;
-  syncGovBotDispatch();
+  if (event.target.closest("#gov-bot-select")) {
+    syncGovBotDispatch();
+    return;
+  }
+  const routineBot = event.target.closest("#gov-routine-bot");
+  if (routineBot) {
+    govRoutineSelected = routineBot.value;
+    const host = document.getElementById("gov-routine-form-host");
+    if (host) host.dataset.govSig = govTeam.bots.map(bot => bot.id).join(",") + "|" + govRoutineSelected;
+    return;
+  }
+  const routineToggle = event.target.closest("[data-gov-routine-toggle]");
+  if (routineToggle) {
+    setGovRoutineEnabled(routineToggle.dataset.govRoutineToggle, routineToggle.checked, routineToggle);
+  }
 });
 
 /* ================================================================ Chat
@@ -4164,6 +4270,11 @@ function bindGlobalActions() {
       const next = ["dialog", "team", "workbench"].includes(govMode.dataset.govMode)
         ? govMode.dataset.govMode : "dialog";
       showGovSurface(next);
+      return;
+    }
+    const govRoutineDelete = event.target.closest("[data-gov-routine-delete]");
+    if (govRoutineDelete) {
+      deleteGovRoutine(govRoutineDelete.dataset.govRoutineDelete);
       return;
     }
     const govBotPick = event.target.closest("[data-gov-bot-pick]");

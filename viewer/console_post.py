@@ -63,6 +63,42 @@ def post_gov_bot_run(handler, bot_id):
     return handler._json({"run": run}, 202)
 
 
+def post_gov_routine(handler):
+    """Create a standing routine for one bot (cron-like manual form)."""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        routine = service.create_routine(str(body.get("bot_id") or ""), body)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"routine": routine}, 201)
+
+
+def post_gov_routine_toggle(handler, routine_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        routine = service.set_routine_enabled(routine_id, bool(body.get("enabled")))
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"routine": routine})
+
+
+def post_gov_routine_delete(handler, routine_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        service.delete_routine(routine_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"deleted": routine_id})
+
+
 _STATIC = {
     "/api/intake": post_intake,
     "/api/settings/chat-config": post_chat_config,
@@ -74,6 +110,7 @@ _STATIC = {
     "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
+    "/api/gov/routines": post_gov_routine,
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,
@@ -186,6 +223,13 @@ def dispatch_post(handler, path: str):
     if match is not None:
         bot_id, route = match
         return route(handler, bot_id)
+    match = _suffix(path, "/api/gov/routines/", {
+        "/toggle": post_gov_routine_toggle,
+        "/delete": post_gov_routine_delete,
+    })
+    if match is not None:
+        routine_id, route = match
+        return route(handler, routine_id)
     match = _suffix(path, "/api/chat/threads/", _CHAT_ROUTES)
     if match is not None:
         thread_id, route = match

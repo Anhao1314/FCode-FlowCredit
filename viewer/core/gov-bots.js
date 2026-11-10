@@ -6,6 +6,7 @@
  */
 
 import { esc, num } from "./format.js";
+import { botAvatarHtml } from "./bot-avatar.js";
 
 const STATUS_LABEL = {
   queued: "排队",
@@ -29,6 +30,13 @@ function botOf(bots, id) {
   return (bots || []).find(bot => bot.id === id) || null;
 }
 
+function avatarState(status) {
+  if (status === "queued" || status === "running") return "running";
+  if (status === "failed") return "failed";
+  if (status === "done") return "done";
+  return "idle";
+}
+
 function formatTime(value) {
   const text = String(value || "");
   const match = /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})/.exec(text);
@@ -44,13 +52,16 @@ export function govBotSummaryHtml(bots) {
   const list = bots || [];
   const running = list.filter(bot => bot.status === "running").length;
   const totalRuns = list.reduce((sum, bot) => sum + Number((bot.counts || {}).runs || 0), 0);
+  const totalRoutines = list.reduce((sum, bot) => sum + Number((bot.counts || {}).routines || 0), 0);
   return `<div class="gov-team-summary">
     <span><b>${num(list.length)}</b> 个常驻角色</span>
     <span class="gov-dot-sep"></span>
     <span><b>${num(running)}</b> 执行中</span>
     <span class="gov-dot-sep"></span>
     <span><b>${num(totalRuns)}</b> 次运行</span>
-    <span class="gov-team-note">Phase A · 手动触发；判定仍来自确定性管线</span>
+    <span class="gov-dot-sep"></span>
+    <span><b>${num(totalRoutines)}</b> 个排程</span>
+    <span class="gov-team-note">Phase B · 手动 + 定时；判定仍来自确定性管线</span>
   </div>`;
 }
 
@@ -63,7 +74,7 @@ export function govBotCardHtml(bot) {
   const last = bot.last;
   return `<article class="gov-bot-card${status === "running" ? " is-running" : ""}" data-bot-id="${esc(bot.id)}">
     <header class="gov-bot-card-head">
-      <span class="gov-bot-avatar" aria-hidden="true">${esc(bot.initial || bot.name.slice(0, 1))}</span>
+      ${botAvatarHtml(bot.id, status, 38, bot.name)}
       <div class="gov-bot-identity">
         <b>${esc(bot.name)}</b>
         <span>${esc(bot.role || "")}</span>
@@ -79,7 +90,9 @@ export function govBotCardHtml(bot) {
           : `<span class="dim">还没有运行记录</span>`}
     </div>
     <footer class="gov-bot-card-foot">
-      <span>${num(counts.runs || 0)} 次运行 · ${num(counts.findings || 0)} 发现</span>
+      <span>${num(counts.runs || 0)} 次运行 · ${num(counts.findings || 0)} 发现${
+        counts.routines ? ` · ${num(counts.routines)} 个排程` : ""
+      }</span>
       <button class="gov-wb-button quiet" type="button" data-gov-bot-pick="${esc(bot.id)}">派活 →</button>
     </footer>
   </article>`;
@@ -115,6 +128,70 @@ export function govBotDispatchHtml(bots, selected = "auditor") {
     </label>
     <button class="gov-wb-button strong" type="submit">派活</button>
   </form>`;
+}
+
+export function govBotRoutineFormHtml(bots, selected = "auditor") {
+  const list = bots || [];
+  const active = list.some(bot => bot.id === selected) ? selected : (list[0] && list[0].id) || "auditor";
+  const options = list.map(bot =>
+    `<option value="${esc(bot.id)}"${bot.id === active ? " selected" : ""}>${esc(bot.name)}</option>`
+  ).join("");
+  return `<form class="gov-routine-form" id="gov-routine-form">
+    <label class="gov-routine-field">
+      <span>Bot</span>
+      <select id="gov-routine-bot" aria-label="选择排程 Bot">${options}</select>
+    </label>
+    <label class="gov-routine-field grow">
+      <span>目标</span>
+      <input id="gov-routine-target" type="text" autocomplete="off" spellcheck="false"
+        placeholder="目标路径；复核员可留空 = 最新审计" aria-label="排程目标">
+    </label>
+    <label class="gov-routine-field">
+      <span>频率</span>
+      <select id="gov-routine-frequency" aria-label="排程频率">
+        <option value="每天">每天</option>
+        <option value="工作日">工作日</option>
+        <option value="每周">每周</option>
+      </select>
+    </label>
+    <label class="gov-routine-field">
+      <span>时间</span>
+      <input id="gov-routine-time" type="time" value="09:00" aria-label="排程时间">
+    </label>
+    <button class="gov-wb-button strong" type="submit">添加排程</button>
+  </form>`;
+}
+
+export function govBotRoutinesHtml(bots) {
+  const list = [];
+  for (const bot of bots || []) {
+    for (const routine of bot.routines || []) list.push({ bot, routine });
+  }
+  if (!list.length) {
+    return `<div class="gov-empty-state"><b>还没有定时排程</b><span>给审计员或复核员加一条 routine，到点会自动创建运行。</span></div>`;
+  }
+  return `<div class="gov-routine-list">${list.map(({ bot, routine }) => {
+    const target = routine.target
+      ? `<code>${esc(routine.target)}</code>`
+      : `<span class="dim">最新审计</span>`;
+    const last = routine.last_fired_at
+      ? `上次 ${esc(formatTime(routine.last_fired_at))}`
+      : "还没触发";
+    return `<div class="gov-routine-row" data-routine-id="${esc(routine.id)}">
+      ${botAvatarHtml(bot.id, "idle", 30, bot.name)}
+      <div class="gov-routine-main">
+        <div class="gov-routine-title"><b>${esc(bot.name)}</b><span>·</span>${target}</div>
+        <div class="gov-routine-meta">${esc(routine.next || routine.frequency)} · ${last}${
+          routine.last_status && routine.last_status !== "running" ? ` · ${esc(routine.last_status)}` : ""
+        }</div>
+      </div>
+      <label class="gov-routine-toggle">
+        <input type="checkbox" data-gov-routine-toggle="${esc(routine.id)}"${routine.enabled ? " checked" : ""}>
+        启用
+      </label>
+      <button class="gov-routine-delete" type="button" data-gov-routine-delete="${esc(routine.id)}">删除</button>
+    </div>`;
+  }).join("")}</div>`;
 }
 
 function runStatusLine(bot, run) {
@@ -156,11 +233,14 @@ function runActions(run) {
 
 export function govBotRunHtml(bot, run) {
   const target = targetLabel(run.target);
+  const verb = run.trigger === "routine"
+    ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
+    : (bot.id === "verifier" ? "验证" : "扫描");
   return `<div class="gov-entry user"><span class="gov-echo">@${esc(bot.name)} ${
-    bot.id === "verifier" ? "验证 " + esc(run.audit_id || target) : "扫描 " + esc(target)
+    verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
   }</span></div>
   <div class="gov-bot-message">
-    <span class="gov-bot-avatar" aria-hidden="true">${esc(bot.initial || bot.name.slice(0, 1))}</span>
+    ${botAvatarHtml(bot.id, avatarState(run.status), 30, bot.name)}
     <div class="gov-bot-message-body">
       <header class="gov-bot-message-head">
         <b>${esc(bot.name)}</b><span>${esc(bot.role || "")}</span>

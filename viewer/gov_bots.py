@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from console_scheduler import describe_next, is_due, parse_hhmm
+
 __all__ = ["BOT_DEFS", "GovBotService"]
 
 BOT_DEFS = [
@@ -70,6 +72,19 @@ CREATE TABLE IF NOT EXISTS bot_runs (
     finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS bot_runs_bot ON bot_runs(bot_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS bot_routines (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    frequency TEXT NOT NULL DEFAULT '每天',
+    time TEXT NOT NULL DEFAULT '09:00',
+    weekday INTEGER,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_fired_at TEXT,
+    last_run_id TEXT,
+    last_status TEXT,
+    created TEXT NOT NULL
+);
 """
 
 
@@ -80,10 +95,12 @@ def _now() -> str:
 class GovBotService:
     """Durable roster + run log for the governance team surface."""
 
-    def __init__(self, audit: Any, db_path: Path | str) -> None:
+    def __init__(self, audit: Any, db_path: Path | str, *, start_scheduler: bool = True) -> None:
         self.audit = audit
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
+        self._stop = threading.Event()
+        self._scheduler: threading.Thread | None = None
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(path), check_same_thread=False)
@@ -99,6 +116,8 @@ class GovBotService:
                 ("server restarted before completion", _now()),
             )
             self._db.commit()
+        if start_scheduler:
+            self._start_scheduler()
 
     # ------------------------------------------------------------------ reads
 
@@ -115,11 +134,13 @@ class GovBotService:
                 None,
             )
             last = bot_runs[0] if bot_runs else None
+            routines = self.routines(bot_id=definition["id"])
             bots.append({
                 **definition,
                 "status": "running" if current else "idle",
                 "current": current,
                 "last": last,
+                "routines": routines,
                 "counts": {
                     "runs": len(bot_runs),
                     "findings": sum(int(run.get("findings") or 0) for run in bot_runs),
@@ -127,6 +148,7 @@ class GovBotService:
                         1 for run in bot_runs
                         if run.get("chain_intact") is False
                     ),
+                    "routines": len(routines),
                 },
             })
         return {"bots": bots, "generated_at": _now()}
@@ -150,9 +172,161 @@ class GovBotService:
             ).fetchone()
         return self._row(row) if row else None
 
+    # -------------------------------------------------------------- routines
+
+    def routines(self, bot_id: str | None = None, enabled_only: bool = False) -> list[dict]:
+        query = "SELECT * FROM bot_routines"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if bot_id:
+            clauses.append("bot_id=?")
+            params.append(bot_id)
+        if enabled_only:
+            clauses.append("enabled=1")
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created DESC, rowid DESC"
+        with self._lock:
+            rows = self._db.execute(query, params).fetchall()
+        now = datetime.now()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["enabled"] = bool(item.get("enabled"))
+            item["bot_name"] = (_BY_ID.get(item["bot_id"]) or {}).get("name", item["bot_id"])
+            item["next"] = describe_next(item, now)
+            result.append(item)
+        return result
+
+    def get_routine(self, routine_id: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM bot_routines WHERE id=?", (routine_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        item["enabled"] = bool(item.get("enabled"))
+        item["bot_name"] = (_BY_ID.get(item["bot_id"]) or {}).get("name", item["bot_id"])
+        item["next"] = describe_next(item, datetime.now())
+        return item
+
+    def create_routine(self, bot_id: str, payload: dict) -> dict:
+        definition = _BY_ID.get(str(bot_id or ""))
+        if definition is None:
+            raise ValueError(f"unknown bot: {bot_id!r}")
+        target = str(payload.get("target") or "").strip()
+        if definition["id"] == "auditor" and not target:
+            raise ValueError("auditor routine needs a target path")
+        frequency = str(payload.get("frequency") or "每天").strip()
+        if frequency not in ("每天", "工作日", "每周"):
+            raise ValueError("frequency must be 每天 / 工作日 / 每周")
+        time_text = str(payload.get("time") or "09:00").strip()
+        parse_hhmm(time_text)
+        weekday = payload.get("weekday")
+        if frequency == "每周":
+            try:
+                weekday = int(weekday) if weekday is not None else datetime.now().weekday()
+            except (TypeError, ValueError) as error:
+                raise ValueError("weekday must be 0..6") from error
+            if not 0 <= weekday <= 6:
+                raise ValueError("weekday must be 0..6")
+        else:
+            weekday = None
+        with self._lock:
+            count = self._db.execute(
+                "SELECT COUNT(*) FROM bot_routines WHERE bot_id=?", (definition["id"],)
+            ).fetchone()[0]
+        if count >= 10:
+            raise ValueError("each bot can own at most 10 routines")
+        routine_id = f"rt-{uuid.uuid4().hex[:12]}"
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO bot_routines (id, bot_id, target, frequency, time, weekday,"
+                " enabled, created) VALUES (?,?,?,?,?,?,?,?)",
+                (routine_id, definition["id"], target, frequency, time_text,
+                 weekday, 1, _now()),
+            )
+            self._db.commit()
+        return self.get_routine(routine_id) or {}
+
+    def set_routine_enabled(self, routine_id: str, enabled: bool) -> dict:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE bot_routines SET enabled=? WHERE id=?",
+                (1 if enabled else 0, routine_id),
+            )
+            self._db.commit()
+        if cur.rowcount <= 0:
+            raise ValueError("routine not found")
+        return self.get_routine(routine_id) or {}
+
+    def delete_routine(self, routine_id: str) -> bool:
+        with self._lock:
+            cur = self._db.execute("DELETE FROM bot_routines WHERE id=?", (routine_id,))
+            self._db.commit()
+        if cur.rowcount <= 0:
+            raise ValueError("routine not found")
+        return True
+
+    def fire_due(self, now: datetime | None = None) -> list[dict]:
+        """Start runs for due routines. Pure-ish test seam, same as scheduler."""
+        now = now or datetime.now()
+        fired: list[dict] = []
+        for routine in self.routines(enabled_only=True):
+            if not is_due(routine, now):
+                continue
+            if self._has_running(routine["bot_id"]):
+                continue
+            fired_at = now.strftime("%Y-%m-%dT%H:%M:%S")
+            try:
+                run = self.start_run(routine["bot_id"], routine["target"], trigger="routine")
+                self._mark_routine(routine["id"], fired_at, run["run_id"], "running")
+                fired.append({"routine_id": routine["id"], "run_id": run["run_id"], "status": "running"})
+            except Exception as error:  # noqa: BLE001 — one bad routine must not stop others
+                self._mark_routine(routine["id"], fired_at, "", f"error: {error}")
+                fired.append({"routine_id": routine["id"], "status": f"error: {error}"})
+        return fired
+
+    def shutdown(self) -> None:
+        self._stop.set()
+
+    def _start_scheduler(self) -> None:
+        if self._scheduler is not None and self._scheduler.is_alive():
+            return
+        self._stop.clear()
+        self._scheduler = threading.Thread(
+            target=self._schedule_loop, name="gov-bot-scheduler", daemon=True,
+        )
+        self._scheduler.start()
+
+    def _schedule_loop(self) -> None:
+        while not self._stop.wait(20.0):
+            try:
+                self.fire_due()
+            except Exception:  # noqa: BLE001 — scheduler loop never exits
+                continue
+
+    def _has_running(self, bot_id: str) -> bool:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT 1 FROM bot_runs WHERE bot_id=? AND status IN ('queued','running') LIMIT 1",
+                (bot_id,),
+            ).fetchone()
+        return row is not None
+
+    def _mark_routine(self, routine_id: str, fired_at: str,
+                      run_id: str, status: str) -> None:
+        with self._lock:
+            self._db.execute(
+                "UPDATE bot_routines SET last_fired_at=?, last_run_id=?, last_status=? WHERE id=?",
+                (fired_at, run_id, status, routine_id),
+            )
+            self._db.commit()
+
     # ------------------------------------------------------------------ start
 
-    def start_run(self, bot_id: str, target: str) -> dict:
+    def start_run(self, bot_id: str, target: str, trigger: str = "manual") -> dict:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
@@ -180,7 +354,8 @@ class GovBotService:
             self._db.execute(
                 "INSERT INTO bot_runs (run_id, bot_id, trigger, target, status, started_at)"
                 " VALUES (?,?,?,?,?,?)",
-                (run_id, definition["id"], "manual", resolved, "queued", _now()),
+                (run_id, definition["id"], trigger if trigger in ("manual", "routine") else "manual",
+                 resolved, "queued", _now()),
             )
             self._db.commit()
         thread = threading.Thread(
