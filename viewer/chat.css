@@ -369,11 +369,12 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 }
 .chat-more:hover { color: var(--text-1); }
 
-/* ---------------------------------------------------------------- AI 头像
-   定稿形态（原 workspace.css 生效值）：26px 黑底 #111 方圆 7px、白墨反白，
-   无描边阴影；状态推导在 core/ai-avatar.js（--idle/--mark 等类名保持，
-   --mark 的浅色底在定稿层序下从未生效，随归一移除其背景声明）。
-   形象是 FCode 的 Q 版印豆；只出现在对话面：工作舞台仍用品牌 logo。 */
+/* ---------------------------------------------------------------- AI 形象
+   Kimi-style: the message stream carries no avatars; identity comes from the
+   left-aligned assistant column and the right-aligned user bubble. The
+   expressive FCode face (64px) appears only in the empty state; the same
+   component remains available for the governance entry. Thin monochrome
+   circle, transparent fill — no black tile. */
 .chat-msg-row { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .chat-msg-row .chat-md { flex: 1; min-width: 0; }
 
@@ -382,10 +383,10 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   position: relative; flex: none;
   width: var(--ai-avatar-size, 26px); height: var(--ai-avatar-size, 26px);
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 7px;
-  background: #111;
+  border-radius: 50%;
+  background: transparent;
   box-shadow: none;
-  color: #fff;
+  color: var(--text-1);
 }
 .ai-avatar svg { display: block; }
 .ai-avatar-ring {

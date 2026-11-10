@@ -10,7 +10,6 @@
 
 import { esc, num } from "./format.js";
 import { renderMarkdown } from "./chat-format.js";
-import { aiAvatarHtml, avatarStateFor, userAvatarHtml } from "./ai-avatar.js";
 import { toolBlocksHtml } from "./tool-card.js";
 
 export function chatMessageHtml(message, editingId = null, extraHtml = "") {
@@ -35,11 +34,11 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     }
     const files = (message.attachments || [])
       .map(file => `<span class="chat-file">${esc(file.name || "")}</span>`).join("");
-    // 用户头像与 FCode 头像同族（core/ai-avatar.js）：气泡右侧墨盘人形
+    // Kimi-style: the message stream carries no avatars. The bubble's
+    // alignment is the identity; the expressive mark lives in the empty state.
     return `<div class="chat-msg user" data-msg-id="${id}">
       <div class="chat-msg-row user-row">
         <div class="chat-bubble">${esc(message.text)}${files ? `<div class="chat-files">${files}</div>` : ""}</div>
-        ${userAvatarHtml(28)}
       </div>
       <div class="chat-msg-actions">
         <button class="chat-act" type="button" data-chat-edit="${id}">编辑</button>
@@ -73,9 +72,6 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     : "";
   const stopped = message.status === "cancelled"
     ? `<span class="chat-meta inline">已停止生成</span>` : "";
-  // 对话 AI 的头像（core/ai-avatar.js）：状态由这条消息自己决定；
-  // 只有锚定的运行真的 succeeded 才换成「已完成」的脸。
-  const avatar = aiAvatarHtml(avatarStateFor(message), 28);
   // Agentic chat：有 blocks 的消息按「文本 → 工具卡 → 文本」顺序渲染；
   // 旧消息没有 blocks，保持单段 Markdown。
   const hasBlocks = Array.isArray(message.blocks) && message.blocks.length > 0;
@@ -83,7 +79,7 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     ? toolBlocksHtml(message.blocks, renderMarkdown)
     : `<div class="chat-md">${renderMarkdown(message.text)}</div>`;
   return `<div class="chat-msg assistant${streaming ? " streaming" : ""}${message.status === "cancelled" ? " cancelled" : ""}" data-msg-id="${id}"${streaming ? ' data-streaming="1"' : ""}>
-    <div class="chat-msg-row">${avatar}<div class="chat-blocks">${body}</div></div>
+    <div class="chat-msg-row"><div class="chat-blocks">${body}</div></div>
     ${wait}${typing}${reasoning}${error}${extraHtml}
     ${(actions.length || usage || stopped) ? `<div class="chat-msg-actions">${usage}${stopped}${actions.join("")}</div>` : ""}
   </div>`;
