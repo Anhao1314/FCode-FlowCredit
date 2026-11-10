@@ -24,7 +24,7 @@ test("锚定的运行决定状态：只有 succeeded 才算完成", () => {
   assert.equal(avatarStateFor({ status: "done", text: "hi" }), "idle");
 });
 
-test("蓝色脸上只有两只白眼，没有嘴和腮红", () => {
+test("黑灰脸上只有两只白眼，没有嘴和腮红", () => {
   const html = aiAvatarHtml("idle", 64);
   assert.match(html, /class="ai-avatar ai-avatar--idle"/);
   assert.match(html, /--ai-avatar-size:64px/);

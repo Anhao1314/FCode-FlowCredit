@@ -99,6 +99,7 @@ test("assistant 有实时头像，user 只有右对齐气泡", () => {
   const assistant = chatMessageHtml({ id: "a1", role: "assistant", text: "你好", status: "ok" });
   assert.match(assistant, /class="chat-msg-row"/);
   assert.match(assistant, /class="ai-avatar ai-avatar--idle/);
+  assert.match(assistant, /--ai-avatar-size:32px/);
   assert.match(assistant, /data-live="1"/);
   assert.doesNotMatch(assistant, /chat-user-avatar/);
 
