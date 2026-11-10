@@ -19,20 +19,20 @@
      --canvas  页面画布：近白，最亮的底也是滚动区的底；
      --panel   面板：浅灰，侧栏、卡片等一切"躺在画布上"的表面；
      --raised  悬浮/置顶：纯白，浮层、菜单、命令面板、当前选中项。 */
-  --canvas: #fbfbfb;
-  --panel: #f3f3f3;
+  --canvas: #fbfaf9;
+  --panel: #f5f5f5;
   --raised: #ffffff;
   /* 代码 / 输出等嵌入面：比面板再沉一档，白底上的浅灰阅读井 */
   --inset: #f5f5f5;
 
   /* ---- 线与圆角 ---------------------------------------------------------------
-     统一 1px 黑 7.5% 描边；--line-soft 更轻一档（卡内分隔线），--line-strong
+     统一 1px 黑 9% 描边；--line-soft 更轻一档（卡内分隔线），--line-strong
      用于需要比邻居更高一级的边（悬浮层描边、当前项指示）。
      圆角：控件 9px / 卡片 14px / 胶囊 999px / composer 舞台连体胶囊 24px /
      菜单浮层 10px。 */
-  --line: rgba(0, 0, 0, .075);
+  --line: rgba(0, 0, 0, .09);
   --line-soft: rgba(0, 0, 0, .06);
-  --line-strong: rgba(0, 0, 0, .14);
+  --line-strong: rgba(0, 0, 0, .13);
   --radius: 9px;
   --radius-card: 14px;
   --radius-pill: 999px;
@@ -41,14 +41,14 @@
   --shadow-stage: 0 1px 2px rgba(0, 0, 0, .025), 0 8px 28px rgba(0, 0, 0, .045);
 
   /* ---- 文字：四档黑 ------------------------------------------------------------
-     --text-1 主文字（结论、标题、正文）：88% 黑；
+     --text-1 主文字（结论、标题、正文）：90% 黑；
      --text-2 次级（说明、元信息标签）；
      --text-3 弱化（分组标题、占位符、禁用态）；
      --text-4 最弱（键位提示、序号等装饰文字）。 */
-  --text-1: rgba(0, 0, 0, .88);
-  --text-2: rgba(0, 0, 0, .58);
-  --text-3: rgba(0, 0, 0, .42);
-  --text-4: rgba(0, 0, 0, .28);
+  --text-1: rgba(0, 0, 0, .90);
+  --text-2: rgba(0, 0, 0, .60);
+  --text-3: rgba(0, 0, 0, .45);
+  --text-4: rgba(0, 0, 0, .30);
 
   /* ---- 强调色：全站唯一 --------------------------------------------------------
      近黑 #111 只允许出现在：主按钮、当前项、焦点环、进行中动画。
@@ -77,7 +77,7 @@
   /* ---- 字体：系统栈 + 等宽 ------------------------------------------------------
      界面正文用系统无衬线；所有哈希、时间戳、预算数字用 ui-monospace，
      数字密集处配 font-variant-numeric: tabular-nums 对齐。 */
-  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Hiragino Sans GB", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Arial, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
 
   /* ---- 字号四档：14 / 14 / 15 / 18 --------------------------------------------
@@ -99,10 +99,10 @@
      --red/--r-card/--space-* 等约 44 条）经精确 grep 确认零消费者，已删除；
      消费者要么就地改写为正式令牌（--ink-2/3→--text-2/3、--red→--bad、--green→--ok、
      --ink→--text-1），要么本就无引用。 */
-  --active: rgba(0, 0, 0, .055);
+  --active: rgba(0, 0, 0, .031);
   /* 结构层尺寸：侧栏 / 图标 rail / 阅读列 / 证据栏（原 workspace.css 覆写值定稿；
      --sidebar-w 仍被 app.js 侧栏拖宽 setProperty 行内覆写，不受此处影响） */
-  --sidebar-w: 252px;
+  --sidebar-w: 240px;
   --sidebar-rail-w: 56px;
   --reading-w: 780px;
   --work-w: 1180px;

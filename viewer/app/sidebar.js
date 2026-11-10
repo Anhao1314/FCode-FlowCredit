@@ -36,6 +36,8 @@ export function createSidebar(deps) {
     host.innerHTML = zoneSwitchHtml(zonePainted);
     // 分区历史互斥：data-zone 驱动 CSS 显隐（Work=对话/任务，Governance=审计历史）
     document.body.dataset.zone = zonePainted;
+    const flavor = document.getElementById("side-flavor");
+    if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
     if (zonePainted === "gov" && (changed || !govHistPainted)) renderGovHistory();
   }
 

@@ -151,17 +151,23 @@ button.run-chip:hover { border-color: var(--accent); color: var(--text-1); }
 
 /* S2.1 区切换器：新对话 hero 下方，工作区/治理区等宽两键。
    底座复用 .seg 分段（r9 + 内衬 3px + rgba 底），active 白卡浮起。 */
-.zone-switch { display: flex; margin: 8px 8px 2px; }
+.zone-switch {
+  display: flex; margin: 8px 0 2px; padding: 2px; height: 36px;
+  border-radius: 10px; background: var(--k-fill-2);
+}
 .zone-switch .zone-btn {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-  height: 32px; border: 0; background: none;
-  color: var(--text-3); font-size: 12px; cursor: pointer;
-  transition: color .15s ease;
+  height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: none;
+  color: var(--text-3); font-size: 14px; line-height: 20px; cursor: pointer;
+  transition: color .15s ease, background-color .15s ease;
   white-space: nowrap; /* 英文副标签不得换行折成两行 */
 }
 .zone-switch .zone-btn .s-icon { width: 14px; height: 14px; }
 .zone-switch .zone-btn:hover { color: var(--text-2); }
-.zone-switch .zone-btn.active { color: var(--text-1); font-weight: 600; }
+.zone-switch .zone-btn.active {
+  color: var(--text-1); font-weight: 500;
+  background: #fff; box-shadow: 0 1px 2px #0000000f;
+}
 
 /* ================================================================ 动效 */
 @keyframes kimiPulse {
@@ -527,6 +533,11 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .seg { padding: 3px; border: 0; border-radius: 9px; background: rgba(0,0,0,.045); }
 .seg button { border-radius: 7px; font-size: 12px; }
 .seg button.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+/* Kimi segmented-tabs--md：36 高 / r10 / p2；tab 32 / r8 / 14-20。
+   .seg 是通用底座，招呼式选择器要在它之后覆盖共享属性。 */
+.zone-switch.seg { padding: 2px; border-radius: 10px; background: var(--k-fill-2); }
+.zone-switch .zone-btn { height: 32px; padding: 0 12px; border-radius: 8px; font-size: 14px; line-height: 20px; }
+.zone-switch .zone-btn.active { font-weight: 500; box-shadow: 0 1px 2px #0000000f; }
 .rail-body { padding: 10px 14px 24px; }
 .ev-item { border-left-color: var(--line-strong); }
 .ev-type { font-family: var(--font-ui); }

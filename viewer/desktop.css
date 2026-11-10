@@ -394,14 +394,14 @@ html.desktop-app .side-nav .nav-item.active { background: var(--k-fill-2); borde
    与 design.css「统一侧栏 · 终稿层」配套（P0 切片 4a）。追加在文件末尾，
    保持 thread.css 时代的文件级层叠（同特异性时后者胜）。 */
 
-html.desktop-app .sidebar { padding: 12px 10px 10px; background: #f7f7f7; }
-html.desktop-app .side-head { height: 38px; margin: 0 0 10px; padding: 0 2px; gap: 8px; }
-html.desktop-app .side-new { height: 40px; margin: 0 0 6px; border: 0; border-radius: 10px; background: #111; color: #fff; box-shadow: none; }
-html.desktop-app .side-new:hover { background: #292929; border-color: transparent; box-shadow: none; }
-html.desktop-app .side-new .nav-shortcut { background: rgba(255,255,255,.12); color: rgba(255,255,255,.64); }
-html.desktop-app .side-nav .nav-item { height: 35px; border-radius: 8px; font-size: 13px; }
-html.desktop-app .side-section { margin-top: 16px; }
-html.desktop-app .chat-row { height: 32px; font-size: 13px; }
+html.desktop-app .sidebar { padding: 9px 8px 8px; background: #fbfaf9; }
+html.desktop-app .side-head { height: 36px; margin: 0 -8px -3px; padding: 0 0 0 8px; gap: 6px; }
+html.desktop-app .side-new { height: 41px; margin: 6px 0 8px; border: .5px solid rgba(0,0,0,.13); border-radius: 12px; background: #fff; color: var(--text-1); box-shadow: none; }
+html.desktop-app .side-new:hover { background: #f5f5f5; border-color: rgba(0,0,0,.20); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+html.desktop-app .side-new .nav-shortcut { background: var(--k-fill-1); color: var(--k-label-3); }
+html.desktop-app .side-nav .nav-item { height: 36px; border-radius: 12px; font-size: 14px; }
+html.desktop-app .side-section { margin-top: 12px; }
+html.desktop-app .chat-row { height: 28px; font-size: 14px; }
 html.desktop-app .section-empty { line-height: 19px; }
-html.desktop-app .side-foot .side-user { height: 36px; border-radius: 8px; font-size: 12px; }
+html.desktop-app .side-foot .side-user { height: 44px; border-radius: 12px; font-size: 14px; }
 html.desktop-app .sidebar-quickstart { border: 1px solid var(--line); background: transparent; }
