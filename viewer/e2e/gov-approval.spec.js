@@ -4,9 +4,9 @@ import { test, expect } from "@playwright/test";
    生成「待批准」运行；操作员批准后才真正跑。 */
 
 test("治理团队:定时运行等待批准，批准后完成", async ({ page }) => {
-  const now = new Date();
-  const due = new Date(now.getTime() - 60_000);
-  const hhmm = `${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`;
+  // “00:00”今天一定已经过去（除非恰好运行在 00:00 前 20s 的调度窗），
+  // 避免跨午夜时 due 时间落到明天导致 flake。
+  const hhmm = "00:00";
 
   await page.request.post("/api/gov/bots/auditor/settings", {
     data: { daily_run_limit: 8, routine_approval: true },

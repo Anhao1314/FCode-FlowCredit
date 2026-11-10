@@ -22,6 +22,7 @@ from flowaudit import cli  # noqa: E402
 from flowaudit.episodes import (  # noqa: E402
     EpisodeStore,
     fingerprint_for,
+    finding_identity,
     regression,
 )
 
@@ -101,6 +102,106 @@ class FingerprintTests(unittest.TestCase):
         one = fingerprint_for("AGI-03", "plaintext-secret", [{"path": "a.py"}])
         two = fingerprint_for("AGI-03", "plaintext-secret", [{"path": "b.py"}])
         self.assertNotEqual(one, two)
+
+
+class StableIdentityV2Tests(unittest.TestCase):
+    def test_v2_identity_ignores_line_numbers_and_literal_details(self) -> None:
+        old = finding_identity("AGI-03", "plaintext-secret", [
+            {"path": "src/auth.py", "line": 10,
+             "snippet": "GITHUB_TOKEN = 'old_value_123'"},
+        ])
+        new = finding_identity("AGI-03", "plaintext-secret", [
+            {"path": "src/auth.py", "line": 99,
+             "snippet": "GITHUB_TOKEN = 'new_value_456'"},
+        ])
+        self.assertEqual(old["fingerprint"], new["fingerprint"])
+        self.assertEqual(old["semantic_fingerprint"], new["semantic_fingerprint"])
+        self.assertEqual(old["fingerprint_version"], 2)
+
+    def test_v2_exact_and_semantic_are_distinct_layers(self) -> None:
+        identity = finding_identity("AGI-03", "plaintext-secret", [
+            {"path": "src/auth.py", "snippet": "GITHUB_TOKEN = 'x'"},
+        ])
+        self.assertNotEqual(identity["fingerprint"],
+                            identity["semantic_fingerprint"])
+        self.assertEqual(identity["legacy_fingerprint"],
+                         fingerprint_for("AGI-03", "plaintext-secret", [
+                             {"path": "src/auth.py"}]))
+
+    def test_v2_file_move_is_known_not_fixed_plus_new(self) -> None:
+        prior = finding_identity("AGI-02", "approval-memory", [
+            {"path": "old/runtime.py", "snippet": "_remembered.add(tool)"},
+        ])
+        current = finding_identity("AGI-02", "approval-memory", [
+            {"path": "new/control.py", "snippet": "_remembered.add(tool)"},
+        ])
+        self.assertNotEqual(prior["fingerprint"], current["fingerprint"])
+        self.assertEqual(prior["semantic_fingerprint"],
+                         current["semantic_fingerprint"])
+        result = regression([{**prior, "finding_id": "F-old"}],
+                            [{**current, "finding_id": "F-new"}])
+        self.assertEqual([f["finding_id"] for f in result["known"]], ["F-new"])
+        self.assertEqual(result["fixed"], [])
+        self.assertEqual(result["new"], [])
+
+    def test_v2_regressed_uses_semantic_identity(self) -> None:
+        before = finding_identity("AGI-02", "approval-memory", [
+            {"path": "old/runtime.py", "snippet": "_remembered.add(tool)"},
+        ])
+        after_fix = []
+        returned = finding_identity("AGI-02", "approval-memory", [
+            {"path": "new/control.py", "snippet": "_remembered.add(tool)"},
+        ])
+        result = regression(after_fix, [{**returned, "finding_id": "F-new"}],
+                            earlier=[[{**before, "finding_id": "F-old"}]])
+        self.assertEqual([f["finding_id"] for f in result["regressed"]], ["F-new"])
+        self.assertEqual(result["new"], [])
+
+    def test_v2_transitions_from_v1_episode(self) -> None:
+        evidence = [{"path": "src/auth.py", "snippet": "GITHUB_TOKEN = 'x'"}]
+        prior_v1 = {
+            "finding_id": "F-old",
+            "category": "AGI-03",
+            "root_cause_group": "plaintext-secret",
+            "fingerprint": fingerprint_for("AGI-03", "plaintext-secret", evidence),
+        }
+        current_v2 = {
+            "finding_id": "F-new",
+            **finding_identity("AGI-03", "plaintext-secret", evidence),
+        }
+        result = regression([prior_v1], [current_v2])
+        self.assertEqual([f["finding_id"] for f in result["known"]], ["F-new"])
+        self.assertEqual(result["new"], [])
+        self.assertEqual(result["fixed"], [])
+
+    def test_v2_semantic_does_not_cross_rules_or_sites(self) -> None:
+        left = finding_identity("AGI-03", "plaintext-secret", [
+            {"path": "a.py", "snippet": "API_KEY = 'x'"},
+        ])
+        right = finding_identity("AGI-02", "approval-memory", [
+            {"path": "a.py", "snippet": "_remembered.add(tool)"},
+        ])
+        self.assertNotEqual(left["fingerprint"], right["fingerprint"])
+        self.assertNotEqual(left["semantic_fingerprint"],
+                            right["semantic_fingerprint"])
+
+    def test_rea_evidence_uses_entity_names_not_volatile_counts(self) -> None:
+        old = finding_identity("AGI-05", "prerelease-dependencies", [
+            {"kind": "rea-evidence", "operation": "inspect_go_binary",
+             "selector": "dependencies",
+             "summary": {"value": [
+                 {"name": "left-pad", "prerelease": True},
+             ], "count": 1}},
+        ])
+        new = finding_identity("AGI-05", "prerelease-dependencies", [
+            {"kind": "rea-evidence", "operation": "inspect_go_binary",
+             "selector": "dependencies",
+             "summary": {"value": [
+                 {"name": "left-pad", "prerelease": True},
+             ], "count": 3}},
+        ])
+        self.assertEqual(old["fingerprint"], new["fingerprint"])
+        self.assertEqual(old["semantic_fingerprint"], new["semantic_fingerprint"])
 
 
 class EpisodeStoreTests(unittest.TestCase):

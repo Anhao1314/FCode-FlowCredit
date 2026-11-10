@@ -375,10 +375,14 @@ export function renderRegression(reg) {
   const has = (key) => Array.isArray(reg[key]) && reg[key].length > 0;
   if (!has("known") && !has("new") && !has("fixed") && !has("regressed")) return "";
   const badge = (label, tone) => `<span class="at-badge at-${tone}">${esc(label)}</span>`;
+  const fp = (f) => {
+    const value = f.fingerprint || f.semantic_fingerprint;
+    return value ? `<span class="at-mono dim">fp:${esc(String(value).slice(0, 8))}</span>` : "";
+  };
   const section = (key, label, tone) => {
     if (!has(key)) return "";
     const items = reg[key].map((f) =>
-      `<span class="at-reg-item">${esc(f.category || "?")} · ${esc(f.root_cause_group || "?")}</span>`
+      `<span class="at-reg-item">${esc(f.category || "?")} · ${esc(f.root_cause_group || "?")} ${fp(f)}</span>`
     ).join(" ");
     return `<div class="at-reg-row"><span class="at-reg-label">${badge(label, tone)}</span> ${items}</div>`;
   };
@@ -414,11 +418,18 @@ export function renderBundle(bundle, records, options = {}) {
         <span class="at-ftitle">${esc(f.finding_id)} · ${esc(f.root_cause_group)}</span>
         <span class="at-cat">${esc(f.category)}</span>
         <span class="at-sev">${esc(f.severity)}</span>
+        ${f.fingerprint
+          ? `<span class="at-fp at-mono dim" title="stable fingerprint v${
+              esc(String(f.fingerprint_version || 1))}">fp:${esc(String(f.fingerprint).slice(0, 8))}</span>`
+          : ""}
         ${outcomeBadge(outcome)}
         ${renderDisposition(f, dir)}
       </div>
       <div class="at-fdetail">
         <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
+        ${f.fingerprint ? `<div class="at-kv"><span class="k">稳定指纹</span><span class="v at-mono">${esc(
+          String(f.fingerprint)
+        )}${f.semantic_fingerprint ? ` · semantic ${esc(String(f.semantic_fingerprint))}` : ""}</span></div>` : ""}
         <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
         <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
         <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>

@@ -232,9 +232,24 @@
             ]
           },
           "fingerprint": {
-            "description": "Stable per-instance identity across audits: root cause plus the evidence path set (line numbers excluded). Two findings from the same rule at different sites keep distinct fingerprints.",
+            "description": "Stable per-instance identity (v2 exact): root cause, normalized evidence path set and semantic anchors. Line numbers, snippets, counts and timestamps are excluded. Two findings from the same rule at different sites remain distinct.",
             "type": "string",
             "pattern": "^[0-9a-f]{16}$"
+          },
+          "semantic_fingerprint": {
+            "description": "v2 root-cause identity without evidence paths; recognizes the same defect after a file move.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "legacy_fingerprint": {
+            "description": "v1 path-set fingerprint retained for one-time compatibility with older episodes.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "fingerprint_version": {
+            "description": "Identity algorithm version; 2 adds semantic anchors and file-move matching.",
+            "type": "integer",
+            "minimum": 1
           }
         }
       }

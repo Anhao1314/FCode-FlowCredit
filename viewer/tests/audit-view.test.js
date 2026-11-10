@@ -295,6 +295,34 @@ test("回归对比:known/new/fixed/regressed 四桶展示", () => {
   assert.ok(html.includes("entitlement"), "known finding detail");
 });
 
+test("回归对比:有指纹的发现显示短指纹,便于跨审计对齐", () => {
+  const html = renderRegression({
+    prior_audit_id: "prior-001",
+    known: [{ category: "AGI-02", root_cause_group: "approval",
+              fingerprint: "1234567890abcdef" }],
+  });
+  assert.ok(html.includes("fp:12345678"), "short stable fingerprint");
+});
+
+test("稳定指纹:finding 行显示 v2 exact/semantic 身份", () => {
+  const bundle = {
+    audit_id: "a", target: {}, toolchain: {},
+    findings: [{
+      finding_id: "F-1", root_cause_group: "approval-memory", category: "AGI-02",
+      severity: "high", poc_refs: ["POC-0001"],
+      fingerprint: "1234567890abcdef", semantic_fingerprint: "abcdef1234567890",
+      fingerprint_version: 2,
+    }],
+    poc_evidence_refs: ["POC-0001"],
+  };
+  const record = { poc_id: "POC-0001", replay: { outcome: "finding" } };
+  const html = renderBundle(bundle, [record]);
+  assert.ok(html.includes("fp:12345678"), "row short fingerprint");
+  assert.ok(html.includes("稳定指纹"), "detail label");
+  assert.ok(html.includes("1234567890abcdef"), "exact fingerprint");
+  assert.ok(html.includes("semantic abcdef1234567890"), "semantic fingerprint");
+});
+
 test("回归对比:空数据不渲染", () => {
   assert.equal(renderRegression({ known: [], new: [], fixed: [], regressed: [] }), "");
   assert.equal(renderRegression(null), "");

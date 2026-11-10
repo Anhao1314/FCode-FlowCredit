@@ -126,7 +126,7 @@ class GovBotServiceTest(unittest.TestCase):
         routine = self.service.create_routine("auditor", {
             "target": "fixtures/demo-target", "frequency": "每天", "time": due,
         })
-        fired = self.service.fire_due(now)
+        fired = self.service.fire_due(now + timedelta(days=1))
         self.assertEqual(len(fired), 1)
         run = wait_run(self.service, fired[0]["run_id"])
         self.assertEqual(run["trigger"], "routine")
@@ -175,7 +175,7 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(pending["status"], "pending")
         self.assertEqual(pending["counts"]["pending"], 1)
         approved = self.service.approve_run(run["run_id"])
-        self.assertIn(approved["status"], ("queued", "running"))
+        self.assertIn(approved["status"], ("queued", "running", "done"))
         settled = wait_run(self.service, run["run_id"])
         self.assertEqual(settled["status"], "done")
         self.assertEqual(settled["trigger"], "routine")

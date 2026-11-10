@@ -225,7 +225,9 @@ def cmd_audit(args: argparse.Namespace) -> int:
         (out_dir / f"{record['poc_id']}.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    from .episodes import EpisodeStore, fingerprint_for, regression as compute_regression
+    from .episodes import (
+        EpisodeStore, finding_identity, regression as compute_regression,
+    )
     ledgers = session.ledgers()
     cand_by_id = {c["candidate_id"]: c for c in ledgers["candidates"]}
     findings = []
@@ -234,16 +236,17 @@ def cmd_audit(args: argparse.Namespace) -> int:
         root_cause_group = candidate.get(
             "root_cause_group", finding["candidate_id"])
         category = candidate.get("category", "")
+        evidence = candidate.get("evidence") or []
+        identity = finding_identity(category, root_cause_group, evidence)
         findings.append({
             "finding_id": finding["finding_id"],
             "root_cause_group": root_cause_group,
             "category": category,
             "severity": candidate.get("severity", "info"),
             "poc_refs": [finding["poc_id"]],
-            # 跨版本实例身份:根因 + 证据路径集合。行号/片段会漂移,
-            # 但"同一处缺陷"的路径集合稳定;修复改变集合才报 fixed。
-            "fingerprint": fingerprint_for(
-                category, root_cause_group, candidate.get("evidence") or []),
+            # v2 稳定身份:exact 识别同一位置;semantic 在文件移动时仍能
+            # 认出同一根因;legacy 让旧 episode 的 v1 指纹可一次性过渡。
+            **identity,
         })
 
     # L3 情景投影:会话收尾自动入册;同靶时间线上算回归(known/new/fixed/regressed)。
