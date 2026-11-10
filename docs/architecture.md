@@ -178,7 +178,7 @@ hash_n = sha256(canonical_json({sequence, type, payload, prev_hash, at}))
 | `runtime/permissions.py` | 三道门控 | 拒绝有稳定错误码 |
 | `runtime/budget.py` | 四维预算 | 发送前扣，不退 |
 | `runtime/harness.py` | 单轮机制 + 独立重算 | 成功只能由 verify 产生 |
-| `runtime/loop.py` | 多轮 + 恢复 | 轮次不重复；支持 packet 模式与 fast path |
+| `runtime/loop.py` | 多轮 + 恢复 | 轮次不重复；fast 本地只读批量并发派发，事件/计划按原序提交 |
 | `runtime/recovery.py` | 工具未知结果对账 | 不重发；区分副作用证据；重复恢复拒绝 |
 | `runtime/replay.py` | 只读状态投影 | 不接触 registry；比较动作、收据、计划与终态 |
 | `benchmark/` | 版本化任务与独立验证 | 复用正式 Runtime；指标保留分子分母与任务边界 |

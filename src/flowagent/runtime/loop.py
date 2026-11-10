@@ -32,6 +32,7 @@ from ..tools.base import Observation
 from .policy import PacketProvider, compile_packet
 from .control import Control, Denial
 from .harness import Harness, TraceObserver
+from .parallel import PARALLEL_READ_TOOLS
 from .plan_extension import validate_additions
 
 #: Denials the model can fix by reading the error: the tool exists and is
@@ -345,28 +346,106 @@ class Loop:
 
             completed_without_result = False
             batch_recover = False
-            for step, decision in zip(steps, decisions):
-                if self.control is not None:
-                    approval = self.control.before_tool(
-                        round_no=round_no,
-                        task=task,
-                        step=step,
-                        decision=decision,
+            parallel_reads = (
+                self.harness.max_steps > 1
+                and len(steps) > 1
+                and all(step["tool"] in PARALLEL_READ_TOOLS for step in steps)
+            )
+
+            if parallel_reads:
+                # Approvals are resolved before dispatch; the handlers then run
+                # concurrently, but every chain/plan/memory commit stays in the
+                # proposal's original order below.
+                for step, decision in zip(steps, decisions):
+                    task, outcome, denial = self._before_tool(task, step, decision, round_no)
+                    if outcome == "terminal":
+                        self.observer.terminal(task, None)
+                        return task
+                    if outcome == "deny":
+                        return self._deny(task, denial, plan)
+                try:
+                    task, outcomes = self.harness.execute_read_batch(
+                        task, steps, round_no=round_no,
                     )
-                    task = approval.task
-                    if not approval.allowed:
-                        if approval.terminated:
-                            self.observer.terminal(task, None)
-                            return task
-                        return self._deny(
-                            task,
-                            Denial(
-                                tool=step["tool"],
-                                code=approval.code or "OPERATOR_DENIED",
-                                reason=approval.reason or "operator denied the call",
-                            ),
-                            plan,
+                except AgentError as error:
+                    return self._abort(task_id, error)
+
+                errors = [error for _, _, error in outcomes if error is not None]
+                fatal = next(
+                    (error for error in errors if error.code not in RECOVERABLE_TOOL_ERRORS),
+                    None,
+                )
+                blocked_observation = None
+                for step, observation, error in outcomes:
+                    if error is not None:
+                        task, _terminal = self.harness.finish_batch_error(
+                            task, step, error, round_no=round_no,
                         )
+                        continue
+                    task = self.harness.finish_batch_success(
+                        task, step, observation, round_no=round_no,
+                    )
+                    memory.record(round_no, observation,
+                                  source_trust=trust_for_tool(observation.tool))
+                    plan = self.planner.advance(plan, observation) if self.planner else plan
+                    task = self._persist_plan(task, plan, round_no)
+                    self.observer.observation(round_no, observation)
+                    # A sibling failure owns the round's outcome: commit the
+                    # successful reads for the record, but do not declare
+                    # success/blocked/completion until recovery is decided.
+                    if errors:
+                        continue
+                    if observation.tool == "report_blocked":
+                        blocked_observation = observation
+
+                if fatal is not None:
+                    return self._abort(task_id, fatal)
+                if errors:
+                    first = errors[0]
+                    memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
+                        "tool": next(
+                            step["tool"] for step, _, error in outcomes
+                            if error is first
+                        ),
+                        "code": first.code,
+                        "message": first.message,
+                    }]
+                    task = self.harness.store.load(task_id)
+                    task.failure = None
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    continue
+                if blocked_observation is not None:
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._reported_blocked(task, plan, blocked_observation)
+                if plan.is_blocked():
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._stop(task, plan, "PLAN_BLOCKED")
+                if plan.is_complete():
+                    # The batch may complete the plan on a step that is not
+                    # itself a result tool. Verify whenever the plan *contains*
+                    # a result obligation, not only when the last action is one.
+                    if any(todo.tool in self.result_tools for todo in plan.todos):
+                        try:
+                            verified = self._verify_result_set(task.id, plan)
+                            sources = self._check_evidence(task, verified, round_no)
+                            task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                        except AgentError as error:
+                            return self._abort(task.id, error)
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        return self._succeed(task, verified, plan, obligation, sources)
+                    completed_without_result = True
+                self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                if completed_without_result:
+                    continue
+                continue
+
+            for step, decision in zip(steps, decisions):
+                task, outcome, denial = self._before_tool(task, step, decision, round_no)
+                if outcome == "terminal":
+                    self.observer.terminal(task, None)
+                    return task
+                if outcome == "deny":
+                    return self._deny(task, denial, plan)
 
                 try:
                     task, observation = self.harness.execute(task, step, round_no=round_no)
@@ -1171,6 +1250,32 @@ class Loop:
         task = self.harness.finalize(task, "succeeded", result=result, event="task_succeeded")
         self.observer.terminal(task, result)
         return task
+
+    def _before_tool(self, task: Task, step: dict[str, Any], decision: Any,
+                     round_no: int) -> tuple[Task, str, Any]:
+        """Resolve the operator gate before dispatch.
+
+        Returns ``(task, outcome, denial)`` where outcome is ``""`` (allowed),
+        ``"terminal"`` (the operator stopped the run) or ``"deny"``.
+        """
+        if self.control is None:
+            return task, "", None
+        approval = self.control.before_tool(
+            round_no=round_no,
+            task=task,
+            step=step,
+            decision=decision,
+        )
+        task = approval.task
+        if approval.allowed:
+            return task, "", None
+        if approval.terminated:
+            return task, "terminal", None
+        return task, "deny", Denial(
+            tool=step["tool"],
+            code=approval.code or "OPERATOR_DENIED",
+            reason=approval.reason or "operator denied the call",
+        )
 
     def _deny(self, task: Task, decision: Any, plan: Plan) -> Task:
         task = self.harness.finalize(

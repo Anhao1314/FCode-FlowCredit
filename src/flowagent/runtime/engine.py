@@ -19,6 +19,11 @@ def build_loop(harness, **kwargs):
     ``native``（默认）: runtime.loop.Loop —— 零依赖 while 循环。
     ``langgraph``:      runtime.graph_loop.GraphLoop —— StateGraph 编排，
     治理层（gate/预算/回执/哈希链/计划结算）作为节点内卫兵原样保留。
+
+    The native engine's fast path may dispatch a batch of local reads
+    concurrently (commit order is still proposal order). The LangGraph path
+    keeps its step nodes sequential; choose it for graph-level inspection, not
+    for the parallel-read optimization.
     """
     engine = os.environ.get(ENGINE_ENV, "native").strip().lower()
     if engine == "langgraph":

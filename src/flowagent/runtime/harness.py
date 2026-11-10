@@ -12,6 +12,7 @@ budget and in the verifier's refusal to accept an unproven result.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, Callable, Protocol
 
@@ -511,7 +512,14 @@ class Harness:
                 "round": round_no,
             })
             raise
-        detail = {
+        return self._commit(
+            task, task, "tool_succeeded",
+            self._success_detail(observation, round_no),
+        ), observation
+
+    @staticmethod
+    def _success_detail(observation: Observation, round_no: int) -> dict[str, Any]:
+        return {
             "tool": observation.tool,
             "arguments": observation.arguments,
             "result": observation.result,
@@ -522,7 +530,107 @@ class Harness:
             # 哈希校验不受影响(新事件才携带)。
             "trust": trust_for_tool(observation.tool).value,
         }
-        return self._commit(task, task, "tool_succeeded", detail), observation
+
+    @staticmethod
+    def _failure_detail(step: dict[str, Any], error: AgentError,
+                        round_no: int) -> dict[str, Any]:
+        return {
+            "code": error.code,
+            "tool": step["tool"],
+            "arguments": step.get("arguments") or {},
+            "round": round_no,
+        }
+
+    def execute_read_batch(
+        self,
+        task: Task,
+        steps: list[dict[str, Any]],
+        *,
+        round_no: int = 0,
+    ) -> tuple[Task, list[tuple[dict[str, Any], Observation | None, AgentError | None]]]:
+        """Dispatch a local read-only batch concurrently, commit it in order.
+
+        Governance order is preserved even though the handlers overlap:
+
+        1. the read budget is checked for the whole batch before anything starts;
+        2. every step is charged and gets a ``tool_started`` event before dispatch;
+        3. handlers run in a bounded pool;
+        4. the caller commits outcomes in the original proposal order.
+
+        Only pure local reads use this path (the loop filters the tool set).
+        A sibling failure does not erase other completed reads: the caller
+        commits every outcome, then applies the normal recovery/abort policy.
+        """
+        if task.status == "planned":
+            task = self._commit(task, task.advance("running"), "execution_started", {})
+        budget = self.budget(task)
+        if budget.snapshot()["reads_remaining"] < len(steps):
+            raise AgentError(
+                "BUDGET_EXCEEDED",
+                "read budget cannot cover the whole parallel batch",
+                details={"dimension": "reads"},
+            )
+        for step in steps:
+            budget.charge_read()
+            task = self._commit(task, task, "tool_started", {
+                "tool": step["tool"],
+                "arguments": step.get("arguments") or {},
+                "round": round_no,
+            })
+        workers = max(1, min(4, len(steps)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fcode-read") as pool:
+            futures = [
+                pool.submit(self.registry.execute, step["tool"], step.get("arguments") or {})
+                for step in steps
+            ]
+            outcomes = []
+            for step, future in zip(steps, futures):
+                try:
+                    outcomes.append((step, future.result(), None))
+                except AgentError as error:
+                    outcomes.append((step, None, error))
+                except Exception as error:  # noqa: BLE001 — a handler bug is a tool failure
+                    outcomes.append((
+                        step, None,
+                        AgentError("TOOL_EXECUTION_FAILED", str(error)),
+                    ))
+        return task, outcomes
+
+    def finish_batch_success(self, task: Task, step: dict[str, Any],
+                             observation: Observation, *, round_no: int = 0) -> Task:
+        return self._commit(
+            task, task, "tool_succeeded",
+            self._success_detail(observation, round_no),
+        )
+
+    def finish_batch_error(self, task: Task, step: dict[str, Any], error: AgentError,
+                           *, round_no: int = 0) -> tuple[Task, bool]:
+        """Commit one failed sibling; ``True`` means the task is terminal."""
+        if error.details.get("outcome") == "unknown":
+            task = self._commit(task, task, "tool_unknown", {
+                "tool": step["tool"],
+                "code": error.code,
+                "message": error.message,
+                "round": round_no,
+            })
+            failed = task
+            failed.failure = {
+                "code": "TOOL_OUTCOME_UNKNOWN",
+                "cause": error.code,
+                "retryable": False,
+                "intent_round": round_no,
+            }
+            task = self._commit(task, failed.advance("failed"), "task_failed", {
+                "code": "TOOL_OUTCOME_UNKNOWN",
+                "cause": error.code,
+            })
+            return task, True
+        failed = task
+        failed.failure = error.to_dict()
+        return self._commit(
+            failed, failed, "tool_failed",
+            self._failure_detail(step, error, round_no),
+        ), False
 
     def verify(self, observation: Observation) -> dict[str, Any]:
         """Delegate independent recomputation to the domain module.

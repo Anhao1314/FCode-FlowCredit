@@ -11,6 +11,8 @@ from __future__ import annotations
 import pathlib
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -25,6 +27,10 @@ from flowagent.domains.general import GENERAL_DOMAIN  # noqa: E402
 from flowagent.providers.base import Proposal  # noqa: E402
 from flowagent.runtime.harness import Harness  # noqa: E402
 from flowagent.runtime.loop import Loop  # noqa: E402
+from flowagent.runtime.recovery import (  # noqa: E402
+    find_unfinished_tool, reconcile_unknown_tool,
+)
+from flowagent.tools.base import EFFECT_READ, Param, ToolSpec  # noqa: E402
 from flowagent.tools.general.sandbox import WorkspaceSandbox  # noqa: E402
 from flowagent.tools.registry import ToolRegistry  # noqa: E402
 from flowagent.trajectory.recorder import TraceRecorder  # noqa: E402
@@ -234,6 +240,116 @@ class BatchLoopTest(unittest.TestCase):
         self.assertEqual(started, ["write_file"])
         self.assertEqual(harness.budget(final).snapshot()["reads_used"], 1)
 
+    def test_read_batch_handlers_actually_overlap(self) -> None:
+        """A barrier only releases when both handlers run at the same time."""
+        barrier = threading.Barrier(2)
+
+        def slow_read(arguments):
+            barrier.wait(timeout=2)
+            return {"path": arguments["path"], "content": "", "sha256": "0" * 64, "bytes": 0}
+
+        spec = ToolSpec(
+            name="slow_read",
+            summary="test-only parallel read",
+            effect=EFFECT_READ,
+            params=(Param(name="path", kind="string", required=True),),
+            handler=slow_read,
+        )
+        harness = Harness(
+            store=self.store,
+            registry=ToolRegistry([spec]),
+            provider=BatchProvider(),
+            world=self.world,
+            limits=self.scenario.limits,
+            receipts=ReceiptStore(self.store),
+            verifier=lambda observation: self.world.verify_observation(observation),
+            prompt_profile="general-fast",
+        )
+        task = harness.create(
+            task_id="task-parallel",
+            objective="并行读两个文件",
+            principal="test",
+            binding={"scenario": self.scenario.key},
+            allowed_tools=["slow_read"],
+            grant={
+                "grant_id": "parallel-test",
+                "allowed_tools": ["slow_read"],
+                "allowed_effects": ["read"],
+            },
+        )
+        steps = [
+            {"id": "a", "tool": "slow_read", "arguments": {"path": "a"}},
+            {"id": "b", "tool": "slow_read", "arguments": {"path": "b"}},
+        ]
+        started = time.perf_counter()
+        _task, outcomes = harness.execute_read_batch(task, steps, round_no=1)
+        elapsed = time.perf_counter() - started
+        self.assertEqual([error for _, _, error in outcomes], [None, None])
+        self.assertLess(elapsed, 1.0, f"handlers did not overlap: {elapsed:.3f}s")
+
+    def test_crash_recovery_recognizes_a_parallel_read_batch(self) -> None:
+        events = [
+            {"sequence": 1, "type": "tool_started",
+             "payload": {"detail": {"tool": "read_file", "round": 1}}},
+            {"sequence": 2, "type": "tool_started",
+             "payload": {"detail": {"tool": "grep_workspace", "round": 1}}},
+        ]
+        unfinished = find_unfinished_tool(events)
+        self.assertEqual(unfinished["detail"]["tool"], "parallel_read_batch")
+        self.assertTrue(unfinished["detail"]["batch"])
+        self.assertEqual(len(unfinished["detail"]["calls"]), 2)
+        # A mixed batch still fails closed: a write may have had a side effect.
+        with self.assertRaises(Exception) as error:
+            find_unfinished_tool(events + [
+                {"sequence": 3, "type": "tool_started",
+                 "payload": {"detail": {"tool": "write_file", "round": 1}}},
+            ])
+        self.assertEqual(getattr(error.exception, "code", ""), "EVENT_ORDER_INVALID")
+        # Outcomes are committed in proposal order, not LIFO: both starts must
+        # close cleanly and leave no unfinished call.
+        completed = events + [
+            {"sequence": 3, "type": "tool_succeeded",
+             "payload": {"detail": {"tool": "read_file", "round": 1}}},
+            {"sequence": 4, "type": "tool_succeeded",
+             "payload": {"detail": {"tool": "grep_workspace", "round": 1}}},
+        ]
+        self.assertIsNone(find_unfinished_tool(completed))
+
+    def test_reconcile_marks_a_parallel_read_batch_as_one_unknown_outcome(self) -> None:
+        harness = Harness(
+            store=self.store,
+            registry=ToolRegistry(self.world.build_tools()),
+            provider=BatchProvider(),
+            world=self.world,
+            limits=self.scenario.limits,
+            receipts=ReceiptStore(self.store),
+            verifier=lambda observation: self.world.verify_observation(observation),
+            prompt_profile="general-fast",
+        )
+        task = harness.create(
+            task_id="task-batch-recovery",
+            objective="并行读",
+            principal="test",
+            binding={"scenario": self.scenario.key},
+            allowed_tools=list(self.scenario.allowed_tools),
+            grant=self.scenario.grant,
+        )
+        # Simulate the durable state after the batch was dispatched: the task
+        # is running and both local reads have a start event but no outcome.
+        task = harness._commit(task, task.advance("planning"), "planning_started", {})
+        task = harness._commit(task, task.advance("planned"), "plan_validated", {})
+        task = harness._commit(task, task.advance("running"), "execution_started", {})
+        for path in ("a.txt", "b.txt"):
+            task = harness.record(task, "tool_started", {
+                "tool": "read_file", "arguments": {"path": path}, "round": 1,
+            })
+        final, recovery = reconcile_unknown_tool(
+            harness, task.id, evidence={"side_effect": "not_observed"},
+        )
+        self.assertEqual(final.status, "failed")
+        self.assertEqual(recovery["tools"], ["read_file", "read_file"])
+        self.assertTrue(recovery["retry_dispatched"] is False)
+
     def test_execution_request_error_does_not_kill_the_run(self) -> None:
         provider = RecoverableErrorProvider()
         final, _recorder, _harness = self._run(provider)
@@ -242,10 +358,14 @@ class BatchLoopTest(unittest.TestCase):
         self.assertIn("tool_failed", types, "错误以可恢复的 tool_failed 留在链上")
         failed = next(event for event in self._events(final) if event["type"] == "tool_failed")
         self.assertEqual(failed["payload"]["detail"]["code"], "GREP_PATTERN_INVALID")
-        # 同批的后续动作没有执行：下一轮模型重新提议
+        # 并行批量：坏 regex 与同批的 read_file 一起派发；成功的读照常入链，
+        # 失败的那个留给下一轮模型修正，不会连坐丢掉已完成的读。
         started = [event["payload"]["detail"]["tool"]
                    for event in self._events(final) if event["type"] == "tool_started"]
-        self.assertEqual(started, ["grep_workspace", "write_file"])
+        self.assertEqual(started, ["grep_workspace", "read_file", "write_file"])
+        succeeded = [event["payload"]["detail"]["tool"]
+                     for event in self._events(final) if event["type"] == "tool_succeeded"]
+        self.assertIn("read_file", succeeded)
 
 
 def harness_max_steps(harness) -> int:
