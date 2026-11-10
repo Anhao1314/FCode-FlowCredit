@@ -1112,7 +1112,13 @@ class Loop:
         self._policy_last_round = round_no
         trigger = "pressure" if pressure else "interval"
         try:
-            text, cost = complete(system, user, max_tokens=cfg.max_tokens)
+            text, cost = complete(
+                system, user,
+                max_tokens=cfg.max_tokens,
+                reasoning_effort=(
+                    cfg.effort if getattr(provider, "reasoning_effort", "") else None
+                ),
+            )
         except Exception as error:  # noqa: BLE001 — memory must never kill a run
             return self.harness.record(task, "memory_decision", {
                 "round": round_no,

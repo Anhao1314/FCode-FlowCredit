@@ -551,6 +551,7 @@ class CompatClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], str]:
         budget = (
             self.max_completion_tokens if max_completion_tokens is None
@@ -584,8 +585,9 @@ class CompatClient:
             body["tool_choice"] = tool_choice or "auto"
         elif self.json_mode:
             body["response_format"] = {"type": "json_object"}
-        if self.reasoning_effort:
-            body["reasoning_effort"] = self.reasoning_effort
+        effort = reasoning_effort if reasoning_effort is not None else self.reasoning_effort
+        if effort:
+            body["reasoning_effort"] = effort
 
         headers = {
             "Content-Type": "application/json",
@@ -638,9 +640,12 @@ class CompatClient:
         user: str,
         *,
         max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> tuple[str, dict[str, Any], str]:
         message, usage, request_id = self._post(
-            system, user, max_completion_tokens=max_completion_tokens)
+            system, user, max_completion_tokens=max_completion_tokens,
+            reasoning_effort=reasoning_effort,
+        )
         content = message.get("content") or ""
         if not isinstance(content, str) or not content.strip():
             raise self._empty_content_error(message)
@@ -854,6 +859,7 @@ class OpenAICompatProvider:
         user: str,
         *,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """One raw auxiliary completion (memory policy head, judges).
 
@@ -861,10 +867,19 @@ class OpenAICompatProvider:
         issuance, no tool schema. The caller only needs the text and an
         attributable cost record, so the metadata mirrors the fields a receipt
         carries without pretending this call produced a proposal.
+
+        ``reasoning_effort`` lets a bounded classification call opt out of the
+        provider's chain-of-thought budget. The override is only sent when the
+        provider is configured for reasoning at all, so a non-reasoning
+        endpoint never receives an unknown field.
         """
         started = time.monotonic()
         content, usage, request_id = self.client.chat(
-            system, user, max_completion_tokens=max_tokens)
+            system, user, max_completion_tokens=max_tokens,
+            # Only reasoning-configured endpoints get the override; a plain
+            # chat endpoint would reject the field.
+            reasoning_effort=(reasoning_effort if self.reasoning_effort else None),
+        )
         latency_ms = int((time.monotonic() - started) * 1000)
         prompt_tokens, completion_tokens, total_tokens = _usage_tokens(usage)
         cached_tokens = _provider_cached_tokens(usage)

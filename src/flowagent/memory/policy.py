@@ -78,7 +78,13 @@ class PolicyConfig:
     every_rounds: int = 3
     max_calls: int = 12
     max_entries: int = 40
-    max_tokens: int = 800
+    max_tokens: int = 8192
+    #: Auxiliary-call reasoning override. A bounded classification gains
+    #: nothing from a chain-of-thought pass, and on reasoning models that pass
+    #: can consume the whole completion budget (measured on Kimi: 800 and 2048
+    #: both returned empty content). ``"none"`` is only sent when the provider
+    #: is configured for reasoning at all.
+    effort: str = "none"
     pressure_ratio: float = 0.5
     trigger: str = "interval"  # interval | pressure | both
 
@@ -134,12 +140,16 @@ class PolicyConfig:
         trigger = str(value.get("trigger") or "interval").strip().lower()
         if trigger not in ("interval", "pressure", "both"):
             trigger = "interval"
+        effort = str(value.get("effort") or "none").strip().lower()
+        if effort not in ("none", "minimal", "low", "medium", "high", ""):
+            effort = "none"
         return cls(
             mode=mode,
             every_rounds=_int("every_rounds", 3, 1, 50),
             max_calls=_int("max_calls", 12, 1, 100),
             max_entries=_int("max_entries", 40, 1, 80),
-            max_tokens=_int("max_tokens", 800, 128, 4096),
+            max_tokens=_int("max_tokens", 8192, 256, 16384),
+            effort=effort,
             pressure_ratio=_float("pressure_ratio", 0.5, 0.0, 1.0),
             trigger=trigger,
         )

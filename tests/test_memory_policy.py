@@ -219,7 +219,8 @@ class _PolicyProvider(MockProvider):
         self.reply = reply
         self.policy_calls = 0
 
-    def complete(self, system: str, user: str, *, max_tokens: int | None = None):
+    def complete(self, system: str, user: str, *, max_tokens: int | None = None,
+                 reasoning_effort: str | None = None):
         self.policy_calls += 1
         if isinstance(self.reply, Exception):
             raise self.reply
@@ -430,7 +431,8 @@ class _ShadowLoopProvider:
             provider=self.name, model=self.model, tokens=10, cost_microusd=1,
         )
 
-    def complete(self, system: str, user: str, *, max_tokens: int | None = None):
+    def complete(self, system: str, user: str, *, max_tokens: int | None = None,
+                 reasoning_effort: str | None = None):
         self.policy_calls += 1
         payload = json.loads(user)
         rows = payload.get("observations") or []
@@ -558,13 +560,58 @@ class ProviderCompleteTests(unittest.TestCase):
             return _Response()
 
         with mock.patch("urllib.request.urlopen", fake):
-            text, meta = provider.complete("sys", "user", max_tokens=128)
+            text, meta = provider.complete(
+                "sys", "user", max_tokens=128, reasoning_effort="none")
 
         self.assertEqual(text, "{}")
         self.assertEqual(seen[0]["max_completion_tokens"], 128)
+        self.assertNotIn("reasoning_effort", seen[0],
+                         "non-reasoning providers must not receive the override")
         self.assertEqual(meta["cache_hit_bp"], 2500)
         self.assertEqual(meta["cost_microusd"], 120)
         canonical_json(meta)  # metadata is committed on-chain: no floats
+
+    def test_reasoning_provider_receives_the_override(self) -> None:
+        from flowagent.providers.deepseek import PriceSnapshot
+        from flowagent.providers.openai_compat import (
+            CompatSettings, OpenAICompatProvider,
+        )
+
+        price = PriceSnapshot(
+            input_microusd_per_mtok=1_000_000,
+            output_microusd_per_mtok=2_000_000,
+            as_of="2026-11-11",
+        )
+        provider = OpenAICompatProvider.from_settings(CompatSettings(
+            label="kimi", api_key_env="X", api_key="sk-test",
+            base_url="https://endpoint.example/v1", model="m", price=price,
+            receipt_detail="compact", reasoning_effort="low",
+        ))
+        seen: list[dict] = []
+
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({
+                    "id": "chatcmpl-policy",
+                    "choices": [{"message": {"content": "{}"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 1,
+                              "total_tokens": 11},
+                }).encode("utf-8")
+
+        def fake(request, timeout=None):  # noqa: ARG001
+            seen.append(json.loads(request.data.decode("utf-8")))
+            return _Response()
+
+        with mock.patch("urllib.request.urlopen", fake):
+            provider.complete("sys", "user", max_tokens=256,
+                              reasoning_effort="none")
+        self.assertEqual(seen[0]["reasoning_effort"], "none")
 
 
 if __name__ == "__main__":

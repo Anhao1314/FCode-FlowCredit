@@ -76,7 +76,8 @@ memory_decision 事件（决策 + 分歧 + 成本）
       "every_rounds": 3,
       "max_calls": 12,
       "max_entries": 40,
-      "max_tokens": 800,
+      "max_tokens": 8192,
+      "effort": "none",
       "trigger": "interval"
     }
   }
@@ -88,7 +89,41 @@ memory_decision 事件（决策 + 分歧 + 成本）
   profile 与 SFT 冻结路径强制关闭。
 - Sprint A 只实现 shadow：spec 写 `active` 会被记录为 `requested_mode`，实际仍按
   shadow 执行，行为不变。
+- `max_tokens` 默认 8192、`effort` 默认 `none`：实测 Kimi 的推理通道会吃掉
+  800/2048 的补全预算并返回空 content；有界分类不需要思维链，覆盖值只在
+  provider 本身配置了 reasoning 时才发送。
 - 决策调用独立限流（`max_calls`、`max_tokens`），成本如实入事件但不占任务工具预算。
+
+## 决策质量评测（真实 provider）
+
+`scripts/eval_memory_policy.py` 用 3 个带 ground truth 的场景直接调用真实
+policy head（不经过完整 loop），分别标注「剩余步骤需要的观测」和「被后续观测
+取代的历史版本」：
+
+```bash
+python3 scripts/eval_memory_policy.py --provider kimi
+```
+
+2026-11-11 首次实测（Kimi k2.6，effort=none，3 次调用 / 2,929 tokens / 4,942 µUSD）：
+
+| 指标 | 结果 |
+| --- | --- |
+| live-needed 保留率 | **9/9**（剩余步骤真正需要的观测全部保留） |
+| superseded 清理率 | 4/5（历史版本 4 条被正确降级） |
+| irrelevant 清理率 | 6/7（无关观测 6 条被降级） |
+| 严格口径 needed 保留 | 10/14（差额 4 条均为被后续观测取代的历史版本） |
+
+含义：在这个小样本上，决策头没有丢过「后续还需要」的观测；它把「被取代的
+历史状态」识别为可降级，这正是 FIFO 启发式做不到的部分。样本量小（3 场景、
+20 条观测、单模型单次），只能作为方向性证据，不能当作转正依据。
+
+## 已知限制（2026-11-11）
+
+完整 loop 的真实 shadow 数据尚未产出：Kimi 在 plan 参数中输出浮点数，而
+`canonical_json` 按设计拒绝浮点，run 在 round 1 提交计划时失败。失败发生在
+任何观测产生之前，策略头尚未参与（事件链中没有 `memory_decision`）。这是既有
+的模型输出健壮性边界问题，与本策略头无关；在修复该边界之前，以
+`scripts/eval_memory_policy.py` 的真实 provider 数据作为效果证据。
 
 ## Shadow 等价性
 
