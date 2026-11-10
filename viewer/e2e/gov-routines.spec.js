@@ -23,13 +23,14 @@ test("治理团队:创建排程、暂停、删除", async ({ page }) => {
   await expect(row).toContainText("fixtures/demo-target");
   await expect(row).toContainText("每天 23:59");
   await expect(row.locator(".bot-avatar-auditor")).toBeVisible();
+  const routineId = await row.getAttribute("data-routine-id");
+  const routineRow = page.locator(`#gov-routine-list-host [data-routine-id="${routineId}"]`);
 
-  const toggle = row.locator("[data-gov-routine-toggle]");
+  const toggle = routineRow.locator("[data-gov-routine-toggle]");
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
-  await expect(page.locator("#gov-routine-list-host [data-gov-routine-toggle]")).not.toBeChecked();
+  await expect(routineRow.locator("[data-gov-routine-toggle]")).not.toBeChecked();
 
-  await page.locator("#gov-routine-list-host [data-gov-routine-delete]").click();
-  await expect(page.locator("#gov-routine-list-host .gov-routine-row")).toHaveCount(0, { timeout: 10_000 });
-  await expect(page.locator("#gov-routine-list-host")).toContainText("还没有定时排程");
+  await routineRow.locator("[data-gov-routine-delete]").click();
+  await expect(routineRow).toHaveCount(0, { timeout: 10_000 });
 });

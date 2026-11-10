@@ -85,7 +85,27 @@ CREATE TABLE IF NOT EXISTS bot_routines (
     last_status TEXT,
     created TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bot_settings (
+    bot_id TEXT PRIMARY KEY,
+    daily_run_limit INTEGER NOT NULL DEFAULT 12,
+    routine_approval INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS bot_skills (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source_run_id TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    version INTEGER NOT NULL DEFAULT 1,
+    created TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bot_skills_run ON bot_skills(source_run_id);
 """
+
+_DEFAULT_SETTINGS = {
+    "auditor": {"daily_run_limit": 8, "routine_approval": 0},
+    "verifier": {"daily_run_limit": 12, "routine_approval": 0},
+}
 
 
 def _now() -> str:
@@ -107,6 +127,14 @@ class GovBotService:
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
         self._db.commit()
+        with self._lock:
+            for bot_id, defaults in _DEFAULT_SETTINGS.items():
+                self._db.execute(
+                    "INSERT OR IGNORE INTO bot_settings (bot_id, daily_run_limit, routine_approval)"
+                    " VALUES (?,?,?)",
+                    (bot_id, defaults["daily_run_limit"], defaults["routine_approval"]),
+                )
+            self._db.commit()
         # A run left in queued/running belongs to a previous server process.
         # Mark it failed instead of showing a phantom "working" bot forever.
         with self._lock:
@@ -133,14 +161,24 @@ class GovBotService:
                 (run for run in bot_runs if run.get("status") in ("queued", "running")),
                 None,
             )
+            pending = next(
+                (run for run in bot_runs if run.get("status") == "pending"),
+                None,
+            )
             last = bot_runs[0] if bot_runs else None
             routines = self.routines(bot_id=definition["id"])
+            skills = self.skills(bot_id=definition["id"])
+            settings = self.get_settings(definition["id"])
             bots.append({
                 **definition,
-                "status": "running" if current else "idle",
+                "status": "running" if current else "pending" if pending else "idle",
                 "current": current,
+                "pending": pending,
                 "last": last,
+                "settings": settings,
                 "routines": routines,
+                "skills": skills,
+                "runs_today": self._runs_today(definition["id"]),
                 "counts": {
                     "runs": len(bot_runs),
                     "findings": sum(int(run.get("findings") or 0) for run in bot_runs),
@@ -149,6 +187,8 @@ class GovBotService:
                         if run.get("chain_intact") is False
                     ),
                     "routines": len(routines),
+                    "skills": len(skills),
+                    "pending": sum(1 for run in bot_runs if run.get("status") == "pending"),
                 },
             })
         return {"bots": bots, "generated_at": _now()}
@@ -171,6 +211,113 @@ class GovBotService:
                 "SELECT * FROM bot_runs WHERE run_id=?", (run_id,)
             ).fetchone()
         return self._row(row) if row else None
+
+    # ------------------------------------------------------- settings / skills
+
+    def get_settings(self, bot_id: str) -> dict:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM bot_settings WHERE bot_id=?", (bot_id,)
+            ).fetchone()
+        if row is None:
+            defaults = _DEFAULT_SETTINGS.get(bot_id, {"daily_run_limit": 12, "routine_approval": 0})
+            return {
+                "bot_id": bot_id,
+                "daily_run_limit": defaults["daily_run_limit"],
+                "routine_approval": bool(defaults["routine_approval"]),
+            }
+        item = dict(row)
+        item["routine_approval"] = bool(item.get("routine_approval"))
+        return item
+
+    def set_settings(self, bot_id: str, payload: dict) -> dict:
+        if bot_id not in _BY_ID:
+            raise ValueError(f"unknown bot: {bot_id!r}")
+        current = self.get_settings(bot_id)
+        try:
+            limit = int(payload.get("daily_run_limit", current["daily_run_limit"]))
+        except (TypeError, ValueError) as error:
+            raise ValueError("daily_run_limit must be an integer") from error
+        if not 1 <= limit <= 50:
+            raise ValueError("daily_run_limit must be 1..50")
+        approval = bool(payload.get("routine_approval", current["routine_approval"]))
+        with self._lock:
+            self._db.execute(
+                "UPDATE bot_settings SET daily_run_limit=?, routine_approval=? WHERE bot_id=?",
+                (limit, 1 if approval else 0, bot_id),
+            )
+            self._db.commit()
+        return self.get_settings(bot_id)
+
+    def skills(self, bot_id: str | None = None) -> list[dict]:
+        query = "SELECT * FROM bot_skills"
+        params: list[Any] = []
+        if bot_id:
+            query += " WHERE bot_id=?"
+            params.append(bot_id)
+        query += " ORDER BY created DESC, rowid DESC"
+        with self._lock:
+            rows = self._db.execute(query, params).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["bot_name"] = (_BY_ID.get(item["bot_id"]) or {}).get("name", item["bot_id"])
+            result.append(item)
+        return result
+
+    def create_skill(self, run_id: str, name: str = "") -> dict:
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError("run not found")
+        if run.get("status") != "done":
+            raise ValueError("only a completed run can become a skill")
+        bot = _BY_ID.get(str(run.get("bot_id")))
+        if bot is None:
+            raise ValueError("run has an unknown bot")
+        target = str(run.get("target") or "")
+        leaf = target.rstrip("/").split("/")[-1] or target or "任务"
+        skill_name = str(name or "").strip() or f"{bot['name']} · {leaf}"
+        if len(skill_name) > 80:
+            raise ValueError("skill name is too long (max 80)")
+        with self._lock:
+            try:
+                count = self._db.execute(
+                    "SELECT COUNT(*) FROM bot_skills WHERE bot_id=?", (bot["id"],)
+                ).fetchone()[0]
+                skill_id = f"sk-{uuid.uuid4().hex[:12]}"
+                self._db.execute(
+                    "INSERT INTO bot_skills (id, bot_id, name, source_run_id, target, version, created)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (skill_id, bot["id"], skill_name, run_id, target, count + 1, _now()),
+                )
+                self._db.commit()
+            except sqlite3.IntegrityError as error:
+                raise ValueError("this run is already captured as a skill") from error
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM bot_skills WHERE id=?", (skill_id,)
+            ).fetchone()
+        item = dict(row)
+        item["bot_name"] = bot["name"]
+        return item
+
+    def delete_skill(self, skill_id: str) -> bool:
+        with self._lock:
+            cur = self._db.execute("DELETE FROM bot_skills WHERE id=?", (skill_id,))
+            self._db.commit()
+        if cur.rowcount <= 0:
+            raise ValueError("skill not found")
+        return True
+
+    def _runs_today(self, bot_id: str) -> int:
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COUNT(*) FROM bot_runs WHERE bot_id=? AND substr(started_at,1,10)=?"
+                " AND status != 'rejected'",
+                (bot_id, today),
+            ).fetchone()
+        return int(row[0] if row else 0)
 
     # -------------------------------------------------------------- routines
 
@@ -280,9 +427,12 @@ class GovBotService:
                 continue
             fired_at = now.strftime("%Y-%m-%dT%H:%M:%S")
             try:
-                run = self.start_run(routine["bot_id"], routine["target"], trigger="routine")
-                self._mark_routine(routine["id"], fired_at, run["run_id"], "running")
-                fired.append({"routine_id": routine["id"], "run_id": run["run_id"], "status": "running"})
+                run = self.start_run(
+                    routine["bot_id"], routine["target"], trigger="routine",
+                    routine_id=routine["id"],
+                )
+                state = "pending" if run.get("status") == "pending" else "running"
+                fired.append({"routine_id": routine["id"], "run_id": run["run_id"], "status": state})
             except Exception as error:  # noqa: BLE001 — one bad routine must not stop others
                 self._mark_routine(routine["id"], fired_at, "", f"error: {error}")
                 fired.append({"routine_id": routine["id"], "status": f"error: {error}"})
@@ -317,16 +467,23 @@ class GovBotService:
 
     def _mark_routine(self, routine_id: str, fired_at: str,
                       run_id: str, status: str) -> None:
+        # The run thread may finish before this method runs. Never overwrite a
+        # terminal state that already belongs to the same run.
         with self._lock:
             self._db.execute(
-                "UPDATE bot_routines SET last_fired_at=?, last_run_id=?, last_status=? WHERE id=?",
-                (fired_at, run_id, status, routine_id),
+                "UPDATE bot_routines SET last_fired_at=?, last_run_id=?,"
+                " last_status=CASE"
+                "   WHEN last_run_id=? AND last_status IN ('done','failed','rejected')"
+                "   THEN last_status ELSE ? END"
+                " WHERE id=?",
+                (fired_at, run_id, run_id, status, routine_id),
             )
             self._db.commit()
 
     # ------------------------------------------------------------------ start
 
-    def start_run(self, bot_id: str, target: str, trigger: str = "manual") -> dict:
+    def start_run(self, bot_id: str, target: str, trigger: str = "manual",
+                  routine_id: str | None = None) -> dict:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
@@ -349,24 +506,63 @@ class GovBotService:
                 key=lambda item: (audit_day(item), str(item.get("dir") or "")),
             )
             resolved = str(latest.get("dir") or "")
+        trigger = trigger if trigger in ("manual", "routine") else "manual"
+        settings = self.get_settings(definition["id"])
+        if self._runs_today(definition["id"]) >= settings["daily_run_limit"]:
+            raise ValueError(
+                f"{definition['name']} 今日运行预算已用完 "
+                f"({settings['daily_run_limit']} 次)"
+            )
+        needs_approval = bool(settings["routine_approval"]) and trigger == "routine"
+        status = "pending" if needs_approval else "queued"
         run_id = f"bot-{uuid.uuid4().hex[:12]}"
         with self._lock:
             self._db.execute(
                 "INSERT INTO bot_runs (run_id, bot_id, trigger, target, status, started_at)"
                 " VALUES (?,?,?,?,?,?)",
-                (run_id, definition["id"], trigger if trigger in ("manual", "routine") else "manual",
-                 resolved, "queued", _now()),
+                (run_id, definition["id"], trigger, resolved, status, _now()),
             )
             self._db.commit()
+        if routine_id:
+            # Link the routine to its run before the worker starts. Otherwise
+            # a fast run can finish before the routine knows its last_run_id.
+            self._mark_routine(
+                routine_id, _now(), run_id, status,
+            )
+        if not needs_approval:
+            self._start_thread(run_id, definition["id"], resolved)
+        return self.get_run(run_id) or {}
+
+    def approve_run(self, run_id: str) -> dict:
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError("run not found")
+        if run.get("status") != "pending":
+            raise ValueError("run is not waiting for approval")
+        bot_id = str(run.get("bot_id") or "")
+        target = str(run.get("target") or "")
+        self._update(run_id, status="queued")
+        self._start_thread(run_id, bot_id, target)
+        return self.get_run(run_id) or {}
+
+    def reject_run(self, run_id: str) -> dict:
+        run = self.get_run(run_id)
+        if run is None:
+            raise ValueError("run not found")
+        if run.get("status") != "pending":
+            raise ValueError("run is not waiting for approval")
+        self._finish(run_id, status="rejected", error="operator rejected")
+        return self.get_run(run_id) or {}
+
+    def _start_thread(self, run_id: str, bot_id: str, target: str) -> None:
         thread = threading.Thread(
             target=self._execute,
-            args=(run_id, definition["id"], resolved),
+            args=(run_id, bot_id, target),
             name=f"gov-bot-{run_id}",
             daemon=True,
         )
         self._threads[run_id] = thread
         thread.start()
-        return self.get_run(run_id) or {}
 
     # --------------------------------------------------------------- internal
 
@@ -439,6 +635,16 @@ class GovBotService:
         self._write(run_id, fields, finished=False)
 
     def _finish(self, run_id: str, *, status: str, **fields: Any) -> None:
+        # Keep the routine's last status in sync with the run it fired, so a
+        # rejected/failed routine does not keep showing the old "pending".
+        # Update it before the run row: a waiter that sees the run terminal
+        # must also see the routine terminal.
+        with self._lock:
+            self._db.execute(
+                "UPDATE bot_routines SET last_status=? WHERE last_run_id=?",
+                (status, run_id),
+            )
+            self._db.commit()
         payload = {**fields, "status": status}
         self._write(run_id, payload, finished=True)
 

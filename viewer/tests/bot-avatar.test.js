@@ -25,6 +25,9 @@ test("运行态进 class，尺寸进 CSS 变量，状态有中文可及名", () 
   const failed = botAvatarHtml("verifier", "failed", 28);
   assert.match(failed, /is-failed/);
   assert.match(failed, /aria-label="复核员 · 失败"/);
+  const pending = botAvatarHtml("auditor", "pending", 30);
+  assert.match(pending, /is-pending/);
+  assert.match(pending, /aria-label="审计员 · 待批准"/);
 });
 
 test("未知角色回落到审计员，未知状态回落到待命", () => {

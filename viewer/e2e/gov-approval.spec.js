@@ -1,0 +1,38 @@
+import { test, expect } from "@playwright/test";
+
+/* 定时运行审批：打开 routine 审批后，到点不直接执行，先在团队频道
+   生成「待批准」运行；操作员批准后才真正跑。 */
+
+test("治理团队:定时运行等待批准，批准后完成", async ({ page }) => {
+  const now = new Date();
+  const due = new Date(now.getTime() - 60_000);
+  const hhmm = `${String(due.getHours()).padStart(2, "0")}:${String(due.getMinutes()).padStart(2, "0")}`;
+
+  await page.request.post("/api/gov/bots/auditor/settings", {
+    data: { daily_run_limit: 8, routine_approval: true },
+  });
+  await page.request.post("/api/gov/routines", {
+    data: {
+      bot_id: "auditor",
+      target: "fixtures/demo-target",
+      frequency: "每天",
+      time: hhmm,
+    },
+  });
+
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator('#zone-switch [data-zone="gov"]').click();
+  await page.locator('[data-gov-mode="team"]').click();
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
+
+  const runMessage = page.locator("#gov-team-channel .gov-bot-message").last();
+  await expect(runMessage).toContainText("待批准", { timeout: 45_000 });
+  await expect(runMessage.locator("[data-gov-run-approve]")).toBeVisible();
+  await expect(runMessage.locator("[data-gov-run-reject]")).toBeVisible();
+
+  await runMessage.locator("[data-gov-run-approve]").click();
+  await expect(runMessage).not.toContainText("待批准", { timeout: 15_000 });
+  await expect(runMessage).toContainText("完成", { timeout: 30_000 });
+  await expect(runMessage.locator("[data-gov-hist]")).toBeVisible();
+});

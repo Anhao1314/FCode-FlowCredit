@@ -18,7 +18,7 @@ import {
 } from "./core/gov-workbench.js";
 import {
   govBotSummaryHtml, govBotRosterHtml, govBotDispatchHtml, govBotChannelHtml,
-  govBotRoutineFormHtml, govBotRoutinesHtml,
+  govBotRoutineFormHtml, govBotRoutinesHtml, govBotDetailHtml,
 } from "./core/gov-bots.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
@@ -2637,6 +2637,11 @@ let govTeamTimer = null;
 let govTeamSig = "";
 let govBotSelected = "auditor";
 let govRoutineSelected = "auditor";
+let govBotDetailId = "";
+let govBotDetailTimer = null;
+let govBotDetailSeq = 0;
+let govBotDetailSig = "";
+const govBotDetail = { bot: null, runs: [], loaded: false };
 
 function govActive() {
   return document.getElementById("main")?.dataset.view === "gov";
@@ -2700,6 +2705,7 @@ function showGovSurface(surface) {
   govSurface = surface;
   const host = surface === "dialog" ? "gov-dialog-stream"
     : surface === "team" ? "gov-team-roster"
+    : surface === "bot" ? "gov-bot-detail-host"
     : "gov-summary";
   if (!govActive() || changed || !document.getElementById(host)) {
     renderMode("gov");
@@ -3072,7 +3078,183 @@ async function deleteGovRoutine(routineId) {
   }
 }
 
+function stopGovBotDetailPoll() {
+  if (!govBotDetailTimer) return;
+  clearInterval(govBotDetailTimer);
+  govBotDetailTimer = null;
+}
+
+function paintGovBotDetail() {
+  const host = document.getElementById("gov-bot-detail-host");
+  if (!host) return;
+  host.innerHTML = govBotDetail.loaded && govBotDetail.bot
+    ? govBotDetailHtml(govBotDetail.bot, govBotDetail.runs)
+    : `<div class="gov-loading dim">正在读取 Bot 详情…</div>`;
+}
+
+async function loadGovBotDetail(force = false) {
+  if (!govBotDetailId) return;
+  const seq = ++govBotDetailSeq;
+  try {
+    const [botsResponse, runsResponse] = await Promise.all([
+      fetch("/api/gov/bots", { cache: "no-store" }),
+      fetch(`/api/gov/runs?bot=${encodeURIComponent(govBotDetailId)}&limit=20`, { cache: "no-store" }),
+    ]);
+    const botsData = botsResponse.ok ? await botsResponse.json() : { bots: [] };
+    const runsData = runsResponse.ok ? await runsResponse.json() : { runs: [] };
+    if (seq !== govBotDetailSeq) return;
+    const bot = (botsData.bots || []).find(item => item.id === govBotDetailId);
+    if (!bot) {
+      toast("这个 Bot 不存在");
+      showGovSurface("team");
+      return;
+    }
+    govBotDetail.bot = bot;
+    govBotDetail.runs = runsData.runs || [];
+    govBotDetail.loaded = true;
+    const signature = JSON.stringify([bot, govBotDetail.runs]);
+    if (force || signature !== govBotDetailSig) {
+      govBotDetailSig = signature;
+      if (govActive() && govSurface === "bot") paintGovBotDetail();
+    }
+  } catch {
+    if (seq !== govBotDetailSeq) return;
+    if (govActive() && govSurface === "bot" && !govBotDetail.loaded) {
+      toast("读取 Bot 详情失败");
+    }
+  }
+}
+
+function openGovBotDetail(botId) {
+  const id = String(botId || "").trim();
+  if (!id) return;
+  govBotDetailId = id;
+  govBotDetail.bot = null;
+  govBotDetail.runs = [];
+  govBotDetail.loaded = false;
+  govBotDetailSig = "";
+  govSurface = "bot";
+  renderMode("gov");
+}
+
+function renderGovBotDetail() {
+  stopGovTeamPoll();
+  document.getElementById("tb-title").textContent = "治理台";
+  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  setFoot(`治理台 · Bot 详情（${govBotDetailId}）`, "");
+  renderMain(`<div class="gov-bot-detail-page" id="gov-bot-detail-host"></div>`, { mode: "gov" });
+  paintGovBotDetail();
+  const epoch = viewGate.sequence;
+  loadGovBotDetail().then(() => {
+    if (epoch !== viewGate.sequence || govSurface !== "bot") return;
+    if (govBotDetailTimer) return;
+    govBotDetailTimer = setInterval(async () => {
+      if (!govActive() || govSurface !== "bot") {
+        stopGovBotDetailPoll();
+        return;
+      }
+      await loadGovBotDetail();
+    }, 4000);
+  });
+}
+
+async function saveGovBotSettings() {
+  const form = document.getElementById("gov-bot-settings-form");
+  if (!form) return;
+  const botId = form.dataset.botId || govBotDetailId;
+  const limit = document.getElementById("gov-bot-daily-limit");
+  const approval = document.getElementById("gov-bot-routine-approval");
+  try {
+    const response = await fetch(`/api/gov/bots/${encodeURIComponent(botId)}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        daily_run_limit: limit ? Number(limit.value) : undefined,
+        routine_approval: !!(approval && approval.checked),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast("Bot 设置已保存");
+    await loadGovBotDetail(true);
+  } catch (error) {
+    toast("保存 Bot 设置失败：" + error.message);
+  }
+}
+
+async function decideGovRun(runId, approve) {
+  try {
+    const response = await fetch(
+      `/api/gov/runs/${encodeURIComponent(runId)}/${approve ? "approve" : "reject"}`,
+      { method: "POST" },
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast(approve ? "已批准执行" : "已拒绝执行");
+    if (govActive() && govSurface === "bot") await loadGovBotDetail(true);
+    else await loadGovTeam();
+  } catch (error) {
+    toast("审批失败：" + error.message);
+  }
+}
+
+async function teachFromRun(runId) {
+  try {
+    const response = await fetch("/api/gov/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast(`已生成技能：${data.skill.name}`);
+    if (govActive() && govSurface === "bot") await loadGovBotDetail(true);
+    else openGovBotDetail(data.skill.bot_id);
+  } catch (error) {
+    toast("生成技能失败：" + error.message);
+  }
+}
+
+async function scheduleGovSkill(skillId) {
+  const skill = (govBotDetail.bot && govBotDetail.bot.skills || [])
+    .find(item => item.id === skillId);
+  if (!skill) { toast("技能上下文缺失"); return; }
+  try {
+    const response = await fetch("/api/gov/routines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bot_id: skill.bot_id,
+        target: skill.target || "",
+        frequency: "每天",
+        time: "09:00",
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast("已用该技能创建每天 09:00 排程");
+    await loadGovBotDetail(true);
+  } catch (error) {
+    toast("技能排程失败：" + error.message);
+  }
+}
+
+async function deleteGovSkill(skillId) {
+  try {
+    const response = await fetch(`/api/gov/skills/${encodeURIComponent(skillId)}/delete`, {
+      method: "POST",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast("技能已删除");
+    await loadGovBotDetail(true);
+  } catch (error) {
+    toast("删除技能失败：" + error.message);
+  }
+}
+
 function renderGovTeam() {
+  stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
   setFoot("治理台 · 团队频道（审计员 / 复核员）", "");
@@ -3116,6 +3298,7 @@ function renderGovTeam() {
    治理命令；响应是控制台印章头像 + 服务端事实卡。 */
 function renderGovDialog() {
   stopGovTeamPoll();
+  stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
   setFoot("治理台 · 对话式零模型控制台（/挖洞 · /判断 · /链）", "");
@@ -3138,12 +3321,14 @@ function renderGovDialog() {
 }
 
 function renderGov() {
+  if (govSurface === "bot") return renderGovBotDetail();
   if (govSurface === "team") return renderGovTeam();
   return govSurface === "workbench" ? renderGovWorkbench() : renderGovDialog();
 }
 
 async function renderGovWorkbench() {
   stopGovTeamPoll();
+  stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
   setFoot("治理台 · 离线审计 / 证据 / 操作员处置", "");
@@ -3353,6 +3538,11 @@ document.addEventListener("submit", event => {
   if (event.target.closest("#gov-routine-form")) {
     event.preventDefault();
     startGovRoutine();
+    return;
+  }
+  if (event.target.closest("#gov-bot-settings-form")) {
+    event.preventDefault();
+    saveGovBotSettings();
     return;
   }
   const form = event.target.closest("#gov-new-audit");
@@ -4275,6 +4465,41 @@ function bindGlobalActions() {
     const govRoutineDelete = event.target.closest("[data-gov-routine-delete]");
     if (govRoutineDelete) {
       deleteGovRoutine(govRoutineDelete.dataset.govRoutineDelete);
+      return;
+    }
+    const govBotBack = event.target.closest("[data-gov-bot-back]");
+    if (govBotBack) {
+      showGovSurface("team");
+      return;
+    }
+    const govBotOpen = event.target.closest("[data-gov-bot-open]");
+    if (govBotOpen) {
+      openGovBotDetail(govBotOpen.dataset.govBotOpen);
+      return;
+    }
+    const govRunApprove = event.target.closest("[data-gov-run-approve]");
+    if (govRunApprove) {
+      decideGovRun(govRunApprove.dataset.govRunApprove, true);
+      return;
+    }
+    const govRunReject = event.target.closest("[data-gov-run-reject]");
+    if (govRunReject) {
+      decideGovRun(govRunReject.dataset.govRunReject, false);
+      return;
+    }
+    const govSkillRun = event.target.closest("[data-gov-skill-run]");
+    if (govSkillRun) {
+      teachFromRun(govSkillRun.dataset.govSkillRun);
+      return;
+    }
+    const govSkillSchedule = event.target.closest("[data-gov-skill-schedule]");
+    if (govSkillSchedule) {
+      scheduleGovSkill(govSkillSchedule.dataset.govSkillSchedule);
+      return;
+    }
+    const govSkillDelete = event.target.closest("[data-gov-skill-delete]");
+    if (govSkillDelete) {
+      deleteGovSkill(govSkillDelete.dataset.govSkillDelete);
       return;
     }
     const govBotPick = event.target.closest("[data-gov-bot-pick]");

@@ -63,6 +63,65 @@ def post_gov_bot_run(handler, bot_id):
     return handler._json({"run": run}, 202)
 
 
+def post_gov_bot_settings(handler, bot_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        settings = service.set_settings(bot_id, body)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"settings": settings})
+
+
+def post_gov_run_approve(handler, run_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        run = service.approve_run(run_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"run": run})
+
+
+def post_gov_run_reject(handler, run_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        run = service.reject_run(run_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"run": run})
+
+
+def post_gov_skill(handler):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        skill = service.create_skill(
+            str(body.get("run_id") or ""), str(body.get("name") or ""),
+        )
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"skill": skill}, 201)
+
+
+def post_gov_skill_delete(handler, skill_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        service.delete_skill(skill_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"deleted": skill_id})
+
+
 def post_gov_routine(handler):
     """Create a standing routine for one bot (cron-like manual form)."""
     service = getattr(handler, "gov_bots", None)
@@ -111,6 +170,7 @@ _STATIC = {
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
     "/api/gov/routines": post_gov_routine,
+    "/api/gov/skills": post_gov_skill,
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,
@@ -219,10 +279,20 @@ def dispatch_post(handler, path: str):
     route = _STATIC.get(path)
     if route is not None:
         return route(handler)
-    match = _suffix(path, "/api/gov/bots/", {"/run": post_gov_bot_run})
+    match = _suffix(path, "/api/gov/bots/", {
+        "/run": post_gov_bot_run,
+        "/settings": post_gov_bot_settings,
+    })
     if match is not None:
         bot_id, route = match
         return route(handler, bot_id)
+    match = _suffix(path, "/api/gov/runs/", {
+        "/approve": post_gov_run_approve,
+        "/reject": post_gov_run_reject,
+    })
+    if match is not None:
+        run_id, route = match
+        return route(handler, run_id)
     match = _suffix(path, "/api/gov/routines/", {
         "/toggle": post_gov_routine_toggle,
         "/delete": post_gov_routine_delete,
@@ -230,6 +300,10 @@ def dispatch_post(handler, path: str):
     if match is not None:
         routine_id, route = match
         return route(handler, routine_id)
+    match = _suffix(path, "/api/gov/skills/", {"/delete": post_gov_skill_delete})
+    if match is not None:
+        skill_id, route = match
+        return route(handler, skill_id)
     match = _suffix(path, "/api/chat/threads/", _CHAT_ROUTES)
     if match is not None:
         thread_id, route = match

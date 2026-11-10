@@ -3419,7 +3419,13 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   padding: 14px; border: 1px solid var(--line); border-radius: 12px;
   background: var(--raised); min-width: 0;
 }
-.gov-bot-card.is-running { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.gov-bot-card.is-running,
+.gov-bot-card.is-pending { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.gov-bot-link {
+  border: 0; background: none; color: var(--text-3); font-size: 11px;
+  cursor: pointer; padding: 4px 5px; border-radius: 6px; flex: none;
+}
+.gov-bot-link:hover { color: var(--text-1); background: var(--panel); }
 .gov-bot-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* 每个身份一套几何 + 动效：审计员是雷达扫掠，复核员是盾牌/勾选/轨道。
@@ -3457,6 +3463,10 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .bot-avatar.is-running .ba-check { animation-duration: 1.2s; }
 .bot-avatar.is-running .ba-orbit { animation-duration: 1.8s; }
 .bot-avatar.is-done .ba-check { opacity: 1; animation: none; }
+.bot-avatar.is-pending .ba-ring,
+.bot-avatar.is-pending .ba-shield,
+.bot-avatar.is-pending .ba-orbit { stroke: var(--warn); }
+.bot-avatar.is-pending .ba-eye { fill: var(--warn); }
 .bot-avatar.is-failed .ba-ring,
 .bot-avatar.is-failed .ba-shield,
 .bot-avatar.is-failed .ba-orbit,
@@ -3489,6 +3499,7 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   font: 10.5px/20px var(--font-mono); color: var(--text-3); border: 1px solid var(--line);
 }
 .gov-bot-status.live { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.gov-bot-status.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 34%, transparent); }
 .gov-bot-status.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
 .gov-bot-status.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
 .gov-bot-charter { margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.6; }
@@ -3591,6 +3602,7 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-bot-message-head time { margin-left: auto; font: 10px var(--font-mono); color: var(--text-4); }
 .gov-bot-run-state { color: var(--text-3) !important; }
 .gov-bot-run-state.live { color: var(--warn) !important; }
+.gov-bot-run-state.warn { color: var(--warn) !important; }
 .gov-bot-run-state.ok { color: var(--ok) !important; }
 .gov-bot-run-state.bad { color: var(--bad) !important; }
 .gov-bot-result-line, .gov-bot-progress {
@@ -3599,12 +3611,106 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   background: var(--raised); color: var(--text-2); font-size: 12px;
 }
 .gov-bot-progress { color: var(--text-2); font: 11.5px var(--font-mono); }
+.gov-bot-progress.is-pending { color: var(--warn); }
 .gov-bot-result-line .gov-state { font-size: 11px; }
 .gov-bot-result-line .gov-mono { margin-left: auto; font-size: 10.5px; }
 .gov-bot-run-actions { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
 
+/* Bot 详情：身份、预算/审批、技能、排程、最近运行。 */
+.gov-bot-detail-page { width: 100%; max-width: 1040px; margin: 0 auto; }
+.gov-bot-detail { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.gov-bot-detail-head {
+  display: flex; align-items: flex-start; gap: 18px;
+  padding: 4px 0 18px; border-bottom: 1px solid var(--line);
+}
+.gov-bot-detail-title { min-width: 0; }
+.gov-bot-detail-title .eyebrow { margin-bottom: 5px; }
+.gov-bot-detail-title h1 {
+  font: 700 28px/1.2 var(--font-ui); letter-spacing: -.02em; color: var(--text-1);
+}
+.gov-bot-detail-title > p:last-child {
+  margin-top: 5px; color: var(--text-3); font-size: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.gov-bot-detail-head > .gov-wb-button { margin-left: auto; flex: none; }
+.gov-bot-detail-charter {
+  margin: 0; max-width: 72ch; color: var(--text-2); font-size: 13px; line-height: 1.7;
+}
+.gov-bot-detail-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px;
+}
+.gov-bot-panel {
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--raised); min-width: 0;
+}
+.gov-bot-panel h3 {
+  margin: 0 0 12px; font: 600 12px/1 var(--font-ui); color: var(--text-1);
+}
+.gov-bot-facts { display: flex; flex-direction: column; gap: 7px; margin: 0; }
+.gov-bot-facts > div {
+  display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 10px;
+  font-size: 12px; line-height: 1.5;
+}
+.gov-bot-facts dt { color: var(--text-3); }
+.gov-bot-facts dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
+.gov-bot-settings-form {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
+}
+.gov-bot-setting { display: flex; flex-direction: column; gap: 5px; }
+.gov-bot-setting > span {
+  font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.gov-bot-setting input {
+  width: 96px; height: 34px; padding: 0 9px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--canvas); color: var(--text-1); font: 12px var(--font-mono);
+}
+.gov-bot-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px; color: var(--text-2); font-size: 11.5px; cursor: pointer;
+}
+.gov-bot-check input { accent-color: var(--text-1); }
+.gov-bot-budget { margin-left: auto; color: var(--text-3); font: 10.5px var(--font-mono); }
+.gov-skill-list, .gov-bot-run-list { display: flex; flex-direction: column; gap: 6px; }
+.gov-skill-row, .gov-bot-run-row {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 9px;
+}
+.gov-skill-main, .gov-bot-run-main { flex: 1; min-width: 0; }
+.gov-skill-main b { display: block; font: 600 12px/1.3 var(--font-ui); color: var(--text-1); }
+.gov-skill-main span, .gov-bot-run-meta {
+  display: block; margin-top: 2px; color: var(--text-3);
+  font: 10.5px/1.4 var(--font-mono); overflow-wrap: anywhere;
+}
+.gov-skill-row time {
+  flex: none; color: var(--text-4); font: 10px var(--font-mono);
+}
+.gov-bot-run-title {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
+  font-size: 12px; color: var(--text-2);
+}
+.gov-bot-run-title b {
+  color: var(--text-1); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gov-bot-run-title span { font: 10px var(--font-mono); color: var(--text-3); }
+.gov-bot-run-title span.ok { color: var(--ok); }
+.gov-bot-run-title span.bad { color: var(--bad); }
+.gov-bot-run-title span.warn { color: var(--warn); }
+.gov-bot-run-title span.live { color: var(--warn); }
+.gov-bot-run-row .gov-bot-run-actions {
+  margin: 0 0 0 auto; flex-wrap: nowrap; flex: none;
+}
+.gov-bot-run-row .gov-wb-button { height: 28px; padding: 0 9px; font-size: 11px; }
+
 @media (max-width: 860px) {
   .gov-bot-roster { grid-template-columns: 1fr; }
+  .gov-bot-detail-grid { grid-template-columns: 1fr; }
+  .gov-bot-detail-head { flex-wrap: wrap; }
+  .gov-bot-detail-head > .gov-wb-button { margin-left: 0; }
+  .gov-bot-run-row { flex-wrap: wrap; }
+  .gov-bot-run-row .gov-bot-run-actions { margin-left: 36px; }
   .gov-team-note { margin-left: 0; }
   .gov-bot-dispatch-field, .gov-bot-dispatch-field select { width: 100%; }
   .gov-bot-dispatch-field.grow { min-width: 0; }

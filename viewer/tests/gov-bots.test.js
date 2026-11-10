@@ -6,6 +6,7 @@ import {
   govBotSummaryHtml, govBotCardHtml, govBotRosterHtml,
   govBotDispatchHtml, govBotRunHtml, govBotChannelHtml,
   govBotRoutineFormHtml, govBotRoutinesHtml,
+  govBotSettingsFormHtml, govBotSkillsHtml, govBotDetailHtml,
 } from "../core/gov-bots.js";
 
 const bots = [
@@ -35,13 +36,13 @@ test("Bot 状态文案与语气", () => {
   assert.equal(botStatusClass("idle"), "idle");
 });
 
-test("团队摘要:角色数、执行中、运行数与 Phase A 标注", () => {
+test("团队摘要:角色数、执行中、待批准、运行数与 Phase C 标注", () => {
   const html = govBotSummaryHtml(bots);
   assert.match(html, /<b>2<\/b> 个常驻角色/);
   assert.match(html, /<b>1<\/b> 执行中/);
   assert.match(html, /<b>4<\/b> 次运行/);
   assert.match(html, /<b>0<\/b> 个排程/);
-  assert.match(html, /Phase B/);
+  assert.match(html, /Phase C/);
   assert.match(html, /确定性管线/);
 });
 
@@ -55,6 +56,7 @@ test("Bot 卡片:头像、职责、运行态、最近目标与派活入口", () 
   assert.match(html, /demo-target/);
   assert.match(html, /3 次运行 · 11 发现/);
   assert.match(html, /data-gov-bot-pick="auditor"/);
+  assert.match(html, /data-gov-bot-open="auditor"/);
   // 空闲 Bot 显示最近一次，不伪造当前任务
   const idle = govBotCardHtml(bots[1]);
   assert.match(idle, /最近/);
@@ -161,6 +163,91 @@ test("排程列表空态与转义", () => {
   assert.equal(html.includes("<img>"), false);
   assert.equal(html.includes("<script>"), false);
   assert.match(html, /&lt;img&gt;/);
+});
+
+test("待批准状态:卡片与运行消息都给审批出口，不伪造完成", () => {
+  const bot = {
+    ...bots[0], status: "pending",
+    current: null,
+    pending: { run_id: "rp", target: "/repo/demo", status: "pending", trigger: "routine" },
+    counts: { ...bots[0].counts, pending: 1 },
+  };
+  const card = govBotCardHtml(bot);
+  assert.match(card, /待批准/);
+  assert.match(card, /等待操作员批准/);
+  const run = {
+    run_id: "rp", bot_id: "auditor", target: "/repo/demo", status: "pending",
+    trigger: "routine", started_at: "2026-11-10T09:00:00",
+  };
+  const message = govBotRunHtml(bot, run);
+  assert.match(message, /data-gov-run-approve="rp"/);
+  assert.match(message, /data-gov-run-reject="rp"/);
+  assert.doesNotMatch(message, /data-gov-skill-run/);
+});
+
+test("完成运行有「教一次」；拒绝运行没有完成按钮", () => {
+  const done = govBotRunHtml(bots[0], {
+    run_id: "rd", bot_id: "auditor", target: "x", status: "done", audit_id: "a",
+  });
+  assert.match(done, /data-gov-skill-run="rd"/);
+  assert.match(done, /教一次/);
+  const captured = govBotRunHtml({
+    ...bots[0], skills: [{ id: "sk-1", source_run_id: "rd" }],
+  }, {
+    run_id: "rd", bot_id: "auditor", target: "x", status: "done", audit_id: "a",
+  });
+  assert.doesNotMatch(captured, /data-gov-skill-run/);
+  const rejected = govBotRunHtml(bots[0], {
+    run_id: "rr", bot_id: "auditor", target: "x", status: "rejected",
+  });
+  assert.match(rejected, /操作员拒绝执行/);
+  assert.doesNotMatch(rejected, /data-gov-skill-run/);
+});
+
+test("Bot 设置表单:每日上限、审批开关与今日用量", () => {
+  const bot = { ...bots[0], runs_today: 3, settings: { daily_run_limit: 8, routine_approval: true } };
+  const html = govBotSettingsFormHtml(bot);
+  assert.match(html, /id="gov-bot-daily-limit" type="number" min="1" max="50" value="8"/);
+  assert.match(html, /id="gov-bot-routine-approval" type="checkbox" checked/);
+  assert.match(html, /今日已用 3 \/ 8/);
+  assert.match(html, /data-bot-id="auditor"/);
+});
+
+test("技能列表:空态、来源运行与删除；文本转义", () => {
+  assert.match(govBotSkillsHtml({ skills: [] }), /还没有技能/);
+  const html = govBotSkillsHtml({ skills: [{
+    id: "sk-1", name: "<img>", target: "<script>", source_run_id: "bot-1", version: 1,
+  }] });
+  assert.equal(html.includes("<img>"), false);
+  assert.equal(html.includes("<script>"), false);
+  assert.match(html, /data-gov-skill-delete="sk-1"/);
+  assert.match(html, /data-gov-skill-schedule="sk-1"/);
+  assert.match(html, /来源 bot-1/);
+});
+
+test("Bot 详情:动画头像、职责、设置、技能、排程与最近运行", () => {
+  const bot = {
+    ...bots[0], status: "pending",
+    settings: { daily_run_limit: 8, routine_approval: true },
+    runs_today: 2,
+    skills: [{ id: "sk-1", name: "扫描 demo", target: "demo", source_run_id: "r1", version: 1 }],
+    routines: [{
+      id: "rt-1", bot_id: "auditor", target: "demo", frequency: "每天",
+      time: "09:00", enabled: true, next: "每天 09:00",
+    }],
+    counts: { runs: 3, findings: 5, routines: 1, pending: 1 },
+  };
+  const html = govBotDetailHtml(bot, [{
+    run_id: "rp", bot_id: "auditor", target: "demo", status: "pending", trigger: "routine",
+  }]);
+  assert.match(html, /class="bot-avatar bot-avatar-auditor is-pending"/);
+  assert.match(html, /职责与权限/);
+  assert.match(html, /预算与审批/);
+  assert.match(html, /gov-bot-settings-form/);
+  assert.match(html, /扫描 demo/);
+  assert.match(html, /每天 09:00/);
+  assert.match(html, /data-gov-run-approve="rp"/);
+  assert.match(html, /data-gov-bot-back/);
 });
 
 test("团队频道按时间正序，并对失败文本转义", () => {

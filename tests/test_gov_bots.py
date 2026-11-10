@@ -67,6 +67,8 @@ class GovBotServiceTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        for thread in list(self.service._threads.values()):
+            thread.join(timeout=2)
         self.service.shutdown()
         self.tmp.cleanup()
 
@@ -131,6 +133,7 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(run["status"], "done")
         updated = self.service.get_routine(routine["id"])
         self.assertEqual(updated["last_run_id"], run["run_id"])
+        self.assertEqual(updated["last_status"], "done")
 
     def test_paused_routine_does_not_fire_and_can_be_deleted(self):
         now = datetime.now()
@@ -143,6 +146,61 @@ class GovBotServiceTest(unittest.TestCase):
         self.service.set_routine_enabled(routine["id"], True)
         self.assertTrue(self.service.delete_routine(routine["id"]))
         self.assertEqual(self.service.routines("auditor"), [])
+
+    def test_daily_budget_blocks_further_runs(self):
+        self.service.set_settings("auditor", {"daily_run_limit": 1, "routine_approval": False})
+        run = self.service.start_run("auditor", "fixtures/demo-target")
+        wait_run(self.service, run["run_id"])
+        with self.assertRaises(ValueError) as ctx:
+            self.service.start_run("auditor", "fixtures/demo-target")
+        self.assertIn("预算已用完", str(ctx.exception))
+
+    def test_settings_are_validated(self):
+        saved = self.service.set_settings("auditor", {
+            "daily_run_limit": 3, "routine_approval": True,
+        })
+        self.assertEqual(saved["daily_run_limit"], 3)
+        self.assertTrue(saved["routine_approval"])
+        for bad in (0, 51):
+            with self.assertRaises(ValueError):
+                self.service.set_settings("auditor", {"daily_run_limit": bad})
+        with self.assertRaises(ValueError):
+            self.service.set_settings("nope", {"daily_run_limit": 1})
+
+    def test_routine_approval_creates_pending_then_approve(self):
+        self.service.set_settings("auditor", {"routine_approval": True})
+        run = self.service.start_run("auditor", "fixtures/demo-target", trigger="routine")
+        self.assertEqual(run["status"], "pending")
+        pending = self.service.snapshot()["bots"][0]
+        self.assertEqual(pending["status"], "pending")
+        self.assertEqual(pending["counts"]["pending"], 1)
+        approved = self.service.approve_run(run["run_id"])
+        self.assertIn(approved["status"], ("queued", "running"))
+        settled = wait_run(self.service, run["run_id"])
+        self.assertEqual(settled["status"], "done")
+        self.assertEqual(settled["trigger"], "routine")
+
+    def test_routine_rejection_is_recorded_and_frees_budget(self):
+        self.service.set_settings("auditor", {"routine_approval": True, "daily_run_limit": 1})
+        run = self.service.start_run("auditor", "fixtures/demo-target", trigger="routine")
+        rejected = self.service.reject_run(run["run_id"])
+        self.assertEqual(rejected["status"], "rejected")
+        self.assertEqual(self.service._runs_today("auditor"), 0)
+        with self.assertRaises(ValueError):
+            self.service.reject_run(run["run_id"])
+
+    def test_skill_from_completed_run_and_delete(self):
+        run = self.service.start_run("auditor", "fixtures/demo-target")
+        settled = wait_run(self.service, run["run_id"])
+        skill = self.service.create_skill(settled["run_id"])
+        self.assertEqual(skill["bot_id"], "auditor")
+        self.assertIn("demo-target", skill["name"])
+        self.assertEqual(skill["source_run_id"], settled["run_id"])
+        self.assertEqual(self.service.skills("auditor")[0]["id"], skill["id"])
+        with self.assertRaises(ValueError):
+            self.service.create_skill(settled["run_id"])
+        self.assertTrue(self.service.delete_skill(skill["id"]))
+        self.assertEqual(self.service.skills("auditor"), [])
 
     def test_invalid_inputs_are_refused(self):
         with self.assertRaises(ValueError):

@@ -11,8 +11,10 @@ import { botAvatarHtml } from "./bot-avatar.js";
 const STATUS_LABEL = {
   queued: "排队",
   running: "执行中",
+  pending: "待批准",
   done: "完成",
   failed: "失败",
+  rejected: "已拒绝",
 };
 
 export function botStatusLabel(status) {
@@ -21,7 +23,8 @@ export function botStatusLabel(status) {
 
 export function botStatusClass(status) {
   if (status === "running" || status === "queued") return "live";
-  if (status === "failed") return "bad";
+  if (status === "pending") return "warn";
+  if (status === "failed" || status === "rejected") return "bad";
   if (status === "done") return "ok";
   return "idle";
 }
@@ -32,7 +35,8 @@ function botOf(bots, id) {
 
 function avatarState(status) {
   if (status === "queued" || status === "running") return "running";
-  if (status === "failed") return "failed";
+  if (status === "pending") return "pending";
+  if (status === "failed" || status === "rejected") return "failed";
   if (status === "done") return "done";
   return "idle";
 }
@@ -51,6 +55,7 @@ function targetLabel(value) {
 export function govBotSummaryHtml(bots) {
   const list = bots || [];
   const running = list.filter(bot => bot.status === "running").length;
+  const pending = list.reduce((sum, bot) => sum + Number((bot.counts || {}).pending || 0), 0);
   const totalRuns = list.reduce((sum, bot) => sum + Number((bot.counts || {}).runs || 0), 0);
   const totalRoutines = list.reduce((sum, bot) => sum + Number((bot.counts || {}).routines || 0), 0);
   return `<div class="gov-team-summary">
@@ -58,42 +63,46 @@ export function govBotSummaryHtml(bots) {
     <span class="gov-dot-sep"></span>
     <span><b>${num(running)}</b> 执行中</span>
     <span class="gov-dot-sep"></span>
+    <span><b>${num(pending)}</b> 待批准</span>
+    <span class="gov-dot-sep"></span>
     <span><b>${num(totalRuns)}</b> 次运行</span>
     <span class="gov-dot-sep"></span>
     <span><b>${num(totalRoutines)}</b> 个排程</span>
-    <span class="gov-team-note">Phase B · 手动 + 定时；判定仍来自确定性管线</span>
+    <span class="gov-team-note">Phase C · 手动 + 定时 + 审批；判定仍来自确定性管线</span>
   </div>`;
 }
 
 export function govBotCardHtml(bot) {
-  const current = bot.current || bot.last || null;
   const counts = bot.counts || {};
-  const status = bot.status === "running" ? "running" : "idle";
-  const running = status === "running" && current;
-  const target = running ? current.target : (bot.last && bot.last.target);
+  const status = bot.status === "running" ? "running"
+    : bot.status === "pending" ? "pending" : "idle";
+  const active = status === "running" ? bot.current : status === "pending" ? bot.pending : null;
   const last = bot.last;
-  return `<article class="gov-bot-card${status === "running" ? " is-running" : ""}" data-bot-id="${esc(bot.id)}">
+  const pill = status === "running" ? "执行中" : status === "pending" ? "待批准" : "待命";
+  const currentHtml = status === "running"
+    ? `<span class="gov-job-dot" aria-hidden="true"></span><span>${esc(targetLabel(active.target))}</span><span class="dim">正在执行…</span>`
+    : status === "pending"
+      ? `<span>${esc(targetLabel(active.target))}</span><span class="dim">等待操作员批准</span>`
+      : last
+        ? `<span>最近：${esc(targetLabel(last.target))}</span><span class="dim">${esc(botStatusLabel(last.status))}</span>`
+        : `<span class="dim">还没有运行记录</span>`;
+  return `<article class="gov-bot-card${status === "running" ? " is-running" : ""}${status === "pending" ? " is-pending" : ""}" data-bot-id="${esc(bot.id)}">
     <header class="gov-bot-card-head">
       ${botAvatarHtml(bot.id, status, 38, bot.name)}
       <div class="gov-bot-identity">
         <b>${esc(bot.name)}</b>
         <span>${esc(bot.role || "")}</span>
       </div>
-      <span class="gov-bot-status ${botStatusClass(status)}">${running ? "执行中" : "待命"}</span>
+      <span class="gov-bot-status ${botStatusClass(status)}">${pill}</span>
     </header>
     <p class="gov-bot-charter">${esc(bot.charter || "")}</p>
-    <div class="gov-bot-current">
-      ${running
-        ? `<span class="gov-job-dot" aria-hidden="true"></span><span>${esc(targetLabel(target))}</span><span class="dim">正在执行…</span>`
-        : last
-          ? `<span>最近：${esc(targetLabel(last.target))}</span><span class="dim">${esc(botStatusLabel(last.status))}</span>`
-          : `<span class="dim">还没有运行记录</span>`}
-    </div>
+    <div class="gov-bot-current">${currentHtml}</div>
     <footer class="gov-bot-card-foot">
       <span>${num(counts.runs || 0)} 次运行 · ${num(counts.findings || 0)} 发现${
         counts.routines ? ` · ${num(counts.routines)} 个排程` : ""
-      }</span>
+      }${counts.pending ? ` · ${num(counts.pending)} 待批准` : ""}</span>
       <button class="gov-wb-button quiet" type="button" data-gov-bot-pick="${esc(bot.id)}">派活 →</button>
+      <button class="gov-bot-link" type="button" data-gov-bot-open="${esc(bot.id)}">详情</button>
     </footer>
   </article>`;
 }
@@ -177,13 +186,14 @@ export function govBotRoutinesHtml(bots) {
     const last = routine.last_fired_at
       ? `上次 ${esc(formatTime(routine.last_fired_at))}`
       : "还没触发";
+    const lastState = routine.last_status && routine.last_status !== "running"
+      ? ` · ${routine.last_status.startsWith("error:") ? "失败" : botStatusLabel(routine.last_status)}`
+      : "";
     return `<div class="gov-routine-row" data-routine-id="${esc(routine.id)}">
       ${botAvatarHtml(bot.id, "idle", 30, bot.name)}
       <div class="gov-routine-main">
         <div class="gov-routine-title"><b>${esc(bot.name)}</b><span>·</span>${target}</div>
-        <div class="gov-routine-meta">${esc(routine.next || routine.frequency)} · ${last}${
-          routine.last_status && routine.last_status !== "running" ? ` · ${esc(routine.last_status)}` : ""
-        }</div>
+        <div class="gov-routine-meta">${esc(routine.next || routine.frequency)} · ${last}${esc(lastState)}</div>
       </div>
       <label class="gov-routine-toggle">
         <input type="checkbox" data-gov-routine-toggle="${esc(routine.id)}"${routine.enabled ? " checked" : ""}>
@@ -195,8 +205,14 @@ export function govBotRoutinesHtml(bots) {
 }
 
 function runStatusLine(bot, run) {
+  if (run.status === "rejected") {
+    return `<div class="gov-dialog-error">操作员拒绝执行${run.error ? ` · ${esc(run.error)}` : ""}</div>`;
+  }
   if (run.status === "failed") {
     return `<div class="gov-dialog-error">${esc(run.error || "运行失败")}</div>`;
+  }
+  if (run.status === "pending") {
+    return `<div class="gov-bot-progress is-pending">等待操作员批准 · ${esc(targetLabel(run.target))}</div>`;
   }
   if (run.status === "queued" || run.status === "running") {
     return `<div class="gov-bot-progress"><span class="gov-job-dot" aria-hidden="true"></span>正在执行 ${esc(targetLabel(run.target))}…</div>`;
@@ -223,11 +239,123 @@ function runStatusLine(bot, run) {
   </div>`;
 }
 
-function runActions(run) {
-  if (run.status !== "done" || !run.audit_id) return "";
-  return `<div class="gov-bot-run-actions">
-    <button class="gov-wb-button quiet" type="button" data-gov-hist="${esc(run.audit_id)}">工作台 →</button>
-    <button class="gov-wb-button quiet" type="button" data-gov-open-bundle="${esc(run.audit_id)}">审计台 →</button>
+function runActions(run, opts = {}) {
+  if (run.status === "pending") {
+    return `<div class="gov-bot-run-actions">
+      <button class="gov-wb-button strong" type="button" data-gov-run-approve="${esc(run.run_id)}">批准执行</button>
+      <button class="gov-wb-button quiet" type="button" data-gov-run-reject="${esc(run.run_id)}">拒绝</button>
+    </div>`;
+  }
+  if (run.status !== "done") return "";
+  const links = run.audit_id
+    ? `<button class="gov-wb-button quiet" type="button" data-gov-hist="${esc(run.audit_id)}">工作台 →</button>
+       <button class="gov-wb-button quiet" type="button" data-gov-open-bundle="${esc(run.audit_id)}">审计台 →</button>`
+    : "";
+  const teach = opts.teach === false ? ""
+    : `<button class="gov-wb-button quiet" type="button" data-gov-skill-run="${esc(run.run_id)}"
+      title="从这次已完成的运行生成可复用技能">教一次</button>`;
+  return `<div class="gov-bot-run-actions">${links}${teach}</div>`;
+}
+
+export function govBotSettingsFormHtml(bot) {
+  const settings = bot.settings || {};
+  const limit = Number(settings.daily_run_limit || 12);
+  const used = Number(bot.runs_today || 0);
+  return `<form class="gov-bot-settings-form" id="gov-bot-settings-form" data-bot-id="${esc(bot.id)}">
+    <label class="gov-bot-setting">
+      <span>每日运行上限</span>
+      <input id="gov-bot-daily-limit" type="number" min="1" max="50" value="${num(limit)}">
+    </label>
+    <label class="gov-bot-check">
+      <input id="gov-bot-routine-approval" type="checkbox"${settings.routine_approval ? " checked" : ""}>
+      定时运行需操作员批准
+    </label>
+    <button class="gov-wb-button strong" type="submit">保存设置</button>
+    <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)}</span>
+  </form>`;
+}
+
+export function govBotSkillsHtml(bot) {
+  const skills = bot.skills || [];
+  if (!skills.length) {
+    return `<div class="gov-empty-state"><b>还没有技能</b><span>在团队频道里选一次已完成的运行，点「教一次」生成技能。</span></div>`;
+  }
+  return `<div class="gov-skill-list">${skills.map(skill => `<div class="gov-skill-row" data-skill-id="${esc(skill.id)}">
+    <div class="gov-skill-main">
+      <b>${esc(skill.name || "未命名技能")}</b>
+      <span>${esc(skill.target || "—")} · 来源 ${esc(skill.source_run_id || "—")} · v${num(skill.version || 1)}</span>
+    </div>
+    <time>${esc(formatTime(skill.created))}</time>
+    <button class="gov-bot-link" type="button" data-gov-skill-schedule="${esc(skill.id)}"
+      title="用这条技能创建每天 09:00 的排程">排程</button>
+    <button class="gov-routine-delete" type="button" data-gov-skill-delete="${esc(skill.id)}">删除</button>
+  </div>`).join("")}</div>`;
+}
+
+function runRowHtml(bot, run) {
+  const trigger = run.trigger === "routine" ? "定时" : "手动";
+  const target = targetLabel(run.target);
+  const state = botStatusLabel(run.status);
+  const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
+  return `<div class="gov-bot-run-row" data-run-id="${esc(run.run_id)}">
+    ${botAvatarHtml(bot.id, avatarState(run.status), 26, bot.name)}
+    <div class="gov-bot-run-main">
+      <div class="gov-bot-run-title"><b>${esc(target)}</b><span>${esc(trigger)}</span><span class="${botStatusClass(run.status)}">${esc(state)}</span></div>
+      <div class="gov-bot-run-meta">${esc(formatTime(run.finished_at || run.started_at))}${
+        run.audit_id ? ` · ${esc(run.audit_id)}` : ""
+      }${run.error ? ` · ${esc(run.error)}` : ""}</div>
+    </div>
+    ${runActions(run, { teach: !captured })}
+  </div>`;
+}
+
+export function govBotDetailHtml(bot, runs = []) {
+  const counts = bot.counts || {};
+  const settings = bot.settings || {};
+  const status = bot.status === "running" ? "running"
+    : bot.status === "pending" ? "pending" : "idle";
+  return `<div class="gov-bot-detail">
+    <header class="gov-bot-detail-head">
+      ${botAvatarHtml(bot.id, status, 72, bot.name)}
+      <div class="gov-bot-detail-title">
+        <p class="eyebrow">GOVERNANCE / BOT</p>
+        <h1>${esc(bot.name)}</h1>
+        <p>${esc(bot.role || "")} · <span class="gov-bot-status ${botStatusClass(status)}">${
+          status === "running" ? "执行中" : status === "pending" ? "待批准" : "待命"
+        }</span></p>
+      </div>
+      <button class="gov-wb-button quiet" type="button" data-gov-bot-back>← 团队</button>
+    </header>
+    <p class="gov-bot-detail-charter">${esc(bot.charter || "")}</p>
+    <div class="gov-bot-detail-grid">
+      <section class="gov-bot-panel">
+        <h3>职责与权限</h3>
+        <dl class="gov-bot-facts">
+          <div><dt>工具</dt><dd>${esc((bot.tools || []).join(" · "))}</dd></div>
+          <div><dt>模型策略</dt><dd>${esc(bot.model_policy || "deterministic")}</dd></div>
+          <div><dt>今日预算</dt><dd>${num(bot.runs_today || 0)} / ${num(settings.daily_run_limit || 0)}</dd></div>
+          <div><dt>累计运行</dt><dd>${num(counts.runs || 0)} 次 · ${num(counts.findings || 0)} 发现</dd></div>
+        </dl>
+      </section>
+      <section class="gov-bot-panel">
+        <h3>预算与审批</h3>
+        ${govBotSettingsFormHtml(bot)}
+      </section>
+    </div>
+    <section class="gov-bot-panel">
+      <h3>技能</h3>
+      ${govBotSkillsHtml(bot)}
+    </section>
+    <section class="gov-bot-panel">
+      <h3>排程</h3>
+      ${govBotRoutinesHtml([bot])}
+    </section>
+    <section class="gov-bot-panel">
+      <h3>最近运行</h3>
+      ${(runs || []).length
+        ? `<div class="gov-bot-run-list">${runs.slice(0, 12).map(run => runRowHtml(bot, run)).join("")}</div>`
+        : `<div class="gov-empty-state"><b>还没有运行</b><span>回到团队页给 ${esc(bot.name)} 派活。</span></div>`}
+    </section>
   </div>`;
 }
 
@@ -236,6 +364,7 @@ export function govBotRunHtml(bot, run) {
   const verb = run.trigger === "routine"
     ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
     : (bot.id === "verifier" ? "验证" : "扫描");
+  const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
   return `<div class="gov-entry user"><span class="gov-echo">@${esc(bot.name)} ${
     verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
   }</span></div>
@@ -248,7 +377,7 @@ export function govBotRunHtml(bot, run) {
         <span class="gov-bot-run-state ${botStatusClass(run.status)}">${esc(botStatusLabel(run.status))}</span>
       </header>
       ${runStatusLine(bot, run)}
-      ${runActions(run)}
+      ${runActions(run, { teach: !captured })}
     </div>
   </div>`;
 }

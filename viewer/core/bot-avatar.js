@@ -35,8 +35,10 @@ const ROLE_SVG = {
   </svg>`,
 };
 
-const STATES = new Set(["idle", "running", "done", "failed"]);
-const STATE_LABEL = { idle: "待命", running: "执行中", done: "完成", failed: "失败" };
+const STATES = new Set(["idle", "running", "pending", "done", "failed"]);
+const STATE_LABEL = {
+  idle: "待命", running: "执行中", pending: "待批准", done: "完成", failed: "失败",
+};
 
 export function botAvatarHtml(role, state = "idle", size = 32, label = "") {
   const key = ROLE_SVG[role] ? role : "auditor";
