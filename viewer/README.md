@@ -125,7 +125,8 @@ open 'http://127.0.0.1:8642/?desktop=1'
 - **随时停止**：轮次边界停止，终态 `STOPPED_BY_OPERATOR`，链仍完整可验。
 - **工具卡按运行时词汇渲染**：通用工具是 `ls_workspace` / `repo_map` / `search_codebase` /
   `read_file` / `grep_workspace` / `find_files` / `git_status` / `browser_inspect` /
-  `browser_act` / `write_file` / `edit_file` / `run_command` / `fetch_url`；财务参考负载另有结构化细节卡
+  `browser_act` / `write_file` / `edit_file` / `run_command` / `fetch_url`；浏览器工具复用
+  持久会话，`browser_act` 展示操作前后截图、DOM 文本 diff 与截图变化摘要；财务参考负载另有结构化细节卡
   （文档正文、口径换算、重述对比、毛利率三联指标）。未知工具按通用卡渲染。
 - **审计报告**：运行结束后签发自包含 HTML 底稿（结论、账单、证据、人工决定、链附录）。
 - **运行记录**：按今天 / 昨天 / 更早分组，搜索、置顶、重命名；失败运行可重试或复制诊断。

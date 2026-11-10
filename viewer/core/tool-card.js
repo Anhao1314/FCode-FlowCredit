@@ -93,8 +93,20 @@ function browserHtml(block) {
     </a>
     <figcaption>${esc(item.label)}</figcaption>
   </figure>`).join("");
+  const diff = result.diff || {};
+  const diffText = diff.changed === undefined
+    ? ""
+    : diff.size_changed
+      ? "截图尺寸变化"
+      : diff.changed
+        ? `截图变化 ${diff.ratio === null || diff.ratio === undefined ? "（已变化）" : (diff.ratio * 100).toFixed(2) + "%"}`
+        : "截图无变化";
+  const domDiff = result.dom_diff
+    ? `<details class="chat-browser-diff"><summary>DOM 文本变化</summary><pre>${esc(result.dom_diff)}</pre></details>`
+    : "";
   return `<div class="chat-browser-pair">${figures}</div>
-  <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}</div>`;
+  <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}${diffText ? " · " + esc(diffText) : ""}</div>
+  ${domDiff}`;
 }
 
 function approvalHtml(block) {

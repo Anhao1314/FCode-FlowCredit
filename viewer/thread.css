@@ -814,6 +814,13 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   margin: -4px 0 8px; color: var(--text-3);
   font: 10.5px/16px var(--font-mono); overflow-wrap: anywhere;
 }
+.th-browser-diff { margin: 0 0 8px; }
+.th-browser-diff summary { cursor: pointer; color: var(--text-3); font-size: 11px; }
+.th-browser-diff pre {
+  margin: 4px 0 0; padding: 6px; max-height: 180px; overflow: auto;
+  border-radius: 6px; background: var(--inset); color: var(--text-2);
+  font: 10px/15px var(--font-mono); white-space: pre-wrap;
+}
 .th-args { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 4px 0 8px; }
 .th-arg { display: contents; }
 .th-arg .k { font: 11px/18px var(--font-mono); color: var(--text-3); }

@@ -710,9 +710,10 @@ def build_general_tools(
                 Param(
                     name="url",
                     kind="string",
-                    required=True,
+                    required=False,
+                    nullable=True,
                     max_length=2_000,
-                    description="loopback preview URL",
+                    description="loopback preview URL; omit to act on the current browser_inspect page",
                 ),
                 Param(
                     name="selector",
@@ -770,6 +771,8 @@ def build_general_tools(
                 _out("text", "string"),
                 _out("elements", "array"),
                 _out("console_errors", "array"),
+                _out("dom_diff", "string"),
+                _out("diff", "object", required=False, nullable=True),
                 _out("truncated", "boolean"),
                 _out("duration_ms", "integer"),
                 _out("reason", "string", required=False, nullable=True),

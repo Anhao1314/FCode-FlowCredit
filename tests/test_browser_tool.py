@@ -89,6 +89,7 @@ class BrowserSidecarTests(unittest.TestCase):
         self.runner = BrowserRunner(
             self.workspace, artifact_root=self.root / "artifacts",
         )
+        self.addCleanup(self.runner.close)
         available, reason = self.runner.availability()
         if not available:
             self.skipTest(reason)
@@ -123,6 +124,8 @@ class BrowserSidecarTests(unittest.TestCase):
         self.assertTrue((self.root / "artifacts" / result["before"]["path"]).is_file())
         self.assertTrue((self.root / "artifacts" / result["after"]["path"]).is_file())
         self.assertNotEqual(result["before"]["path"], result["after"]["path"])
+        self.assertTrue(result["diff"]["changed"])
+        self.assertIn("已点击", result["dom_diff"])
 
     def test_fill_updates_the_element_value(self) -> None:
         port = self.server.server_address[1]
@@ -132,6 +135,20 @@ class BrowserSidecarTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         values = [item["text"] for item in result["elements"]]
         self.assertIn("hello browser", values)
+
+    def test_session_keeps_page_state_across_tool_calls(self) -> None:
+        port = self.server.server_address[1]
+        url = f"http://127.0.0.1:{port}/"
+        opened = self.runner.inspect(url)
+        self.assertTrue(opened["ok"], opened)
+        clicked = self.runner.act(action="click", selector="#go")
+        self.assertTrue(clicked["ok"], clicked)
+        filled = self.runner.act(action="fill", selector="#q", text="kept")
+        self.assertTrue(filled["ok"], filled)
+        inspected = self.runner.inspect(url)
+        self.assertTrue(inspected["ok"], inspected)
+        self.assertIn("已点击", inspected["text"])
+        self.assertIn("kept", [item["text"] for item in inspected["elements"]])
 
     def test_missing_selector_is_explicit_and_keeps_before_shot(self) -> None:
         port = self.server.server_address[1]

@@ -481,6 +481,13 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   margin: 4px 10px 8px; color: var(--text-3);
   font: 10.5px/16px var(--font-mono); overflow-wrap: anywhere;
 }
+.chat-browser-diff { margin: 0 10px 8px; }
+.chat-browser-diff summary { cursor: pointer; color: var(--text-3); font-size: 11px; }
+.chat-browser-diff pre {
+  margin: 4px 0 0; padding: 6px; max-height: 180px; overflow: auto;
+  border-radius: 6px; background: var(--inset); color: var(--text-2);
+  font: 10px/15px var(--font-mono); white-space: pre-wrap;
+}
 
 .chat-tool.awaiting { border-color: rgba(180, 83, 9, .45); }
 .chat-tool.awaiting .chat-tool-dot { background: var(--warn); }

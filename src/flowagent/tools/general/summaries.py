@@ -139,6 +139,8 @@ def summarize_browser_act(result: dict[str, Any]) -> dict[str, Any]:
         "before": before.get("path") if isinstance(before, dict) else None,
         "after": after.get("path") if isinstance(after, dict) else None,
         "text": str(result.get("text") or "")[:800],
+        "dom_diff": str(result.get("dom_diff") or "")[:600],
+        "screenshot_changed": (result.get("diff") or {}).get("changed"),
         "reason": result.get("reason"),
     }
 

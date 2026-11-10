@@ -679,7 +679,14 @@ function toolBodyHtml(item, ctx) {
   }
   if (browserShots.length) {
     const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(entry.shot.url)}" target="_blank" rel="noreferrer"><img src="${esc(entry.shot.url)}" alt="浏览器截图 · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
-    sections.push(`<div class="th-browser-pair">${figures}</div><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}</div>`);
+    const diff = browserResult.diff || {};
+    const diffText = diff.changed === undefined ? ""
+      : diff.size_changed ? "截图尺寸变化"
+        : diff.changed ? `截图变化 ${diff.ratio === null || diff.ratio === undefined ? "（已变化）" : (diff.ratio * 100).toFixed(2) + "%"}`
+          : "截图无变化";
+    const domDiff = browserResult.dom_diff
+      ? `<details class="th-browser-diff"><summary>DOM 文本变化</summary><pre>${esc(browserResult.dom_diff)}</pre></details>` : "";
+    sections.push(`<div class="th-browser-pair">${figures}</div><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}${diffText ? " · " + esc(diffText) : ""}</div>${domDiff}`);
   }
   if (item.detailHtml) sections.push(`<div class="th-tool-detail">${item.detailHtml}</div>`);
   if (!sections.length && item.message) sections.push(`<p class="th-note">${esc(item.message)}</p>`);
