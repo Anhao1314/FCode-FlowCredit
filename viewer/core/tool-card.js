@@ -74,6 +74,16 @@ function previewLines(preview) {
   return lines;
 }
 
+function browserHtml(block) {
+  const result = block.result || {};
+  const shot = result.screenshot;
+  if (!shot || !shot.url) return "";
+  return `<a class="chat-browser-shot" href="${esc(shot.url)}" target="_blank" rel="noreferrer">
+    <img src="${esc(shot.url)}" alt="浏览器截图" loading="lazy">
+  </a>
+  <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}</div>`;
+}
+
 function approvalHtml(block) {
   const approval = block.approval || {};
   const preview = approval.preview || {};
@@ -111,6 +121,7 @@ export function toolCardHtml(block) {
       <span class="chat-tool-state">${esc(label)}</span>
     </div>
     ${approval}
+    ${browserHtml(block)}
     ${body || meta ? `<details class="chat-tool-detail">
       <summary>参数与结果</summary>
       ${body ? `<pre class="chat-tool-result">${esc(body)}</pre>` : ""}

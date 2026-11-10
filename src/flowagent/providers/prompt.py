@@ -90,6 +90,8 @@ GENERAL_DOMAIN_INSTRUCTION = (
     "抓取已声明来源（fetch_url）、按自然语言检索代码与文档（search_codebase，"
     "返回路径、行号与片段）、精确文本搜索（grep_workspace）、"
     "按模式找文件（find_files）、查看工作区 git 状态（git_status）、"
+    "打开本机前端预览看 DOM/可交互元素并截图（browser_inspect，仅 127.0.0.1/"
+    "localhost/::1）、"
     "并行只读调查（spawn_subagents）或隔离拷贝的写子代理（spawn_subagents "
     "write_access=true，改完用 apply_child_changes 显式应用，冲突逐文件检测）；"
     "长任务预算可能不够时，可申请追加（request_budget_extension，须说明理由，"
@@ -107,6 +109,8 @@ GENERAL_DOMAIN_INSTRUCTION = (
 GENERAL_FAST_INSTRUCTION = (
     "这是通用工程域的快速模式：可读写工作区（read_file_raw / repo_map / "
     "search_codebase / grep_workspace / find_files / write_file / edit_file），"
+    "打开本机回环前端预览看 DOM/元素并截图（browser_inspect，仅 127.0.0.1/"
+    "localhost/::1），"
     "运行受限命令（run_command：无 shell，参数逐个白名单校验并路径 jail），"
     "在受限持久终端中执行多步操作（terminal：写入被限制在当前工作区，"
     "管道/内联脚本可用），"

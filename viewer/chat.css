@@ -464,6 +464,17 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   font: 11px/1.55 var(--font-mono); color: var(--text-2); white-space: pre-wrap;
   word-break: break-all; max-height: 240px; overflow: auto; }
 .chat-tool-meta { margin-top: 6px; font: 10.5px var(--font-mono); color: var(--text-4); }
+.chat-browser-shot {
+  display: block; margin: 8px 10px 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--raised);
+}
+.chat-browser-shot img {
+  display: block; width: 100%; max-height: 420px; object-fit: contain; object-position: top center;
+}
+.chat-browser-meta {
+  margin: 4px 10px 8px; color: var(--text-3);
+  font: 10.5px/16px var(--font-mono); overflow-wrap: anywhere;
+}
 
 .chat-tool.awaiting { border-color: rgba(180, 83, 9, .45); }
 .chat-tool.awaiting .chat-tool-dot { background: var(--warn); }

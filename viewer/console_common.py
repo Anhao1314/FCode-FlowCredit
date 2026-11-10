@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -30,6 +31,11 @@ VIEWER_DIR = Path(__file__).resolve().parent
 #: The desktop shell points this at the user's Application Support directory:
 #: a packaged .app bundle is read-only, and run records belong to the user.
 RUNS_DIR = Path(os.environ.get("FCODE_RUNS_DIR") or (VIEWER_DIR / "runs"))
+#: Browser screenshots/DOM live outside the workspace: they are host evidence,
+#: not project files. The tool and this server must resolve the same root.
+BROWSER_DIR = Path(
+    os.environ.get("FCODE_BROWSER_DIR") or (Path(tempfile.gettempdir()) / "fcode-browser")
+)
 os.environ.setdefault("FCODE_MEMORY_DB", str(RUNS_DIR.parent / "memory" / "cases.sqlite"))
 
 

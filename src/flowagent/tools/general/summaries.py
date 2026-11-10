@@ -110,6 +110,22 @@ def summarize_search_codebase(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_browser_inspect(result: dict[str, Any]) -> dict[str, Any]:
+    text = str(result.get("text") or "")
+    shot = result.get("screenshot") or {}
+    return {
+        "available": bool(result.get("available")),
+        "ok": bool(result.get("ok")),
+        "url": result.get("url"),
+        "title": result.get("title"),
+        "text": text[:1200],
+        "elements": len(result.get("elements") or []),
+        "screenshot": shot.get("path") if isinstance(shot, dict) else None,
+        "console_errors": len(result.get("console_errors") or []),
+        "reason": result.get("reason"),
+    }
+
+
 def summarize_grep_workspace(result: dict[str, Any]) -> dict[str, Any]:
     matches = result.get("matches", [])
     return {

@@ -53,6 +53,7 @@ if str(VIEWER_DIR) not in sys.path:
     sys.path.insert(0, str(VIEWER_DIR))
 
 from console_common import (  # noqa: E402
+    BROWSER_DIR,
     DOMAIN_KEY,
     MAX_REQUEST_BODY,
     RUNS_DIR,
@@ -290,6 +291,31 @@ class Handler(SimpleHTTPRequestHandler):
                     "error": str(error) or "workspace files are unavailable",
                     "code": getattr(error, "code", "CHAT_WORKSPACE_LIST_FAILED"),
                 }, 400)
+        if path == "/api/browser/artifact":
+            query = parse_qs(urlparse(self.path).query)
+            relative = str((query.get("path") or [""])[0] or "").strip()
+            if not relative:
+                return self._json({"error": "path is required"}, 400)
+            root = BROWSER_DIR.resolve()
+            target = (root / relative).resolve()
+            if target == root or root not in target.parents:
+                return self._json({"error": "artifact not found"}, 404)
+            if target.suffix.lower() not in (".png", ".html") or not target.is_file():
+                return self._json({"error": "artifact not found"}, 404)
+            data = target.read_bytes()
+            self.send_response(200)
+            # DOM HTML is untrusted page content: never serve it as text/html on
+            # this origin (same-origin script execution). PNG is safe to render.
+            self.send_header(
+                "Content-Type",
+                "image/png" if target.suffix.lower() == ".png" else "text/plain; charset=utf-8",
+            )
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/chat/threads":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)

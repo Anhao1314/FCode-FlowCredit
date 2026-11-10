@@ -48,7 +48,7 @@ __all__ = [
 
 #: 只读工具：任何档位直接执行。
 READ_TOOLS = ("ls_workspace", "search_codebase", "read_file",
-              "grep_workspace", "find_files", "git_status")
+              "grep_workspace", "find_files", "git_status", "browser_inspect")
 #: 写工具：需要逐调用审批（APPROVAL_TOOLS 与 run 侧同集）。
 WRITE_TOOLS = ("write_file", "edit_file", "run_command", "terminal")
 #: 网络读取：逐调用审批（按域记住）。

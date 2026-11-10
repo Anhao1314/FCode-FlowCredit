@@ -670,6 +670,11 @@ function toolBodyHtml(item, ctx) {
     }).join("");
     sections.push(`<div class="th-diff" role="group" aria-label="差异">${lines}</div>`);
   }
+  const browserResult = item.observation && item.observation.result;
+  const browserShot = browserResult && browserResult.screenshot;
+  if (browserShot && browserShot.url) {
+    sections.push(`<a class="th-browser-shot" href="${esc(browserShot.url)}" target="_blank" rel="noreferrer"><img src="${esc(browserShot.url)}" alt="浏览器截图" loading="lazy"></a><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}</div>`);
+  }
   if (item.detailHtml) sections.push(`<div class="th-tool-detail">${item.detailHtml}</div>`);
   if (!sections.length && item.message) sections.push(`<p class="th-note">${esc(item.message)}</p>`);
   const raw = item.observation ? {

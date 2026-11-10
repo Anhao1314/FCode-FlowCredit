@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 from ...core.contracts import AgentError
 from ..base import EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Param, ToolSpec
+from .browser import BrowserRunner
 from .code_index import WorkspaceIndex
 from .commands import CommandRunner, MAX_TIMEOUT_SECONDS
 from .fetch import UrlFetcher
@@ -52,6 +53,7 @@ def build_general_tools(
     fetch_guard: Callable[[str], None] | None = None,
     command_runner: CommandRunner | None = None,
     terminal_jail: bool = False,
+    browser_artifact_root: Path | None = None,
 ) -> list[ToolSpec]:
     """Bind the sandbox, fetcher and command runner to their tool specs.
 
@@ -63,6 +65,7 @@ def build_general_tools(
     # One lazy index per registry: a run builds it on the first search and
     # reuses it for every later search; no disk cache and no new effect.
     code_index = WorkspaceIndex(sandbox.root)
+    browser = BrowserRunner(sandbox.root, artifact_root=browser_artifact_root)
 
     def ls_workspace(_: dict[str, Any]) -> dict[str, Any]:
         entries = sandbox.ls()
@@ -361,6 +364,18 @@ def build_general_tools(
             raise AgentError("FETCH_EMPTY", f"{result['host']!r} returned no readable text")
         return result
 
+    def browser_inspect(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Open one loopback preview, return DOM text/elements + screenshot."""
+        try:
+            wait_ms = int(arguments.get("wait_ms") or 300)
+        except (TypeError, ValueError):
+            wait_ms = 300
+        return browser.inspect(
+            str(arguments.get("url") or ""),
+            full_page=bool(arguments.get("full_page") or False),
+            wait_ms=wait_ms,
+        )
+
     def report_blocked(arguments: dict[str, Any]) -> dict[str, Any]:
         """Declare that the work cannot proceed. No world effect, no authority.
 
@@ -608,6 +623,58 @@ def build_general_tools(
             version="1.0",
         ),
         ToolSpec(
+            name="browser_inspect",
+            summarize=summaries.summarize_browser_inspect,
+            summary=(
+                "Open a loopback http(s) preview in headless Chromium: return "
+                "title, visible text, interactive elements and a screenshot. "
+                "Inspect-only; external URLs and downloads are refused"
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="url",
+                    kind="string",
+                    required=True,
+                    max_length=2_000,
+                    description="loopback preview URL, e.g. http://127.0.0.1:5173/",
+                ),
+                Param(
+                    name="full_page",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description="capture the full scrollable page (default false)",
+                ),
+                Param(
+                    name="wait_ms",
+                    kind="integer",
+                    required=False,
+                    nullable=True,
+                    minimum=0,
+                    maximum=5_000,
+                    description="settle time after DOMContentLoaded (default 300ms)",
+                ),
+            ),
+            handler=browser_inspect,
+            outputs=(
+                _out("available", "boolean"),
+                _out("ok", "boolean"),
+                _out("url", "string"),
+                _out("title", "string"),
+                _out("text", "string"),
+                _out("elements", "array"),
+                _out("console_errors", "array"),
+                _out("screenshot", "object", required=False, nullable=True),
+                _out("dom", "object", required=False, nullable=True),
+                _out("truncated", "boolean"),
+                _out("duration_ms", "integer"),
+                _out("reason", "string", required=False, nullable=True),
+                _out("error", "object", required=False, nullable=True),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
             name="write_file",
             summarize=summaries.summarize_write_file,
             summary="Write one file into the workspace sandbox; approval-gated, hashed and git-committed",
@@ -818,6 +885,7 @@ def build_general_tools(
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
     "ls_workspace", "repo_map", "search_codebase", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
+    "browser_inspect",
     "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
 )
