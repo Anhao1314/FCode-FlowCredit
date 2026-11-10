@@ -2746,6 +2746,52 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 #model-menu .tpl-item .m { max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
 #model-menu .model-item .check { color: var(--accent); }
 
+/* 模型菜单 = Kimi 的大卡片：向上覆盖一段对话区，宽行、当前模型圆点、
+   底部设置区用分隔线收束。 */
+#chat-model-menu, #work-model-menu { padding: 10px; border-radius: 16px; }
+#chat-model-menu .tpl-item,
+#work-model-menu .tpl-item { padding: 9px 12px; gap: 3px; border-radius: 10px; }
+#chat-model-menu .tpl-item .t,
+#work-model-menu .tpl-item .t { font-size: 16px; line-height: 22px; }
+#chat-model-menu .tpl-item .d,
+#work-model-menu .tpl-item .d { font-size: 13px; line-height: 19px; }
+#chat-model-menu .model-item.active,
+#work-model-menu .model-item.active { background: transparent; }
+#chat-model-menu .model-item.active:hover,
+#work-model-menu .model-item.active:hover { background: #F5F5F5; }
+.model-current-dot {
+  flex: none; width: 11px; height: 11px; margin-left: 8px;
+  border-radius: 50%; background: var(--text-3);
+}
+#chat-model-menu .model-effort,
+#work-model-menu .model-effort {
+  display: block; margin: 8px 0 0; padding: 10px 12px 4px;
+  border-top: 1px solid var(--line-soft); border-radius: 0; background: none;
+}
+#chat-model-menu .me-head,
+#work-model-menu .me-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin: 0 0 6px; padding: 0; border: 0; background: none;
+  color: var(--text-1); text-align: left; cursor: pointer;
+}
+#chat-model-menu .me-value,
+#work-model-menu .me-value { margin-left: auto; color: var(--text-3); font-weight: 400; }
+#chat-model-menu .me-chev,
+#work-model-menu .me-chev { color: var(--text-3); font-size: 16px; line-height: 1; transition: transform .15s ease; }
+#chat-model-menu .model-effort.open .me-chev,
+#work-model-menu .model-effort.open .me-chev { transform: rotate(90deg); }
+#chat-model-menu .model-effort:not(.open) .me-opts,
+#work-model-menu .model-effort:not(.open) .me-opts { display: none; }
+#chat-model-menu .me-opts,
+#work-model-menu .me-opts { gap: 4px; }
+#chat-model-menu .me-opt,
+#work-model-menu .me-opt { padding: 4px 10px; border-radius: 6px; background: var(--panel); }
+#chat-model-menu [data-chatmodel-settings] {
+  margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); border-radius: 0;
+}
+#chat-model-menu .tpl-note,
+#work-model-menu .tpl-note { display: none; }
+
 /* 会话标签条在隐藏时仍被 CSS 拉成 flex（1040×7 的透明带），会盖住向上展开的
    浮窗顶部。与其逐个修浮窗，不如让 [hidden] 真的消失。 */
 .tabs[hidden] { display: none !important; }

@@ -493,7 +493,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 
 /* Composer: independent flex footer. A solid boundary makes the end of the
    scrollport explicit; .main owns scrolling and never extends beneath it. */
-.composer-wrap { position: relative; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
+.composer-wrap { position: relative; z-index: 40; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
 .composer-box { border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow-stage); }
 .composer-box:focus-within {
   /* 聚焦反馈保持在容器上：边框轻微加深 + 3px 柔环。此前 .32 接近黑色，

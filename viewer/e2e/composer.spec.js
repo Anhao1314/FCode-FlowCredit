@@ -29,11 +29,15 @@ test("新对话的模型菜单不越出视口", async ({ page }) => {
   await page.locator("#model-btn").click();
   const menu = page.locator("#chat-model-menu");
   await expect(menu).toBeVisible();
+  await expect(menu.locator(".tpl-item").first()).toBeVisible();
+  await expect(menu.locator(".model-current-dot")).toBeVisible();
   const box = await menu.boundingBox();
+  const chip = await page.locator("#model-btn").boundingBox();
   const viewport = page.viewportSize();
   expect(box).toBeTruthy();
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(chip.y, "菜单应向上展开，卡片底边停在模型芯片上方");
 });
 
 test("Chat 输入 @ 不打开 Work 引用器", async ({ page }) => {

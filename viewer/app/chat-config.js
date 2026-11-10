@@ -60,7 +60,7 @@ export function createChatConfig(deps) {
     if (!menu) return;
     const items = getChatModels().map(m => {
       const current = m.available && m.key === chatModelChoice.key;
-      return `<button class="tpl-item model-item${current ? " active" : ""}${m.available ? "" : " disabled"}" data-chatmodel-pick="${esc(m.key)}"${m.available ? "" : " disabled"}><span class="t"><span>${esc(m.label)}${current ? '<span class="check">✓</span>' : ""}</span><span class="m">${esc(m.model)}</span></span><span class="d">${m.available ? (m.remote && m.price ? `${num(m.price.inputMicrousdPerMtok)} / ${num(m.price.outputMicrousdPerMtok)} µUSD·MTok⁻¹` : "离线 · 不产生外部计费") : esc(m.reason)}</span></button>`;
+      return `<button class="tpl-item model-item${current ? " active" : ""}${m.available ? "" : " disabled"}" data-chatmodel-pick="${esc(m.key)}"${m.available ? "" : " disabled"}><span class="t"><span>${esc(m.label)}</span><span class="m">${esc(m.model)}</span>${current ? '<span class="model-current-dot" aria-label="当前模型"></span>' : ""}</span><span class="d">${m.available ? (m.remote && m.price ? `${num(m.price.inputMicrousdPerMtok)} / ${num(m.price.outputMicrousdPerMtok)} µUSD·MTok⁻¹` : "离线 · 不产生外部计费") : esc(m.reason)}</span></button>`;
     }).join("");
     menu.innerHTML = items + `<div class="tpl-note">对话模型；委托运行的模型仍由环境变量配置</div><button class="tpl-item" type="button" data-chatmodel-settings><span class="t"><span>管理模型配置…</span></span><span class="d">设置 → 模型与工具：填写 API Key 与价格</span></button>`;
   }

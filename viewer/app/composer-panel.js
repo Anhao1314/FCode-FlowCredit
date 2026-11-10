@@ -397,32 +397,31 @@ export function createComposerPanel(deps) {
   function placeModelMenu(menu = document.getElementById("work-model-menu")) {
     if (!menu) return;
     const btn = document.getElementById("model-btn");
-    const box = document.getElementById("composer-box");
-    if (btn && box && box.contains(btn) && btn.getBoundingClientRect().width > 0) {
-      // 绝对定位坐标相对包含块 padding box（composer-box 有 1px 边框），
-      // 右对齐到按钮右缘；异常几何下不动内联值，退回 CSS 锚点。
-      const border = 1;
-      const right = Math.round(box.getBoundingClientRect().right - border
-        - btn.getBoundingClientRect().right);
-      if (right >= 0 && right < box.getBoundingClientRect().width / 2) {
-        menu.style.right = `${right}px`;
-        menu.style.left = "auto";
-      }
-    }
-    menu.style.maxHeight = "";
-    menu.style.overflowY = "";
-    menu.style.overscrollBehavior = "";
-    menu.classList.remove("drop-down");
-    let rect = menu.getBoundingClientRect();
-    if (rect.top < 8) {
-      // 舞台态 composer 贴近底部：向下展开，但不能让菜单越过视口底边。
-      // 按剩余高度限高并保留内部滚动，模型/思考强度仍然全部可达。
+    if (!btn) return;
+    const chip = btn.getBoundingClientRect();
+    if (!chip.width) return;
+    const margin = 12;
+    const gap = 8;
+    // Kimi 的大卡片形态：以模型芯片右缘为锚，向上覆盖一部分对话区。
+    // 用 fixed 脱离 .main 的滚动裁剪；菜单自身限高并在内部滚动。
+    menu.style.position = "fixed";
+    menu.style.left = "auto";
+    menu.style.right = `${Math.max(margin, window.innerWidth - chip.right)}px`;
+    menu.style.width = `min(420px, calc(100vw - ${margin * 2}px))`;
+    menu.style.zIndex = "200";
+    menu.style.overflowY = "auto";
+    menu.style.overscrollBehavior = "contain";
+    if (chip.top >= 200) {
+      menu.classList.remove("drop-down");
+      menu.style.top = "auto";
+      menu.style.bottom = `${Math.max(margin, window.innerHeight - chip.top + gap)}px`;
+      menu.style.maxHeight = `${Math.max(180, chip.top - margin - gap)}px`;
+    } else {
+      // 视口太矮，芯片贴近顶部：向下展开，仍限制在视口内。
       menu.classList.add("drop-down");
-      rect = menu.getBoundingClientRect();
-      const available = Math.max(120, window.innerHeight - rect.top - 8);
-      menu.style.maxHeight = `${available}px`;
-      menu.style.overflowY = "auto";
-      menu.style.overscrollBehavior = "contain";
+      menu.style.bottom = "auto";
+      menu.style.top = `${chip.bottom + gap}px`;
+      menu.style.maxHeight = `${Math.max(120, window.innerHeight - chip.bottom - gap - margin)}px`;
     }
   }
 
@@ -434,7 +433,7 @@ export function createComposerPanel(deps) {
     const items = modelCatalog.map(m => {
       const current = m.available && m.key === modelChoice.key;
       return `<button class="tpl-item model-item${current ? " active" : ""}${m.available ? "" : " disabled"}" data-model-pick="${esc(m.key)}"${m.available ? "" : " disabled"}>
-        <span class="t"><span>${esc(m.label)}${current ? '<span class="check">✓</span>' : ""}</span><span class="m">${esc(m.model)}</span></span>
+        <span class="t"><span>${esc(m.label)}</span><span class="m">${esc(m.model)}</span>${current ? '<span class="model-current-dot" aria-label="当前模型"></span>' : ""}</span>
         <span class="d">${m.available ? (m.key === "mock" ? "离线确定性 mock · 演示与回归" : m.supportsEffort ? "云端模型 · 支持思考强度" : "本地推理") : esc(m.reason)}</span>
       </button>`;
     }).join("");
@@ -445,11 +444,10 @@ export function createComposerPanel(deps) {
     const effortHost = selected && selected.available && selected.supportsEffort
       ? selected : modelCatalog.find(m => m.key === "kimi" && m.available && m.supportsEffort);
     const effortBlock = effortHost ? `<div class="model-effort">
-      <span class="me-head">思考强度${effortHost.key !== modelChoice.key ? ` · ${esc(effortHost.label)}` : ""}</span>
+      <button class="me-head" type="button" data-effort-toggle aria-expanded="false"><span>思考强度${effortHost.key !== modelChoice.key ? ` · ${esc(effortHost.label)}` : ""}</span><span class="me-value">${esc(d.EFFORT_LABEL[modelChoice.effort] || "中")}</span><span class="me-chev" aria-hidden="true">›</span></button>
       <div class="me-opts">${d.EFFORT_LEVELS.map(level =>
         `<button class="me-opt${modelChoice.key === effortHost.key && modelChoice.effort === level ? " active" : ""}" data-effort-pick="${level}">${d.EFFORT_LABEL[level]}</button>`
       ).join("")}</div>
-  
     </div>` : "";
     menu.innerHTML = items + effortBlock + `<div class="tpl-note">模型由操作者选择；门控 / 预算 / 审计对任何模型同等生效</div>`;
     if (!menu.hidden) placeModelMenu();

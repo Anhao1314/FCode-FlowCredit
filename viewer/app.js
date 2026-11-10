@@ -3315,9 +3315,20 @@ function bindComposerAddMenu() {
   });
 }
 
+/* 模型大卡片必须是 viewport 级浮层：舞台的 .moonshot-stage 有 transform，
+   会把 fixed 菜单变成相对舞台定位，还会被 .main 的 overflow 裁掉。
+   移到 body 后，placeModelMenu 的 fixed 坐标才真正相对视口。 */
+function portalComposerMenus() {
+  for (const id of ["chat-model-menu", "work-model-menu"]) {
+    const menu = document.getElementById(id);
+    if (menu && menu.parentElement !== document.body) document.body.appendChild(menu);
+  }
+}
+
 function bind() {
   hydrateDoodles();
   applyMotion();
+  portalComposerMenus();
   bindSettings();
   bindChatAttachments();
   bindComposerAddMenu();
@@ -3618,6 +3629,15 @@ function bindComposer() {
       renderModelMenu();
       paintModelBadge();
       workModelMenu.hidden = true;
+      return;
+    }
+    const effortToggle = event.target.closest("[data-effort-toggle]");
+    if (effortToggle) {
+      const block = effortToggle.closest(".model-effort");
+      if (block) {
+        const open = block.classList.toggle("open");
+        effortToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
       return;
     }
     const effort = event.target.closest("[data-effort-pick]");
