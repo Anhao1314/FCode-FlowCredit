@@ -7,7 +7,7 @@ export function moonshotStageHtml(note, options = {}) {
   const chat = !!options.chat;
   const work = !!options.work;
   const mode = chat ? "CHAT" : "WORK";
-  const title = chat ? ["Bring light", "to ideas."] : ["Build your", "own work."];
+  const title = chat ? ["Bring proof", "to ideas."] : ["Build your", "own work."];
   const footnote = options.footnote || "";
   return `<section class="stage-empty moonshot-stage${chat ? " is-chat" : ""}" aria-label="${chat ? "开始对话" : "开始任务"}">
     <div class="moonshot-stage-top">
@@ -32,6 +32,6 @@ export function moonshotStageHtml(note, options = {}) {
     ${work ? workPromptsHtml() : ""}
     <div class="stage-chips" id="stage-chips" aria-label="按模板开始委托"${work ? "" : " hidden"}></div>
     ${work && footnote ? `<p class="stage-foot">${esc(footnote)}</p>` : ""}
-    <div class="moonshot-stage-foot" aria-hidden="true"><span>把光带进来</span><span>MODEL PROPOSES · HOST VERIFIES · YOU DECIDE</span></div>
+    <div class="moonshot-stage-foot" aria-hidden="true"><span>让想法有据可查</span><span>MODEL PROPOSES · HOST VERIFIES · YOU DECIDE</span></div>
   </section>`;
 }

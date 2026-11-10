@@ -14,8 +14,10 @@ test("Work opening scene keeps the composer contract and creator message", () =>
 
 test("Chat gets its own opening message and hides delegation templates", () => {
   const html = moonshotStageHtml("整理思路", { chat: true });
-  assert.match(html, /Bring light/);
+  assert.match(html, /Bring proof/);
   assert.match(html, /to ideas\./);
+  assert.match(html, /让想法有据可查/);
+  assert.doesNotMatch(html, /Bring light/);
   assert.match(html, /id="stage-chips"[^>]* hidden/);
   assert.match(html, />CHAT<\/span>/);
 });
