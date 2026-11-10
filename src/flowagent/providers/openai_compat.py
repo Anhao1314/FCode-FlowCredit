@@ -550,14 +550,21 @@ class CompatClient:
         *,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
+        max_completion_tokens: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        budget = (
+            self.max_completion_tokens if max_completion_tokens is None
+            else max_completion_tokens
+        )
+        if budget <= 0:
+            raise ValueError("max_completion_tokens override must be positive")
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            self.completion_field: self.max_completion_tokens,
+            self.completion_field: budget,
             "stream": False,
         }
         if self.temperature_mode == "pin-zero":
@@ -625,8 +632,15 @@ class CompatClient:
             )
         return AgentError("MODEL_CALL_FAILED", f"{self.label} returned empty content")
 
-    def chat(self, system: str, user: str) -> tuple[str, dict[str, Any], str]:
-        message, usage, request_id = self._post(system, user)
+    def chat(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_completion_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any], str]:
+        message, usage, request_id = self._post(
+            system, user, max_completion_tokens=max_completion_tokens)
         content = message.get("content") or ""
         if not isinstance(content, str) or not content.strip():
             raise self._empty_content_error(message)
@@ -833,6 +847,49 @@ class OpenAICompatProvider:
             _micro(prompt_tokens, self.price.input_microusd_per_mtok)
             + _micro(self.max_completion_tokens, self.price.output_microusd_per_mtok),
         )
+
+    def complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """One raw auxiliary completion (memory policy head, judges).
+
+        Deliberately outside the proposal contract: no plan parsing, no receipt
+        issuance, no tool schema. The caller only needs the text and an
+        attributable cost record, so the metadata mirrors the fields a receipt
+        carries without pretending this call produced a proposal.
+        """
+        started = time.monotonic()
+        content, usage, request_id = self.client.chat(
+            system, user, max_completion_tokens=max_tokens)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        prompt_tokens, completion_tokens, total_tokens = _usage_tokens(usage)
+        cached_tokens = _provider_cached_tokens(usage)
+        return content, {
+            "provider": self.label,
+            "model": self.model,
+            "request_id": request_id,
+            "latency_ms": latency_ms,
+            "max_completion_tokens": (
+                max_tokens if max_tokens is not None
+                else self.client.max_completion_tokens
+            ),
+            "usage_prompt_tokens": prompt_tokens,
+            "usage_completion_tokens": completion_tokens,
+            "usage_total_tokens": total_tokens,
+            "cached_tokens": cached_tokens,
+            # Basis points, not a float: this metadata is committed inside a
+            # chain event and canonical_json rejects floats by design.
+            "cache_hit_bp": (
+                int(round(cached_tokens / prompt_tokens * 10_000))
+                if prompt_tokens else 0
+            ),
+            "cost_microusd": self.price.cost(usage) if usage else 0,
+            "usage_missing": not bool(usage),
+        }
 
     def _pace(self) -> None:
         """Reserve a dispatch slot on the endpoint's shared rate limiter.

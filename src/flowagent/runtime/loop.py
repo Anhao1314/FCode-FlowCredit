@@ -25,6 +25,14 @@ from ..core.contracts import PLAN_VERSION, AgentError, Task
 from ..core.observation import SourceTrust
 from ..core.plan import Plan
 from ..memory.context import WorkingMemory
+from ..memory.policy import (
+    POLICY_SCHEMA,
+    PolicyConfig,
+    build_policy_messages,
+    compare_heuristic,
+    parse_policy_reply,
+    policy_profile_allowed,
+)
 from ..memory.summary_cache import SummaryCache
 from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
@@ -153,6 +161,13 @@ class Loop:
         self.plan_extension = (
             plan_extension if plan_extension is not None else harness.plan_extension
         )
+        #: Sprint A memory policy head: parsed from ``spec.memory_policy`` (with
+        #: an env fallback) in :meth:`restore`; default off. Shadow decisions are
+        #: recorded but never consumed by ``WorkingMemory.build``.
+        self.memory_policy = PolicyConfig()
+        self._policy_calls = 0
+        self._policy_last_round = 0
+        self._policy_skip_logged = False
 
     def run(self, task_id: str) -> Task:
         task = self.harness.store.load(task_id)
@@ -280,6 +295,7 @@ class Loop:
                     self.observer.proposal(round_no, proposal)
                     steps = self._round_steps(proposal)
                 else:
+                    task = self._maybe_memory_policy(task, memory, round_no, plan)
                     context = memory.build(round_no, budget_snapshot, plan)
                     try:
                         task, proposal = self.harness.propose(task, context)
@@ -977,10 +993,27 @@ class Loop:
             # fast model back to re-read the same files. Double it for fast.
             observation_budget=48_000 if getattr(self.harness, "max_steps", 1) > 1 else 24_000,
         )
+        # Policy config is part of the frozen delegation, so it is re-derived
+        # here rather than trusted from process state. Counters rebuild from the
+        # chain: a resumed run must not exceed max_calls or call twice in one
+        # round just because the process restarted.
+        self.memory_policy = PolicyConfig.from_spec(spec)
+        self._policy_calls = 0
+        self._policy_last_round = 0
+        self._policy_skip_logged = False
         for event in self.harness.store.events(task.id):
             if event["type"] == "memory_recalled":
                 detail = event["payload"].get("detail") or {}
                 prior_cases = list(detail.get("hits") or [])
+                continue
+            if event["type"] == "memory_decision":
+                detail = event["payload"].get("detail") or {}
+                if detail.get("mode") in ("shadow", "fallback"):
+                    self._policy_calls += 1
+                    self._policy_last_round = max(
+                        self._policy_last_round,
+                        int(detail.get("round") or 0),
+                    )
                 continue
             if event["type"] != "tool_succeeded":
                 continue
@@ -1000,6 +1033,116 @@ class Loop:
             )
         memory.prior_cases = prior_cases
         return memory
+
+    # -------------------------------------------------------- memory policy head
+
+    def _maybe_memory_policy(
+        self,
+        task: Task,
+        memory: WorkingMemory,
+        round_no: int,
+        plan: Plan | None,
+    ) -> Task:
+        """Sprint A: run the policy head in shadow mode and record its answer.
+
+        The decision is *not* handed to ``WorkingMemory.build`` — the heuristic
+        path is byte-identical with the head on or off. What this buys is the
+        shadow datum the promotion gate needs: where the head disagrees with
+        the deterministic fold, and how confident it was.
+
+        Every failure mode is local: a transport error, a malformed reply or an
+        unsupported provider records an event and returns the same task. The
+        run never blocks on the memory policy.
+        """
+        cfg = self.memory_policy
+        if not cfg.enabled or not memory.records:
+            return task
+        if not policy_profile_allowed(self.memory_prompt_profile):
+            return task
+        if self._policy_calls >= cfg.max_calls:
+            return task
+        if self._policy_last_round == round_no:
+            return task
+
+        due = round_no % cfg.every_rounds == 0
+        pressure = (
+            cfg.trigger in ("pressure", "both")
+            and memory.budget_pressure() >= cfg.pressure_ratio
+        )
+        if cfg.trigger == "interval" and not due:
+            return task
+        if cfg.trigger == "pressure" and not pressure:
+            return task
+        if cfg.trigger == "both" and not (due or pressure):
+            return task
+
+        provider = getattr(self.harness, "provider", None)
+        complete = getattr(provider, "complete", None)
+        if not callable(complete):
+            if not self._policy_skip_logged:
+                self._policy_skip_logged = True
+                return self.harness.record(task, "memory_decision", {
+                    "round": round_no,
+                    "mode": "skipped",
+                    "reason": "provider_unsupported",
+                })
+            return task
+
+        rows = memory.policy_rows(limit=cfg.max_entries)
+        if not rows:
+            return task
+        todos = [
+            {"id": todo.id, "text": todo.text, "status": todo.status}
+            for todo in (plan.todos if plan is not None else [])
+            if todo.status in ("pending", "active")
+        ][:12]
+        system, user = build_policy_messages(
+            objective=memory.objective,
+            round_no=round_no,
+            rows=rows,
+            open_todos=todos,
+            budget=memory.observation_stats(),
+            max_entries=cfg.max_entries,
+        )
+        requested = cfg.mode
+        # Sprint A implements shadow only. An explicit ``active`` in the spec is
+        # recorded as requested but cannot change behaviour before the gate.
+        mode = "shadow" if requested == "active" else requested
+        self._policy_calls += 1
+        self._policy_last_round = round_no
+        trigger = "pressure" if pressure else "interval"
+        try:
+            text, cost = complete(system, user, max_tokens=cfg.max_tokens)
+        except Exception as error:  # noqa: BLE001 — memory must never kill a run
+            return self.harness.record(task, "memory_decision", {
+                "round": round_no,
+                "trigger": trigger,
+                "mode": "fallback",
+                "requested_mode": requested,
+                "error": {
+                    "code": str(getattr(error, "code", type(error).__name__)),
+                    "message": str(getattr(error, "message", error))[:300],
+                },
+                "cost": {},
+            })
+
+        valid_ids = {row["id"] for row in rows}
+        decision = parse_policy_reply(text, valid_ids, max_entries=cfg.max_entries)
+        comparison = compare_heuristic(decision, memory.heuristic_intents())
+        payload: dict[str, Any] = {
+            "round": round_no,
+            "trigger": trigger,
+            "mode": mode,
+            "schema": POLICY_SCHEMA,
+            "decision": decision.to_dict(),
+            "decision_sha256": decision.sha256(),
+            "comparison": comparison,
+            "cost": cost,
+            "observations_seen": len(rows),
+        }
+        if requested != mode:
+            payload["requested_mode"] = requested
+        return self.harness.record(task, "memory_decision", payload)
 
     def rebuild_plan(self, task: Task, memory: WorkingMemory) -> Plan:
         """Derive the current plan from the log, including operator revisions.
