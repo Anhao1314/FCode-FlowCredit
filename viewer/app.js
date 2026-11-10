@@ -39,6 +39,7 @@ import { chatMessageHtml } from "./core/chat-view.js";
 import { aiAvatarHtml, userAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
+import { composerAddMenuHtml } from "./core/composer-add-menu.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
   chatRowsHtml, chatSectionHtml,
@@ -392,12 +393,11 @@ function paintGovChrome(gov) {
   const modelBtn = document.getElementById("model-btn");
   const apvBtn = document.getElementById("approval-btn");
   const plusBtn = document.getElementById("composer-open");
-  const attach = document.getElementById("chat-attach");
   const ta = document.getElementById("composer-ta");
   if (gov) {
     const fastBtn = document.getElementById("fast-btn");
     for (const el of [modelBtn, apvBtn, plusBtn, fastBtn]) if (el) el.style.display = "none";
-    if (attach) attach.hidden = true;
+    closeAddMenu();
     if (ta) {
       if (ta.dataset.govPlaceholder !== "1") {
         ta.dataset.prevPlaceholder = ta.placeholder;
@@ -408,6 +408,10 @@ function paintGovChrome(gov) {
     return;
   }
   if (modelBtn) modelBtn.style.display = "";
+  if (plusBtn) {
+    plusBtn.style.display = "";
+    plusBtn.title = chat.active ? "添加内容" : "资料 / 工具 / 预算";
+  }
   const fastBtn = document.getElementById("fast-btn");
   if (fastBtn) fastBtn.style.display = "";
   if (ta && ta.dataset.govPlaceholder === "1") {
@@ -2998,13 +3002,123 @@ const {
   renderChat, loadChatThreads, toast, applyDelta, setUiMode, openLive,
 });
 
+let addMenuWorkspaceOpen = false;
+let addMenuError = "";
+
 function bindChatAttachments() {
-  const attach = document.getElementById("chat-attach");
   const files = document.getElementById("chat-files");
-  if (attach && files) {
-    attach.addEventListener("click", () => files.click());
-    files.addEventListener("change", handleChatFiles);
+  if (files) files.addEventListener("change", handleChatFiles);
+}
+
+function renderAddMenu() {
+  const menu = document.getElementById("composer-add-menu");
+  const plus = document.getElementById("composer-open");
+  if (!menu) return;
+  menu.innerHTML = composerAddMenuHtml({
+    attachmentCount: chat.attachments.length,
+    workspaceOpen: addMenuWorkspaceOpen,
+    error: addMenuError,
+  });
+  menu.hidden = false;
+  plus?.classList.add("open");
+  plus?.setAttribute("aria-expanded", "true");
+  plus?.setAttribute("title", "收起添加内容");
+}
+
+function closeAddMenu() {
+  const menu = document.getElementById("composer-add-menu");
+  const plus = document.getElementById("composer-open");
+  if (menu) menu.hidden = true;
+  addMenuWorkspaceOpen = false;
+  addMenuError = "";
+  plus?.classList.remove("open");
+  plus?.setAttribute("aria-expanded", "false");
+  plus?.setAttribute("title", chat.active ? "添加内容" : "资料 / 工具 / 预算");
+}
+
+function toggleAddMenu() {
+  const menu = document.getElementById("composer-add-menu");
+  if (menu && !menu.hidden) {
+    closeAddMenu();
+    return;
   }
+  if (attach.open) {
+    attach.open = false;
+    renderAttachPanel();
+  }
+  addMenuWorkspaceOpen = false;
+  addMenuError = "";
+  renderAddMenu();
+}
+
+async function attachWorkspaceFile(path) {
+  const relative = String(path || "").trim();
+  if (!relative) {
+    addMenuError = "请输入工作区相对路径";
+    renderAddMenu();
+    return;
+  }
+  if (chat.attachments.length >= 3) {
+    addMenuError = "最多 3 个附件";
+    renderAddMenu();
+    return;
+  }
+  try {
+    const response = await fetch(`/api/chat/workspace-file?path=${encodeURIComponent(relative)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || typeof data.text !== "string") {
+      addMenuError = data.error || "读取失败";
+      renderAddMenu();
+      return;
+    }
+    if (chat.attachments.some(item => item.name === data.name && item.text === data.text)) {
+      addMenuError = "这个文件已经添加";
+      renderAddMenu();
+      return;
+    }
+    chat.attachments.push({ name: data.name, text: data.text });
+    renderChatAttachChips();
+    paintSendState();
+    closeAddMenu();
+  } catch {
+    addMenuError = "读取失败";
+    renderAddMenu();
+  }
+}
+
+function bindComposerAddMenu() {
+  const menu = document.getElementById("composer-add-menu");
+  if (!menu) return;
+  menu.addEventListener("click", event => {
+    const row = event.target.closest("[data-add-action]");
+    if (!row) return;
+    event.stopPropagation();
+    if (row.disabled) return;
+    const action = row.dataset.addAction;
+    if (action === "files") {
+      closeAddMenu();
+      document.getElementById("chat-files")?.click();
+      return;
+    }
+    if (action === "workspace") {
+      addMenuWorkspaceOpen = true;
+      addMenuError = "";
+      renderAddMenu();
+      menu.querySelector("[data-add-workspace-input]")?.focus();
+    }
+  });
+  menu.addEventListener("submit", event => {
+    if (!event.target.closest("[data-add-workspace-form]")) return;
+    event.preventDefault();
+    const input = menu.querySelector("[data-add-workspace-input]");
+    attachWorkspaceFile(input ? input.value : "");
+  });
+  menu.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closeAddMenu();
+    document.getElementById("composer-open")?.focus();
+  });
 }
 
 function bind() {
@@ -3012,6 +3126,7 @@ function bind() {
   applyMotion();
   bindSettings();
   bindChatAttachments();
+  bindComposerAddMenu();
   bindComposer();
   bindGlobalActions();
   bindNavigation();
@@ -3119,6 +3234,11 @@ function bindComposer() {
     event.stopPropagation();
     apvMenu.hidden = true;
     closeModelMenus();
+    if (chat.active) {
+      toggleAddMenu();
+      return;
+    }
+    closeAddMenu();
     attach.open = !attach.open;
     renderAttachPanel();
     if (attach.open) refreshAttachData();
@@ -3322,6 +3442,10 @@ function bindGlobalActions() {
     if (attach.open && !plusBtn.contains(event.target) && !attachPanel.contains(event.target)) {
       attach.open = false;
       renderAttachPanel();
+    }
+    const addMenu = document.getElementById("composer-add-menu");
+    if (addMenu && !addMenu.hidden && !plusBtn.contains(event.target) && !addMenu.contains(event.target)) {
+      closeAddMenu();
     }
     const projectComposer = document.getElementById("project-composer");
     if (attach.projectEditing && projectComposer && !projectComposer.contains(event.target)) {
@@ -4126,6 +4250,8 @@ function bindShell() {
       const modelMenus = ["chat-model-menu", "work-model-menu"]
         .map(id => document.getElementById(id)).filter(menu => menu && !menu.hidden);
       if (modelMenus.length) { modelMenus.forEach(menu => { menu.hidden = true; }); return; }
+      const addMenu = document.getElementById("composer-add-menu");
+      if (addMenu && !addMenu.hidden) { closeAddMenu(); return; }
       if (attach.open) { attach.open = false; renderAttachPanel(); return; }
       if (settingsOpen) { closeSettingsPage(true); return; }
       if (!typing && innerWidth <= 1100 && railOpen) setChromeState({ rail: false });

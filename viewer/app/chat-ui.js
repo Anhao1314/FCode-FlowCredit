@@ -246,15 +246,18 @@ export function createChatUI(deps) {
     show("rail-toggle", !on);
     show("approval-btn", !on);
     show("fast-btn", !on);
-    show("composer-open", !on);
-    const attach = document.getElementById("chat-attach");
-    if (attach) { attach.hidden = !on; attach.style.display = on ? "" : "none"; }
+    // The same + is the add-content menu in chat and the context/settings
+    // panel in work; it is never hidden by the chat switch alone.
+    show("composer-open", true);
+    const addMenu = document.getElementById("composer-add-menu");
+    if (addMenu) addMenu.hidden = true;
+    const open = document.getElementById("composer-open");
+    if (open) open.setAttribute("title", on ? "添加内容" : "资料 / 工具 / 预算");
     const runChip = document.getElementById("run-chip");
     if (runChip && on) runChip.hidden = true;
     if (on) {
       const panel = document.getElementById("attach-panel");
       if (panel) panel.hidden = true;
-      const open = document.getElementById("composer-open");
       if (open) open.setAttribute("aria-expanded", "false");
       document.getElementById("composer-box")?.classList.remove("open-attach");
     }

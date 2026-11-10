@@ -457,5 +457,17 @@ class ConfirmEndpointTests(unittest.TestCase):
         self.assertEqual(status, 400)
 
 
+def test_workspace_file_endpoint_reads_text_and_refuses_escape(self) -> None:
+        status, body = request(f"{self.base()}/api/chat/workspace-file?path=README.md")
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["name"], "README.md")
+        self.assertTrue(payload["text"])
+        status, body = request(
+            f"{self.base()}/api/chat/workspace-file?path=..%2Fetc%2Fpasswd")
+        self.assertEqual(status, 400, body)
+        self.assertEqual(json.loads(body)["code"], "SANDBOX_PATH_DENIED")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2772,6 +2772,59 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 .attach-doc { border-radius: 8px; }
 .attach-doc:hover { background: rgba(0, 0, 0, .045); }
 .attach-doc.checked { background: rgba(23, 131, 255, .10); }
+
+/* Chat composer “+” menu: add context, not settings. */
+.composer-add-menu {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 45;
+  width: min(330px, calc(100vw - 32px));
+  padding: 8px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--raised); box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
+  transform-origin: bottom left; animation: kimiMenuIn .15s var(--ease);
+}
+.composer-add-menu[hidden] { display: none; }
+.add-menu-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 9px 7px; color: var(--text-3);
+  font: 600 10px/16px var(--font-mono); letter-spacing: .1em; text-transform: uppercase;
+}
+.add-menu-count { letter-spacing: 0; font-weight: 500; }
+.add-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 9px; border: 0; border-radius: 10px; background: none;
+  color: var(--text-1); text-align: left; cursor: pointer;
+}
+.add-menu-item:hover, .add-menu-item:focus-visible { background: #F5F5F5; outline: none; }
+.add-menu-item:disabled { opacity: .45; cursor: default; background: none; }
+.add-menu-ic {
+  display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px;
+  border: 1px solid var(--line); border-radius: 9px; color: var(--text-2);
+}
+.add-menu-ic svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.add-menu-at { font: 600 13px/1 var(--font-mono); letter-spacing: -.04em; }
+.add-menu-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.add-menu-title { font-size: 13px; line-height: 18px; }
+.add-menu-desc { color: var(--text-3); font-size: 11px; line-height: 16px; }
+.add-menu-form { display: flex; gap: 6px; padding: 4px 9px 8px 47px; }
+.add-menu-form input {
+  min-width: 0; flex: 1; height: 30px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 8px; background: #FFF;
+  color: var(--text-1); font: 12px/1 var(--font-mono); outline: none;
+}
+.add-menu-form input:focus { border-color: var(--line-strong); }
+.add-menu-form button {
+  height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: #FFF; color: var(--text-1); font-size: 12px; cursor: pointer;
+}
+.add-menu-form button:hover { background: #F5F5F5; }
+.add-menu-error { padding: 0 9px 7px 47px; color: var(--bad, #B42318); font-size: 11px; line-height: 16px; }
+.add-menu-foot {
+  margin-top: 4px; padding: 8px 9px 3px; border-top: 1px solid var(--line-soft);
+  color: var(--text-4); font-size: 10px; line-height: 15px;
+}
+#app.stage-mode .composer-add-menu { bottom: auto; top: calc(100% + 8px); transform-origin: top left; }
+@media (max-width: 640px) {
+  .composer-add-menu { left: -8px; width: min(320px, calc(100vw - 24px)); }
+}
 .attach-caption { color: var(--text-3); letter-spacing: .02em; text-transform: none; font-weight: 500; }
 
 /* 菜单进入：Kimi 的 fade/scale 曲线（0.15s） */

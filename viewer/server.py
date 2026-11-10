@@ -260,6 +260,20 @@ class Handler(SimpleHTTPRequestHandler):
                 "template": template_key or None,
                 "models": mgr.model_catalog_with_budget(template_key or None),
             })
+        if path == "/api/chat/workspace-file":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            relative = str((query.get("path") or [""])[0] or "").strip()
+            if not relative:
+                return self._json({"error": "path is required"}, 400)
+            try:
+                return self._json(mgr.chat.read_workspace_file(relative))
+            except Exception as error:  # noqa: BLE001 — AgentError is a host refusal
+                return self._json({
+                    "error": str(error) or "workspace file is unavailable",
+                    "code": getattr(error, "code", "CHAT_WORKSPACE_READ_FAILED"),
+                }, 400)
         if path == "/api/chat/threads":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)

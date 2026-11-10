@@ -21,6 +21,7 @@ FCode 现在有两种模型交互，边界是刻意画清的：
 - **重新生成**：追加 `chat_regenerate` 事件，旧回答被 supersede，事件链不删。
 - **编辑上一条**：追加 `chat_edit` 事件，编辑点之后的旧分支全部 supersede。
 - **文本附件**：最多 3 个、每个 ≤64 KiB、总计 ≤128 KiB；内容折进用户消息，事件链保留原文。
+- **`+` 添加内容**：上传文本文件，或引用工作区文件（只读、相对路径；拒绝越界、凭据类文件和二进制）。工作区引用走同一沙箱，不绕过 `Permissions`。
 - **停止生成**：中断 fetch，服务端把已生成的部分记成 `chat_cancelled`，UI 显示“已停止生成”。
 - **线程持久化**：线程与消息在 `chat.sqlite` 的 `task`/`event` 表里，重启后可从侧栏继续。
 - **分页与归档**：侧栏按 `updated_at` 分页加载；删除是 tombstone（`chat_thread_meta.archived`），

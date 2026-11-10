@@ -526,5 +526,60 @@ class ChatSettingsTests(unittest.TestCase):
         self.assertTrue(models["mock"]["available"])
 
 
+class ChatWorkspaceFileTests(unittest.TestCase):
+    """The + menu's workspace reference: read-only, bounded, text-only."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = pathlib.Path(self._tmp.name) / "workspace"
+        (self.root / "src").mkdir(parents=True)
+        (self.root / "src" / "app.js").write_text("console.log('ok')\n", encoding="utf-8")
+        (self.root / ".env").write_text("API_KEY=secret\n", encoding="utf-8")
+        (self.root / "big.txt").write_text("x" * (64 * 1024 + 1), encoding="utf-8")
+        (self.root / "weird.txt").write_text("a\u0000b", encoding="utf-8")
+        (self.root / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        self.service = ChatService(
+            pathlib.Path(self._tmp.name) / "chat.sqlite",
+            workspace_root=self.root,
+        )
+        self.addCleanup(self.service.close)
+
+    def test_reads_one_text_file(self) -> None:
+        result = self.service.read_workspace_file("src/app.js")
+        self.assertEqual(result["name"], "app.js")
+        self.assertEqual(result["path"], "src/app.js")
+        self.assertEqual(result["text"], "console.log('ok')\n")
+        self.assertEqual(len(result["sha256"]), 64)
+
+    def test_escape_and_absolute_paths_are_refused(self) -> None:
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("../outside.txt")
+        self.assertEqual(error.exception.code, "SANDBOX_PATH_DENIED")
+        with self.assertRaises(AgentError):
+            self.service.read_workspace_file("/etc/passwd")
+
+    def test_sensitive_binary_and_oversized_files_are_refused(self) -> None:
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file(".env")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_DENIED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("image.png")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_UNSUPPORTED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("weird.txt")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_UNSUPPORTED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("big.txt")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_INVALID")
+
+    def test_chat_without_workspace_says_so(self) -> None:
+        service = ChatService(pathlib.Path(self._tmp.name) / "plain.sqlite")
+        self.addCleanup(service.close)
+        with self.assertRaises(AgentError) as error:
+            service.read_workspace_file("src/app.js")
+        self.assertEqual(error.exception.code, "CHAT_WORKSPACE_UNAVAILABLE")
+
+
 if __name__ == "__main__":
     unittest.main()

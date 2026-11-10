@@ -812,6 +812,62 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "chain_head": events[-1]["hash"] if events else "",
         }
 
+    def read_workspace_file(self, path: str) -> dict[str, Any]:
+        """Read one text file from the chat workspace for an attachment.
+
+        This is the same read-only jail the chat tools use, with the attachment
+        limits applied before the text can enter a message. Credentials and
+        binary files are refused here rather than becoming prompt content.
+        """
+        if self._workspace_root is None:
+            raise AgentError(
+                "CHAT_WORKSPACE_UNAVAILABLE",
+                "this chat has no workspace; start the console with --repo to enable it",
+            )
+        from .tools.general.sandbox import WorkspaceSandbox
+
+        result = WorkspaceSandbox(self._workspace_root).read(path)
+        relative = str(result["path"])
+        name = Path(relative).name
+        parts = [part.lower() for part in Path(relative).parts]
+        sensitive_names = {"credentials", "credentials.json", "secrets", "secrets.json",
+                           "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+        sensitive_suffixes = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc"}
+        binary_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip",
+                           ".gz", ".tar", ".exe", ".dll", ".so", ".dylib", ".class",
+                           ".woff", ".woff2", ".ttf", ".ico", ".mp4", ".mov", ".mp3"}
+        suffix = Path(relative).suffix.lower()
+        if any(part == ".env" or part.startswith(".env.") for part in parts) \
+                or any(part in sensitive_names for part in parts) \
+                or suffix in sensitive_suffixes:
+            raise AgentError(
+                "CHAT_ATTACHMENT_DENIED",
+                "credential-like files are not added to chat context",
+            )
+        if suffix in binary_suffixes:
+            raise AgentError(
+                "CHAT_ATTACHMENT_UNSUPPORTED",
+                "only text files can be attached to chat",
+            )
+        if int(result["bytes"]) > MAX_ATTACHMENT_BYTES:
+            raise AgentError(
+                "CHAT_ATTACHMENT_INVALID",
+                f"{name} is larger than {MAX_ATTACHMENT_BYTES // 1024} KiB",
+            )
+        text = str(result["content"])
+        if "\x00" in text:
+            raise AgentError(
+                "CHAT_ATTACHMENT_UNSUPPORTED",
+                f"{name} is not a text file",
+            )
+        return {
+            "name": name,
+            "path": relative,
+            "text": text,
+            "bytes": int(result["bytes"]),
+            "sha256": str(result["sha256"]),
+        }
+
     # ------------------------------------------------------------- validation
 
     @staticmethod
