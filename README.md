@@ -174,6 +174,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 - 本地工具与命令有应用层约束，但不构成操作系统级安全沙箱。
 - REA 制品审计当前只覆盖静态事实（Go 构建信息 / bundle 解剖 / entitlements）；sidecar JS 图、动态探针与 CVE 情报仍在路线图。
 - Chat 附件目前以文本注入为主，不等于完整多模态理解管线。
+- `search_codebase` 是 BM25 倒排检索，不是向量语义检索；首次检索会懒构建索引（本仓库约 0.8s），之后只读快照，运行中新建的文件要用 `grep_workspace`/`read_file` 查看。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复只覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用；通用任务仍受模型能力与可验证性限制。
 

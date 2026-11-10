@@ -26,21 +26,21 @@ EXPECTED = {
         "ec0ba6d412b34fbb60682a0bd07bb8d4d233e3b0b728863a1f1cdc5b69693408",
     ),
     "general": (
-        "fcode.prompt/general-v9", 3279,
-        "6fd75597ab479f22998f22a6a904227572973d2bed2518b0701f271bac516545",
+        "fcode.prompt/general-v10", 3466,
+        "7fc5d4d070c4b387af501ca90bc721c6226588dd9f2b74416d5f5e0d25861b11",
     ),
     "general-fast": (
-        "fcode.prompt/general-fast-v1", 3757,
-        "365e5dd67cfb6018e18ecf70fbe15688cb415c05c3e9a7949a038efddc71ea0f",
+        "fcode.prompt/general-fast-v2", 3905,
+        "db591d38c6725814a9c067f9c59745478cab71ca53a860283748b256e46efc55",
     ),
     "general-fast-native": (
-        "fcode.prompt/general-fast-native-v1", 3698,
-        "73618bc762a4eb4590d49736022d03ee4c31d0575130ea7cd591c9fbd41551f2",
+        "fcode.prompt/general-fast-native-v2", 3846,
+        "a93ba5b28f43456c89af83ae22b7bd9ef1aa1e97d3f51667d150ce58db598def",
     ),
 }
 
-CHAT_SHA256 = "8a6aab9860f33e35a63c80dc55ca804d74a99d27a0e171c297a8f41aae1f709b"
-CHAT_BYTES = 1145
+CHAT_SHA256 = "bac45dbfd2af50025aa7e71ea2a461fc11b084f0d3e0141307205eae19a362f8"
+CHAT_BYTES = 1223
 
 
 class PromptSnapshotTests(unittest.TestCase):

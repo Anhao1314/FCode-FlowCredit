@@ -8,9 +8,9 @@
 | key | version | system prompt | 消费者 | frozen | 关键契约 |
 | --- | --- | --- | --- | --- | --- |
 | `finance` | `fcode.prompt/v10` | `providers/prompt.py::SYSTEM_PROMPT` | `FINANCE_DOMAIN` | **是**（SFT 金色哈希） | 单动作 JSON；数字只能来自观测；`report_blocked` 说明原因 |
-| `general` | `fcode.prompt/general-v9` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开 |
-| `general-fast` | `fcode.prompt/general-fast-v1` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律 |
-| `general-fast-native` | `fcode.prompt/general-fast-native-v1` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上 |
+| `general` | `fcode.prompt/general-v10` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开；先 `search_codebase` 再 grep |
+| `general-fast` | `fcode.prompt/general-fast-v2` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
+| `general-fast-native` | `fcode.prompt/general-fast-native-v2` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
 | `chat` | 无独立 profile（inline） | `chat.py::CHAT_SYSTEM_PROMPT` | `ChatService` | 否 | 只读工具直接执行；写/网络逐次审批；完整任务用执行提案转委托 |
 | `audit-analyst` | 无独立 profile（inline） | `flowaudit/analyst.py` 的 objective | `flowaudit.analyst` | 否 | 只依据审计 bundle 给跟进计划；不编造未给出的信息 |
 
@@ -23,6 +23,7 @@
 
 ## Changelog
 
+- **2026-11-10 · general-v10 / fast-v2 / fast-native-v2**：加入 `search_codebase` 检索层。知道概念但不知道精确字符串时，先按自然语言检索（路径/行号/片段），再用 `grep_workspace` 精确确认；`repo_map` 仍负责结构总览。
 - **2026-11-10 · general-v9**：删除过期的“不要使用 additions / 计划扩展是致命的”段；运行时已支持逐项校验、部分接受和带原因退回，prompt 改为描述真实语义。
 - **2026-11-10 · chat**：`CHAT_SYSTEM_PROMPT` 与 `chat_tools.py` 对齐——写文件/运行命令/抓取网页是逐次审批后执行，不再声称“不能写”；完整多步任务仍走执行提案转委托。`docs/chat.md` 同步。
 - **2026-11-10 · prompt eval**：新增 `src/flowagent/evaluation/prompt_eval.py` + `scripts/prompt_eval.py`，真实模型跑任务并采集成功率/轮数/tokens/费用/违规；内置 3 个注入任务。smoke：`general-fast-native` × 2 tasks，100% 成功、0 违规、$0.003。

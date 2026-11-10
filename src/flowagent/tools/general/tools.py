@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 from ...core.contracts import AgentError
 from ..base import EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Param, ToolSpec
+from .code_index import WorkspaceIndex
 from .commands import CommandRunner, MAX_TIMEOUT_SECONDS
 from .fetch import UrlFetcher
 from .sandbox import MAX_WRITE_CHARS, WorkspaceSandbox
@@ -59,6 +60,9 @@ def build_general_tools(
     raises to refuse; it never rewrites the URL.
     """
     runner = command_runner or CommandRunner(sandbox)
+    # One lazy index per registry: a run builds it on the first search and
+    # reuses it for every later search; no disk cache and no new effect.
+    code_index = WorkspaceIndex(sandbox.root)
 
     def ls_workspace(_: dict[str, Any]) -> dict[str, Any]:
         entries = sandbox.ls()
@@ -320,6 +324,34 @@ def build_general_tools(
             "truncated": truncated,
         }
 
+    def search_codebase(arguments: dict[str, Any]) -> dict[str, Any]:
+        """BM25 retrieval over this workspace's code and text files.
+
+        The optional ``path`` is a real sandbox directory (jailed exactly like
+        every other path). ``search_codebase`` is a read: it never reads a
+        secret, never follows a link, and never changes the workspace.
+        """
+        subtree = str(arguments.get("path") or "").strip()
+        if subtree in (".", "./"):
+            subtree = ""
+        if subtree:
+            target, relative = sandbox.resolve(subtree)
+            if not target.is_dir():
+                raise AgentError(
+                    "SEARCH_PATH_NOT_DIRECTORY",
+                    f"search path {relative!r} is not a directory",
+                )
+            subtree = relative
+        try:
+            limit = int(arguments.get("limit") or 8)
+        except (TypeError, ValueError):
+            limit = 8
+        return code_index.search(
+            str(arguments.get("query") or ""),
+            limit=limit,
+            subtree=subtree,
+        )
+
     def fetch_url(arguments: dict[str, Any]) -> dict[str, Any]:
         url = arguments["url"].strip()
         if fetch_guard is not None:
@@ -381,6 +413,51 @@ def build_general_tools(
                      _out("symbols", "integer"), _out("imports", "integer"),
                      _out("truncated", "boolean")),
             version="1.1",
+        ),
+        ToolSpec(
+            name="search_codebase",
+            summarize=summaries.summarize_search_codebase,
+            summary=(
+                "Ranked code/doc retrieval over this workspace (BM25): returns "
+                "file paths, line numbers and bounded snippets; use it before "
+                "grep when you know the concept, not the exact string"
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="query",
+                    kind="string",
+                    required=True,
+                    max_length=400,
+                    description="natural-language or identifier query, e.g. 'invoice rounding total'",
+                ),
+                Param(
+                    name="limit",
+                    kind="integer",
+                    required=False,
+                    nullable=True,
+                    minimum=1, maximum=12,
+                    description="max files returned (default 8, max 12)",
+                ),
+                Param(
+                    name="path",
+                    kind="string",
+                    required=False,
+                    nullable=True,
+                    description="optional subdirectory relative to the workspace root",
+                ),
+            ),
+            handler=search_codebase,
+            outputs=(
+                _out("query", "string"),
+                _out("files", "array"),
+                _out("count", "integer"),
+                _out("indexed_files", "integer"),
+                _out("indexed_chunks", "integer"),
+                _out("truncated", "boolean"),
+                _out("index_ms", "integer"),
+            ),
+            version="1.0",
         ),
         ToolSpec(
             name="read_file",
@@ -740,7 +817,7 @@ def build_general_tools(
 #: 2026-11 工具广度批次：新增 grep_workspace / find_files / git_status
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
-    "ls_workspace", "repo_map", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
+    "ls_workspace", "repo_map", "search_codebase", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
     "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
 )

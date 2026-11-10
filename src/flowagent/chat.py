@@ -108,7 +108,8 @@ _WORKSPACE_LIST_SKIP_DIRS = {
 
 CHAT_SYSTEM_PROMPT = (
     "你是 FCode 里的对话助手。用中文、清楚、简洁地回答。"
-    "你可以调用只读工具查看工作区（ls_workspace 列目录、read_file 读文件、"
+    "你可以调用只读工具查看工作区（ls_workspace 列目录、search_codebase 按语义"
+    "检索代码与文档并返回路径/行号/片段、read_file 读文件、"
     "grep_workspace 正则搜索内容、find_files 按模式找文件、git_status 查看工作区"
     "git 状态与提交历史），基于真实文件内容回答。"
     "写文件/修改文件/运行命令/抓取网页也可以调用，但这些工具每次都要经过操作员审批，"

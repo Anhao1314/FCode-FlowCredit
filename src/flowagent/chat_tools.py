@@ -1,8 +1,8 @@
 """对话内工具循环的治理层（Agentic Chat · Phase 1+2）。
 
 与 run 相同的纪律，换成对话的上下文：
-- **只读工具**（`ls_workspace` / `read_file` / `grep_workspace` / `find_files` /
-  `git_status`）在所有档位可直接执行；
+- **只读工具**（`ls_workspace` / `search_codebase` / `read_file` /
+  `grep_workspace` / `find_files` / `git_status`）在所有档位可直接执行；
 - **写工具**（`write_file` / `edit_file` / `run_command`）需要逐调用审批——
   审批通道由 `chat_answer` 通过 ChatService 的 pending 注册表实现；拒绝/
   超时都是可见事件。写入会提交到工作区 git（每次写一个 commit，可回退）。
@@ -47,7 +47,8 @@ __all__ = [
 ]
 
 #: 只读工具：任何档位直接执行。
-READ_TOOLS = ("ls_workspace", "read_file", "grep_workspace", "find_files", "git_status")
+READ_TOOLS = ("ls_workspace", "search_codebase", "read_file",
+              "grep_workspace", "find_files", "git_status")
 #: 写工具：需要逐调用审批（APPROVAL_TOOLS 与 run 侧同集）。
 WRITE_TOOLS = ("write_file", "edit_file", "run_command", "terminal")
 #: 网络读取：逐调用审批（按域记住）。

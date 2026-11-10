@@ -79,7 +79,7 @@ SYSTEM_PROMPT = (
 #: General contracts are versioned independently from the frozen finance data.
 #: v9 removes the stale "additions are fatal" instruction: the host now
 #: partially accepts valid additions and returns rejected items with reasons.
-GENERAL_PROMPT_VERSION = "fcode.prompt/general-v9"
+GENERAL_PROMPT_VERSION = "fcode.prompt/general-v10"
 
 #: This is the only domain-instruction definition. ``domains.general`` re-exports
 #: it for the DomainModule; keeping a second behavioural contract there caused
@@ -87,7 +87,8 @@ GENERAL_PROMPT_VERSION = "fcode.prompt/general-v9"
 GENERAL_DOMAIN_INSTRUCTION = (
     "这是通用工程域：可读写工作区（write_file / edit_file）、"
     "运行受限命令（run_command）、在持久终端中执行多步操作（terminal）、"
-    "抓取已声明来源（fetch_url）、搜索工作区内容（grep_workspace）、"
+    "抓取已声明来源（fetch_url）、按自然语言检索代码与文档（search_codebase，"
+    "返回路径、行号与片段）、精确文本搜索（grep_workspace）、"
     "按模式找文件（find_files）、查看工作区 git 状态（git_status）、"
     "并行只读调查（spawn_subagents）或隔离拷贝的写子代理（spawn_subagents "
     "write_access=true，改完用 apply_child_changes 显式应用，冲突逐文件检测）；"
@@ -105,7 +106,7 @@ GENERAL_DOMAIN_INSTRUCTION = (
 
 GENERAL_FAST_INSTRUCTION = (
     "这是通用工程域的快速模式：可读写工作区（read_file_raw / repo_map / "
-    "grep_workspace / find_files / write_file / edit_file），"
+    "search_codebase / grep_workspace / find_files / write_file / edit_file），"
     "运行受限命令（run_command：无 shell，参数逐个白名单校验并路径 jail），"
     "在受限持久终端中执行多步操作（terminal：写入被限制在当前工作区，"
     "管道/内联脚本可用），"
@@ -141,6 +142,8 @@ _GENERAL_WORK_LOOP = (
     "1.5 你可以直接调 tools 中任何已声明的工具——不需要先在 plan 里加 todo；"
     "steps 的 id 用一个描述性的小写标识符即可（如 search-price、check-git），"
     "不必对应已有 todo。只有需要追踪多步目标时才用 additions。\n"
+    "1.6 不知道精确文件名或字符串时，先用 search_codebase 按概念检索"
+    "（返回路径/行号/片段），再用 grep_workspace 精确确认；repo_map 用于结构总览。\n"
     "2. 需要追踪多步目标时，可以在 additions 里提议新 todo：每项必须带 id（小写字母开头，"
     "≤40 字符，不与已有或同批重复）、text、tool、可判定的 done_when，以及该工具 schema 要求的完整 "
     "arguments（如 edit_file 的 path/old_text/new_text）。主机逐项校验并**部分接受**：合法条目进入计划，"
@@ -180,7 +183,7 @@ GENERAL_SYSTEM_PROMPT = "\n\n".join((
 #: depend on earlier observations from the same reply. Reads are independent and
 #: may be batched; a write/terminal changes state and stays alone. This profile
 #: is opt-in (``spec.fast``); the default general contract above is unchanged.
-GENERAL_FAST_PROMPT_VERSION = "fcode.prompt/general-fast-v1"
+GENERAL_FAST_PROMPT_VERSION = "fcode.prompt/general-fast-v2"
 
 _FAST_OUTPUT_CONTRACT = (
     "【输出协议·快速模式】\n"
@@ -192,7 +195,7 @@ _FAST_OUTPUT_CONTRACT = (
     '"additions": [{"id": "m1", "text": "<要做什么>", "tool": "<工具名>", '
     '"done_when": "done:m1", "arguments": {…}}]}\n'
     "批量规则（运行时按顺序真实执行，不能撤销）：\n"
-    "1. 只读动作（ls_workspace / read_file / grep_workspace / find_files / git_status / repo_map）"
+    "1. 只读动作（ls_workspace / search_codebase / read_file / grep_workspace / find_files / git_status / repo_map）"
     "互不依赖，可以一次批量 2–4 个。\n"
     "2. 写动作（write_file / edit_file / terminal / run_command / spawn_subagents）每轮最多一个，"
     "并且不要和“需要看其结果才能决定参数”的读放在同一批。\n"
@@ -208,7 +211,8 @@ _FAST_WORK_LOOP = (
     "run 带 command）。该参数的观察出现时 todo 自动打勾。**不要把最终产物写入列为 todo**"
     "——它已是计划自带的 out 步骤。提交一次即可，之后照计划执行，不要重复提交，也不要改计划。\n"
     "2. 先批量侦察：一次回复里同时读相关文件/目录，不要一轮只看一个文件；"
-    "陌生仓库先调 repo_map 看结构，再用 grep_workspace 定位。"
+    "陌生仓库先调 repo_map 看结构；知道概念但不知道精确字符串时，先用 "
+    "search_codebase 按自然语言检索（返回路径/行号/片段），再用 grep_workspace 精确确认。"
     "读代码用 read_file_raw（最多保留 3500 字），一次读 40–80 行；"
     "不要用 read_file 读大段（它的摘要只保留前 600 字，等于白读）。\n"
     "3. 已知要改什么后，一轮只提交一个写动作；写之前不要重复读已经读过的内容。"
@@ -231,7 +235,7 @@ GENERAL_FAST_SYSTEM_PROMPT = "\n\n".join((
 #: Native function-calling variant. The tools travel in the API's ``tools``
 #: field, so the model must not be told to emit JSON text at all. Same batch
 #: rules and the same loop bound as the JSON fast profile.
-GENERAL_FAST_NATIVE_PROMPT_VERSION = "fcode.prompt/general-fast-native-v1"
+GENERAL_FAST_NATIVE_PROMPT_VERSION = "fcode.prompt/general-fast-native-v2"
 
 _FAST_NATIVE_CONTRACT = (
     "【工具调用协议·快速模式】\n"
@@ -241,7 +245,7 @@ _FAST_NATIVE_CONTRACT = (
     "arguments 带能标识目标的键如 path/command），"
     "不要把最终产物写入列为 todo（它已是 out 步骤）。"
     "同一轮可以同时带只读调用；之后照计划执行，不要重复提交。\n"
-    "2. 只读函数（ls_workspace / read_file / grep_workspace / find_files / git_status / repo_map）"
+    "2. 只读函数（ls_workspace / search_codebase / read_file / grep_workspace / find_files / git_status / repo_map）"
     "互不依赖，可以一次并行调用 2–4 个。\n"
     "3. 写函数（write_file / edit_file / terminal / run_command / spawn_subagents）每轮最多一个，"
     "不要和“需要看结果才能决定参数”的读放在同一轮。\n"

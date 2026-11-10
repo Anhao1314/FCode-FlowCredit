@@ -197,6 +197,7 @@ SCENARIOS: dict[str, Scenario] = {
         allowed_tools=(
             "ls_workspace",
             "repo_map",
+            "search_codebase",
             "read_file_raw",
             "read_file",
             "grep_workspace",
@@ -213,6 +214,7 @@ SCENARIOS: dict[str, Scenario] = {
             "allowed_tools": [
                 "ls_workspace",
                 "repo_map",
+                "search_codebase",
                 "read_file_raw",
                 "read_file",
                 "grep_workspace",
@@ -244,6 +246,7 @@ SCENARIOS: dict[str, Scenario] = {
         allowed_tools=(
             "ls_workspace",
             "repo_map",
+            "search_codebase",
             "read_file_raw",
             "read_file",
             "grep_workspace",
@@ -259,6 +262,7 @@ SCENARIOS: dict[str, Scenario] = {
             "allowed_tools": [
                 "ls_workspace",
                 "repo_map",
+                "search_codebase",
                 "read_file_raw",
                 "read_file",
                 "grep_workspace",
@@ -291,6 +295,7 @@ SCENARIOS: dict[str, Scenario] = {
         allowed_tools=(
             "ls_workspace",
             "repo_map",
+            "search_codebase",
             "read_file_raw",
             "read_file",
             "grep_workspace",
@@ -322,6 +327,7 @@ SCENARIOS: dict[str, Scenario] = {
             "allowed_tools": [
                 "ls_workspace",
                 "repo_map",
+                "search_codebase",
                 "read_file_raw",
                 "read_file",
                 "grep_workspace",

@@ -94,6 +94,22 @@ def summarize_read_file_raw(result: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def summarize_search_codebase(result: dict[str, Any]) -> dict[str, Any]:
+    """Retrieval hits the model keeps: path + line + a bounded snippet."""
+    files = result.get("files", [])
+    return {
+        "count": result.get("count", len(files)),
+        "indexed_files": result.get("indexed_files"),
+        "indexed_chunks": result.get("indexed_chunks"),
+        "truncated": result.get("truncated", False),
+        "hits": [
+            f"{item.get('path')}:{item.get('start_line')} · "
+            + " ".join(str(item.get("snippet") or "").split())[:220]
+            for item in files[:8]
+        ],
+    }
+
+
 def summarize_grep_workspace(result: dict[str, Any]) -> dict[str, Any]:
     matches = result.get("matches", [])
     return {

@@ -123,7 +123,8 @@ open 'http://127.0.0.1:8642/?desktop=1'
   下一轮生效，明细收在可展开的用量区。
 - **续跑**：仅接受 `BUDGET_EXCEEDED` / `ROUND_LIMIT`，从事件日志续写，已付的读取不重发。
 - **随时停止**：轮次边界停止，终态 `STOPPED_BY_OPERATOR`，链仍完整可验。
-- **工具卡按运行时词汇渲染**：通用工具是 `ls_workspace` / `read_file` / `write_file` /
+- **工具卡按运行时词汇渲染**：通用工具是 `ls_workspace` / `repo_map` / `search_codebase` /
+  `read_file` / `grep_workspace` / `find_files` / `git_status` / `write_file` /
   `edit_file` / `run_command` / `fetch_url`；财务参考负载另有结构化细节卡
   （文档正文、口径换算、重述对比、毛利率三联指标）。未知工具按通用卡渲染。
 - **审计报告**：运行结束后签发自包含 HTML 底稿（结论、账单、证据、人工决定、链附录）。
