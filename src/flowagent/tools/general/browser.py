@@ -189,6 +189,13 @@ class BrowserRunner:
         except Exception:  # noqa: BLE001 - best-effort cleanup
             try:
                 process.kill()
+                process.wait(timeout=3)
+            except Exception:  # noqa: BLE001
+                pass
+        for stream in (process.stdin, process.stdout, process.stderr):
+            try:
+                if stream:
+                    stream.close()
             except OSError:
                 pass
 

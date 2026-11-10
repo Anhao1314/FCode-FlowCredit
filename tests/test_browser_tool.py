@@ -160,7 +160,7 @@ class BrowserSidecarTests(unittest.TestCase):
         self.assertIsNotNone(result["before"])
         self.assertTrue((self.root / "artifacts" / result["before"]["path"]).is_file())
 
-    def test_browser_act_is_write_effect_and_always_gated(self) -> None:
+    def test_browser_act_is_write_effect_and_approval_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             from flowagent.domains.general import APPROVAL_TOOLS
             from flowagent.tools.general.fetch import UrlFetcher

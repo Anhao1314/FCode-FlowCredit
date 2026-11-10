@@ -694,9 +694,9 @@ def build_general_tools(
             name="browser_act",
             summarize=summaries.summarize_browser_act,
             summary=(
-                "Perform one approved click/fill/press on a loopback preview; "
-                "captures before/after screenshots and the post-action DOM. "
-                "Consequential: always requires operator approval"
+                "Perform one click/fill/press on a loopback preview; captures "
+                "before/after screenshots and the post-action DOM. "
+                "Write effect: follows the run's approval mode"
             ),
             effect=EFFECT_WRITE,
             params=(
