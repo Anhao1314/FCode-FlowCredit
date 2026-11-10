@@ -1377,9 +1377,10 @@ function paintCtxRing() {
   const pct = Math.min(100, Math.round((used / max) * 100));
   const circumference = 2 * Math.PI * 7;
   const arc = ring.querySelector(".ctx-arc");
-  const pctText = ring.querySelector(".ctx-pct");
   if (arc) arc.setAttribute("stroke-dasharray", `${(pct / 100) * circumference} ${circumference}`);
-  if (pctText) pctText.textContent = `${pct}%`;
+  // 圈内不写数字；百分比只留在悬停提示与无障碍标签里。
+  ring.title = `上下文容量 ${pct}%`;
+  ring.setAttribute("aria-label", `上下文容量 ${pct}%`);
   ring.classList.toggle("warn", pct >= 60 && pct < 85);
   ring.classList.toggle("danger", pct >= 85);
   ring.style.display = "";

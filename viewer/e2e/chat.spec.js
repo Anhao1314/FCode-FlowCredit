@@ -31,8 +31,8 @@ test("写入审批:卡片含 diff 与动词化标题,允许后运行继续", asy
 
   // 聊天线程的上下文容量圆圈：读 thread budget，而不是运行 trace
   await expect(page.locator("#ctx-ring")).toBeVisible();
-  await expect(page.locator("#ctx-ring")).toHaveAttribute("title", "上下文容量");
-  await expect(page.locator("#ctx-ring .ctx-pct")).not.toHaveText("0%");
+  await expect(page.locator("#ctx-ring")).toHaveAttribute("title", /上下文容量 \d+%/);
+  await expect(page.locator("#ctx-ring .ctx-pct")).toHaveCount(0);
 });
 
 test("拒绝审批:不执行写入,流程给出显式结果", async ({ page }) => {
