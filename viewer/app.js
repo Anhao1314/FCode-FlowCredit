@@ -4501,9 +4501,41 @@ async function fromFile(file) {
   }
 }
 
+/* 蓝色 AI 脸的“实时”部分：眼睛朝指针轻微偏移。CSS 负责眨眼/呼吸/
+   生成中扫视；系统开启 reduced-motion 时这里也不绑定指针。 */
+function bindAvatarMotion() {
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  let frame = 0;
+  let lastX = 0;
+  let lastY = 0;
+  const paint = () => {
+    frame = 0;
+    for (const avatar of document.querySelectorAll(".ai-avatar[data-live]")) {
+      const rect = avatar.getBoundingClientRect();
+      if (!rect.width) continue;
+      const dx = Math.max(-1, Math.min(1, (lastX - (rect.left + rect.width / 2)) / 160));
+      const dy = Math.max(-1, Math.min(1, (lastY - (rect.top + rect.height / 2)) / 160));
+      avatar.style.setProperty("--look-x", `${(dx * 2.2).toFixed(2)}px`);
+      avatar.style.setProperty("--look-y", `${(dy * 1.6).toFixed(2)}px`);
+    }
+  };
+  window.addEventListener("pointermove", event => {
+    lastX = event.clientX;
+    lastY = event.clientY;
+    if (!frame) frame = requestAnimationFrame(paint);
+  }, { passive: true });
+  document.addEventListener("mouseleave", () => {
+    for (const avatar of document.querySelectorAll(".ai-avatar[data-live]")) {
+      avatar.style.setProperty("--look-x", "0px");
+      avatar.style.setProperty("--look-y", "0px");
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   mountSidebarShell();   // 拖宽 / 滚动遮罩 / 跑马灯（原底部 IIFE，P2 抽离）
   bind();
+  bindAvatarMotion();
   renderNav();
   // await：?run= 直链要在 health/runHistory 就绪后才能判定运行状态
   await initLive();

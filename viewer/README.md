@@ -27,7 +27,7 @@ flowcredit/viewer/
     chat-view.js      单条消息 DOM 渲染
     run-card.js       对话内执行提案（紧凑下一步）与运行镜像的投影
     side-nav.js       两侧栏（工作 / 对话）的条目、置顶、Projects、任务与对话列表
-    ai-avatar.js      空态 AI 形象（64px Q 版印豆；消息流不画头像）
+    ai-avatar.js      实时蓝色 AI 脸（消息流 28px / 空态 64px；眨眼、呼吸、指针跟随）
   report.js           ← 自包含审计报告生成器
   icons-doodle.js     ← 图标与涂鸦
   server.py           ← HTTP 表面：静态文件 + JSON/SSE API + 审计只读 API + 入口

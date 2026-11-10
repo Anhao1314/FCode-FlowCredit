@@ -95,10 +95,11 @@ test("extraHtml rides inside the answer, above the actions", () => {
   assert.ok(!user.includes("<div></div>"));
 });
 
-test("消息流不画头像：assistant 靠左，user 靠右", () => {
+test("assistant 有实时头像，user 只有右对齐气泡", () => {
   const assistant = chatMessageHtml({ id: "a1", role: "assistant", text: "你好", status: "ok" });
   assert.match(assistant, /class="chat-msg-row"/);
-  assert.doesNotMatch(assistant, /ai-avatar/);
+  assert.match(assistant, /class="ai-avatar ai-avatar--idle/);
+  assert.match(assistant, /data-live="1"/);
   assert.doesNotMatch(assistant, /chat-user-avatar/);
 
   const user = chatMessageHtml({ id: "u1", role: "user", text: "你好" });
@@ -107,10 +108,11 @@ test("消息流不画头像：assistant 靠左，user 靠右", () => {
   assert.doesNotMatch(user, /chat-user-avatar/);
 });
 
-test("生成中/失败只保留状态类，不通过头像表达", () => {
+test("头像状态跟随生成/失败，不只靠消息底色", () => {
   const streaming = chatMessageHtml({ id: "a2", role: "assistant", text: "…", status: "streaming" });
   assert.match(streaming, /chat-msg assistant streaming/);
-  assert.doesNotMatch(streaming, /ai-avatar/);
+  assert.match(streaming, /ai-avatar--thinking/);
+  assert.match(streaming, /ai-avatar-ring/);
 
   const failed = chatMessageHtml({
     id: "a3", role: "assistant", text: "", status: "error",
@@ -118,7 +120,7 @@ test("生成中/失败只保留状态类，不通过头像表达", () => {
   });
   assert.match(failed, /chat-msg assistant/);
   assert.match(failed, /chat-error/);
-  assert.doesNotMatch(failed, /ai-avatar/);
+  assert.match(failed, /ai-avatar--bad/);
 });
 
 test("agentic chat:有 blocks 的消息按序渲染文本与工具卡", async () => {

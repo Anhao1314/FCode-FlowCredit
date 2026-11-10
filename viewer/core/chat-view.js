@@ -10,6 +10,7 @@
 
 import { esc, num } from "./format.js";
 import { renderMarkdown } from "./chat-format.js";
+import { aiAvatarHtml, avatarStateFor } from "./ai-avatar.js";
 import { toolBlocksHtml } from "./tool-card.js";
 
 export function chatMessageHtml(message, editingId = null, extraHtml = "") {
@@ -79,7 +80,7 @@ export function chatMessageHtml(message, editingId = null, extraHtml = "") {
     ? toolBlocksHtml(message.blocks, renderMarkdown)
     : `<div class="chat-md">${renderMarkdown(message.text)}</div>`;
   return `<div class="chat-msg assistant${streaming ? " streaming" : ""}${message.status === "cancelled" ? " cancelled" : ""}" data-msg-id="${id}"${streaming ? ' data-streaming="1"' : ""}>
-    <div class="chat-msg-row"><div class="chat-blocks">${body}</div></div>
+    <div class="chat-msg-row">${aiAvatarHtml(avatarStateFor(message), 28)}<div class="chat-blocks">${body}</div></div>
     ${wait}${typing}${reasoning}${error}${extraHtml}
     ${(actions.length || usage || stopped) ? `<div class="chat-msg-actions">${usage}${stopped}${actions.join("")}</div>` : ""}
   </div>`;

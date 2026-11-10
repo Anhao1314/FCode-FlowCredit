@@ -577,7 +577,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   #approval-label { display: none; }
   .model-menu { max-width: calc(100vw - 28px); }
   .chat-bubble, html.desktop-app .chat-bubble { max-width: 94%; }
-  .ai-avatar { display: none; }
+  .chat-msg-row { gap: 8px; }
   .result .metrics { grid-template-columns: 1fr; }
   .apv-choices { flex-direction: column; }
   .palette-box { width: calc(100vw - 24px); margin-top: 6vh; }

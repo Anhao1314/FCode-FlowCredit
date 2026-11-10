@@ -370,39 +370,78 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 .chat-more:hover { color: var(--text-1); }
 
 /* ---------------------------------------------------------------- AI 形象
-   Kimi-style: the message stream carries no avatars; identity comes from the
-   left-aligned assistant column and the right-aligned user bubble. The
-   expressive FCode face (64px) appears only in the empty state; the same
-   component remains available for the governance entry. Thin monochrome
-   circle, transparent fill — no black tile. */
+   Kimi-style blue face, made live: a blue gradient disc with two white eyes.
+   The eyes follow the pointer, blink on their own, and scan while the answer
+   streams. The message row keeps the 28px face; the empty state uses 64px.
+   The operator bubble stays avatar-free, so the AI is the only face in the
+   thread. */
 .chat-msg-row { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .chat-msg-row .chat-md { flex: 1; min-width: 0; }
+.chat-msg-row .chat-blocks { flex: 1; min-width: 0; }
 
 .ai-avatar {
-  --ai-avatar-size: 26px;
+  --ai-avatar-size: 28px;
+  --look-x: 0px;
+  --look-y: 0px;
   position: relative; flex: none;
-  width: var(--ai-avatar-size, 26px); height: var(--ai-avatar-size, 26px);
+  width: var(--ai-avatar-size, 28px); height: var(--ai-avatar-size, 28px);
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-1);
+  background: radial-gradient(circle at 34% 27%, #78AEFF 0%, #4B8DFF 38%, #2D6BFF 100%);
+  box-shadow:
+    0 0 0 .5px rgba(41, 99, 235, .12),
+    0 3px 10px rgba(45, 107, 255, .22);
+  overflow: visible;
 }
-.ai-avatar svg { display: block; }
+.ai-avatar::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .32);
+  pointer-events: none;
+}
+.ai-avatar > svg {
+  display: block; overflow: visible;
+  animation: ai-avatar-breathe 4.8s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+.ai-avatar-look {
+  transform: translate(var(--look-x, 0px), var(--look-y, 0px));
+  transition: transform .16s cubic-bezier(.23, 1, .32, 1);
+}
+.ai-avatar-eyes { transform-origin: 50% 50%; }
+.ai-eye {
+  transform-box: fill-box; transform-origin: center;
+  animation: ai-avatar-blink 5.6s ease-in-out infinite;
+}
+.ai-avatar--thinking .ai-avatar-scan {
+  animation: ai-avatar-scan 2.6s ease-in-out infinite;
+}
+.ai-avatar--thinking > svg { animation-duration: 2.4s; }
 .ai-avatar-ring {
   position: absolute; inset: -3px; border-radius: 50%;
-  border: 1.5px solid currentColor; opacity: .18;
+  border: 1.5px solid #4B8DFF; opacity: .22;
   animation: ai-avatar-breathe 1.6s ease-in-out infinite;
+  pointer-events: none;
 }
 @keyframes ai-avatar-breathe {
-  0%, 100% { opacity: .1; transform: scale(.98); }
-  50% { opacity: .3; transform: scale(1.04); }
+  0%, 100% { transform: scale(.985); }
+  50% { transform: scale(1.035); }
+}
+@keyframes ai-avatar-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94% { transform: scaleY(.12); }
+  96% { transform: scaleY(1); }
+}
+@keyframes ai-avatar-scan {
+  0%, 100% { transform: translateX(-1.1px); }
+  50% { transform: translateX(1.1px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ai-avatar-ring { animation: none; opacity: .18; }
+  .ai-avatar > svg, .ai-eye, .ai-avatar-scan, .ai-avatar-ring {
+    animation: none;
+  }
+  .ai-avatar-look { transition: none; }
 }
 .chat-empty .ai-avatar { margin: 0 auto 10px; display: flex; width: 64px; height: 64px; }
-.ai-avatar .ai-avatar-ring { pointer-events: none; }
 
 /* ================================================================ 对话内工具卡
    Agentic chat：模型调用只读工具时，卡片按 blocks 顺序嵌在回答里。
