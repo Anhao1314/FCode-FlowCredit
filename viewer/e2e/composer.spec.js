@@ -21,6 +21,21 @@ test("Work 的 @ 插入工作区相对路径", async ({ page }) => {
   await expect(menu).toBeHidden();
 });
 
+test("新对话的模型菜单不越出视口", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]', { state: "attached" });
+  await page.getByRole("button", { name: /新对话/ }).first().click();
+  await page.locator("#model-btn").click();
+  const menu = page.locator("#chat-model-menu");
+  await expect(menu).toBeVisible();
+  const box = await menu.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box).toBeTruthy();
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+});
+
 test("Chat 输入 @ 不打开 Work 引用器", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector('body[data-booted="1"]', { state: "attached" });

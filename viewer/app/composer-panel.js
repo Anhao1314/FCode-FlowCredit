@@ -409,9 +409,21 @@ export function createComposerPanel(deps) {
         menu.style.left = "auto";
       }
     }
+    menu.style.maxHeight = "";
+    menu.style.overflowY = "";
+    menu.style.overscrollBehavior = "";
     menu.classList.remove("drop-down");
-    const rect = menu.getBoundingClientRect();
-    if (rect.top < 8) menu.classList.add("drop-down");
+    let rect = menu.getBoundingClientRect();
+    if (rect.top < 8) {
+      // 舞台态 composer 贴近底部：向下展开，但不能让菜单越过视口底边。
+      // 按剩余高度限高并保留内部滚动，模型/思考强度仍然全部可达。
+      menu.classList.add("drop-down");
+      rect = menu.getBoundingClientRect();
+      const available = Math.max(120, window.innerHeight - rect.top - 8);
+      menu.style.maxHeight = `${available}px`;
+      menu.style.overflowY = "auto";
+      menu.style.overscrollBehavior = "contain";
+    }
   }
 
   function renderModelMenu() {
