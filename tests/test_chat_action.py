@@ -456,8 +456,7 @@ class ConfirmEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
 
-
-def test_workspace_file_endpoint_reads_text_and_refuses_escape(self) -> None:
+    def test_workspace_file_endpoint_reads_text_and_refuses_escape(self) -> None:
         status, body = request(f"{self.base()}/api/chat/workspace-file?path=README.md")
         self.assertEqual(status, 200, body)
         payload = json.loads(body)
@@ -467,6 +466,14 @@ def test_workspace_file_endpoint_reads_text_and_refuses_escape(self) -> None:
             f"{self.base()}/api/chat/workspace-file?path=..%2Fetc%2Fpasswd")
         self.assertEqual(status, 400, body)
         self.assertEqual(json.loads(body)["code"], "SANDBOX_PATH_DENIED")
+
+    def test_workspace_files_endpoint_searches_paths(self) -> None:
+        status, body = request(f"{self.base()}/api/chat/workspace-files?q=README&limit=5")
+        self.assertEqual(status, 200, body)
+        payload = json.loads(body)
+        self.assertTrue(any(item["path"] == "README.md" for item in payload["files"]))
+        self.assertLessEqual(len(payload["files"]), 5)
+        self.assertIn("total", payload)
 
 
 if __name__ == "__main__":

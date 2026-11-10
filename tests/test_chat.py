@@ -573,11 +573,30 @@ class ChatWorkspaceFileTests(unittest.TestCase):
             self.service.read_workspace_file("big.txt")
         self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_INVALID")
 
+    def test_workspace_file_search_ranks_names_and_hides_secrets(self) -> None:
+        (self.root / "src" / "app_test.js").write_text("test\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# readme\n", encoding="utf-8")
+        result = self.service.list_workspace_files("app")
+        self.assertEqual(result["files"][0]["path"], "src/app.js")
+        self.assertEqual(result["files"][0]["name"], "app.js")
+        paths = [item["path"] for item in result["files"]]
+        self.assertIn("src/app_test.js", paths)
+        self.assertNotIn(".env", paths)
+        self.assertNotIn("image.png", paths)
+        exact = self.service.list_workspace_files("app.js")
+        self.assertEqual([item["path"] for item in exact["files"]], ["src/app.js"])
+        broad = self.service.list_workspace_files("", limit=2)
+        self.assertEqual(len(broad["files"]), 2)
+        self.assertGreaterEqual(broad["total"], 2)
+
     def test_chat_without_workspace_says_so(self) -> None:
         service = ChatService(pathlib.Path(self._tmp.name) / "plain.sqlite")
         self.addCleanup(service.close)
         with self.assertRaises(AgentError) as error:
             service.read_workspace_file("src/app.js")
+        self.assertEqual(error.exception.code, "CHAT_WORKSPACE_UNAVAILABLE")
+        with self.assertRaises(AgentError) as error:
+            service.list_workspace_files("app")
         self.assertEqual(error.exception.code, "CHAT_WORKSPACE_UNAVAILABLE")
 
 

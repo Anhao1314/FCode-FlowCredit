@@ -140,6 +140,7 @@ open 'http://127.0.0.1:8642/?desktop=1'
 | `⌘↵` / `⌘⌫` | 允许 / 拒绝当前审批 |
 | `1` / `2` / `3` | 审批直选：允许 / 允许并记住 / 拒绝 |
 | `Enter` / `⇧Enter` | 发送 / 换行 |
+| `@` | Work 输入框内引用工作区文件：输入路径片段，`↑↓` 选择，`Enter` 插入 |
 | `R` | 重放当前场景（静态回放） |
 | `↑` / `↓` | 运行列表导航；输入框首行为历史 |
 | `Esc` | 关闭面板 / 菜单 / 设置 / 报告 |
@@ -165,6 +166,8 @@ open 'http://127.0.0.1:8642/?desktop=1'
 | POST | `/api/runs/{id}/budget` | 只能调高，下一轮生效 |
 | POST | `/api/runs/{id}/resume` | 追加预算并续跑 |
 | POST | `/api/runs/{id}/meta` | 重命名 / 置顶 |
+| GET | `/api/chat/workspace-file?path=` | 读取一个工作区文本文件（附件 / 引用，越权与凭据拒绝） |
+| GET | `/api/chat/workspace-files?q=&limit=` | 检索工作区相对路径（`@` 选择器；只返回元数据） |
 | GET | `/api/chat/models` | 对话可用模型（含设置覆盖与可用原因） |
 | GET | `/api/chat/threads?limit=&offset=` | 活跃对话，`total` / `limit` / `offset` |
 | POST | `/api/chat/send` | `{"threadId"?, "text", "attachments", "model"}` → SSE |

@@ -40,6 +40,7 @@ import { aiAvatarHtml, userAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { composerAddMenuHtml, workAddMenuHtml } from "./core/composer-add-menu.js";
+import { mentionQueryAt, insertWorkspaceMention, workspaceMentionHtml } from "./core/workspace-mention.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
   chatRowsHtml, chatSectionHtml,
@@ -452,6 +453,7 @@ function renderMode(mode, payload = {}) {
   // 所有导航入口都让旧页面加载失效；selectRun/select 自己已持有当日世代，
   // 通过 internalView 避免把自身误判成陈旧请求。
   if (!payload.internalView) viewGate.begin();
+  closeWorkspaceMention();
   if (mode !== "chat") leaveChat();
   const entry = MODE_ENTRY[mode];
   if (!entry) throw new Error(`unknown view mode: ${mode}`);
@@ -1520,6 +1522,7 @@ const COMPOSER_SUBMIT = {
 };
 
 function composerSubmit() {
+  closeWorkspaceMention();
   const s = activeSession();
   const mode = composerMode({
     intakeActive: intake.active,
@@ -3130,6 +3133,132 @@ async function attachWorkspaceFile(path) {
   }
 }
 
+/* Work composer 的 `@`：只插入相对路径，不把文件内容折进任务。
+   文件检索走只读 API；键盘选择优先于提交/历史。 */
+const workspaceMention = {
+  open: false, start: 0, end: 0, query: "", files: [], index: 0,
+  loading: false, error: "", timer: 0, token: 0,
+};
+
+function closeWorkspaceMention() {
+  clearTimeout(workspaceMention.timer);
+  workspaceMention.open = false;
+  workspaceMention.files = [];
+  workspaceMention.index = 0;
+  workspaceMention.loading = false;
+  workspaceMention.error = "";
+  const menu = document.getElementById("workspace-mention-menu");
+  if (menu) menu.hidden = true;
+}
+
+function paintWorkspaceMention() {
+  const menu = document.getElementById("workspace-mention-menu");
+  if (!menu || !workspaceMention.open) return;
+  menu.innerHTML = workspaceMentionHtml({
+    files: workspaceMention.files,
+    query: workspaceMention.query,
+    index: workspaceMention.index,
+    loading: workspaceMention.loading,
+    error: workspaceMention.error,
+  });
+  menu.hidden = false;
+  menu.querySelector(".mention-item.active")?.scrollIntoView({ block: "nearest" });
+}
+
+function fetchWorkspaceMention() {
+  const token = ++workspaceMention.token;
+  workspaceMention.loading = true;
+  workspaceMention.error = "";
+  paintWorkspaceMention();
+  const query = encodeURIComponent(workspaceMention.query);
+  fetch(`/api/chat/workspace-files?q=${query}&limit=12`, { cache: "no-store" })
+    .then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (token !== workspaceMention.token || !workspaceMention.open) return;
+      if (!response.ok) throw new Error(data.error || "读取失败");
+      workspaceMention.files = Array.isArray(data.files) ? data.files : [];
+      workspaceMention.loading = false;
+      workspaceMention.index = 0;
+      paintWorkspaceMention();
+    })
+    .catch(error => {
+      if (token !== workspaceMention.token || !workspaceMention.open) return;
+      workspaceMention.loading = false;
+      workspaceMention.error = error.message || "读取失败";
+      paintWorkspaceMention();
+    });
+}
+
+function updateWorkspaceMention() {
+  const ta = document.getElementById("composer-ta");
+  if (!ta || chat.active || ta.selectionStart !== ta.selectionEnd) {
+    closeWorkspaceMention();
+    return;
+  }
+  const found = mentionQueryAt(ta.value, ta.selectionStart);
+  if (!found) {
+    closeWorkspaceMention();
+    return;
+  }
+  const changed = !workspaceMention.open || found.query !== workspaceMention.query;
+  workspaceMention.open = true;
+  workspaceMention.start = found.start;
+  workspaceMention.end = found.end;
+  workspaceMention.query = found.query;
+  if (changed) {
+    clearTimeout(workspaceMention.timer);
+    workspaceMention.files = [];
+    workspaceMention.index = 0;
+    workspaceMention.error = "";
+    workspaceMention.loading = true;
+    workspaceMention.timer = setTimeout(fetchWorkspaceMention, 120);
+  }
+  paintWorkspaceMention();
+  if (!document.getElementById("composer-add-menu")?.hidden) closeAddMenu();
+}
+
+function selectWorkspaceMention(path) {
+  const ta = document.getElementById("composer-ta");
+  if (!ta) return;
+  const result = insertWorkspaceMention(
+    ta.value, workspaceMention.start, workspaceMention.end, path,
+  );
+  closeWorkspaceMention();
+  ta.value = result.text;
+  ta.focus();
+  ta.setSelectionRange(result.caret, result.caret);
+  autosize(ta);
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function workspaceMentionKey(event) {
+  if (!workspaceMention.open) return false;
+  if (event.isComposing || event.keyCode === 229) return false;
+  const files = workspaceMention.files;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!files.length) return false;
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    workspaceMention.index = (workspaceMention.index + delta + files.length) % files.length;
+    paintWorkspaceMention();
+    return true;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    const file = files[workspaceMention.index];
+    if (!file) return false;
+    event.preventDefault();
+    selectWorkspaceMention(file.path);
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeWorkspaceMention();
+    return true;
+  }
+  return false;
+}
+
 function bindComposerAddMenu() {
   const menu = document.getElementById("composer-add-menu");
   if (!menu) return;
@@ -3196,6 +3325,7 @@ function bindComposer() {
   });
   const ta = document.getElementById("composer-ta");
   ta.addEventListener("input", () => {
+    updateWorkspaceMention();
     autosize(ta);
     updateSlashMenu();
     if (chat.active) { paintSendState(); return; }
@@ -3205,6 +3335,8 @@ function bindComposer() {
     }
   });
   ta.addEventListener("keydown", event => {
+    // `@` 选择器优先于提交/历史：菜单开着时 ↑↓/Enter/Esc 属于它。
+    if (workspaceMentionKey(event)) return;
     // 判定在 core/keyboard.js（Node 可测）：IME 守卫 → 斜杠菜单 → 提交/历史。
     // 这里只执行效果；行为与内联实现逐条一致（含 preventDefault 的时机）。
     const menu = document.getElementById("slash-menu");
@@ -3260,6 +3392,12 @@ function bindComposer() {
       autosize(ta);
     }
   });
+  document.getElementById("workspace-mention-menu")?.addEventListener("click", event => {
+    const row = event.target.closest("[data-mention-path]");
+    if (!row) return;
+    event.stopPropagation();
+    selectWorkspaceMention(row.dataset.mentionPath);
+  });
   const apvBtn = document.getElementById("approval-btn");
   const apvMenu = document.getElementById("approval-menu");
   const modelBtn = document.getElementById("model-btn");
@@ -3286,6 +3424,7 @@ function bindComposer() {
     event.stopPropagation();
     apvMenu.hidden = true;
     closeModelMenus();
+    closeWorkspaceMention();
     if (attach.open) {
       attach.open = false;
       attach.fromMenu = false;
@@ -3501,6 +3640,12 @@ function bindGlobalActions() {
     const addMenu = document.getElementById("composer-add-menu");
     if (addMenu && !addMenu.hidden && !plusBtn.contains(event.target) && !addMenu.contains(event.target)) {
       closeAddMenu();
+    }
+    const mentionMenu = document.getElementById("workspace-mention-menu");
+    const composerTa = document.getElementById("composer-ta");
+    if (workspaceMention.open && composerTa && !composerTa.contains(event.target)
+        && mentionMenu && !mentionMenu.contains(event.target)) {
+      closeWorkspaceMention();
     }
     const projectComposer = document.getElementById("project-composer");
     if (attach.projectEditing && projectComposer && !projectComposer.contains(event.target)) {
@@ -4305,6 +4450,7 @@ function bindShell() {
       const modelMenus = ["chat-model-menu", "work-model-menu"]
         .map(id => document.getElementById(id)).filter(menu => menu && !menu.hidden);
       if (modelMenus.length) { modelMenus.forEach(menu => { menu.hidden = true; }); return; }
+      if (workspaceMention.open) { closeWorkspaceMention(); return; }
       const addMenu = document.getElementById("composer-add-menu");
       if (addMenu && !addMenu.hidden) { closeAddMenu(); return; }
       if (attach.open) { closeAttachDetail(attach.fromMenu); return; }

@@ -274,6 +274,22 @@ class Handler(SimpleHTTPRequestHandler):
                     "error": str(error) or "workspace file is unavailable",
                     "code": getattr(error, "code", "CHAT_WORKSPACE_READ_FAILED"),
                 }, 400)
+        if path == "/api/chat/workspace-files":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            needle = str((query.get("q") or [""])[0] or "")
+            try:
+                limit = int((query.get("limit") or ["12"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            try:
+                return self._json(mgr.chat.list_workspace_files(needle, limit))
+            except Exception as error:  # noqa: BLE001 — AgentError is a host refusal
+                return self._json({
+                    "error": str(error) or "workspace files are unavailable",
+                    "code": getattr(error, "code", "CHAT_WORKSPACE_LIST_FAILED"),
+                }, 400)
         if path == "/api/chat/threads":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)

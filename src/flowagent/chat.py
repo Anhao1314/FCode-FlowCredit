@@ -24,6 +24,7 @@ one chat surface.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
@@ -86,6 +87,23 @@ __all__ = [
     "redact_chat_config",
     "parse_sse_data",
 ]
+
+#: Workspace references and attachments share one deny-list: a path picker
+#: must not advertise credentials the text reader would refuse.
+_SENSITIVE_WORKSPACE_NAMES = {
+    "credentials", "credentials.json", "secrets", "secrets.json",
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+}
+_SENSITIVE_WORKSPACE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc"}
+_BINARY_WORKSPACE_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip", ".gz", ".tar",
+    ".exe", ".dll", ".so", ".dylib", ".class", ".woff", ".woff2", ".ttf",
+    ".ico", ".mp4", ".mov", ".mp3",
+}
+_WORKSPACE_LIST_SKIP_DIRS = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "work", "runs",
+}
 
 
 CHAT_SYSTEM_PROMPT = (
@@ -830,21 +848,15 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         relative = str(result["path"])
         name = Path(relative).name
         parts = [part.lower() for part in Path(relative).parts]
-        sensitive_names = {"credentials", "credentials.json", "secrets", "secrets.json",
-                           "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
-        sensitive_suffixes = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc"}
-        binary_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip",
-                           ".gz", ".tar", ".exe", ".dll", ".so", ".dylib", ".class",
-                           ".woff", ".woff2", ".ttf", ".ico", ".mp4", ".mov", ".mp3"}
         suffix = Path(relative).suffix.lower()
         if any(part == ".env" or part.startswith(".env.") for part in parts) \
-                or any(part in sensitive_names for part in parts) \
-                or suffix in sensitive_suffixes:
+                or any(part in _SENSITIVE_WORKSPACE_NAMES for part in parts) \
+                or suffix in _SENSITIVE_WORKSPACE_SUFFIXES:
             raise AgentError(
                 "CHAT_ATTACHMENT_DENIED",
                 "credential-like files are not added to chat context",
             )
-        if suffix in binary_suffixes:
+        if suffix in _BINARY_WORKSPACE_SUFFIXES:
             raise AgentError(
                 "CHAT_ATTACHMENT_UNSUPPORTED",
                 "only text files can be attached to chat",
@@ -866,6 +878,83 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "text": text,
             "bytes": int(result["bytes"]),
             "sha256": str(result["sha256"]),
+        }
+
+    def list_workspace_files(self, query: str = "", limit: int = 20) -> dict[str, Any]:
+        """Search relative paths for the composer's ``@`` reference.
+
+        The list is intentionally metadata-only: it never reads file content,
+        never follows symlinks, and hides the same credential/binary names the
+        attachment reader refuses. Ranking prefers a basename match, then a
+        path match, then shallow paths, so typing ``@app`` finds ``src/app.js``
+        before unrelated files.
+        """
+        if self._workspace_root is None:
+            raise AgentError(
+                "CHAT_WORKSPACE_UNAVAILABLE",
+                "this chat has no workspace; start the console with --repo to enable it",
+            )
+        root = self._workspace_root
+        needle = str(query or "").strip().lower()
+        try:
+            wanted = int(limit)
+        except (TypeError, ValueError):
+            wanted = 20
+        wanted = max(1, min(wanted, 50))
+
+        candidates: list[str] = []
+        truncated = False
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(
+                name for name in dirnames
+                if name not in _WORKSPACE_LIST_SKIP_DIRS and not name.startswith(".")
+            )
+            for name in sorted(filenames):
+                lowered = name.lower()
+                suffix = Path(name).suffix.lower()
+                if lowered == ".env" or lowered.startswith(".env.") \
+                        or lowered in _SENSITIVE_WORKSPACE_NAMES \
+                        or suffix in _SENSITIVE_WORKSPACE_SUFFIXES \
+                        or suffix in _BINARY_WORKSPACE_SUFFIXES:
+                    continue
+                path = Path(dirpath) / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                candidates.append(path.relative_to(root).as_posix())
+                if len(candidates) >= 5_000:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        def score(relative: str) -> tuple[int, int, int, str]:
+            name = Path(relative).name.lower()
+            low = relative.lower()
+            if not needle:
+                rank = 0
+            elif name == needle:
+                rank = 0
+            elif name.startswith(needle):
+                rank = 1
+            elif needle in name:
+                rank = 2
+            elif low.startswith(needle):
+                rank = 3
+            elif needle in low:
+                rank = 4
+            else:
+                rank = 99
+            return (rank, relative.count("/"), len(relative), relative)
+
+        matched = [item for item in candidates if score(item)[0] < 99]
+        matched.sort(key=score)
+        return {
+            "files": [
+                {"path": relative, "name": Path(relative).name}
+                for relative in matched[:wanted]
+            ],
+            "total": len(matched),
+            "truncated": truncated,
         }
 
     # ------------------------------------------------------------- validation
