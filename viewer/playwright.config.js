@@ -30,7 +30,7 @@ if (process.env.TEST_WORKER_INDEX === undefined) {
   // API key 带进离线用例。
   rmSync(join(stateRoot, "config"), { recursive: true, force: true });
   for (const db of ["scheduler.sqlite", "chat.sqlite", "chat.sqlite-shm", "chat.sqlite-wal",
-    "chat-memory.sqlite", "artifacts.sqlite"]) {
+    "chat-memory.sqlite", "artifacts.sqlite", "governance.sqlite"]) {
     rmSync(join(stateRoot, db), { force: true });
   }
   // webServer 早于 globalSetup 启动；冷启动时隔离仓必须先存在，

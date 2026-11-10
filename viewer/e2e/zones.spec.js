@@ -18,6 +18,15 @@ test("分区历史:Work 显示对话段,Governance 显示审计历史并深链�
   await expect(page.locator("#gov-history")).toBeVisible();
   await expect(page.locator("#chat-chats")).toBeHidden();
   await expect(page.locator("#chat-tasks")).toBeHidden();
+  // 治理区默认是对话面：composer 可见，工作台通过分段控件进入
+  await expect(page.locator("#gov-dialog-stream")).toBeVisible();
+  await expect(page.locator(".composer-wrap")).toBeVisible();
+  await page.locator('[data-gov-mode="workbench"]').click();
+  await expect(page.locator("#gov-target-input")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".composer-wrap")).toBeHidden();
+  await page.locator('[data-gov-mode="dialog"]').click();
+  await expect(page.locator("#gov-dialog-stream")).toBeVisible();
+  await expect(page.locator(".composer-wrap")).toBeVisible();
 
   // 审计历史行 → 工作台选中该目标（发现表 + 详情抽屉，可继续处置/派修复）。
   // 选一条有发现的记录：0 发现的 artifact 目标不会渲染处置控件。
@@ -28,6 +37,7 @@ test("分区历史:Work 显示对话段,Governance 显示审计历史并深链�
   await row.click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
   await expect(page.locator("#gov-summary .gov-target-head")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".composer-wrap")).toBeHidden();
   // 发现表一行 → 详情抽屉（证据引用 + 处置）
   const findingRow = page.locator("#gov-findings-list [data-gov-finding]").first();
   await expect(findingRow).toBeVisible({ timeout: 10_000 });

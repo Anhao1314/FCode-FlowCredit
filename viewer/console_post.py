@@ -50,6 +50,19 @@ def post_audit_run(handler):
     return handler._json({"job_id": job_id, "status": "running"})
 
 
+def post_gov_bot_run(handler, bot_id):
+    """Dispatch one manual run to a governance bot (auditor / verifier)."""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        run = service.start_run(bot_id, str(body.get("target") or "").strip())
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"run": run}, 202)
+
+
 _STATIC = {
     "/api/intake": post_intake,
     "/api/settings/chat-config": post_chat_config,
@@ -169,6 +182,10 @@ def dispatch_post(handler, path: str):
     route = _STATIC.get(path)
     if route is not None:
         return route(handler)
+    match = _suffix(path, "/api/gov/bots/", {"/run": post_gov_bot_run})
+    if match is not None:
+        bot_id, route = match
+        return route(handler, bot_id)
     match = _suffix(path, "/api/chat/threads/", _CHAT_ROUTES)
     if match is not None:
         thread_id, route = match

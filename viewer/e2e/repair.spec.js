@@ -13,8 +13,10 @@ test("修洞闭环:重新挖洞到完成;派 agent 修复进委托确认页", as
   await page.waitForSelector('body[data-booted="1"]');
   await page.locator('#zone-switch [data-zone="gov"]').click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
+  await page.locator('[data-gov-mode="workbench"]').click();
+  await expect(page.locator("#gov-target-input")).toBeVisible({ timeout: 10_000 });
 
-  // 仓内目标挖一次（Phase1：工作台顶部表单，不再走治理 composer）
+  // 仓内目标挖一次（工作台顶部表单；治理区默认是对话面）
   await page.locator("#gov-target-input").fill("fixtures/demo-target");
   await page.locator("#gov-new-audit button[type=submit]").click();
   const job = page.locator("#gov-activity .gov-job", { hasText: "fixtures/demo-target" }).first();

@@ -18,8 +18,9 @@ test("判断记录页渲染(从治理台判断卡进入,空态可读)", async ({
   // 治理命令从对话唤起:切治理台 + 落判断卡
   await slashCommand(page, "/判断");
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
-  const card = page.locator("#gov-activity .gov-judgments");
+  const card = page.locator("#gov-dialog-stream .gov-judgments");
   await expect(card).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".composer-wrap")).toBeVisible();
   // 卡内锚点进判断记录页
   await card.locator('[data-open="reviews"]').click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "reviews");

@@ -13,9 +13,12 @@ import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/worksp
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
 import {
-  aggregateTargets, filterFindings, govSummaryHtml,
+  aggregateTargets, filterFindings, govSummaryHtml, govSurfaceSwitchHtml,
   findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
 } from "./core/gov-workbench.js";
+import {
+  govBotSummaryHtml, govBotRosterHtml, govBotDispatchHtml, govBotChannelHtml,
+} from "./core/gov-bots.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -40,7 +43,7 @@ import {
   decisionForPending, lastBudget,
 } from "./app/task-thread.js";
 import { chatMessageHtml } from "./core/chat-view.js";
-import { aiAvatarHtml, userAvatarHtml } from "./core/ai-avatar.js";
+import { aiAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
 import { composerAddMenuHtml, workAddMenuHtml } from "./core/composer-add-menu.js";
@@ -380,8 +383,8 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   renderProjectComposer();
   // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）不显示输入框
   const composerWrap = document.querySelector(".composer-wrap");
-  // 治理台是工作台(表单/筛选/表格),不是对话面,不显示输入框;
-  // 审计台属治理区但保留治理 composer(零模型 console 在证据页也可用);
+  // 治理台有对话/工作台两个壳:renderGovDialog 会自己把输入框放回来,
+  // 工作台保持隐藏。审计台属治理区也保留治理 composer(零模型 console);
   // reviews/scheduled/ledger/settings 仍是纯功能页,不显示输入框。
   if (composerWrap) composerWrap.hidden = (mode === "gov" || mode === "reviews"
     || mode === "scheduled" || mode === "ledger" || mode === "settings");
@@ -1531,7 +1534,13 @@ const COMPOSER_SUBMIT = {
     const text = (ta.value || "").trim();
     if (!text) return;
     if (!text.startsWith("/")) { toast("治理台用命令交互：/挖洞 <target>（如 /挖洞 /Applications/EvoX.app）"); return; }
-    runSlash(text.slice(1).split(/\s+/)[0]);
+    const word = text.split(/\s+/)[0];
+    // 对话面只放治理命令；Work 的 /report /stop 等不能借治理输入框执行。
+    if (!filterSlashCommands(SLASH_COMMANDS, { gov: true }).some(c => c.cmd === word)) {
+      toast("治理台只接受 /挖洞 · /判断 · /链 等治理命令");
+      return;
+    }
+    runSlash(word.slice(1));
   },
   chat: () => sendChatFromComposer(),
   running: () => sendOperatorMessage(),
@@ -2601,25 +2610,99 @@ async function pushWorkspaceCard(kind) {
 }
 
 /* ================================================================ 治理台（G1）
-   治理区的工作台面：目标聚合 → 发现表 → 详情抽屉 → 作业活动。
+   治理区有两个面：
+   - 对话（默认）：操作员命令 + 控制台响应卡，像 Work 一样可以打字；
+   - 工作台：目标聚合 → 发现表 → 详情抽屉，Phase1 的审计复核面。
+
    数据 = 服务端事实（bundle 落盘持久 / 作业状态内存态），动作 =
    确定性操作（POST /api/audit/run 等）。模型不进环——审计证据的
-   公信力押在 "no model in the loop" 上。
-
-   Phase1 的边界：治理台不再有头像/气泡/对话 composer。Work 区是
-   通用 Codex 式执行面；治理区只做审计、证据与操作员处置。 */
+   公信力押在 "no model in the loop" 上。 */
 
 const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
 const govFindings = new Map(); // audit_dir → {findings, target, profile}（处置/修复闭环投影）
 let govPollTimer = null;
 let govBundle = null;
 let govLoadSeq = 0;
+let govSurface = "dialog"; // dialog | team | workbench
+const govDialog = []; // {kind:"user"|"job"|"card", text/jobId/html}
 const govWork = {
   dir: "", severity: "all", unhandled: false, query: "", finding: "", inspector: "",
 };
+const govTeam = {
+  bots: [], runs: [], loaded: false,
+};
+let govTeamSeq = 0;
+let govTeamTimer = null;
+let govBotSelected = "auditor";
 
 function govActive() {
   return document.getElementById("main")?.dataset.view === "gov";
+}
+
+/* 对话流条目：操作员右对齐气泡（与 Work 一致，不画用户头像），
+   控制台左侧印章头像 + 卡片体。 */
+function govUserEntryHtml(text) {
+  return `<div class="gov-entry user"><span class="gov-echo">${esc(text)}</span></div>`;
+}
+
+function govConsoleEntryHtml(html) {
+  if (!html) return "";
+  return `<div class="gov-entry console">${aiAvatarHtml("idle", 28)}<div class="gov-entry-body">${html}</div></div>`;
+}
+
+function govDialogIntroHtml() {
+  return govConsoleEntryHtml(`<div class="gov-dialog-intro">
+    <b>治理对话</b>
+    <p>用命令发起离线审计、验证签名链或查看操作员判断。模型不进环。</p>
+    <div class="gov-start" aria-label="治理命令">
+      <button class="gov-cmd" type="button" data-gov-fill="/挖洞 "><span class="gov-cmd-key">/挖洞</span> <span class="gov-cmd-arg">&lt;target&gt;</span></button>
+      <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
+      <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
+    </div>
+  </div>`);
+}
+
+function paintGovDialog(scroll = false) {
+  const host = document.getElementById("gov-dialog-stream");
+  if (!host) return;
+  const rows = govDialog.map(entry => {
+    if (entry.kind === "user") return govUserEntryHtml(entry.text || "");
+    if (entry.kind === "job") {
+      const job = govJobs.get(entry.jobId);
+      return job ? govConsoleEntryHtml(govJobCardHtml(job)) : "";
+    }
+    return govConsoleEntryHtml(entry.html || "");
+  }).join("");
+  host.innerHTML = rows || govDialogIntroHtml();
+  hydrateDoodles(host);
+  if (scroll) {
+    const scroller = document.querySelector(".main");
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+}
+
+function pushGovDialog(entry, scroll = false) {
+  govDialog.push(entry);
+  if (govDialog.length > 60) govDialog.splice(0, govDialog.length - 60);
+  if (govActive() && govSurface === "dialog") paintGovDialog(scroll);
+}
+
+function govDialogErrorHtml(message) {
+  return `<div class="gov-dialog-error">${esc(message)}</div>`;
+}
+
+/* 切面；需要时重绘到对应 DOM。返回是否触发了重绘。 */
+function showGovSurface(surface) {
+  const changed = govSurface !== surface;
+  govSurface = surface;
+  const host = surface === "dialog" ? "gov-dialog-stream"
+    : surface === "team" ? "gov-team-roster"
+    : "gov-summary";
+  if (!govActive() || changed || !document.getElementById(host)) {
+    renderMode("gov");
+    return true;
+  }
+  return false;
 }
 
 function applyGovBundle(dir, bundle) {
@@ -2687,7 +2770,7 @@ function govJobCardHtml(job) {
   const state = job.status === "done" ? "完成"
     : job.status === "failed" ? "失败" : "挖掘中";
   const stats = job.status === "done"
-    ? `${num(job.findings || 0)} 发现 · ${num(job.evidence || 0)} 证据记录${job.audit_id ? " · " + esc(job.audit_id) : ""}`
+    ? `${num(job.findings || 0)} 发现 · ${num(job.evidence || 0)} 证据记录${job.audit_id ? " · " + job.audit_id : ""}`
     : job.status === "failed" ? String(job.error || "未知错误").slice(0, 160) : "离线审计管线运行中…";
   const open = job.status === "done" && job.audit_id
     ? `<button class="gov-wb-button quiet" type="button" data-gov-hist="${esc(job.audit_id)}">查看结果 →</button>`
@@ -2719,10 +2802,11 @@ function paintGovActivity() {
 async function openGovRecord(dir) {
   const d = String(dir || "").trim();
   if (!d) return;
+  govSurface = "workbench";
   govWork.dir = d;
   govWork.finding = "";
   govWork.inspector = "";
-  if (!govActive()) { renderMode("gov"); return; }
+  if (!govActive() || !document.getElementById("gov-summary")) { renderMode("gov"); return; }
   const seq = ++govLoadSeq;
   try {
     const bundle = await fetchGovBundle(d);
@@ -2734,39 +2818,244 @@ async function openGovRecord(dir) {
   }
 }
 
-function showGovChain(dir) {
+function showGovChain(dir, surface = "dialog") {
   const d = String(dir || "").trim();
-  if (!d) { renderMode("gov"); toast("用法：/链 <audit_id>（如 /链 evox.app-2026-11-08-5c093a）"); return; }
-  renderMode("gov");
+  if (!d) {
+    showGovSurface(surface);
+    toast("用法：/链 <audit_id>（如 /链 evox.app-2026-11-08-5c093a）");
+    return;
+  }
+  showGovSurface(surface);
+  if (surface === "dialog") pushGovDialog({ kind: "user", text: `/链 ${d}` }, true);
   (async () => {
     try {
       const r = await fetch("/api/audit/chain/" + encodeURIComponent(d), { cache: "no-store" });
       const chain = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(chain.error || `HTTP ${r.status}`);
-      govWork.inspector = chainCardHtml(d, chain);
-      paintGovActivity();
+      const html = chainCardHtml(d, chain);
+      if (surface === "dialog") pushGovDialog({ kind: "card", html }, true);
+      else {
+        govWork.inspector = html;
+        paintGovActivity();
+      }
     } catch (error) {
+      if (surface === "dialog") {
+        pushGovDialog({ kind: "card", html: govDialogErrorHtml("链查询失败：" + error.message) }, true);
+      }
       toast("链查询失败：" + error.message);
     }
   })();
 }
 
-function showGovJudgments() {
-  renderMode("gov");
+function showGovJudgments(surface = "dialog") {
+  showGovSurface(surface);
+  if (surface === "dialog") pushGovDialog({ kind: "user", text: "/判断" }, true);
   (async () => {
     try {
       const r = await fetch("/api/review-profile", { cache: "no-store" });
       const profile = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(profile.error || `HTTP ${r.status}`);
-      govWork.inspector = judgmentsCardHtml(profile);
-      paintGovActivity();
+      const html = judgmentsCardHtml(profile);
+      if (surface === "dialog") pushGovDialog({ kind: "card", html }, true);
+      else {
+        govWork.inspector = html;
+        paintGovActivity();
+      }
     } catch (error) {
+      if (surface === "dialog") {
+        pushGovDialog({ kind: "card", html: govDialogErrorHtml("判断汇总失败：" + error.message) }, true);
+      }
       toast("判断汇总失败：" + error.message);
     }
   })();
 }
 
-async function renderGov() {
+/* 团队面：Bot 花名册 + 派活 + 团队频道。Phase A 只有审计员/复核员，
+   运行事实由 /api/gov/bots 与 /api/gov/runs 提供；不做共享凭据。 */
+function paintGovTeam() {
+  if (!govActive()) return;
+  const summaryHost = document.getElementById("gov-team-summary");
+  if (!summaryHost) return;
+  summaryHost.innerHTML = govBotSummaryHtml(govTeam.bots);
+  const rosterHost = document.getElementById("gov-team-roster");
+  const dispatchHost = document.getElementById("gov-team-dispatch");
+  const channelHost = document.getElementById("gov-team-channel");
+  if (rosterHost) {
+    rosterHost.innerHTML = govTeam.loaded
+      ? govBotRosterHtml(govTeam.bots)
+      : `<div class="gov-loading dim">正在读取团队…</div>`;
+  }
+  if (dispatchHost) {
+    // 轮询期间不要重绘派活表单：会把操作员正在输入的目标清空。
+    const signature = govTeam.bots.map(bot => bot.id).join(",") + "|" + govBotSelected;
+    if (dispatchHost.dataset.govSig !== signature) {
+      dispatchHost.innerHTML = govTeam.loaded && govTeam.bots.length
+        ? govBotDispatchHtml(govTeam.bots, govBotSelected)
+        : "";
+      dispatchHost.dataset.govSig = signature;
+    }
+  }
+  if (channelHost) {
+    channelHost.innerHTML = govTeam.loaded
+      ? govBotChannelHtml(govTeam.runs, govTeam.bots)
+      : `<div class="gov-loading dim">正在读取团队频道…</div>`;
+  }
+  hydrateDoodles(summaryHost);
+}
+
+async function loadGovTeam() {
+  const seq = ++govTeamSeq;
+  try {
+    const [botsResponse, runsResponse] = await Promise.all([
+      fetch("/api/gov/bots", { cache: "no-store" }),
+      fetch("/api/gov/runs?limit=40", { cache: "no-store" }),
+    ]);
+    const botsData = botsResponse.ok ? await botsResponse.json() : { bots: [] };
+    const runsData = runsResponse.ok ? await runsResponse.json() : { runs: [] };
+    if (seq !== govTeamSeq) return;
+    govTeam.bots = Array.isArray(botsData.bots) ? botsData.bots : [];
+    govTeam.runs = Array.isArray(runsData.runs) ? runsData.runs : [];
+    govTeam.loaded = true;
+    if (!govTeam.bots.some(bot => bot.id === govBotSelected) && govTeam.bots[0]) {
+      govBotSelected = govTeam.bots[0].id;
+    }
+    if (govActive() && govSurface === "team") paintGovTeam();
+  } catch {
+    if (seq !== govTeamSeq) return;
+    govTeam.loaded = true;
+    if (govActive() && govSurface === "team") paintGovTeam();
+  }
+}
+
+function stopGovTeamPoll() {
+  if (!govTeamTimer) return;
+  clearInterval(govTeamTimer);
+  govTeamTimer = null;
+}
+
+function scheduleGovTeamPoll() {
+  if (govTeamTimer) return;
+  govTeamTimer = setInterval(async () => {
+    if (!govActive() || govSurface !== "team") {
+      clearInterval(govTeamTimer);
+      govTeamTimer = null;
+      return;
+    }
+    await loadGovTeam();
+    const running = govTeam.runs.some(run => run.status === "queued" || run.status === "running");
+    if (!running) {
+      clearInterval(govTeamTimer);
+      govTeamTimer = null;
+    }
+  }, 2000);
+}
+
+function syncGovBotDispatch() {
+  const select = document.getElementById("gov-bot-select");
+  const input = document.getElementById("gov-bot-target");
+  if (!select) return;
+  govBotSelected = select.value;
+  const bot = govTeam.bots.find(item => item.id === govBotSelected);
+  if (input) {
+    input.placeholder = bot && bot.id === "verifier"
+      ? "审计 id（留空 = 最新一次）"
+      : "目标路径，如 fixtures/demo-target";
+  }
+  const host = document.getElementById("gov-team-dispatch");
+  if (host) host.dataset.govSig = govTeam.bots.map(item => item.id).join(",") + "|" + govBotSelected;
+}
+
+async function startGovBotRun() {
+  const select = document.getElementById("gov-bot-select");
+  const input = document.getElementById("gov-bot-target");
+  const botId = select ? select.value : govBotSelected;
+  const bot = govTeam.bots.find(item => item.id === botId);
+  if (!bot) { toast("团队还没加载完成"); return; }
+  const target = input ? input.value.trim() : "";
+  try {
+    const response = await fetch(`/api/gov/bots/${encodeURIComponent(botId)}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (input) input.value = "";
+    toast(`${bot.name} 已接活`);
+    await loadGovTeam();
+    scheduleGovTeamPoll();
+  } catch (error) {
+    toast("派活失败：" + error.message);
+  }
+}
+
+function renderGovTeam() {
+  document.getElementById("tb-title").textContent = "治理台";
+  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  setFoot("治理台 · 团队频道（审计员 / 复核员）", "");
+  renderMain(`<div class="gov-team">
+    <header class="gov-dlg-head">
+      <div class="gov-wb-intro">
+        <p class="eyebrow">GOVERNANCE / TEAM</p>
+        <h1 class="page-title">治理团队</h1>
+        <p class="page-meta">常驻角色按固定职责运行；审计与复核证据仍来自离线确定性管线，操作员保留处置权。</p>
+      </div>
+      ${govSurfaceSwitchHtml("team")}
+    </header>
+    <div id="gov-team-summary"></div>
+    <section class="gov-team-section">
+      <div class="gov-team-section-head"><span>ROSTER</span><b>常驻角色</b></div>
+      <div id="gov-team-roster"></div>
+    </section>
+    <section class="gov-team-section">
+      <div class="gov-team-section-head"><span>DISPATCH</span><b>派活</b></div>
+      <div id="gov-team-dispatch"></div>
+    </section>
+    <section class="gov-team-section">
+      <div class="gov-team-section-head"><span>CHANNEL</span><b>团队频道</b></div>
+      <div id="gov-team-channel" class="gov-team-channel" aria-live="polite"></div>
+    </section>
+  </div>`, { mode: "gov" });
+  paintGovTeam();
+  const epoch = viewGate.sequence;
+  loadGovTeam().then(() => {
+    if (epoch !== viewGate.sequence) return;
+    scheduleGovTeamPoll();
+  });
+}
+
+/* 对话面：治理区的默认入口。复用 Work 的输入框与消息骨架，但只接受
+   治理命令；响应是控制台印章头像 + 服务端事实卡。 */
+function renderGovDialog() {
+  stopGovTeamPoll();
+  document.getElementById("tb-title").textContent = "治理台";
+  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  setFoot("治理台 · 对话式零模型控制台（/挖洞 · /判断 · /链）", "");
+  renderMain(`<div class="gov-dlg">
+    <header class="gov-dlg-head">
+      <div class="gov-wb-intro">
+        <p class="eyebrow">GOVERNANCE / CONSOLE</p>
+        <h1 class="page-title">治理台</h1>
+        <p class="page-meta">挖洞、判断、链——以命令与响应卡进行。审计由离线确定性管线完成，模型不进环。</p>
+      </div>
+      ${govSurfaceSwitchHtml("dialog")}
+    </header>
+    <div id="gov-dialog-stream" class="gov-dialog-stream" aria-live="polite"></div>
+  </div>`, { mode: "gov" });
+  // 对话面需要输入框；工作台面由 renderMain 保持隐藏。
+  const composerWrap = document.querySelector(".composer-wrap");
+  if (composerWrap) composerWrap.hidden = false;
+  paintGovDialog();
+  scheduleGovPoll();
+}
+
+function renderGov() {
+  if (govSurface === "team") return renderGovTeam();
+  return govSurface === "workbench" ? renderGovWorkbench() : renderGovDialog();
+}
+
+async function renderGovWorkbench() {
+  stopGovTeamPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
   setFoot("治理台 · 离线审计 / 证据 / 操作员处置", "");
@@ -2780,15 +3069,18 @@ async function renderGov() {
         <h1 class="page-title">治理台</h1>
         <p class="page-meta">取证由离线确定性管线完成；处置、修复与复核由操作员决定。模型不进环。</p>
       </div>
-      <form class="gov-new-audit" id="gov-new-audit">
-        <label class="gov-target-field">
-          <span>审计目标</span>
-          <input id="gov-target-input" name="target" type="text" autocomplete="off" spellcheck="false"
-            placeholder="/Applications/EvoX.app 或 /path/to/repo" aria-label="审计目标">
-        </label>
-        <button class="gov-wb-button strong" type="submit">开始审计</button>
-        <button class="gov-wb-button quiet" type="button" data-gov-judgments>判断汇总</button>
-      </form>
+      <div class="gov-wb-head-side">
+        ${govSurfaceSwitchHtml("workbench")}
+        <form class="gov-new-audit" id="gov-new-audit">
+          <label class="gov-target-field">
+            <span>审计目标</span>
+            <input id="gov-target-input" name="target" type="text" autocomplete="off" spellcheck="false"
+              placeholder="/Applications/EvoX.app 或 /path/to/repo" aria-label="审计目标">
+          </label>
+          <button class="gov-wb-button strong" type="submit">开始审计</button>
+          <button class="gov-wb-button quiet" type="button" data-gov-judgments>判断汇总</button>
+        </form>
+      </div>
     </header>
     <div class="gov-wb-layout">
       <section class="gov-wb-list" aria-label="审计发现">
@@ -2860,20 +3152,38 @@ function scheduleGovPoll() {
       } catch { /* 单次轮询失败保旧态 */ }
     }));
     if (govActive()) {
-      paintGovWorkbench();
-      paintGovActivity();
+      if (govSurface === "dialog") paintGovDialog();
+      else {
+        paintGovWorkbench();
+        paintGovActivity();
+      }
     }
   }, 2500);
 }
 
-function startGovAudit(target) {
+/* options.surface: 工作台表单/重挖显式传 workbench；命令与 Work 入口
+   默认进对话，让操作员看到作业卡与后续响应。 */
+function startGovAudit(target, options = {}) {
   const t = String(target || "").trim();
+  const surface = options.surface === "workbench" ? "workbench" : "dialog";
   if (!t) {
-    renderMode("gov");
-    document.getElementById("gov-target-input")?.focus();
-    toast("在治理台顶部输入审计目标（如 /Applications/EvoX.app）");
+    showGovSurface(surface);
+    if (surface === "dialog") {
+      const ta = document.getElementById("composer-ta");
+      if (ta) {
+        ta.value = "/挖洞 ";
+        autosize(ta);
+        ta.focus();
+      }
+      toast("输入 /挖洞 <target>（如 /挖洞 /Applications/EvoX.app）");
+    } else {
+      document.getElementById("gov-target-input")?.focus();
+      toast("在治理台顶部输入审计目标（如 /Applications/EvoX.app）");
+    }
     return;
   }
+  showGovSurface(surface);
+  if (surface === "dialog") pushGovDialog({ kind: "user", text: `/挖洞 ${t}` }, true);
   (async () => {
     try {
       const r = await fetch("/api/audit/run", {
@@ -2883,11 +3193,14 @@ function startGovAudit(target) {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
       govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
-      if (govActive()) paintGovActivity();
-      else renderMode("gov");
+      if (surface === "dialog") pushGovDialog({ kind: "job", jobId: data.job_id }, true);
+      else paintGovActivity();
       toast("挖洞作业已发起 · 治理台跟踪进度");
       scheduleGovPoll();
     } catch (error) {
+      if (surface === "dialog") {
+        pushGovDialog({ kind: "card", html: govDialogErrorHtml("挖洞发起失败：" + error.message) }, true);
+      }
       toast("挖洞发起失败：" + error.message);
     }
   })();
@@ -2944,11 +3257,21 @@ document.addEventListener("input", event => {
 });
 
 document.addEventListener("submit", event => {
+  if (event.target.closest("#gov-bot-dispatch")) {
+    event.preventDefault();
+    startGovBotRun();
+    return;
+  }
   const form = event.target.closest("#gov-new-audit");
   if (!form) return;
   event.preventDefault();
   const input = document.getElementById("gov-target-input");
-  startGovAudit(input ? input.value : "");
+  startGovAudit(input ? input.value : "", { surface: "workbench" });
+});
+
+document.addEventListener("change", event => {
+  if (!event.target.closest("#gov-bot-select")) return;
+  syncGovBotDispatch();
 });
 
 /* ================================================================ Chat
@@ -3816,6 +4139,8 @@ function bindGlobalActions() {
       document.getElementById("user-btn")?.setAttribute("aria-expanded", "false");
     }
     // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器 / W1 对话卡跳转共用 data-open → renderMode 一条路。
+    // 从区切换器进入 Governance 时回到对话面；工作台是复核时的显式选择。
+    if (event.target.closest('.zone-btn[data-open="gov"]')) govSurface = "dialog";
     const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
@@ -3834,6 +4159,26 @@ function bindGlobalActions() {
       return;
     }
     // Phase1 工作台:严重度筛选 / 发现行选中 / 关闭详情 / 链 / 判断汇总
+    const govMode = event.target.closest("[data-gov-mode]");
+    if (govMode) {
+      const next = ["dialog", "team", "workbench"].includes(govMode.dataset.govMode)
+        ? govMode.dataset.govMode : "dialog";
+      showGovSurface(next);
+      return;
+    }
+    const govBotPick = event.target.closest("[data-gov-bot-pick]");
+    if (govBotPick) {
+      govBotSelected = govBotPick.dataset.govBotPick || "auditor";
+      const select = document.getElementById("gov-bot-select");
+      if (select) select.value = govBotSelected;
+      syncGovBotDispatch();
+      const input = document.getElementById("gov-bot-target");
+      if (input) {
+        input.scrollIntoView({ block: "center", behavior: "smooth" });
+        input.focus();
+      }
+      return;
+    }
     const govSev = event.target.closest("[data-gov-sev]");
     if (govSev) {
       govWork.severity = govSev.dataset.govSev || "all";
@@ -3854,12 +4199,12 @@ function bindGlobalActions() {
     }
     const govChain = event.target.closest("[data-gov-chain]");
     if (govChain) {
-      showGovChain(govChain.dataset.govChain || govWork.dir);
+      showGovChain(govChain.dataset.govChain || govWork.dir, "workbench");
       return;
     }
     const govJudgments = event.target.closest("[data-gov-judgments]");
     if (govJudgments) {
-      showGovJudgments();
+      showGovJudgments("workbench");
       return;
     }
     // 治理命令提示条:填充命令词(等操作员补参数后按 ↵),不直接执行
@@ -3924,7 +4269,7 @@ function bindGlobalActions() {
       const dir = govRedig.dataset.govRedig;
       const meta = govFindings.get(dir);
       if (!meta || !meta.target) { toast("审计目标缺失，无法重新挖洞"); return; }
-      startGovAudit(meta.target);
+      startGovAudit(meta.target, { surface: "workbench" });
       return;
     }
     // G2 治理台发现卡:处置下拉 change 事件在 document 级委托(见下方

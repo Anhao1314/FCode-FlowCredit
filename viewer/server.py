@@ -43,6 +43,7 @@ import secrets
 import socketserver
 import sys
 import threading
+import traceback
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,6 +63,7 @@ from console_common import (  # noqa: E402
     run_trace_path,
 )
 from audit_service import AuditService  # noqa: E402
+from gov_bots import GovBotService  # noqa: E402
 from console_manager import RunManager as _RunManager  # noqa: E402
 
 class RunManager(_RunManager):
@@ -80,6 +82,7 @@ class Handler(SimpleHTTPRequestHandler):
     token: str | None = None  # set by main() in desktop mode
     repo: Path | None = None  # set by create_server(); audit artifacts live here
     audit: AuditService | None = None  # set by create_server(); Governance-zone service
+    gov_bots: GovBotService | None = None  # set by create_server(); governance team roster
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, directory=str(VIEWER_DIR), **kwargs)
@@ -407,6 +410,23 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({"tools": mgr.runtime.tool_contracts()})
         if path == "/api/runs":
             return self._json(mgr.list_runs())
+        # ---- 治理团队（Phase A）：Bot 花名册 + 运行日志 ----
+        if path == "/api/gov/bots":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            return self._json(bots.snapshot())
+        if path == "/api/gov/runs":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            bot_id = str((query.get("bot") or [""])[0] or "").strip() or None
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"runs": bots.runs(bot_id, limit)})
         # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
         if path == "/api/audit/bundles":
             return self._json(self.audit.bundles())
@@ -785,6 +805,16 @@ def create_server(
         repo=Handler.repo,
         runtime=runtime,
     )
+    # Governance team roster: durable run log beside the other console state.
+    # The bot service is only a scheduler/log; audit bundles remain the truth.
+    try:
+        Handler.gov_bots = GovBotService(
+            Handler.audit,
+            manager.runs_dir.parent / "governance.sqlite",
+        )
+    except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
+        traceback.print_exc()
+        Handler.gov_bots = None
     httpd = ConsoleHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     return httpd

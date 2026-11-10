@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   targetKey, targetLabel, aggregateTargets, filterFindings,
-  govSummaryHtml, findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
+  govSurfaceSwitchHtml, govSummaryHtml, findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
 } from "../core/gov-workbench.js";
 
 const findings = [
@@ -55,6 +55,19 @@ test("筛选:严重度 + 未处置 + 搜索，按高危到低危排序", () => {
   assert.deepEqual(filterFindings(findings, { query: "AGI-0" }).map(f => f.finding_id), ["F-2", "F-3"]);
   assert.deepEqual(filterFindings(findings, { query: "MAGIC" }).map(f => f.finding_id), ["F-1"]);
   assert.equal(filterFindings(findings, { query: "no-such" }).length, 0);
+});
+
+test("治理面切换:对话/团队/工作台三枚 tab，当前面 aria-selected", () => {
+  const dialog = govSurfaceSwitchHtml("dialog");
+  assert.match(dialog, /role="tablist"/);
+  assert.match(dialog, /data-gov-mode="dialog" aria-selected="true"/);
+  assert.match(dialog, /data-gov-mode="team" aria-selected="false"/);
+  assert.match(dialog, /data-gov-mode="workbench" aria-selected="false"/);
+  assert.match(dialog, /对话<\/button>/);
+  assert.match(dialog, /团队<\/button>/);
+  const workbench = govSurfaceSwitchHtml("workbench");
+  assert.match(workbench, /data-gov-mode="dialog" aria-selected="false"/);
+  assert.match(workbench, /data-gov-mode="workbench" aria-selected="true"/);
 });
 
 test("摘要:身份/审计 id/计数/未处置/session 与四个动作", () => {

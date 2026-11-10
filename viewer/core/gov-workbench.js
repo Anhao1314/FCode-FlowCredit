@@ -10,6 +10,13 @@ import { DISPOSITION_LABELS } from "./gov-cards.js";
 const SEVERITY_LABEL = { high: "高", medium: "中", low: "低" };
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 
+/* 治理区三种交互面：对话是操作员入口，团队是常驻 Bot，工作台是审计复核面。 */
+export function govSurfaceSwitchHtml(active = "dialog") {
+  const button = (key, label) => `<button class="gov-surface-btn${active === key ? " active" : ""}"
+    type="button" role="tab" data-gov-mode="${key}" aria-selected="${active === key}">${label}</button>`;
+  return `<div class="gov-surface-switch" role="tablist" aria-label="治理台视图">${button("dialog", "对话")}${button("team", "团队")}${button("workbench", "工作台")}</div>`;
+}
+
 export function targetKey(entry) {
   return String((entry && (entry.target || entry.dir)) || "");
 }
