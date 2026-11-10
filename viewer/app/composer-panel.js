@@ -146,7 +146,7 @@ export function createComposerPanel(deps) {
     if (btn) {
       btn.classList.toggle("open", d.attach.open);
       btn.setAttribute("aria-expanded", d.attach.open ? "true" : "false");
-      btn.title = d.attach.open ? "收起附加面板" : "资料 / 工具 / 预算";
+      btn.title = d.attach.open ? "收起添加内容" : "添加内容";
     }
     box?.classList.toggle("open-attach", d.attach.open);
     if (d.attach.open) {
@@ -268,8 +268,12 @@ export function createComposerPanel(deps) {
         <div class="attach-warning${raised ? " on" : ""}">${raised ? "上调将放宽治理上限；实际计费仍以收据为准" : "下调立即收紧；实际计费仍以收据为准"}</div>` },
     ];
     // 手风琴：四组默认收成单行摘要（当前配置一览），单开展开——对齐 kimi 的
-    // 空间纪律：+ 菜单只占浮层，从不占据页面流。
-    panel.innerHTML = groups.map(g => {
+    // 空间纪律：+ 菜单只占浮层，从不占据页面流。从「添加内容」进入时加一条
+    // 返回入口，保持「入口四分类 → 详情」的两层关系可逆。
+    const head = d.attach.fromMenu
+      ? `<div class="attach-head"><button type="button" class="attach-back" data-attach-back>‹ 添加内容</button><span class="attach-head-note">本次委托</span></div>`
+      : "";
+    panel.innerHTML = head + groups.map(g => {
       const open = d.attach.openGroup === g.key;
       return `<section class="attach-group${open ? " open" : ""}">
         <button class="attach-sum" data-attach-sum="${g.key}" aria-expanded="${open}">
@@ -320,7 +324,7 @@ export function createComposerPanel(deps) {
         }).catch(() => { d.attach.mcp.loaded = true; }));
     }
     await Promise.all(jobs);
-    renderAttachPanel();
+    if (d.attach.open) renderAttachPanel();
     if (d.getIntake().active) d.renderIntake();
   }
 

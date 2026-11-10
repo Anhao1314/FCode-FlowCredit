@@ -68,13 +68,14 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
   // 3. intake 内直接打开 + 面板加来源(回归断言:+ 按钮在 intake 可达——
   //    曾被 CSS 与 paintChatChrome 双重隐藏,调研委托因此永远过不了守卫)
   await expect(page.locator("#composer-open")).toBeVisible();
-  await page.locator("#composer-open").click();
-  await page.locator("[data-attach-sum='sources']").click();
+  await page.locator("#composer-open").click();                 // 添加内容（第一层）
+  await page.locator('[data-work-add="sources"]').click();      // 资料与来源（详情层，已展开）
   await page.locator("[data-attach-source-input]").fill("http://127.0.0.1:9/probe");
   await page.locator("[data-attach-source-add]").click();
   await expect(page.locator(".attach-source .src-url").first()).toHaveText(/127\.0\.0\.1/);
-  await page.locator("#composer-open").click(); // 收起面板
-  await page.waitForTimeout(250);               // 收起动画 150ms
+  await page.locator("[data-attach-back]").click();             // 回到添加内容
+  await page.locator("#composer-open").click();                 // 收起菜单
+  await page.waitForTimeout(250);                               // 收起动画 150ms
   await start.click();
 
   // 4. 运行接流:线程投影出目标条目与状态条目(live 断言到此为止——

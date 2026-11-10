@@ -246,13 +246,14 @@ export function createChatUI(deps) {
     show("rail-toggle", !on);
     show("approval-btn", !on);
     show("fast-btn", !on);
-    // The same + is the add-content menu in chat and the context/settings
-    // panel in work; it is never hidden by the chat switch alone.
+    // The same + is the add-content menu in both modes; Work's menu then
+    // routes to the context/settings detail sheet. It is never hidden by the
+    // chat switch alone.
     show("composer-open", true);
     const addMenu = document.getElementById("composer-add-menu");
     if (addMenu) addMenu.hidden = true;
     const open = document.getElementById("composer-open");
-    if (open) open.setAttribute("title", on ? "添加内容" : "资料 / 工具 / 预算");
+    if (open) open.setAttribute("title", "添加内容");
     const runChip = document.getElementById("run-chip");
     if (runChip && on) runChip.hidden = true;
     if (on) {

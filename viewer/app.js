@@ -39,7 +39,7 @@ import { chatMessageHtml } from "./core/chat-view.js";
 import { aiAvatarHtml, userAvatarHtml } from "./core/ai-avatar.js";
 import { actionCardHtml, mirrorFrom, runMirrorHtml } from "./core/run-card.js";
 import { moonshotStageHtml } from "./core/moonshot-stage.js";
-import { composerAddMenuHtml } from "./core/composer-add-menu.js";
+import { composerAddMenuHtml, workAddMenuHtml } from "./core/composer-add-menu.js";
 import { bindLatestScroll, bindWorkspaceNavigation, auditHashTarget } from "./core/work-surface.js";
 import {
   chatRowsHtml, chatSectionHtml,
@@ -302,6 +302,7 @@ function setFastMode(on) {
    三项都是真实委托输入：scope 与 budget 随 spec 提交并被 run 线程消费。 */
 const attach = {
   open: false,
+  fromMenu: false,       // 从「添加内容」进入：详情层显示返回入口
   openGroup: null,       // 手风琴单开：null | tpl | sources | tools | budget
   corpus: [],
   tools: [],
@@ -410,7 +411,7 @@ function paintGovChrome(gov) {
   if (modelBtn) modelBtn.style.display = "";
   if (plusBtn) {
     plusBtn.style.display = "";
-    plusBtn.title = chat.active ? "添加内容" : "资料 / 工具 / 预算";
+    plusBtn.title = "添加内容";
   }
   const fastBtn = document.getElementById("fast-btn");
   if (fastBtn) fastBtn.style.display = "";
@@ -3014,11 +3015,30 @@ function renderAddMenu() {
   const menu = document.getElementById("composer-add-menu");
   const plus = document.getElementById("composer-open");
   if (!menu) return;
-  menu.innerHTML = composerAddMenuHtml({
-    attachmentCount: chat.attachments.length,
-    workspaceOpen: addMenuWorkspaceOpen,
-    error: addMenuError,
-  });
+  if (chat.active) {
+    menu.innerHTML = composerAddMenuHtml({
+      attachmentCount: chat.attachments.length,
+      workspaceOpen: addMenuWorkspaceOpen,
+      error: addMenuError,
+    });
+  } else {
+    const general = isGeneralTemplate();
+    const limits = effectiveDraftBudget();
+    const budget = attach.budget || {
+      maxCalls: limits.max_calls || 0,
+      maxCostMicrousd: limits.max_cost_microusd || 0,
+    };
+    const template = (templates.find(t => t.key === tplKey) || {}).title || tplKey;
+    menu.innerHTML = workAddMenuHtml({
+      general,
+      sourceCount: attach.sources.length,
+      scopeCount: attach.scope.size,
+      project: attach.project.path.trim().split("/").pop() || "",
+      toolCount: attach.tools.length,
+      template: String(template).split("：")[0],
+      budget: `${Number(budget.maxCalls || 0)} calls · ${num(budget.maxCostMicrousd || 0)} µ`,
+    });
+  }
   menu.hidden = false;
   plus?.classList.add("open");
   plus?.setAttribute("aria-expanded", "true");
@@ -3033,7 +3053,24 @@ function closeAddMenu() {
   addMenuError = "";
   plus?.classList.remove("open");
   plus?.setAttribute("aria-expanded", "false");
-  plus?.setAttribute("title", chat.active ? "添加内容" : "资料 / 工具 / 预算");
+  plus?.setAttribute("title", "添加内容");
+}
+
+function openWorkAddDetail(group) {
+  closeAddMenu();
+  attach.open = true;
+  attach.fromMenu = true;
+  attach.openGroup = group;
+  renderAttachPanel();
+  refreshAttachData();
+  document.getElementById("attach-panel")?.querySelector("[data-attach-back]")?.focus();
+}
+
+function closeAttachDetail(openMenu = false) {
+  attach.open = false;
+  attach.fromMenu = false;
+  renderAttachPanel();
+  if (openMenu) renderAddMenu();
 }
 
 function toggleAddMenu() {
@@ -3044,11 +3081,18 @@ function toggleAddMenu() {
   }
   if (attach.open) {
     attach.open = false;
+    attach.fromMenu = false;
     renderAttachPanel();
   }
   addMenuWorkspaceOpen = false;
   addMenuError = "";
   renderAddMenu();
+  if (!chat.active) {
+    refreshAttachData().then(() => {
+      const live = document.getElementById("composer-add-menu");
+      if (live && !live.hidden && !chat.active) renderAddMenu();
+    });
+  }
 }
 
 async function attachWorkspaceFile(path) {
@@ -3090,6 +3134,14 @@ function bindComposerAddMenu() {
   const menu = document.getElementById("composer-add-menu");
   if (!menu) return;
   menu.addEventListener("click", event => {
+    const workRow = event.target.closest("[data-work-add]");
+    if (workRow) {
+      event.stopPropagation();
+      if (workRow.disabled) return;
+      const view = workRow.dataset.workAdd;
+      openWorkAddDetail(view === "settings" ? "tpl" : view);
+      return;
+    }
     const row = event.target.closest("[data-add-action]");
     if (!row) return;
     event.stopPropagation();
@@ -3234,16 +3286,20 @@ function bindComposer() {
     event.stopPropagation();
     apvMenu.hidden = true;
     closeModelMenus();
-    if (chat.active) {
-      toggleAddMenu();
-      return;
+    if (attach.open) {
+      attach.open = false;
+      attach.fromMenu = false;
+      renderAttachPanel();
     }
-    closeAddMenu();
-    attach.open = !attach.open;
-    renderAttachPanel();
-    if (attach.open) refreshAttachData();
+    toggleAddMenu();
   });
   attachPanel.addEventListener("click", event => {
+    const back = event.target.closest("[data-attach-back]");
+    if (back) {
+      event.stopPropagation();
+      closeAttachDetail(true);
+      return;
+    }
     const sum = event.target.closest("[data-attach-sum]");
     if (sum) {
       event.stopPropagation();
@@ -3440,8 +3496,7 @@ function bindGlobalActions() {
       if (!menu.hidden && !modelBtn.contains(event.target) && !menu.contains(event.target)) menu.hidden = true;
     }
     if (attach.open && !plusBtn.contains(event.target) && !attachPanel.contains(event.target)) {
-      attach.open = false;
-      renderAttachPanel();
+      closeAttachDetail(false);
     }
     const addMenu = document.getElementById("composer-add-menu");
     if (addMenu && !addMenu.hidden && !plusBtn.contains(event.target) && !addMenu.contains(event.target)) {
@@ -4252,7 +4307,7 @@ function bindShell() {
       if (modelMenus.length) { modelMenus.forEach(menu => { menu.hidden = true; }); return; }
       const addMenu = document.getElementById("composer-add-menu");
       if (addMenu && !addMenu.hidden) { closeAddMenu(); return; }
-      if (attach.open) { attach.open = false; renderAttachPanel(); return; }
+      if (attach.open) { closeAttachDetail(attach.fromMenu); return; }
       if (settingsOpen) { closeSettingsPage(true); return; }
       if (!typing && innerWidth <= 1100 && railOpen) setChromeState({ rail: false });
       return;
