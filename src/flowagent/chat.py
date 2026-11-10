@@ -1002,10 +1002,25 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             )
         return "".join(parts)
 
+    def _ingest_memory(self, text: str, thread: Any) -> None:
+        """Promote durable operator preferences after the user event lands.
+
+        Failure is silent: memory is augmentation, never a reason to fail a
+        turn. Extraction only sees this operator-authored text.
+        """
+        try:
+            self.memory.ingest(text, source=f"chat:{getattr(thread, 'id', '')}")
+        except Exception:  # noqa: BLE001 — memory must not break chat
+            pass
+
     def _prompt_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        system = CHAT_SYSTEM_PROMPT + self.memory.context_block()
-        messages = [{"role": "system", "content": system}]
         active = self._replay(thread_id)[-MAX_HISTORY_MESSAGES:]
+        query = next(
+            (message["text"] for message in reversed(active) if message["role"] == "user"),
+            "",
+        )
+        system = CHAT_SYSTEM_PROMPT + self.memory.context_block(query=query)
+        messages = [{"role": "system", "content": system}]
         # 只给最近一条带工具历史的 assistant 回填 tool_calls/tool 消息：
         # 更早的轮次只留最终文本，避免上下文被历史工具输出撑爆。
         last_tool_assistant = next(
@@ -1087,6 +1102,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "model": str(model or "mock"),
         }
         thread = self._append(thread, "chat_user", detail)
+        self._ingest_memory(clean_text, thread)
         user_message = {
             "id": message_id,
             "role": "user",
@@ -1132,6 +1148,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 "target_id": message_id,
                 "message": new_user,
             })
+        self._ingest_memory(clean_text, thread)
         user_message = {
             "id": new_user["id"],
             "role": "user",

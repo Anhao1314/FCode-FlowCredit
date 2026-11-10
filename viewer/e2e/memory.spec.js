@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-/* 操作员长期记忆（M1）：/remember 沉淀 → API 可见 → 设置页管理 →
-   删除即消失。记忆只在操作员明示时产生——E2E 同时守住这个边界。 */
+/* 操作员长期记忆（M1/M2）：/remember 明示沉淀 + 操作员偏好保守自动提炼
+   → API 可见 → 设置页管理 → 删除即消失。自动提炼只读操作员消息。 */
 
 test("/remember 写入 → 设置页可见 → 删除消失", async ({ page }) => {
   await page.goto("/");
@@ -46,4 +46,22 @@ test("/remember 空参数给出可见提示,不写库", async ({ page }) => {
   await expect(ta).toHaveValue("");
   const { memories } = await (await page.request.get("/api/chat/memory")).json();
   expect(memories).toHaveLength(0);
+});
+
+test("操作员偏好会被保守提炼为 auto 记忆", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "新对话" }).first().click();
+  const ta = page.locator("#composer-ta");
+  await ta.fill("以后都用 pytest，不要再用 unittest");
+  await ta.press("Enter");
+
+  let entry;
+  await expect.poll(async () => {
+    const { memories } = await (await page.request.get("/api/chat/memory")).json();
+    entry = memories.find(m => m.auto && m.text.includes("pytest"));
+    return Boolean(entry);
+  }).toBe(true);
+  expect(entry.text).toContain("以后都用 pytest");
+
+  await page.request.post("/api/chat/memory/delete", { data: { id: entry.id } });
 });

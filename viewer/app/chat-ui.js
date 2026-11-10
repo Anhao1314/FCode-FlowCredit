@@ -784,10 +784,13 @@ export function createChatUI(deps) {
         list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>还没有长期记忆——对话里用「/remember 一句话」沉淀。</small></span></div>';
         return;
       }
-      list.innerHTML = entries.map(entry => `<div class="set-row" data-mem-row="${entry.id}">
-        <span class="set-row-text"><b>${d.esc(entry.text)}</b><small>${d.esc(entry.created || "")} · 每轮对话注入</small></span>
+      list.innerHTML = entries.map(entry => {
+        const source = entry.auto ? "自动提炼" : "操作员明示";
+        return `<div class="set-row" data-mem-row="${entry.id}">
+        <span class="set-row-text"><b>${d.esc(entry.text)}</b><small>${d.esc(entry.created || "")} · ${source} · 相关时注入</small></span>
         <button class="set-action" type="button" data-mem-del="${entry.id}">删除</button>
-      </div>`).join("");
+      </div>`;
+      }).join("");
     } catch {
       list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>记忆列表加载失败</small></span></div>';
     }

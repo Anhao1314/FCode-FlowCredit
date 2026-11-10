@@ -362,7 +362,8 @@ class RunDriver:
         chat = getattr(self.manager, "chat", None)
         if chat is not None and hasattr(chat, "memory"):
             try:
-                block = chat.memory.context_block()
+                query = str(getattr(self.run, "objective", "") or "")
+                block = chat.memory.context_block(query=query)
                 if block:
                     instruction = (instruction or "") + block
             except Exception:  # noqa: BLE001 — 记忆注入失败不阻断运行
