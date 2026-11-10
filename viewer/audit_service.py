@@ -75,16 +75,27 @@ class AuditService:
                     bundle = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     continue
+                findings = bundle.get("findings") or []
+                severity = {"high": 0, "medium": 0, "low": 0}
+                unhandled = 0
+                for finding in findings:
+                    key = str((finding or {}).get("severity") or "low")
+                    severity[key] = severity.get(key, 0) + 1
+                    if not (finding or {}).get("operator_disposition"):
+                        unhandled += 1
                 bundles.append({
                     "dir": path.parent.name,
                     "audit_id": bundle.get("audit_id"),
                     "target": (bundle.get("target") or {}).get("identity"),
-                    "findings": len(bundle.get("findings") or []),
+                    "findings": len(findings),
+                    "severity": severity,
+                    "unhandled": unhandled,
                     "evidence": len(bundle.get("poc_evidence_refs") or []),
                     "rea_evidence": len(bundle.get("rea_evidence_refs") or []),
                     "uncovered": len(bundle.get("uncovered_surfaces") or []),
                     "artifact": (bundle.get("target") or {}).get("artifact_sha256"),
                     "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
+                    "regression": bundle.get("regression"),
                 })
         return {"bundles": bundles}
 

@@ -11,7 +11,11 @@ import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
 import { composerMode } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { filterSlashCommands } from "./core/slash-scope.js";
-import { findingsCardHtml, chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
+import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
+import {
+  aggregateTargets, filterFindings, govSummaryHtml,
+  findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
+} from "./core/gov-workbench.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
@@ -376,10 +380,11 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   renderProjectComposer();
   // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）不显示输入框
   const composerWrap = document.querySelector(".composer-wrap");
-  // 审计台属治理区:保留治理 composer(零模型 console 在证据页也应可用);
+  // 治理台是工作台(表单/筛选/表格),不是对话面,不显示输入框;
+  // 审计台属治理区但保留治理 composer(零模型 console 在证据页也可用);
   // reviews/scheduled/ledger/settings 仍是纯功能页,不显示输入框。
-  if (composerWrap) composerWrap.hidden = (mode === "reviews" || mode === "scheduled"
-    || mode === "ledger" || mode === "settings");
+  if (composerWrap) composerWrap.hidden = (mode === "gov" || mode === "reviews"
+    || mode === "scheduled" || mode === "ledger" || mode === "settings");
   const scroller = document.querySelector(".main");
   if (scroll === "top" && scroller) scroller.scrollTop = 0;
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -2596,75 +2601,150 @@ async function pushWorkspaceCard(kind) {
 }
 
 /* ================================================================ 治理台（G1）
-   治理区的对话面：零模型操作员命令流。卡片 = 服务端事实的投影
-   （bundle 落盘持久 / 作业状态内存态，重启后以 bundle 为准），
-   命令 = 确定性动作（/挖洞 经 POST /api/audit/run → 离线审计管线）。
-   模型不进环——审计证据的公信力押在 "no model in the loop" 上。 */
+   治理区的工作台面：目标聚合 → 发现表 → 详情抽屉 → 作业活动。
+   数据 = 服务端事实（bundle 落盘持久 / 作业状态内存态），动作 =
+   确定性操作（POST /api/audit/run 等）。模型不进环——审计证据的
+   公信力押在 "no model in the loop" 上。
+
+   Phase1 的边界：治理台不再有头像/气泡/对话 composer。Work 区是
+   通用 Codex 式执行面；治理区只做审计、证据与操作员处置。 */
 
 const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
-const govFindings = new Map(); // audit_dir → {findings, target, profile}（G2 发现卡投影；S1 补 target/profile 支撑修洞闭环）
-const govRespCards = []; // G3 命令响应卡快照(新在前,会话内存,重启即失)
+const govFindings = new Map(); // audit_dir → {findings, target, profile}（处置/修复闭环投影）
 let govPollTimer = null;
+let govBundle = null;
+let govLoadSeq = 0;
+const govWork = {
+  dir: "", severity: "all", unhandled: false, query: "", finding: "", inspector: "",
+};
 
-/* 治理对话流的条目包装:操作员动作右对齐回显(用户头像),控制台响应
-   左侧印章头像 + 卡片体。零模型不等于没有"对话感"——只是另一侧是控制台。 */
-function govEntryHtml(role, bodyHtml) {
-  if (!bodyHtml) return "";
-  if (role === "user") {
-    return `<div class="gov-entry user"><span class="gov-echo">${bodyHtml}</span>${userAvatarHtml(28)}</div>`;
+function govActive() {
+  return document.getElementById("main")?.dataset.view === "gov";
+}
+
+function applyGovBundle(dir, bundle) {
+  govBundle = bundle || null;
+  if (!bundle) return;
+  govFindings.set(dir, {
+    findings: Array.isArray(bundle.findings) ? bundle.findings : [],
+    target: (bundle.target || {}).identity || "",
+    profile: (bundle.target || {}).profile || "",
+  });
+}
+
+async function fetchGovBundle(dir) {
+  const r = await fetch("/api/audit/bundle/" + encodeURIComponent(dir), { cache: "no-store" });
+  const bundle = r.ok ? await r.json() : null;
+  if (!bundle || bundle.error) throw new Error((bundle && bundle.error) || `HTTP ${r.status}`);
+  return bundle;
+}
+
+/* 主区重绘入口：summary + 发现表 + 详情抽屉各自一个宿主。
+   搜索框在 input 时只重绘结果列表（paintGovFindingsResults），
+   避免整块 innerHTML 把焦点/光标打掉。 */
+function paintGovWorkbench() {
+  if (!govActive()) return;
+  const summaryHost = document.getElementById("gov-summary");
+  if (!summaryHost) return;
+  const findings = govBundle && Array.isArray(govBundle.findings) ? govBundle.findings : [];
+  summaryHost.innerHTML = govSummaryHtml({ dir: govWork.dir, bundle: govBundle, findings });
+  const findingsHost = document.getElementById("gov-findings-host");
+  const detailHost = document.getElementById("gov-detail-host");
+  if (!govBundle) {
+    if (findingsHost) findingsHost.innerHTML = "";
+    if (detailHost) detailHost.innerHTML = "";
+    return;
   }
-  return `<div class="gov-entry console">${aiAvatarHtml("idle", 28)}<div class="gov-entry-body">${bodyHtml}</div></div>`;
-}
-
-/* G3:命令响应卡落到治理台卡流顶部。快照语义——卡片记录命令时刻的
-   服务端事实,重进治理台仍在;最新事实以审计台为准。
-   echoText:操作员侧的回显(命令或动作),让每条响应有"谁发起的"。 */
-function pushGovRespCard(html, echoText) {
-  if (!html) return;
-  const entry = (echoText ? govEntryHtml("user", esc(echoText)) : "") + govEntryHtml("console", html);
-  govRespCards.unshift(entry);
-  if (govRespCards.length > 6) govRespCards.length = 6;
-  paintGovCards();
-}
-
-/* 治理历史 → 对话内打开记录:拉 bundle 进投影,发现卡落到命令卡区顶部。
-   零发现的 bundle 给出可见提示,不伪造空卡。 */
-async function openGovRecord(dir) {
-  renderMode("gov");
-  try {
-    const r = await fetch("/api/audit/bundle/" + encodeURIComponent(dir), { cache: "no-store" });
-    const bundle = r.ok ? await r.json() : null;
-    if (!bundle || bundle.error) throw new Error((bundle && bundle.error) || `HTTP ${r.status}`);
-    const findings = Array.isArray(bundle.findings) ? bundle.findings : [];
-    if (!findings.length) { toast("该审计没有发现"); return; }
-    govFindings.set(dir, {
-      findings,
-      target: (bundle.target || {}).identity || "",
-      profile: (bundle.target || {}).profile || "",
+  if (govWork.finding && !findings.some(f => f.finding_id === govWork.finding)) {
+    govWork.finding = "";
+  }
+  const selected = findings.find(f => f.finding_id === govWork.finding) || null;
+  const visible = filterFindings(findings, govWork);
+  if (findingsHost) {
+    findingsHost.innerHTML = `<div id="gov-findings-toolbar">${findingsToolbarHtml(govWork, { visible: visible.length, total: findings.length })}</div>
+      <div id="gov-findings-list">${findingsTableHtml(govWork.dir, findings, govWork, govWork.finding)}</div>`;
+  }
+  if (detailHost) {
+    detailHost.innerHTML = findingDetailHtml(govWork.dir, selected, {
+      repairable: (govBundle.target || {}).profile !== "artifact",
     });
-    pushGovRespCard(govFindingsCard(dir), `打开记录 ${dir}`);
+  }
+}
+
+function paintGovFindingsResults() {
+  const list = document.getElementById("gov-findings-list");
+  if (!list || !govBundle) return;
+  const findings = Array.isArray(govBundle.findings) ? govBundle.findings : [];
+  list.innerHTML = findingsTableHtml(govWork.dir, findings, govWork, govWork.finding);
+  const count = document.getElementById("gov-findings-count");
+  if (count) {
+    const visible = filterFindings(findings, govWork);
+    count.textContent = `${num(visible.length)} / ${num(findings.length)}`;
+  }
+}
+
+function govJobCardHtml(job) {
+  const state = job.status === "done" ? "完成"
+    : job.status === "failed" ? "失败" : "挖掘中";
+  const stats = job.status === "done"
+    ? `${num(job.findings || 0)} 发现 · ${num(job.evidence || 0)} 证据记录${job.audit_id ? " · " + esc(job.audit_id) : ""}`
+    : job.status === "failed" ? String(job.error || "未知错误").slice(0, 160) : "离线审计管线运行中…";
+  const open = job.status === "done" && job.audit_id
+    ? `<button class="gov-wb-button quiet" type="button" data-gov-hist="${esc(job.audit_id)}">查看结果 →</button>`
+    : "";
+  return `<article class="gov-job is-${esc(job.status || "running")}">
+    <div class="gov-job-head">
+      <span class="gov-job-dot" aria-hidden="true"></span>
+      <b>${esc(job.target || "")}</b>
+      <span class="gov-job-state">${esc(state)}</span>
+    </div>
+    <p class="gov-job-meta">${esc(stats)}</p>
+    ${open}
+  </article>`;
+}
+
+function paintGovActivity() {
+  const host = document.getElementById("gov-activity");
+  if (!host) return;
+  const jobs = [...govJobs.values()]
+    .sort((a, b) => String(b.job_id).localeCompare(String(a.job_id)))
+    .map(govJobCardHtml)
+    .join("");
+  host.innerHTML = govWork.inspector + jobs;
+  host.hidden = !host.innerHTML;
+}
+
+/* 治理历史 → 工作台选中该目标。治理区外点击时先进入治理台，
+   renderGov 会按 govWork.dir 拉对应 bundle。 */
+async function openGovRecord(dir) {
+  const d = String(dir || "").trim();
+  if (!d) return;
+  govWork.dir = d;
+  govWork.finding = "";
+  govWork.inspector = "";
+  if (!govActive()) { renderMode("gov"); return; }
+  const seq = ++govLoadSeq;
+  try {
+    const bundle = await fetchGovBundle(d);
+    if (seq !== govLoadSeq) return;
+    applyGovBundle(d, bundle);
+    paintGovWorkbench();
   } catch (error) {
     toast("打开审计记录失败：" + error.message);
   }
 }
 
-function paintGovCards() {
-  const host = document.getElementById("gov-cards");
-  if (!host) return;
-  host.innerHTML = govRespCards.join("");
-  if (document.querySelector(".main")) hydrateDoodles(host);
-}
-
 function showGovChain(dir) {
   const d = String(dir || "").trim();
   if (!d) { renderMode("gov"); toast("用法：/链 <audit_id>（如 /链 evox.app-2026-11-08-5c093a）"); return; }
+  renderMode("gov");
   (async () => {
     try {
-      renderMode("gov");
       const r = await fetch("/api/audit/chain/" + encodeURIComponent(d), { cache: "no-store" });
       const chain = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(chain.error || `HTTP ${r.status}`);
-      pushGovRespCard(chainCardHtml(d, chain), `/链 ${d}`);
+      govWork.inspector = chainCardHtml(d, chain);
+      paintGovActivity();
     } catch (error) {
       toast("链查询失败：" + error.message);
     }
@@ -2672,116 +2752,82 @@ function showGovChain(dir) {
 }
 
 function showGovJudgments() {
+  renderMode("gov");
   (async () => {
     try {
-      renderMode("gov");
       const r = await fetch("/api/review-profile", { cache: "no-store" });
       const profile = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(profile.error || `HTTP ${r.status}`);
-      pushGovRespCard(judgmentsCardHtml(profile), "/判断");
+      govWork.inspector = judgmentsCardHtml(profile);
+      paintGovActivity();
     } catch (error) {
       toast("判断汇总失败：" + error.message);
     }
   })();
 }
 
-function govJobCardHtml(job) {
-  const state = job.status === "done" ? '<span class="gov-state ok">完成</span>'
-    : job.status === "failed" ? `<span class="gov-state bad">失败 · ${esc(String(job.error || "").slice(0, 120))}</span>`
-    : '<span class="gov-state live">挖掘中…</span>';
-  const stats = job.status === "done"
-    ? `<div class="wcard-meta">${num(job.findings || 0)} 发现 · ${num(job.evidence || 0)} 证据记录${job.audit_id ? " · " + esc(job.audit_id) : ""}</div>`
-    : "";
-  const jump = job.status === "done" && job.audit_id
-    ? `<button class="wcard-jump" type="button" data-gov-open-bundle="${esc(job.audit_id)}" title="在审计台查看证据与处置">查看证据 →</button>`
-    : "";
-  return `<div class="wcard govcard" data-thread-item="govcard">
-    <div class="wcard-head"><span class="wcard-icon" data-doodle="stamp"></span>
-      <b class="wcard-title">REA 挖洞 · ${esc(job.target || "")}</b>${jump}</div>
-    <div class="gov-state-row">${state}</div>${stats}
-  </div>`;
-}
-
-
-function paintGovStream() {
-  // 只重绘作业段——bundle 段由 renderGov 异步填充，轮询重绘整段会把它
-  // 打回"读取中"（冒烟抓到）。两段各一个宿主，互不覆盖。
-  const host = document.getElementById("gov-jobs");
-  if (!host) return;
-  const jobCards = [...govJobs.values()]
-    .sort((a, b) => String(b.job_id).localeCompare(String(a.job_id)))
-    .map(job => (job.echo ? govEntryHtml("user", esc(job.echo)) : "")
-      // G2:作业完成的后面跟一张发现处置卡（内存投影有数据才渲染）
-      + govEntryHtml("console", govJobCardHtml(job)
-        + (job.status === "done" && job.audit_id && govFindings.get(job.audit_id)
-          ? govFindingsCard(job.audit_id)
-          : "")))
-    .join("");
-  host.innerHTML = jobCards;
-  if (document.querySelector(".main")) hydrateDoodles(host);
-}
-
-/* S1:统一发现卡渲染——artifact 目标不可修（修洞只对源码树开放）。 */
-function govFindingsCard(dir) {
-  const meta = govFindings.get(dir);
-  if (!meta) return "";
-  return findingsCardHtml(dir, meta.findings, { repairable: meta.profile !== "artifact" });
-}
-
-/* G2:拉一个 bundle 的发现清单进内存投影（含 operator_disposition 当前值）。 */
-async function loadGovFindings(auditDir) {
-  if (!auditDir || govFindings.has(auditDir)) return;
-  try {
-    const r = await fetch("/api/audit/bundle/" + encodeURIComponent(auditDir), { cache: "no-store" });
-    const bundle = r.ok ? await r.json() : null;
-    if (bundle && Array.isArray(bundle.findings) && bundle.findings.length) {
-      govFindings.set(auditDir, {
-        findings: bundle.findings,
-        target: (bundle.target || {}).identity || "",
-        profile: (bundle.target || {}).profile || "",
-      });
-    }
-  } catch { /* 单次失败不影响卡流,下次进入重取 */ }
-}
-
 async function renderGov() {
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
-  setFoot("治理台 · 零模型操作员命令流（/挖洞 <target>）", "");
-  renderMain(`<div class="gov-head">
-      <p class="eyebrow">GOVERNANCE CONSOLE</p>
-      <h1 class="page-title">治理台</h1>
-      <p class="page-meta">挖洞、判断、链——都以命令与卡片进行。模型不进环：审计证据由离线确定性管线产出，操作员处置直接落签名链。</p>
+  setFoot("治理台 · 离线审计 / 证据 / 操作员处置", "");
+  // 活动区是命令响应（链/判断），属于一次性输出；重新进入工作台时不
+  // 把上一次的链卡当作当前事实继续展示。新作业仍会从 govJobs 重绘。
+  govWork.inspector = "";
+  renderMain(`<div class="gov-wb">
+    <header class="gov-wb-header">
+      <div class="gov-wb-intro">
+        <p class="eyebrow">GOVERNANCE / REA</p>
+        <h1 class="page-title">治理台</h1>
+        <p class="page-meta">取证由离线确定性管线完成；处置、修复与复核由操作员决定。模型不进环。</p>
+      </div>
+      <form class="gov-new-audit" id="gov-new-audit">
+        <label class="gov-target-field">
+          <span>审计目标</span>
+          <input id="gov-target-input" name="target" type="text" autocomplete="off" spellcheck="false"
+            placeholder="/Applications/EvoX.app 或 /path/to/repo" aria-label="审计目标">
+        </label>
+        <button class="gov-wb-button strong" type="submit">开始审计</button>
+        <button class="gov-wb-button quiet" type="button" data-gov-judgments>判断汇总</button>
+      </form>
+    </header>
+    <div class="gov-wb-layout">
+      <section class="gov-wb-list" aria-label="审计发现">
+        <div id="gov-summary"></div>
+        <div id="gov-findings-host"></div>
+      </section>
+      <div id="gov-detail-host" class="gov-wb-detail"></div>
     </div>
-    <div class="gov-start" aria-label="治理命令">
-      <button class="gov-cmd" type="button" data-gov-fill="/挖洞 "><span class="gov-cmd-key">/挖洞</span> <span class="gov-cmd-arg">&lt;target&gt;</span></button>
-      <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
-      <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
-    </div>
-    <div class="gov-stream" id="gov-stream">
-      <div id="gov-cards"></div>
-      <div id="gov-jobs"></div>
-      <div id="gov-empty" hidden><div class="gov-hint dim">还没有审计记录——输入 /挖洞 &lt;target&gt; 发起第一次。</div></div>
-    </div>`, { mode: "gov" });
-  paintGovCards();
-  paintGovStream();
+    <section id="gov-activity" class="gov-wb-activity" aria-label="审计作业与链验证" hidden></section>
+  </div>`, { mode: "gov" });
+  paintGovWorkbench();
+  paintGovActivity();
   const epoch = viewGate.sequence;
   try {
     const r = await fetch("/api/audit/bundles", { cache: "no-store" });
     const data = r.ok ? await r.json() : { bundles: [] };
     if (epoch !== viewGate.sequence) return;
-    const bundles = (data.bundles || [])
-      .slice()
-      .sort((a, b) => String(b.dir).localeCompare(String(a.dir)));
-    // 首进且对话流为空:把最新一条记录作为控制台陈述载入（无操作员回显）
-    if (bundles[0] && !govRespCards.length && !govJobs.size) {
-      await loadGovFindings(bundles[0].dir);
-      if (epoch !== viewGate.sequence) return;
-      if (govFindings.get(bundles[0].dir)) pushGovRespCard(govFindingsCard(bundles[0].dir));
+    const bundles = data.bundles || [];
+    const targets = aggregateTargets(bundles);
+    const known = bundles.some(b => b.dir === govWork.dir);
+    if (!known) {
+      govWork.dir = targets[0]?.dir || "";
+      govWork.finding = "";
     }
-    const empty = document.getElementById("gov-empty");
-    if (empty) empty.hidden = !!(govRespCards.length || govJobs.size || bundles.length);
-  } catch { /* 网络抖动：保留加载态，下次进入重取 */ }
+    if (govWork.dir) {
+      const seq = ++govLoadSeq;
+      try {
+        const bundle = await fetchGovBundle(govWork.dir);
+        if (epoch !== viewGate.sequence || seq !== govLoadSeq) return;
+        applyGovBundle(govWork.dir, bundle);
+      } catch {
+        if (epoch !== viewGate.sequence) return;
+        applyGovBundle(govWork.dir, null);
+      }
+    } else {
+      applyGovBundle("", null);
+    }
+    paintGovWorkbench();
+  } catch { /* 网络抖动：保留空态，下次进入重取 */ }
   scheduleGovPoll();
 }
 
@@ -2800,12 +2846,23 @@ function scheduleGovPoll() {
         const data = r.ok ? await r.json() : null;
         if (data && data.status && data.status !== job.status) {
           Object.assign(job, data);
-          // G2:作业刚完成 → 拉发现清单,卡流补上处置卡
-          if (job.status === "done" && job.audit_id) await loadGovFindings(job.audit_id);
+          // 作业刚完成 → 自动选中这次新审计，工作台直接展示结果。
+          if (job.status === "done" && job.audit_id) {
+            govWork.dir = job.audit_id;
+            govWork.finding = "";
+            const seq = ++govLoadSeq;
+            try {
+              const bundle = await fetchGovBundle(job.audit_id);
+              if (seq === govLoadSeq) applyGovBundle(job.audit_id, bundle);
+            } catch { /* 单次拉取失败：保留旧工作台，审计台仍可打开 */ }
+          }
         }
       } catch { /* 单次轮询失败保旧态 */ }
     }));
-    if (document.getElementById("main")?.dataset.view === "gov") paintGovStream();
+    if (govActive()) {
+      paintGovWorkbench();
+      paintGovActivity();
+    }
   }, 2500);
 }
 
@@ -2813,7 +2870,8 @@ function startGovAudit(target) {
   const t = String(target || "").trim();
   if (!t) {
     renderMode("gov");
-    toast("用法：/挖洞 <target>（如 /挖洞 /Applications/EvoX.app）");
+    document.getElementById("gov-target-input")?.focus();
+    toast("在治理台顶部输入审计目标（如 /Applications/EvoX.app）");
     return;
   }
   (async () => {
@@ -2824,8 +2882,9 @@ function startGovAudit(target) {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running", echo: `/挖洞 ${t}` });
-      renderMode("gov");
+      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
+      if (govActive()) paintGovActivity();
+      else renderMode("gov");
       toast("挖洞作业已发起 · 治理台跟踪进度");
       scheduleGovPoll();
     } catch (error) {
@@ -2856,6 +2915,7 @@ document.addEventListener("change", event => {
       const meta = govFindings.get(dir);
       const finding = meta && meta.findings.find(f => f.finding_id === fid);
       if (finding) finding.operator_disposition = disposition || null;
+      if (govActive()) paintGovWorkbench();
       toast(`已记录 · ${fid} → ${disposition ? "已落链" : "已清除"}`);
     } catch (error) {
       // 回滚到投影中的当前值
@@ -2865,6 +2925,30 @@ document.addEventListener("change", event => {
       toast("处置失败：" + error.message);
     }
   })();
+});
+
+/* Phase1 工作台:只看未处置（checkbox change）与搜索框 input。
+   搜索只重绘结果表——整块重绘会丢焦点/光标。 */
+document.addEventListener("change", event => {
+  const toggle = event.target.closest("[data-gov-unhandled]");
+  if (!toggle || !govActive()) return;
+  govWork.unhandled = !!toggle.checked;
+  paintGovWorkbench();
+});
+
+document.addEventListener("input", event => {
+  const search = event.target.closest("[data-gov-search]");
+  if (!search || !govActive()) return;
+  govWork.query = search.value;
+  paintGovFindingsResults();
+});
+
+document.addEventListener("submit", event => {
+  const form = event.target.closest("#gov-new-audit");
+  if (!form) return;
+  event.preventDefault();
+  const input = document.getElementById("gov-target-input");
+  startGovAudit(input ? input.value : "");
 });
 
 /* ================================================================ Chat
@@ -3747,6 +3831,35 @@ function bindGlobalActions() {
     const govHist = event.target.closest("[data-gov-hist]");
     if (govHist && govHist.dataset.govHist) {
       openGovRecord(govHist.dataset.govHist);
+      return;
+    }
+    // Phase1 工作台:严重度筛选 / 发现行选中 / 关闭详情 / 链 / 判断汇总
+    const govSev = event.target.closest("[data-gov-sev]");
+    if (govSev) {
+      govWork.severity = govSev.dataset.govSev || "all";
+      paintGovWorkbench();
+      return;
+    }
+    const govFinding = event.target.closest("[data-gov-finding]");
+    if (govFinding) {
+      govWork.finding = govFinding.dataset.govFinding || "";
+      paintGovWorkbench();
+      return;
+    }
+    const govDetailClose = event.target.closest("[data-gov-detail-close]");
+    if (govDetailClose) {
+      govWork.finding = "";
+      paintGovWorkbench();
+      return;
+    }
+    const govChain = event.target.closest("[data-gov-chain]");
+    if (govChain) {
+      showGovChain(govChain.dataset.govChain || govWork.dir);
+      return;
+    }
+    const govJudgments = event.target.closest("[data-gov-judgments]");
+    if (govJudgments) {
+      showGovJudgments();
       return;
     }
     // 治理命令提示条:填充命令词(等操作员补参数后按 ↵),不直接执行

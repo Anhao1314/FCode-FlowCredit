@@ -148,11 +148,25 @@ test("治理历史:按今天/昨天/更早分组,行带发现数与审计 id", (
   assert.match(html, /<span>今天<\/span><span class="grp-count">1<\/span>/);
   assert.match(html, /<span>昨天<\/span><span class="grp-count">1<\/span>/);
   assert.match(html, /<span>更早<\/span><span class="grp-count">1<\/span>/);
-  assert.match(html, /data-gov-hist="evox.app-\d{4}-\d{2}-\d{2}-aaaaaa" title="evox.app-today"/);
+  assert.match(html, /data-gov-hist="evox\.app-\d{4}-\d{2}-\d{2}-aaaaaa"[^>]*title="evox.app-today"/);
   assert.match(html, /<span class="slabel">EvoX.app<\/span><span class="smeta">5 发现<\/span>/);
   assert.match(html, /demo-target/);
   assert.match(html, /审计历史/);
   assert.match(html, /data-gov-hist-nav/);
+});
+
+test("治理历史:同一目标只一行，指向最近一次并汇总高危/运行次数", () => {
+  const older = `evox-${localDay(-1)}-aaaaaa`;
+  const latest = `evox-${localDay(0)}-bbbbbb`;
+  const html = govHistorySectionHtml([
+    { dir: older, audit_id: "evox-old", target: "/Applications/EvoX.app", findings: 9, severity: { high: 4 }, unhandled: 9 },
+    { dir: latest, audit_id: "evox-new", target: "/Applications/EvoX.app", findings: 2, severity: { high: 1 }, unhandled: 1 },
+  ]);
+  assert.equal((html.match(/data-gov-hist=/g) || []).length, 1, "一个 target 只渲染一行");
+  assert.match(html, new RegExp(`data-gov-hist="${latest}"[^>]*title="evox-new · 2 次审计"`));
+  assert.doesNotMatch(html, new RegExp(`data-gov-hist="${older}"`));
+  assert.match(html, /<span class="slabel">EvoX.app<\/span><span class="smeta">高1 · 2 发现<\/span>/);
+  assert.match(html, /<span class="side-count">1<\/span>/, "分组计数按目标数，不按运行数");
 });
 
 test("治理历史:空列表给引导,不发假行", () => {

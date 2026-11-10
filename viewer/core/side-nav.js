@@ -19,6 +19,7 @@
    这里只放“生成 HTML 的纯函数”，状态机与事件接线仍在 app.js。 */
 
 import { esc, num } from "./format.js";
+import { aggregateTargets } from "./gov-workbench.js";
 
 /* 侧栏导航已清空:治理台不再作为侧栏条目——两区对话面由区切换器直达
    （Work → 新对话,Governance → 治理台）。此处只留两区定义与切换器渲染。 */
@@ -209,20 +210,14 @@ function localDayString(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/* 审计历史按“目标”聚合：一个 target 一行，指向最近一次审计。原来把每个
+   bundle 平铺成一行，同一目标会重复十几次；运行次数收进 title，行内只留
+   目标名与发现数，避免长目标名被挤成省略号。 */
 export function govHistorySectionHtml(bundles) {
-  const list = (bundles || []).slice();
-  const rows = list.map(entry => {
-    const dir = entry.dir || "";
-    const match = /(\d{4}-\d{2}-\d{2})/.exec(dir)
-      || /(\d{4}-\d{2}-\d{2})/.exec(String(entry.audit_id || ""));
-    const target = String(entry.target || dir || "审计记录");
-    return {
-      dir,
-      day: match ? match[1] : "",
-      label: target.split("/").filter(Boolean).pop() || target,
-      findings: Number(entry.findings || 0),
-      auditId: String(entry.audit_id || dir),
-    };
+  const rows = aggregateTargets((bundles || []).slice()).map(row => {
+    const match = /(\d{4}-\d{2}-\d{2})/.exec(row.dir)
+      || /(\d{4}-\d{2}-\d{2})/.exec(String(row.auditId || ""));
+    return { ...row, day: match ? match[1] : "" };
   });
   const now = new Date();
   const today = localDayString(now);
@@ -236,12 +231,19 @@ export function govHistorySectionHtml(bundles) {
     const items = groups[name];
     if (!items.length) continue;
     body += '<div class="side-head-label"><span>' + name + '</span><span class="grp-count">' + num(items.length) + "</span></div>";
-    body += items.map(row => '<button class="session chat-row" data-gov-hist="' + esc(row.dir) + '" title="' + esc(row.auditId) + '">'
-      + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + num(row.findings) + " 发现</span></button>").join("");
+    body += items.map(row => {
+      const high = Number((row.severity || {}).high || 0);
+      const meta = high ? `高${high} · ${num(row.findings)} 发现` : `${num(row.findings)} 发现`;
+      // 行内只放“发现数”（宽度有限，长目标名才不被挤没）；运行次数进
+      // title，侧栏一行仍是一个目标、一个可读名字。
+      const title = row.auditId + (row.runs > 1 ? ` · ${num(row.runs)} 次审计` : "");
+      return '<button class="session chat-row gov-target-row" type="button" data-gov-hist="' + esc(row.dir) + '" data-gov-target="' + esc(row.key) + '" title="' + esc(title) + '">'
+        + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + esc(meta) + "</span></button>";
+    }).join("");
   }
   const inner = rows.length
     ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
-    : '<div class="section-empty">还没有审计记录——在治理台输入 /挖洞 发起第一次。</div>';
+    : '<div class="section-empty">还没有审计记录——在治理台输入目标，发起第一次。</div>';
   return sectionHeadHtml("审计历史", { key: "govhist" }, rows.length) + inner;
 }
 

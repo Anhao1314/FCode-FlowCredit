@@ -14,32 +14,41 @@ test("修洞闭环:重新挖洞到完成;派 agent 修复进委托确认页", as
   await page.locator('#zone-switch [data-zone="gov"]').click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
 
-  // 仓内目标挖一次
-  await page.locator("#composer-ta").fill("/挖洞 fixtures/demo-target");
-  await page.keyboard.press("Enter");
-  const job1 = page.locator("#gov-jobs .govcard", { hasText: "REA 挖洞" }).first();
-  await expect(job1).toBeVisible({ timeout: 15_000 });
-  await expect(job1.locator(".gov-state")).toContainText("完成", { timeout: 90_000 });
-  const findings1 = page.locator("#gov-jobs .gov-findings").first();
-  await expect(findings1).toBeVisible({ timeout: 15_000 });
-  await expect(findings1.locator("[data-gov-repair]").first()).toBeVisible();
-  // 收起的下拉里 option 不算 visible——按 DOM 计数据实断言「已修复」档存在
-  await expect.poll(async () => findings1.locator('option[value="repaired"]').count()).toBeGreaterThan(0);
+  // 仓内目标挖一次（Phase1：工作台顶部表单，不再走治理 composer）
+  await page.locator("#gov-target-input").fill("fixtures/demo-target");
+  await page.locator("#gov-new-audit button[type=submit]").click();
+  const job = page.locator("#gov-activity .gov-job", { hasText: "fixtures/demo-target" }).first();
+  await expect(job).toBeVisible({ timeout: 15_000 });
+  await expect(job.locator(".gov-job-state")).toContainText("完成", { timeout: 90_000 });
 
-  // ① 重新挖洞 → 第二个作业卡(新 job 排最前)也轮询到完成
-  await findings1.locator("[data-gov-redig]").click();
-  await expect(page.locator("#gov-jobs .govcard", { hasText: "REA 挖洞" })).toHaveCount(2, { timeout: 15_000 });
+  // 第一条发现 → 详情抽屉。收起的下拉里 option 不算 visible，
+  // 按 DOM 计数据实断言「已修复」档存在。
+  const findings1 = page.locator("#gov-findings-list [data-gov-finding]").first();
+  await expect(findings1).toBeVisible({ timeout: 15_000 });
+  await findings1.click();
+  const detail1 = page.locator("#gov-detail-host .gov-detail-card");
+  await expect(detail1.locator("[data-gov-repair]")).toBeVisible();
+  await expect.poll(async () => detail1.locator('option[value="repaired"]').count()).toBeGreaterThan(0);
+
+  // ① 重新挖洞 → 第二个作业（新 job 排最前）也轮询到完成
+  await page.locator("#gov-summary [data-gov-redig]").click();
+  await expect(page.locator("#gov-activity .gov-job", { hasText: "fixtures/demo-target" }))
+    .toHaveCount(2, { timeout: 15_000 });
   await expect(async () => {
-    const done = await page.locator("#gov-jobs .govcard", { hasText: "REA 挖洞" })
+    const done = await page.locator("#gov-activity .gov-job", { hasText: "fixtures/demo-target" })
       .filter({ hasText: "完成" }).count();
     expect(done).toBe(2);
   }).toPass({ timeout: 90_000, intervals: [2_000] });
 
-  // ② 派 agent 修复(最新 bundle 的发现卡)→ 委托确认页,目标带发现上下文
-  const freshCard = page.locator("#gov-jobs .gov-findings").first();
-  await expect(freshCard).toBeVisible({ timeout: 15_000 });
-  const findingId = (await freshCard.locator(".gov-finding b").first().textContent()).trim();
-  await freshCard.locator("[data-gov-repair]").first().click();
+  // ② 派 agent 修复（最新 bundle 的发现）→ 委托确认页，目标带发现上下文
+  await expect(page.locator("#gov-findings-list [data-gov-finding]").first())
+    .toBeVisible({ timeout: 15_000 });
+  const freshRow = page.locator("#gov-findings-list [data-gov-finding]").first();
+  const findingId = (await freshRow.locator(".gov-row-id").textContent()).trim();
+  await freshRow.click();
+  const freshDetail = page.locator("#gov-detail-host .gov-detail-card");
+  await expect(freshDetail.locator("[data-gov-repair]")).toBeVisible();
+  await freshDetail.locator("[data-gov-repair]").click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "intake", { timeout: 15_000 });
   await expect(page.locator("#main")).toContainText("修复审计发现");
   await expect(page.locator("#main")).toContainText(findingId);

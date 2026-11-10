@@ -36,7 +36,12 @@ export function bindLatestScroll() {
   const button = document.getElementById("scroll-latest");
   if (!scroller || !button) return;
   const update = () => {
-    const visible = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 240;
+    // “回到最新内容”只属于对话/运行流；治理台、审计台等功能页没有
+    // 追加式内容，按钮会压住详情抽屉，不该出现。
+    const mode = document.getElementById("main")?.dataset.view;
+    const chatLike = mode === "chat" || mode === "run";
+    const visible = chatLike
+      && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 240;
     button.hidden = !visible;
   };
   scroller.addEventListener("scroll", update, { passive: true });
