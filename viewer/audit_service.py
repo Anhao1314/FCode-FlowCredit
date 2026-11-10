@@ -90,6 +90,8 @@ class AuditService:
                     "findings": len(findings),
                     "severity": severity,
                     "unhandled": unhandled,
+                    "schema_version": bundle.get("schema_version"),
+                    "ruleset_version": (bundle.get("toolchain") or {}).get("ruleset_version"),
                     "evidence": len(bundle.get("poc_evidence_refs") or []),
                     "rea_evidence": len(bundle.get("rea_evidence_refs") or []),
                     "uncovered": len(bundle.get("uncovered_surfaces") or []),

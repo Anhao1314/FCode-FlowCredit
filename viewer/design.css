@@ -2436,6 +2436,18 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 .chat-row:hover { background: rgba(0, 0, 0, .04); color: var(--text-2); }
 .chat-row.active { background: #F5F5F5; color: var(--text-1); box-shadow: none; }
 .chat-row .slabel { font-weight: 400; }
+/* 治理历史行没有置顶/删除动作，不需要 chat-row 的 30px 右侧留白；
+   腾出来的宽度留给目标名和规则集版本。后置 chat-row 规则会覆盖
+   普通类选择器，所以这里用 #gov-history 提高优先级。 */
+#gov-history .gov-target-row,
+#gov-history .gov-run-row {
+  padding-right: 10px; font-size: 12.5px;
+}
+#gov-history .gov-target-row .smeta,
+#gov-history .gov-run-row .smeta { font-size: 10px; }
+.gov-run-row { gap: 7px; }
+.gov-run-avatar { width: 20px; height: 20px; flex: none; display: inline-flex; }
+.gov-run-row .slabel { font-size: 13px; }
 
 .run-row {
   min-height: 40px; padding: 5px 8px 6px; border-radius: 8px;

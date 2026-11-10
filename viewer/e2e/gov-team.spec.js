@@ -30,6 +30,9 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await expect(auditorMessage).toContainText("完成", { timeout: 90_000 });
   await expect(auditorMessage).toContainText("发现");
   await expect(auditorMessage.locator("[data-gov-hist]")).toBeVisible();
+  // 侧栏治理历史同步到团队运行，不再只有审计 bundle
+  await expect(page.locator("#gov-history")).toContainText("团队运行", { timeout: 12_000 });
+  await expect(page.locator("#gov-history .gov-run-row").first()).toContainText("审计员");
 
   // 教一次：从完成的运行生成技能，进入 Bot 详情；保存预算设置
   await auditorMessage.locator("[data-gov-skill-run]").click();

@@ -151,7 +151,7 @@ test("治理历史:按今天/昨天/更早分组,行带发现数与审计 id", (
   assert.match(html, /data-gov-hist="evox\.app-\d{4}-\d{2}-\d{2}-aaaaaa"[^>]*title="evox.app-today"/);
   assert.match(html, /<span class="slabel">EvoX.app<\/span><span class="smeta">5 发现<\/span>/);
   assert.match(html, /demo-target/);
-  assert.match(html, /审计历史/);
+  assert.match(html, /治理历史/);
   assert.match(html, /data-gov-hist-nav/);
 });
 
@@ -171,8 +171,35 @@ test("治理历史:同一目标只一行，指向最近一次并汇总高危/运
 
 test("治理历史:空列表给引导,不发假行", () => {
   const html = govHistorySectionHtml([]);
-  assert.match(html, /还没有审计记录/);
+  assert.match(html, /还没有治理记录/);
   assert.doesNotMatch(html, /data-gov-hist=/);
+});
+
+test("治理历史:团队运行按最近顺序进入侧栏,带身份头像与状态", () => {
+  const html = govHistorySectionHtml([], {
+    runs: [
+      { run_id: "bot-1", bot_id: "auditor", target: "/repo/fixtures/demo-target", status: "done", findings: 3 },
+      { run_id: "bot-2", bot_id: "verifier", target: "demo-2026", status: "pending", chain_intact: null },
+    ],
+    bots: [{ id: "auditor", name: "审计员" }, { id: "verifier", name: "复核员" }],
+  });
+  assert.match(html, /团队运行/);
+  assert.match(html, /data-gov-bot-open="auditor"/);
+  assert.match(html, /bot-avatar-auditor/);
+  assert.match(html, /审计员 · demo-target/);
+  assert.match(html, /3 发现/);
+  assert.match(html, /data-gov-bot-open="verifier"/);
+  assert.match(html, /待批准/);
+  assert.match(html, /data-gov-run-id="bot-2"/);
+});
+
+test("治理历史:审计行带 ruleset 版本,不把版本藏进 title", () => {
+  const html = govHistorySectionHtml([{
+    dir: "demo-2026-11-10-aaaaaa", audit_id: "demo", target: "/repo/demo",
+    findings: 2, severity: { high: 2 }, ruleset_version: 10,
+  }]);
+  assert.match(html, /高2 · 2 发现 · v10/);
+  assert.match(html, /ruleset v10/);
 });
 
 test("治理历史:目标名与 title 转义(来自 bundle 事实)", () => {

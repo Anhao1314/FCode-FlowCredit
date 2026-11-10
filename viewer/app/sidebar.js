@@ -25,6 +25,9 @@ export function createSidebar(deps) {
   let zonePainted = "work";
 
   let govHistPainted = false;
+  let govHistBusy = false;
+  let govHistSig = "";
+  let govHistTimer = null;
 
   function paintZoneSwitch() {
     const host = document.getElementById("zone-switch");
@@ -34,27 +37,73 @@ export function createSidebar(deps) {
     const changed = zone !== null && zone !== zonePainted;
     if (zone) zonePainted = zone;
     host.innerHTML = zoneSwitchHtml(zonePainted);
-    // 分区历史互斥：data-zone 驱动 CSS 显隐（Work=对话/任务，Governance=审计历史）
+    // 分区历史互斥：data-zone 驱动 CSS 显隐
+    // （Work=对话/任务，Governance=团队运行 + 审计记录）
     document.body.dataset.zone = zonePainted;
     const flavor = document.getElementById("side-flavor");
     if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
     if (zonePainted === "gov" && (changed || !govHistPainted)) renderGovHistory();
+    ensureGovHistoryPolling();
   }
 
-  /* 治理区历史：进 Governance 区时拉服务端审计记录（每次进入刷新，
-     挖洞完成后再进来能看到新记录）。 */
+  function ensureGovHistoryPolling() {
+    if (zonePainted !== "gov") {
+      if (govHistTimer) {
+        clearInterval(govHistTimer);
+        govHistTimer = null;
+      }
+      return;
+    }
+    if (govHistTimer) return;
+    // Bot runs and audits finish in the background; the history is a live
+    // projection, not a one-shot list. Ten seconds is plenty for a sidebar.
+    govHistTimer = setInterval(() => renderGovHistory(), 10000);
+  }
+
+  async function safeJson(url, fallback) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      return response.ok ? await response.json() : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  /* 治理区历史：团队运行 + 审计记录。每 10 秒静默刷新，数据签名不变
+     就不重建 DOM（避免动画头像和滚动位置被无意义重绘）。 */
   async function renderGovHistory() {
+    if (zonePainted !== "gov" || govHistBusy) return;
     const host = document.getElementById("gov-history");
     if (!host) return;
+    govHistBusy = true;
+    const first = !govHistPainted;
     govHistPainted = true;
-    host.innerHTML = '<div class="section-empty">读取审计历史…</div>';
+    if (first || !host.innerHTML.trim()) {
+      host.innerHTML = '<div class="section-empty">读取治理历史…</div>';
+    }
     try {
-      const r = await fetch("/api/audit/bundles", { cache: "no-store" });
-      const data = r.ok ? await r.json() : { bundles: [] };
-      host.innerHTML = govHistorySectionHtml(data.bundles || []);
-      paintSections();
+      const [bundleData, runData, botData] = await Promise.all([
+        safeJson("/api/audit/bundles", { bundles: [] }),
+        safeJson("/api/gov/runs?limit=6", { runs: [] }),
+        safeJson("/api/gov/bots", { bots: [] }),
+      ]);
+      const bundles = bundleData.bundles || [];
+      const runs = runData.runs || [];
+      const bots = botData.bots || [];
+      const signature = JSON.stringify([
+        bundles.map(item => [item.dir, item.findings, item.unhandled, item.ruleset_version]),
+        runs.map(item => [item.run_id, item.status, item.findings, item.chain_intact, item.audit_id]),
+        bots.map(item => [item.id, item.name]),
+      ]);
+      if (signature !== govHistSig || host.textContent.includes("读取治理历史")) {
+        govHistSig = signature;
+        host.innerHTML = govHistorySectionHtml(bundles, { runs, bots });
+        paintSections();
+      }
     } catch {
-      host.innerHTML = '<div class="section-empty">审计历史读取失败</div>';
+      if (first) host.innerHTML = '<div class="section-empty">治理历史读取失败</div>';
+    } finally {
+      govHistBusy = false;
     }
   }
 
@@ -480,6 +529,7 @@ export function createSidebar(deps) {
 
   return {
     renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch,
+    refreshGovHistory: renderGovHistory,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,
     renderRuns, renderProjects, addProject, createProject, assignRunProject,

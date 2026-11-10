@@ -45,6 +45,8 @@ export function aggregateTargets(bundles) {
         severity: entry.severity || {},
         unhandled: Number(entry.unhandled || 0),
         regression: entry.regression || null,
+        rulesetVersion: entry.ruleset_version || "",
+        schemaVersion: entry.schema_version || "",
       });
       continue;
     }
@@ -57,6 +59,8 @@ export function aggregateTargets(bundles) {
         severity: entry.severity || {},
         unhandled: Number(entry.unhandled || 0),
         regression: entry.regression || null,
+        rulesetVersion: entry.ruleset_version || "",
+        schemaVersion: entry.schema_version || "",
       });
     }
   }

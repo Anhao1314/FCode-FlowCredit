@@ -19,7 +19,9 @@
    这里只放“生成 HTML 的纯函数”，状态机与事件接线仍在 app.js。 */
 
 import { esc, num } from "./format.js";
-import { aggregateTargets } from "./gov-workbench.js";
+import { aggregateTargets, targetLabel } from "./gov-workbench.js";
+import { botAvatarHtml } from "./bot-avatar.js";
+import { botStatusLabel } from "./gov-bots.js";
 
 /* 侧栏导航已清空:治理台不再作为侧栏条目——两区对话面由区切换器直达
    （Work → 新对话,Governance → 治理台）。此处只留两区定义与切换器渲染。 */
@@ -210,10 +212,44 @@ function localDayString(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/* 审计历史按“目标”聚合：一个 target 一行，指向最近一次审计。原来把每个
-   bundle 平铺成一行，同一目标会重复十几次；运行次数收进 title，行内只留
-   目标名与发现数，避免长目标名被挤成省略号。 */
-export function govHistorySectionHtml(bundles) {
+/* 治理历史 = 团队运行 + 审计记录。审计记录仍按目标聚合（一个 target
+   一行，指向最近一次审计）；团队运行保留最近几条 Bot 事实，点击回到
+   Bot 详情。审计行的版本号来自 bundle.toolchain.ruleset_version。 */
+function govRunAvatarState(status) {
+  if (status === "queued" || status === "running") return "running";
+  if (status === "pending") return "pending";
+  if (status === "failed" || status === "rejected") return "failed";
+  if (status === "done") return "done";
+  return "idle";
+}
+
+function govRunMeta(run) {
+  if (run.status === "pending") return "待批准";
+  if (run.status === "queued" || run.status === "running") return "执行中";
+  if (run.status === "failed") return "失败";
+  if (run.status === "rejected") return "已拒绝";
+  if (run.bot_id === "verifier") {
+    return run.chain_intact === false ? "链断裂" : run.chain_intact === true ? "链完整" : "链未知";
+  }
+  return `${num(run.findings || 0)} 发现`;
+}
+
+function govRunRowHtml(run, bots) {
+  const bot = (bots || []).find(item => item.id === run.bot_id);
+  const name = (bot && bot.name) || run.bot_id || "Bot";
+  const target = targetLabel({ target: run.target });
+  const title = `${run.run_id || ""} · ${run.target || ""} · ${run.trigger || "manual"}`;
+  return '<button class="session chat-row gov-run-row" type="button"'
+    + ' data-gov-bot-open="' + esc(run.bot_id) + '" data-gov-run-id="' + esc(run.run_id) + '"'
+    + ' title="' + esc(title) + '">'
+    + '<span class="gov-run-avatar">' + botAvatarHtml(run.bot_id, govRunAvatarState(run.status), 20, name) + "</span>"
+    + '<span class="slabel">' + esc(name) + " · " + esc(target) + "</span>"
+    + '<span class="smeta">' + esc(govRunMeta(run)) + "</span></button>";
+}
+
+export function govHistorySectionHtml(bundles, options = {}) {
+  const runs = (options.runs || []).slice(0, 6);
+  const bots = options.bots || [];
   const rows = aggregateTargets((bundles || []).slice()).map(row => {
     const match = /(\d{4}-\d{2}-\d{2})/.exec(row.dir)
       || /(\d{4}-\d{2}-\d{2})/.exec(String(row.auditId || ""));
@@ -227,24 +263,33 @@ export function govHistorySectionHtml(bundles) {
     groups[row.day === today ? "今天" : row.day === yesterday ? "昨天" : "更早"].push(row);
   }
   let body = "";
+  if (runs.length) {
+    body += '<div class="side-head-label"><span>团队运行</span><span class="grp-count">' + num(runs.length) + "</span></div>";
+    body += runs.map(run => govRunRowHtml(run, bots)).join("");
+  }
+  if (rows.length) {
+    body += '<div class="side-head-label"><span>审计记录</span><span class="grp-count">' + num(rows.length) + "</span></div>";
+  }
   for (const name of ["今天", "昨天", "更早"]) {
     const items = groups[name];
     if (!items.length) continue;
     body += '<div class="side-head-label"><span>' + name + '</span><span class="grp-count">' + num(items.length) + "</span></div>";
     body += items.map(row => {
       const high = Number((row.severity || {}).high || 0);
-      const meta = high ? `高${high} · ${num(row.findings)} 发现` : `${num(row.findings)} 发现`;
-      // 行内只放“发现数”（宽度有限，长目标名才不被挤没）；运行次数进
-      // title，侧栏一行仍是一个目标、一个可读名字。
-      const title = row.auditId + (row.runs > 1 ? ` · ${num(row.runs)} 次审计` : "");
+      const version = row.rulesetVersion ? ` · v${row.rulesetVersion}` : "";
+      const meta = (high ? `高${high} · ${num(row.findings)} 发现` : `${num(row.findings)} 发现`) + version;
+      // 行内只放发现数/规则集版本；运行次数进 title，避免长目标名被挤没。
+      const title = row.auditId + (row.runs > 1 ? ` · ${num(row.runs)} 次审计` : "")
+        + (row.rulesetVersion ? ` · ruleset v${row.rulesetVersion}` : "");
       return '<button class="session chat-row gov-target-row" type="button" data-gov-hist="' + esc(row.dir) + '" data-gov-target="' + esc(row.key) + '" title="' + esc(title) + '">'
         + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + esc(meta) + "</span></button>";
     }).join("");
   }
-  const inner = rows.length
+  const total = runs.length + rows.length;
+  const inner = total
     ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
-    : '<div class="section-empty">还没有审计记录——在治理台输入目标，发起第一次。</div>';
-  return sectionHeadHtml("审计历史", { key: "govhist" }, rows.length) + inner;
+    : '<div class="section-empty">还没有治理记录——在团队派活，或开始一次审计。</div>';
+  return sectionHeadHtml("治理历史", { key: "govhist" }, total) + inner;
 }
 
 /* 对话分组标题（kimi.com 的 history 段）。 */

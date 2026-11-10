@@ -3011,6 +3011,7 @@ async function startGovBotRun() {
     if (input) input.value = "";
     toast(`${bot.name} 已接活`);
     await loadGovTeam();
+    refreshGovHistory();
     scheduleGovTeamPoll();
   } catch (error) {
     toast("派活失败：" + error.message);
@@ -3191,6 +3192,7 @@ async function decideGovRun(runId, approve) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     toast(approve ? "已批准执行" : "已拒绝执行");
+    refreshGovHistory();
     if (govActive() && govSurface === "bot") await loadGovBotDetail(true);
     else await loadGovTeam();
   } catch (error) {
@@ -3413,6 +3415,7 @@ function scheduleGovPoll() {
           Object.assign(job, data);
           // 作业刚完成 → 自动选中这次新审计，工作台直接展示结果。
           if (job.status === "done" && job.audit_id) {
+            refreshGovHistory();
             govWork.dir = job.audit_id;
             govWork.finding = "";
             const seq = ++govLoadSeq;
@@ -3468,6 +3471,7 @@ function startGovAudit(target, options = {}) {
       govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
       if (surface === "dialog") pushGovDialog({ kind: "job", jobId: data.job_id }, true);
       else paintGovActivity();
+      refreshGovHistory();
       toast("挖洞作业已发起 · 治理台跟踪进度");
       scheduleGovPoll();
     } catch (error) {
@@ -3638,7 +3642,7 @@ const {
 /* 侧栏渲染与外壳交互已抽成独立模块（viewer/app/sidebar.js）。运行行/项目段
    仍在本文件，由 renderNav 通过 deps 编排；置顶状态也留在本文件（chat-ui 需读）。 */
 const {
-  renderNav, renderSidebarNav, paintNavActive,
+  renderNav, renderSidebarNav, paintNavActive, refreshGovHistory,
   renderPinned, renderQuickStart, markQuickStart, dismissQuickStart,
   paintSections, toggleSection, mountShell: mountSidebarShell,
   renderRuns, renderProjects, addProject, createProject, assignRunProject,
