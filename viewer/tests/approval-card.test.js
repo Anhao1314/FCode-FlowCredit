@@ -14,7 +14,7 @@ test("fmtCountdown:负数截 0,分钟补零", () => {
 });
 
 test("isWriteLike:写入类与 MCP 工具默认 consequential,读类不算", () => {
-  for (const tool of ["write_file", "edit_file", "run_command", "working_paper_append"]) {
+  for (const tool of ["write_file", "edit_file", "run_command", "working_paper_append", "browser_act"]) {
     assert.ok(isWriteLike(tool), tool);
   }
   assert.ok(isWriteLike("mcp__anything"));

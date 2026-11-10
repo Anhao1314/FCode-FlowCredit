@@ -32,6 +32,14 @@ const target = new URL(String(input.url || ""));
 if (!["http:", "https:"].includes(target.protocol) || !loopback(target.hostname)) {
   fail("BROWSER_URL_DENIED", "browser only opens loopback http(s) URLs");
 }
+const action = String(input.action || "inspect");
+if (!["inspect", "click", "fill", "press"].includes(action)) {
+  fail("BROWSER_ACTION_INVALID", `unsupported browser action: ${action}`);
+}
+const selector = String(input.selector || "").slice(0, 300);
+if (action !== "inspect" && !selector) {
+  fail("BROWSER_SELECTOR_INVALID", "click/fill/press require a selector");
+}
 
 const maxText = Math.max(0, Math.min(Number(input.max_text) || 12000, 40000));
 const maxElements = Math.max(1, Math.min(Number(input.max_elements) || 80, 200));
@@ -78,6 +86,31 @@ try {
   });
   if (waitMs) await page.waitForTimeout(waitMs);
 
+  const beforePath = action === "inspect" ? "" : String(input.before_path || "");
+  if (beforePath) {
+    await page.screenshot({
+      path: beforePath,
+      fullPage: Boolean(input.full_page),
+      animations: "disabled",
+    });
+  }
+  if (action !== "inspect") {
+    const locator = page.locator(selector).first();
+    if (!(await locator.count().catch(() => 0))) {
+      const error = new Error(`selector not found: ${selector}`);
+      error.code = "BROWSER_SELECTOR_NOT_FOUND";
+      throw error;
+    }
+    if (action === "click") {
+      await locator.click({ timeout: 8000, animations: "disabled" });
+    } else if (action === "fill") {
+      await locator.fill(String(input.text || ""), { timeout: 8000 });
+    } else {
+      await locator.press(String(input.key || "Enter"), { timeout: 8000 });
+    }
+    if (waitMs) await page.waitForTimeout(waitMs);
+  }
+
   const title = await page.title().catch(() => "");
   const pageUrl = page.url();
   const text = await page.evaluate(limit => {
@@ -108,14 +141,15 @@ try {
     writeFileSync(input.dom_path, clipped, "utf8");
     htmlBytes = Buffer.byteLength(clipped);
   }
-  let screenshotBytes = 0;
-  if (input.screenshot_path) {
+  const afterPath = action === "inspect"
+    ? String(input.screenshot_path || "")
+    : String(input.after_path || "");
+  if (afterPath) {
     await page.screenshot({
-      path: input.screenshot_path,
+      path: afterPath,
       fullPage: Boolean(input.full_page),
       animations: "disabled",
     });
-    screenshotBytes = 1;
   }
 
   await context.close();
@@ -123,6 +157,8 @@ try {
   browser = null;
   process.stdout.write(JSON.stringify({
     ok: true,
+    action,
+    selector,
     url: pageUrl,
     title: String(title || ""),
     text: String(text || ""),
@@ -130,10 +166,11 @@ try {
     console_errors: consoleErrors,
     document: metrics,
     html_bytes: htmlBytes,
-    screenshot_written: Boolean(input.screenshot_path),
+    before_written: Boolean(beforePath),
+    after_written: Boolean(afterPath),
     duration_ms: Date.now() - started,
   }));
 } catch (error) {
   try { if (browser) await browser.close(); } catch { /* ignore */ }
-  fail("BROWSER_PAGE_FAILED", error && error.message ? error.message : error);
+  fail(error && error.code ? error.code : "BROWSER_PAGE_FAILED", error && error.message ? error.message : error);
 }

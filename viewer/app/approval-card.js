@@ -36,9 +36,11 @@ const APPROVAL_VERBS = {
    edit_file / run_command 同属 consequential（能力基线三大件）。 */
 const WRITE_TOOLS = new Set([
   "working_paper_append", "collect_source", "write_document", "write_file",
-  "edit_file", "run_command",
+  "edit_file", "run_command", "browser_act",
 ]);
-const WRITE_VERBS = { write_file: "写入", edit_file: "编辑", run_command: "执行" };
+const WRITE_VERBS = {
+  write_file: "写入", edit_file: "编辑", run_command: "执行", browser_act: "操作浏览器",
+};
 
 /* MCP 导入工具默认 consequential：未经主机标注 readonly 的都按写入对待 */
 export function isWriteLike(tool) {

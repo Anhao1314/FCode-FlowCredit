@@ -126,6 +126,23 @@ def summarize_browser_inspect(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def summarize_browser_act(result: dict[str, Any]) -> dict[str, Any]:
+    before = result.get("before") or {}
+    after = result.get("after") or {}
+    return {
+        "available": bool(result.get("available")),
+        "ok": bool(result.get("ok")),
+        "url": result.get("url"),
+        "action": result.get("action"),
+        "selector": result.get("selector"),
+        "title": result.get("title"),
+        "before": before.get("path") if isinstance(before, dict) else None,
+        "after": after.get("path") if isinstance(after, dict) else None,
+        "text": str(result.get("text") or "")[:800],
+        "reason": result.get("reason"),
+    }
+
+
 def summarize_grep_workspace(result: dict[str, Any]) -> dict[str, Any]:
     matches = result.get("matches", [])
     return {

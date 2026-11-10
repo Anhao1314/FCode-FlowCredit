@@ -177,6 +177,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 - `search_codebase` 是 BM25 倒排检索，不是向量语义检索；首次检索会懒构建索引（本仓库约 0.8s），之后只读快照，运行中新建的文件要用 `grep_workspace`/`read_file` 查看。
 - Fast 批量只读工具在原生 `Loop` 中并发派发；写/网络/终端仍串行，LangGraph 引擎保持顺序步骤节点。
 - `browser_inspect` 只打开 `127.0.0.1 / localhost / ::1` 预览，依赖可选的 Playwright sidecar；外部 URL、文件 URL 与非本机子资源一律拒绝。
+- `browser_act`（click/fill/press）是 write effect，即使审批档位为「自动」也逐次确认；每次保留操作前/后截图与操作后 DOM。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复只覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用；通用任务仍受模型能力与可验证性限制。
 

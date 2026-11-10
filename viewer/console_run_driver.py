@@ -436,6 +436,18 @@ class RunDriver:
                 return {"path": path, "created": False, "additions": 0, "removals": 0,
                         "truncated": False, "diff": "",
                         "error": f"{getattr(error, 'code', type(error).__name__)}: {error}"}
+        if tool == "browser_act":
+            url = str(arguments.get("url") or "")
+            action = str(arguments.get("action") or "")
+            selector = str(arguments.get("selector") or "")
+            if not url or not action or not selector:
+                return None
+            return {
+                "url": url,
+                "action": action,
+                "selector": selector,
+                "note": "本机回环浏览器交互；操作前后截图与 DOM 入证据",
+            }
         if tool == "run_command":
             command = str(arguments.get("command") or "")
             if not command:

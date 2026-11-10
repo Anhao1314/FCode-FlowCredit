@@ -74,8 +74,10 @@ class BrowserSidecarTests(unittest.TestCase):
         self.workspace.mkdir()
         (self.workspace / "index.html").write_text(
             "<!doctype html><html><head><meta charset='utf-8'><title>Preview OK</title></head>"
-            "<body><h1>Hello FCode</h1><button>提交</button>"
-            "<a href='/next'>下一节</a><input name='q'></body></html>",
+            "<body><h1>Hello FCode</h1>"
+            "<button id='go' onclick=\"document.getElementById('out').textContent='已点击'\">提交</button>"
+            "<a href='/next'>下一节</a><input id='q' name='q'>"
+            "<div id='out'></div></body></html>",
             encoding="utf-8",
         )
         handler = functools.partial(_QuietHandler, directory=str(self.workspace))
@@ -108,6 +110,51 @@ class BrowserSidecarTests(unittest.TestCase):
         dom = result["dom"]
         self.assertIsNotNone(dom)
         self.assertGreater(dom["bytes"], 0)
+
+    def test_click_returns_before_and_after_evidence(self) -> None:
+        port = self.server.server_address[1]
+        result = self.runner.act(
+            f"http://127.0.0.1:{port}/", action="click", selector="#go",
+        )
+        self.assertTrue(result["ok"], result)
+        self.assertIn("已点击", result["text"])
+        self.assertIsNotNone(result["before"])
+        self.assertIsNotNone(result["after"])
+        self.assertTrue((self.root / "artifacts" / result["before"]["path"]).is_file())
+        self.assertTrue((self.root / "artifacts" / result["after"]["path"]).is_file())
+        self.assertNotEqual(result["before"]["path"], result["after"]["path"])
+
+    def test_fill_updates_the_element_value(self) -> None:
+        port = self.server.server_address[1]
+        result = self.runner.act(
+            f"http://127.0.0.1:{port}/", action="fill", selector="#q", text="hello browser",
+        )
+        self.assertTrue(result["ok"], result)
+        values = [item["text"] for item in result["elements"]]
+        self.assertIn("hello browser", values)
+
+    def test_missing_selector_is_explicit_and_keeps_before_shot(self) -> None:
+        port = self.server.server_address[1]
+        result = self.runner.act(
+            f"http://127.0.0.1:{port}/", action="click", selector="#nope",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "BROWSER_SELECTOR_NOT_FOUND")
+        self.assertIsNotNone(result["before"])
+        self.assertTrue((self.root / "artifacts" / result["before"]["path"]).is_file())
+
+    def test_browser_act_is_write_effect_and_always_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            from flowagent.domains.general import APPROVAL_TOOLS
+            from flowagent.tools.general.fetch import UrlFetcher
+            from flowagent.tools.general.sandbox import WorkspaceSandbox
+
+            specs = build_general_tools(WorkspaceSandbox(pathlib.Path(tmp)), UrlFetcher())
+            spec = next(item for item in specs if item.name == "browser_act")
+            self.assertEqual(spec.effect, "write")
+            self.assertIn("browser_act", APPROVAL_TOOLS)
+            with self.assertRaises(AgentError):
+                self.runner.act("http://127.0.0.1:1/", action="drag", selector="#x")
 
 
 if __name__ == "__main__":

@@ -671,9 +671,15 @@ function toolBodyHtml(item, ctx) {
     sections.push(`<div class="th-diff" role="group" aria-label="差异">${lines}</div>`);
   }
   const browserResult = item.observation && item.observation.result;
-  const browserShot = browserResult && browserResult.screenshot;
-  if (browserShot && browserShot.url) {
-    sections.push(`<a class="th-browser-shot" href="${esc(browserShot.url)}" target="_blank" rel="noreferrer"><img src="${esc(browserShot.url)}" alt="浏览器截图" loading="lazy"></a><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}</div>`);
+  const browserShots = browserResult ? ["before", "after"]
+    .map((key, index) => ({ key, shot: browserResult[key], label: index === 0 ? "操作前" : "操作后" }))
+    .filter(entry => entry.shot && entry.shot.url) : [];
+  if (!browserShots.length && browserResult && browserResult.screenshot && browserResult.screenshot.url) {
+    browserShots.push({ key: "screenshot", shot: browserResult.screenshot, label: "页面" });
+  }
+  if (browserShots.length) {
+    const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(entry.shot.url)}" target="_blank" rel="noreferrer"><img src="${esc(entry.shot.url)}" alt="浏览器截图 · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
+    sections.push(`<div class="th-browser-pair">${figures}</div><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}</div>`);
   }
   if (item.detailHtml) sections.push(`<div class="th-tool-detail">${item.detailHtml}</div>`);
   if (!sections.length && item.message) sections.push(`<p class="th-note">${esc(item.message)}</p>`);

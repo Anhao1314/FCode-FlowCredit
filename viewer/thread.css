@@ -797,8 +797,14 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   margin: 2px 0 8px; font: 11px/16px var(--font-mono); color: var(--text-4);
   font-variant-numeric: tabular-nums;
 }
+.th-browser-pair {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px; margin: 4px 0 8px;
+}
+.th-browser-figure { margin: 0; min-width: 0; }
+.th-browser-figure figcaption { margin-top: 3px; color: var(--text-3); font: 10px var(--font-mono); }
 .th-browser-shot {
-  display: block; margin: 4px 0 8px; overflow: hidden;
+  display: block; margin: 0; overflow: hidden;
   border: 1px solid var(--line); border-radius: 8px; background: var(--raised);
 }
 .th-browser-shot img {

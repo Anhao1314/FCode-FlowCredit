@@ -46,10 +46,11 @@ class DomainModuleTests(unittest.TestCase):
     def test_general_module_declares_its_own_answer_and_template(self) -> None:
         self.assertEqual(GENERAL_DOMAIN.result_tools, ("write_file",))
         self.assertEqual(GENERAL_DOMAIN.report_template, "generic")
-        # spawn_subagents 是 write effect:进审批集(2026-11 子代理批次)
+        # spawn_subagents / browser_act 是 write effect:进审批集
         self.assertEqual(
             GENERAL_DOMAIN.approval_tools,
-            ("write_file", "edit_file", "run_command", "terminal", "spawn_subagents"),
+            ("write_file", "edit_file", "run_command", "terminal",
+             "spawn_subagents", "browser_act"),
         )
         self.assertIsNotNone(GENERAL_DOMAIN.make_planner(
             GENERAL_DOMAIN.create_world(spec={"sources": ["https://example.com/doc"]}),

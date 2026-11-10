@@ -25,6 +25,10 @@ from typing import Any
 
 from console_common import DOMAIN_KEY
 
+#: Browser interactions can submit forms, navigate or mutate remote state.
+#: They stay human-gated even under the otherwise automatic approval mode.
+ALWAYS_APPROVAL_TOOLS = frozenset({"browser_act"})
+
 class StopRequested(Exception):
     """Raised inside an observer callback when the operator stops the run."""
 
@@ -635,7 +639,8 @@ class RunControl:
         """before_tool 的判定段（无副作用）：这次调用是否需要操作员决策。"""
         mode = self.run.approval
         tool = step["tool"]
-        required = mode == "all" or (mode == "consequential" and tool in self.approval_tools)
+        required = (mode == "all" or tool in ALWAYS_APPROVAL_TOOLS
+                    or (mode == "consequential" and tool in self.approval_tools))
         if required and mode == "consequential" and self.classify_consequential is not None:
             # 命令级豁免：主机注册表判定为纯读的调用（如 run_command 的
             # ls/cat/git status）与读工具同等待遇，不过审批。

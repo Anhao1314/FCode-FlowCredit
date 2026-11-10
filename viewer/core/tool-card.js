@@ -68,6 +68,10 @@ function previewLines(preview) {
   if (preview.url) {
     lines.push(`<div class="chat-tool-meta">域名 <span class="chat-tool-approval-badge">${esc(preview.host || "?")}</span> · ${esc(preview.url)}</div>`);
   }
+  if (preview.action) {
+    lines.push(`<div class="chat-tool-meta">动作 ${esc(preview.action)} · 选择器 <code>${esc(preview.selector || "")}</code></div>`);
+  }
+  if (preview.note) lines.push(`<div class="chat-tool-meta">${esc(preview.note)}</div>`);
   if (preview.path) lines.push(`<div class="chat-tool-meta">路径 ${esc(preview.path)}${preview.content_chars !== undefined ? ` · ${esc(String(preview.content_chars))} 字符` : ""}</div>`);
   if (preview.arguments) lines.push(`<pre class="chat-tool-result">${esc(JSON.stringify(preview.arguments, null, 2))}</pre>`);
   if (preview.preview_error) lines.push(`<div class="chat-tool-meta">预览失败：${esc(preview.preview_error)}</div>`);
@@ -76,11 +80,20 @@ function previewLines(preview) {
 
 function browserHtml(block) {
   const result = block.result || {};
-  const shot = result.screenshot;
-  if (!shot || !shot.url) return "";
-  return `<a class="chat-browser-shot" href="${esc(shot.url)}" target="_blank" rel="noreferrer">
-    <img src="${esc(shot.url)}" alt="浏览器截图" loading="lazy">
-  </a>
+  const pair = ["before", "after"]
+    .map((key, index) => ({ key, shot: result[key], label: index === 0 ? "操作前" : "操作后" }))
+    .filter(item => item.shot && item.shot.url);
+  const shots = pair.length ? pair : (result.screenshot && result.screenshot.url
+    ? [{ key: "screenshot", shot: result.screenshot, label: "页面" }]
+    : []);
+  if (!shots.length) return "";
+  const figures = shots.map(item => `<figure class="chat-browser-figure">
+    <a class="chat-browser-shot" href="${esc(item.shot.url)}" target="_blank" rel="noreferrer">
+      <img src="${esc(item.shot.url)}" alt="浏览器截图 · ${esc(item.label)}" loading="lazy">
+    </a>
+    <figcaption>${esc(item.label)}</figcaption>
+  </figure>`).join("");
+  return `<div class="chat-browser-pair">${figures}</div>
   <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}</div>`;
 }
 

@@ -376,6 +376,22 @@ def build_general_tools(
             wait_ms=wait_ms,
         )
 
+    def browser_act(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Perform one approved click/fill/press on a loopback preview."""
+        try:
+            wait_ms = int(arguments.get("wait_ms") or 300)
+        except (TypeError, ValueError):
+            wait_ms = 300
+        return browser.act(
+            str(arguments.get("url") or ""),
+            action=str(arguments.get("action") or ""),
+            selector=str(arguments.get("selector") or ""),
+            text=str(arguments.get("text") or ""),
+            key=str(arguments.get("key") or "Enter"),
+            full_page=bool(arguments.get("full_page") or False),
+            wait_ms=wait_ms,
+        )
+
     def report_blocked(arguments: dict[str, Any]) -> dict[str, Any]:
         """Declare that the work cannot proceed. No world effect, no authority.
 
@@ -675,6 +691,93 @@ def build_general_tools(
             version="1.0",
         ),
         ToolSpec(
+            name="browser_act",
+            summarize=summaries.summarize_browser_act,
+            summary=(
+                "Perform one approved click/fill/press on a loopback preview; "
+                "captures before/after screenshots and the post-action DOM. "
+                "Consequential: always requires operator approval"
+            ),
+            effect=EFFECT_WRITE,
+            params=(
+                Param(
+                    name="action",
+                    kind="string",
+                    required=True,
+                    enum=("click", "fill", "press"),
+                    description="click, fill, or press",
+                ),
+                Param(
+                    name="url",
+                    kind="string",
+                    required=True,
+                    max_length=2_000,
+                    description="loopback preview URL",
+                ),
+                Param(
+                    name="selector",
+                    kind="string",
+                    required=True,
+                    max_length=300,
+                    description="CSS selector for the target element",
+                ),
+                Param(
+                    name="text",
+                    identity=False,
+                    kind="string",
+                    required=False,
+                    nullable=True,
+                    max_length=4_000,
+                    description="text for fill",
+                ),
+                Param(
+                    name="key",
+                    identity=False,
+                    kind="string",
+                    required=False,
+                    nullable=True,
+                    max_length=40,
+                    description="key for press (default Enter)",
+                ),
+                Param(
+                    name="full_page",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description="capture full page screenshots",
+                ),
+                Param(
+                    name="wait_ms",
+                    kind="integer",
+                    required=False,
+                    nullable=True,
+                    minimum=0,
+                    maximum=5_000,
+                    description="settle time after the action (default 300ms)",
+                ),
+            ),
+            handler=browser_act,
+            outputs=(
+                _out("available", "boolean"),
+                _out("ok", "boolean"),
+                _out("url", "string"),
+                _out("action", "string"),
+                _out("selector", "string"),
+                _out("before", "object", required=False, nullable=True),
+                _out("after", "object", required=False, nullable=True),
+                _out("dom", "object", required=False, nullable=True),
+                _out("title", "string"),
+                _out("text", "string"),
+                _out("elements", "array"),
+                _out("console_errors", "array"),
+                _out("truncated", "boolean"),
+                _out("duration_ms", "integer"),
+                _out("reason", "string", required=False, nullable=True),
+                _out("error", "object", required=False, nullable=True),
+            ),
+            version="1.0",
+        ),
+        ToolSpec(
             name="write_file",
             summarize=summaries.summarize_write_file,
             summary="Write one file into the workspace sandbox; approval-gated, hashed and git-committed",
@@ -885,7 +988,7 @@ def build_general_tools(
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
     "ls_workspace", "repo_map", "search_codebase", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
-    "browser_inspect",
+    "browser_inspect", "browser_act",
     "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
 )
