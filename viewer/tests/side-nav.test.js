@@ -60,11 +60,12 @@ test("置顶段只在真的置顶过东西时出现，任务行复用运行行",
   assert.match(chats, /取消置顶/);
 });
 
-test("Projects 段：标题可折叠 + ＋动作 + 真实空态", () => {
+test("Projects 段：标题可折叠 + ＋动作，空段不写引导文案", () => {
   const empty = projectSectionHtml([], {});
   assert.match(empty, /data-section-toggle="projects"/);
   assert.match(empty, /data-proj-add/);
-  assert.match(empty, /section-empty/);
+  assert.doesNotMatch(empty, /section-empty/);
+  assert.doesNotMatch(empty, /还没有项目/);
   const filled = projectSectionHtml([{ id: "prj-1", name: "恒星" }], { countOf: () => 3, filter: "prj-1" });
   assert.match(filled, /data-proj="prj-1"/);
   assert.match(filled, /class="smeta">3</);

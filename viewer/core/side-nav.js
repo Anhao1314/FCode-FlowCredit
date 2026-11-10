@@ -119,8 +119,7 @@ export function projectSectionHtml(projects, options) {
   }).join("");
   const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目">＋</button>';
   return sectionHeadHtml("Projects", { key: "projects", action: add }, (projects || []).length)
-    + revealHtml('<nav class="nav" data-proj-nav>' + rows + "</nav>")
-    + (rows ? "" : '<div class="section-empty">还没有项目——用「＋」建一个，把任务归到一起</div>');
+    + revealHtml('<nav class="nav" data-proj-nav>' + rows + "</nav>");
 }
 
 export function runRowsHtml(runs, options) {
