@@ -8,9 +8,9 @@
 | key | version | system prompt | 消费者 | frozen | 关键契约 |
 | --- | --- | --- | --- | --- | --- |
 | `finance` | `fcode.prompt/v10` | `providers/prompt.py::SYSTEM_PROMPT` | `FINANCE_DOMAIN` | **是**（SFT 金色哈希） | 单动作 JSON；数字只能来自观测；`report_blocked` 说明原因 |
-| `general` | `fcode.prompt/general-v10` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开；先 `search_codebase` 再 grep |
-| `general-fast` | `fcode.prompt/general-fast-v2` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
-| `general-fast-native` | `fcode.prompt/general-fast-native-v2` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
+| `general` | `fcode.prompt/general-v11` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开；先 `search_codebase` 再 grep |
+| `general-fast` | `fcode.prompt/general-fast-v3` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
+| `general-fast-native` | `fcode.prompt/general-fast-native-v3` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
 | `chat` | 无独立 profile（inline） | `chat.py::CHAT_SYSTEM_PROMPT` | `ChatService` | 否 | 只读工具直接执行；写/网络逐次审批；完整任务用执行提案转委托 |
 | `audit-analyst` | 无独立 profile（inline） | `flowaudit/analyst.py` 的 objective | `flowaudit.analyst` | 否 | 只依据审计 bundle 给跟进计划；不编造未给出的信息 |
 
@@ -22,6 +22,8 @@
 4. **默认 profile 是 finance**：没有任何 selector 的旧上下文/SFT 样本继续按 finance v10 渲染；不要改这个兼容策略。
 
 ## Changelog
+
+- **2026-11-11 · general-v11 / fast-v3 / fast-native-v3**：非 frozen prompt 的 user context 改为 cache-friendly 排序——稳定契约/工具字段在前，观测其次，`budget` / `round` 等每轮字段最后；JSON 内容不变，provider prompt cache 的稳定前缀更长。provider 收据新增 prefix similarity 与 cache hit rate。
 
 - **2026-11-10 · general-v10 / fast-v2 / fast-native-v2**：加入 `search_codebase` 检索层。知道概念但不知道精确字符串时，先按自然语言检索（路径/行号/片段），再用 `grep_workspace` 精确确认；`repo_map` 仍负责结构总览。
 - **2026-11-10 · general-v9**：删除过期的“不要使用 additions / 计划扩展是致命的”段；运行时已支持逐项校验、部分接受和带原因退回，prompt 改为描述真实语义。
@@ -42,6 +44,21 @@ python3 scripts/prompt_eval.py --provider deepseek --profile general \
 ```
 
 输出 `report.json` / `report.md`，每个任务包含 `status / success / rounds / model_calls / tokens / cost / wall / violations`。成功由 Host 判定：runtime 终态、交付物文本、可选验收命令、违规扫描，不采信模型自述。
+
+## 缓存友好排序基准（2026-11-11）
+
+```bash
+python3 -I scripts/bench_prompt_prefix.py --rounds 20
+```
+
+模拟 20 轮同一 objective 的连续请求，对比「sorted-key 全排序」与「general 语境 cache-friendly 排序」下连续两轮 user prompt 的最长公共前缀占比（即 provider 缓存可命中的上限）：
+
+| 渲染方式 | 平均前缀占比 | 末轮前缀占比 |
+| --- | --- | --- |
+| sorted（旧路径） | 0.0117 | 0.0041 |
+| cache-friendly（新路径） | **0.8065** | **0.9325** |
+
+配套观测：provider 回执现在始终携带 `cached_tokens` / `cache_hit_rate` / `prompt_prefix_ratio`，前端 run evidence 直接展示真实命中率与平均前缀相似度，方便后续对真实 provider 做前后对比。finance 冻结路径不受影响。
 
 ## 首轮真实评测（2026-11-10）
 

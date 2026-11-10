@@ -26,15 +26,15 @@ EXPECTED = {
         "ec0ba6d412b34fbb60682a0bd07bb8d4d233e3b0b728863a1f1cdc5b69693408",
     ),
     "general": (
-        "fcode.prompt/general-v10", 3466,
+        "fcode.prompt/general-v11", 3466,
         "7fc5d4d070c4b387af501ca90bc721c6226588dd9f2b74416d5f5e0d25861b11",
     ),
     "general-fast": (
-        "fcode.prompt/general-fast-v2", 3905,
+        "fcode.prompt/general-fast-v3", 3905,
         "db591d38c6725814a9c067f9c59745478cab71ca53a860283748b256e46efc55",
     ),
     "general-fast-native": (
-        "fcode.prompt/general-fast-native-v2", 3846,
+        "fcode.prompt/general-fast-native-v3", 3846,
         "a93ba5b28f43456c89af83ae22b7bd9ef1aa1e97d3f51667d150ce58db598def",
     ),
 }

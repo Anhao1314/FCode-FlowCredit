@@ -662,6 +662,7 @@ class CompatClient:
 
 
 def _cached_tokens(usage: dict[str, Any]) -> int:
+    """Extract OpenAI-style cached input tokens, normalized to zero."""
     details = usage.get("prompt_tokens_details") or {}
     try:
         return max(0, int(details.get("cached_tokens") or 0))
@@ -669,7 +670,33 @@ def _cached_tokens(usage: dict[str, Any]) -> int:
         return 0
 
 
+def _provider_cached_tokens(usage: dict[str, Any]) -> int:
+    """Read either OpenAI-style details or DeepSeek-style cache-hit tokens."""
+    return max(_cached_tokens(usage),
+               max(0, int(usage.get("prompt_cache_hit_tokens") or 0)))
+
+
+def _prompt_prefix_stats(previous: str | None, current: str) -> dict[str, Any]:
+    """Measure how much of this request repeats the previous request prefix."""
+    if not previous or not current:
+        return {"prompt_prefix_chars": 0, "prompt_prefix_ratio": 0.0}
+    limit = min(len(previous), len(current))
+    common = 0
+    while common < limit and previous[common] == current[common]:
+        common += 1
+    return {
+        "prompt_prefix_chars": common,
+        # Ratio over the current request: how much of what we are sending now
+        # the provider could plausibly have cached from the previous request.
+        "prompt_prefix_ratio": round(common / max(1, len(current)), 4),
+    }
+
+
 def _usage_tokens(usage: dict[str, Any]) -> tuple[int, int, int]:
+    prompt = int(usage.get("prompt_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or 0)
+    total = int(usage.get("total_tokens") or (prompt + completion))
+    return prompt, completion, total
     prompt = int(usage.get("prompt_tokens") or 0)
     completion = int(usage.get("completion_tokens") or 0)
     total = int(usage.get("total_tokens") or (prompt + completion))
@@ -739,6 +766,9 @@ class OpenAICompatProvider:
         self.raw_sink = raw_sink
         self.calibration_reports: list[dict[str, Any]] = []
         self.receipt_detail = receipt_detail
+        #: Previous rendered request for cache observability. This is process/
+        #: provider-local; it never enters the event chain as content.
+        self._last_prompt_key: str | None = None
         #: Native function-calling schemas, attached by the runtime that owns
         #: the registry. Empty keeps the JSON-proposal contract.
         self.native_tool_schemas: list[dict[str, Any]] = []
@@ -940,6 +970,12 @@ class OpenAICompatProvider:
         system, user = render_prompt(context)
         chars = len(system) + len(user)
         reserved_prompt_tokens = self.calibration.estimate(system, user) + self._tool_schema_tokens()
+        # Cache observability: compare the full rendered request against this
+        # provider's previous request. Tool schemas are not included because
+        # they are stable for the whole run; user/system drift is the risk.
+        prompt_key = f"{system}\n\x1e{user}"
+        prefix_stats = _prompt_prefix_stats(self._last_prompt_key, prompt_key)
+        self._last_prompt_key = prompt_key
         use_native = bool(profile.native_tools and self.native_tool_schemas)
         self._pace()
         started = time.monotonic()
@@ -986,6 +1022,7 @@ class OpenAICompatProvider:
         prompt_tokens, _, total_tokens = _usage_tokens(usage)
         plan = build_proposal_plan(data)
 
+        cached_tokens = _provider_cached_tokens(usage)
         metadata: dict[str, Any] = {
             "prompt_version": profile.version,
             "billing": "external",
@@ -993,7 +1030,16 @@ class OpenAICompatProvider:
             "price_as_of": self.price.as_of,
             "price_source": self.price.source,
             "native_tools": use_native,
+            **prefix_stats,
         }
+        if usage:
+            metadata.update({
+                "usage_prompt_tokens": prompt_tokens,
+                "cached_tokens": cached_tokens,
+                "cache_hit_rate": round(
+                    cached_tokens / prompt_tokens, 4
+                ) if prompt_tokens else 0.0,
+            })
         if dropped_tool_calls:
             metadata["dropped_tool_calls"] = dropped_tool_calls
         if self.receipt_detail == "full":
@@ -1003,8 +1049,6 @@ class OpenAICompatProvider:
                 "reasoning_effort": self.reasoning_effort,
                 "temperature": self.temperature,
                 "reserved_prompt_tokens": reserved_prompt_tokens,
-                "usage_prompt_tokens": prompt_tokens,
-                "cached_tokens": _cached_tokens(usage),
                 "cache_billing": self.price.billing,
                 "raw_content": content,
             })

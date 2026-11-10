@@ -190,7 +190,7 @@ export function createRunEvidence(deps) {
   }
 
   function tokenSplit(trace) {
-    let prompt = 0, cached = 0, total = 0, known = false;
+    let prompt = 0, cached = 0, total = 0, known = false, prefixSamples = 0, prefixRatio = 0;
     for (const r of (trace.rounds || [])) {
       const receipt = r.receipt || {};
       const meta = receipt.metadata || {};
@@ -200,15 +200,27 @@ export function createRunEvidence(deps) {
         prompt += Number(meta.usage_prompt_tokens) || 0;
         cached += Number(meta.cached_tokens) || 0;
       }
+      if (meta.prompt_prefix_ratio !== undefined && meta.prompt_prefix_ratio !== null) {
+        prefixSamples += 1;
+        prefixRatio += Number(meta.prompt_prefix_ratio) || 0;
+      }
     }
-    return { prompt, cached, total, completion: known ? Math.max(0, total - prompt) : null, known };
+    return {
+      prompt, cached, total,
+      completion: known ? Math.max(0, total - prompt) : null,
+      hitRate: prompt ? cached / prompt : null,
+      prefixRatio: prefixSamples ? prefixRatio / prefixSamples : null,
+      known,
+    };
   }
 
   function tokenSplitHtml(trace) {
     const t = tokenSplit(trace);
     if (!t.total) return "";
     if (!t.known) return `<div class="tok-split unknown"><span class="tok-note">tokens ${num(t.total)} · 当前收据未含 token 分类（offline-mock 不产生 usage_prompt_tokens）</span></div>`;
-    return `<div class="tok-split"><div class="tok-row"><span class="k">prompt</span><span class="v">${num(t.prompt)}</span></div><div class="tok-row"><span class="k">cached</span><span class="v">${num(t.cached)}</span><span class="note">缓存命中按输入价计费（v1）</span></div><div class="tok-row"><span class="k">completion</span><span class="v">${num(t.completion)}</span></div></div>`;
+    const hitRate = t.hitRate === null ? "" : `<span class="note">命中率 ${(t.hitRate * 100).toFixed(1)}%</span>`;
+    const prefix = t.prefixRatio === null ? "" : `<span class="note">前缀相似 ${(t.prefixRatio * 100).toFixed(1)}%</span>`;
+    return `<div class="tok-split"><div class="tok-row"><span class="k">prompt</span><span class="v">${num(t.prompt)}</span></div><div class="tok-row"><span class="k">cached</span><span class="v">${num(t.cached)}</span><span class="note">缓存命中按输入价计费（v1）</span>${hitRate}</div><div class="tok-row"><span class="k">completion</span><span class="v">${num(t.completion)}</span></div><div class="tok-row"><span class="k">prefix</span><span class="v">${t.prefixRatio === null ? "—" : `${(t.prefixRatio * 100).toFixed(1)}%`}</span>${prefix}<span class="note">与上一轮请求的公共前缀均值</span></div></div>`;
   }
 
   function activeRoundDelta(trace) {

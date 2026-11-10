@@ -79,7 +79,7 @@ SYSTEM_PROMPT = (
 #: General contracts are versioned independently from the frozen finance data.
 #: v9 removes the stale "additions are fatal" instruction: the host now
 #: partially accepts valid additions and returns rejected items with reasons.
-GENERAL_PROMPT_VERSION = "fcode.prompt/general-v10"
+GENERAL_PROMPT_VERSION = "fcode.prompt/general-v11"
 
 #: This is the only domain-instruction definition. ``domains.general`` re-exports
 #: it for the DomainModule; keeping a second behavioural contract there caused
@@ -187,7 +187,7 @@ GENERAL_SYSTEM_PROMPT = "\n\n".join((
 #: depend on earlier observations from the same reply. Reads are independent and
 #: may be batched; a write/terminal changes state and stays alone. This profile
 #: is opt-in (``spec.fast``); the default general contract above is unchanged.
-GENERAL_FAST_PROMPT_VERSION = "fcode.prompt/general-fast-v2"
+GENERAL_FAST_PROMPT_VERSION = "fcode.prompt/general-fast-v3"
 
 _FAST_OUTPUT_CONTRACT = (
     "【输出协议·快速模式】\n"
@@ -239,7 +239,7 @@ GENERAL_FAST_SYSTEM_PROMPT = "\n\n".join((
 #: Native function-calling variant. The tools travel in the API's ``tools``
 #: field, so the model must not be told to emit JSON text at all. Same batch
 #: rules and the same loop bound as the JSON fast profile.
-GENERAL_FAST_NATIVE_PROMPT_VERSION = "fcode.prompt/general-fast-native-v2"
+GENERAL_FAST_NATIVE_PROMPT_VERSION = "fcode.prompt/general-fast-native-v3"
 
 _FAST_NATIVE_CONTRACT = (
     "【工具调用协议·快速模式】\n"
@@ -367,22 +367,75 @@ def canonical(value: Any) -> str:
     return canonical(str(value))
 
 
+#: Cache-friendly top-level ordering for non-frozen runtime contexts.
+#: Provider prompt caches match on the longest stable request prefix. A sorted
+#: JSON map puts volatile keys such as ``budget`` and ``round`` near the front,
+#: invalidating the cache after a handful of characters. Frozen finance bytes
+#: never take this path.
+_PROMPT_KEY_ORDER = (
+    "prompt_profile",
+    "instruction",
+    "tools",
+    "objective",
+    "conversation",
+    "prior_cases",
+    "observations",
+    "observation_index",
+    "plan",
+    "state",
+    "operator_messages",
+    "rejected_proposals",
+    "budget",
+    "round",
+    "intent",
+)
+
+
+def _ordered_prompt_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Return the context with cache-stable fields before per-round fields."""
+    ordered: dict[str, Any] = {}
+    for key in _PROMPT_KEY_ORDER:
+        if key in context:
+            ordered[key] = context[key]
+    for key, value in context.items():
+        if key not in ordered:
+            ordered[key] = value
+    return ordered
+
+
+def ordered_json(value: Any) -> str:
+    """Compact JSON that preserves the given object ordering.
+
+    Only non-frozen prompt profiles use this. The content is identical to the
+    canonical form; the top-level byte ordering is chosen to maximize the
+    provider-side prompt-cache prefix.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(ordered_json(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            json.dumps(str(k), ensure_ascii=False) + ":" + ordered_json(v)
+            for k, v in value.items()
+        ) + "}"
+    return ordered_json(str(value))
+
+
 def render_prompt(context: dict[str, Any]) -> tuple[str, str]:
     """Render one runtime context into (system, user) texts.
 
-    The user message is the canonical JSON of the context dict — the exact
-    object :class:`~flowagent.memory.context.WorkingMemory.build` produces. No
-    prose wrapper, no trimming: the context design (compressed observations) is
-    what keeps this small, and any editorialising here would drift between
-    training and inference.
-
-    The system text and the version string come from the profile the context
-    selects. A context that selects none renders exactly the frozen v10 pair it
-    always did — byte for byte, which the SFT golden hash depends on.
+    Frozen finance contexts keep the canonical sorted-key rendering exactly as
+    the SFT golden hash expects. Non-frozen runtime contexts use cache-friendly
+    ordering: stable contract/tool fields first, observations next, and
+    per-round bookkeeping last. The JSON content is unchanged.
     """
     profile = prompt_profile_for(context)
+    body = canonical(context) if profile.frozen else ordered_json(
+        _ordered_prompt_context(context)
+    )
     user = (
-        '{"context": ' + canonical(context)
+        '{"context": ' + body
         + ", " + '"prompt_version": ' + json.dumps(profile.version) + "}"
     )
     return profile.system, user

@@ -69,6 +69,40 @@ def _clip(value: str) -> str:
             + value[-DEFAULT_SUMMARY_TAIL:])
 
 
+#: Cache-friendly ordering for non-frozen general contexts. The provider sees
+#: stable contract/tool fields first, append-only observations next, and
+#: per-round bookkeeping last. Finance contexts never take this path.
+_CACHE_CONTEXT_ORDER = (
+    "prompt_profile",
+    "instruction",
+    "tools",
+    "objective",
+    "conversation",
+    "prior_cases",
+    "observations",
+    "observation_index",
+    "plan",
+    "state",
+    "operator_messages",
+    "rejected_proposals",
+    "budget",
+    "round",
+    "intent",
+)
+
+
+def _cache_ordered_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Reorder a general context without changing its JSON content."""
+    ordered: dict[str, Any] = {}
+    for key in _CACHE_CONTEXT_ORDER:
+        if key in context:
+            ordered[key] = context[key]
+    for key, value in context.items():
+        if key not in ordered:
+            ordered[key] = value
+    return ordered
+
+
 def _compact(value: Any, depth: int) -> Any:
     """P0-1 的结构化压缩:深度内保留一层键值/列表首项,超出折叠为键名/计数。"""
     if value is None or isinstance(value, (int, float, bool)):
@@ -487,6 +521,12 @@ class WorkingMemory:
                 }
                 for hit in self.prior_cases[:3]
             ]
+        if self.prompt_profile:
+            # Non-frozen general profiles render with insertion order so the
+            # provider sees stable contract/tool fields before per-round
+            # bookkeeping. Finance contexts keep legacy insertion and canonical
+            # sorted rendering to protect the SFT golden hash.
+            return _cache_ordered_context(context)
         return context
 
     def _prepare_rows(self) -> None:
