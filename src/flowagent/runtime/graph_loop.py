@@ -203,6 +203,24 @@ class GraphLoop(Loop):
             if plan.is_blocked():
                 self._terminal_task = self._stop(task, plan, "PLAN_BLOCKED")
                 return {"done": True}
+            settled = self._settle_advisory_plan(
+                task, plan, self._decisions(task) + 1)
+            if settled is not None:
+                task, plan = settled
+                self._task, self._plan = task, plan
+                round_no = self._decisions(task) + 1
+                try:
+                    verified = self._verify_result_set(task.id, plan)
+                    sources = self._check_evidence(task, verified, round_no)
+                    task, obligation = self._verify_obligation(
+                        task, verified, plan, round_no)
+                except AgentError as error:
+                    self._terminal_task = self._abort(task.id, error)
+                    return {"done": True}
+                self._task = task
+                self._terminal_task = self._succeed(
+                    task, verified, plan, obligation, sources)
+                return {"done": True}
             if plan.is_complete() or plan.next_open() is None:
                 # 原 while 语义：域开放给模型的计划，模型仍可在本轮继续提议
                 # （以 report_blocked 收尾）；封闭计划没有可做的就停。

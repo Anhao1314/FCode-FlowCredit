@@ -176,6 +176,19 @@ class Loop:
             if pending is None:
                 if plan.is_blocked():
                     return self._stop(task, plan, "PLAN_BLOCKED")
+                settled = self._settle_advisory_plan(
+                    task, plan, self._decisions(task) + 1)
+                if settled is not None:
+                    task, plan = settled
+                    round_no = self._decisions(task) + 1
+                    try:
+                        verified = self._verify_result_set(task.id, plan)
+                        sources = self._check_evidence(task, verified, round_no)
+                        task, obligation = self._verify_obligation(
+                            task, verified, plan, round_no)
+                    except AgentError as error:
+                        return self._abort(task.id, error)
+                    return self._succeed(task, verified, plan, obligation, sources)
                 if plan.is_complete() or plan.next_open() is None:
                     # A plan the domain opened to the model is not finished just
                     # because the steps it currently holds are: the model may
@@ -492,6 +505,73 @@ class Loop:
             "todo_id": extension.accepted[0].id,
             "added": extension.added_ids(),
             "note": "模型提议新增步骤",
+            "plan": revised.to_dict(),
+        })
+        return task, revised
+
+    # ------------------------------------------------- advisory plan settlement
+
+    def _model_added_ids(self, task: Task) -> set[str]:
+        """Todo ids the model itself put on the plan (accepted extensions)."""
+        added: set[str] = set()
+        for event in self.harness.store.events(task.id):
+            if event.get("type") != "plan_steered":
+                continue
+            detail = (event.get("payload") or {}).get("detail") or {}
+            if detail.get("by") != "model":
+                continue
+            added.update(str(item) for item in (detail.get("added") or []))
+        return added
+
+    def _settle_advisory_plan(
+        self, task: Task, plan: Plan, round_no: int,
+    ) -> tuple[Task, Plan] | None:
+        """Close leftover model-added steps once the answer is delivered.
+
+        The blueprint's result todo is the answer obligation; a ``submit_plan``
+        extension is steering. A model that over-plans ("also read X, also run
+        Y") and then delivers a verified result must not strand its own run at
+        the round limit waiting for steps it no longer intends to take. The host
+        abandons *only* todos the model itself added — never a blueprint step —
+        and records the drop on the chain. Nothing is marked done: the trace
+        shows a verified result plus explicitly dropped advice, which is the
+        honest reading.
+
+        Returns ``(task, revised_plan)`` when it acted, else ``None``.
+        """
+        # Strict single-step plans keep the pinned contract: a step the model
+        # promised and never took fails the run even when an artifact exists
+        # (test_plan_extension J). Only the fast/batch profiles — where the plan
+        # is explicitly a model-managed checklist — settle leftovers this way.
+        if not (getattr(self.harness, "max_steps", 1) > 1
+                or getattr(self.harness, "plan_tool", False)):
+            return None
+        open_todos = [todo for todo in plan.todos
+                      if todo.status in ("pending", "active")]
+        if not open_todos:
+            return None
+        added = self._model_added_ids(task)
+        if not added or any(todo.id not in added for todo in open_todos):
+            return None
+        result_todos = [todo for todo in plan.todos if todo.tool in self.result_tools]
+        if not result_todos:
+            return None
+        # Only after the answer obligation is met; otherwise the result step is
+        # still real work the model has to finish.
+        if any(todo.required and todo.status != "done" for todo in result_todos):
+            return None
+        dropped = [todo.id for todo in open_todos]
+        reason = "结果已交付并通过校验；模型自加的剩余步骤是建议，不再构成完成条件"
+        revised = plan.revise(drop=tuple(dropped), reason=reason)
+        task.plan_state = revised.to_dict()
+        task = self.harness.record(task, "plan_steered", {
+            "round": round_no,
+            "action": "settle_advisory",
+            "by": "host",
+            "todo_id": dropped[0],
+            "dropped": dropped,
+            "note": "结果交付后结算模型自加的剩余步骤",
+            "reason": reason,
             "plan": revised.to_dict(),
         })
         return task, revised

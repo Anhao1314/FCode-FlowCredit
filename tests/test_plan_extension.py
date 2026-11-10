@@ -41,6 +41,7 @@ from flowagent.runtime.budget import BudgetLimits  # noqa: E402
 from flowagent.runtime.control import RoundControl, ToolControl  # noqa: E402
 from flowagent.runtime.harness import Harness  # noqa: E402
 from flowagent.runtime.loop import Loop  # noqa: E402
+from flowagent.runtime.graph_loop import GraphLoop, _HAS_LANGGRAPH  # noqa: E402
 from flowagent.runtime.plan_extension import (  # noqa: E402
     MAX_PLAN_TODOS,
     validate_additions,
@@ -196,12 +197,19 @@ class Stack:
             grant=scenario.grant,
         )
 
-    def run(self, rounds, *, max_rounds: int = 12, control=None, task_id: str = "task-plan"):
+    def run(self, rounds, *, max_rounds: int = 12, control=None,
+            task_id: str = "task-plan", fast: bool = False, engine: str = "native"):
         provider = PlannedProvider(rounds)
         harness = self.harness(provider)
+        if fast:
+            # The fast/batch profile: plan extensions are a model-managed
+            # checklist and leftover advice may be settled after a result.
+            harness.max_steps = 4
+            harness.plan_tool = True
         task = self.task(harness, task_id)
         recorder = TraceRecorder(harness.store, provider_name=provider.name, model_name=provider.model)
-        loop = Loop(
+        loop_cls = GraphLoop if engine == "langgraph" else Loop
+        loop = loop_cls(
             harness,
             planner=GENERAL_DOMAIN.make_planner(self.world),
             max_rounds=max_rounds,
@@ -801,6 +809,85 @@ class LoopIntegrationTests(unittest.TestCase):
                       and e["payload"]["detail"]["tool"] == "run_command"]
             self.assertEqual(len(starts), 1, "an unknown result was dispatched twice")
             stack.close()
+
+
+class FastAdvisorySettlementTests(unittest.TestCase):
+    """Fast/batch profile: leftover model advice must not strand a delivered result.
+
+    The strict single-step contract (previous class) stays: no result, no
+    success. This class only pins the fast-profile fallback — the plan there is
+    a model-managed checklist, and a verified artifact outranks advice the model
+    no longer intends to act on. The dropped steps are abandoned on the chain,
+    never marked done.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_delivered_result_settles_leftover_advice(self) -> None:
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+            ]),
+            (step("write_file", {"path": "SUMMARY.md", "content": "# done\n"}), []),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True)
+        self.assertEqual(final.status, "succeeded", final.failure)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["out"], "done")
+        self.assertEqual(states["p_never"], "abandoned")
+        events = harness.store.events(final.id)
+        settled = [e for e in events if e["type"] == "plan_steered"
+                   and e["payload"]["detail"].get("action") == "settle_advisory"]
+        self.assertEqual(len(settled), 1)
+        self.assertEqual(settled[0]["payload"]["detail"]["by"], "host")
+        self.assertEqual(settled[0]["payload"]["detail"]["dropped"], ["p_never"])
+        self.assertEqual(final.result["verification"], "file-state-recomputed")
+        verify_trace(recorder.build(harness.store.load(final.id)))
+        stack.close()
+
+    def test_no_result_keeps_advice_open(self) -> None:
+        """The fallback needs a verified answer; advice alone never succeeds."""
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+            ]),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True)
+        self.assertEqual(final.status, "failed")
+        self.assertEqual(final.failure["code"], "INSUFFICIENT_EVIDENCE")
+        self.assertIsNone(final.result)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["p_never"], "pending")
+        actions = [e["payload"]["detail"].get("action") for e in harness.store.events(final.id)
+                   if e["type"] == "plan_steered"]
+        self.assertNotIn("settle_advisory", actions)
+        stack.close()
+
+    @unittest.skipUnless(_HAS_LANGGRAPH, "langgraph is not installed")
+    def test_graph_engine_matches_native_settlement(self) -> None:
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+            ]),
+            (step("write_file", {"path": "SUMMARY.md", "content": "# done\n"}), []),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True, engine="langgraph")
+        self.assertEqual(final.status, "succeeded", final.failure)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["p_never"], "abandoned")
+        self.assertEqual(final.result["verification"], "file-state-recomputed")
+        verify_trace(recorder.build(harness.store.load(final.id)))
+        stack.close()
 
 
 class BlueprintCompatibilityTests(unittest.TestCase):
