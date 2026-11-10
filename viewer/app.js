@@ -29,6 +29,7 @@ import { createChatConfig } from "./app/chat-config.js";
 import { createChatUI } from "./app/chat-ui.js";
 import { createSidebar } from "./app/sidebar.js";
 import { createPages } from "./app/pages.js";
+import { createMarketplace } from "./app/marketplace.js";
 import {
   fmtCountdown,
 } from "./app/approval-card.js";
@@ -388,7 +389,8 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   // 工作台保持隐藏。审计台属治理区也保留治理 composer(零模型 console);
   // reviews/scheduled/ledger/settings 仍是纯功能页,不显示输入框。
   if (composerWrap) composerWrap.hidden = (mode === "gov" || mode === "reviews"
-    || mode === "scheduled" || mode === "ledger" || mode === "settings");
+    || mode === "scheduled" || mode === "ledger" || mode === "settings"
+    || mode === "market");
   const scroller = document.querySelector(".main");
   if (scroll === "top" && scroller) scroller.scrollTop = 0;
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -444,6 +446,7 @@ const MODE_ENTRY = {
   gov: () => renderGov(),
   audit: () => renderAudit(),
   scheduled: () => renderScheduledPage(),
+  market: () => renderMarketplace(),
 };
 
 document.addEventListener("click", event => {
@@ -3607,6 +3610,12 @@ const {
   fetchImpl: (...args) => fetch(...args),
 });
 
+const { renderMarketplace } = createMarketplace({
+  renderMain, setFoot, toast,
+  getViewGateSequence: () => viewGate.sequence,
+  fetchImpl: (...args) => fetch(...args),
+});
+
 /* 审计台 surface（viewer/audit/audit-view.js 的 createAuditSurface）。
    渲染、hash 维护、深链预选与死链自愈都在模块里;这里只注入 app 侧
    关注点：进入收尾、chrome、主区渲染与当前 mode 读取。本文件保留的
@@ -4441,7 +4450,7 @@ function bindGlobalActions() {
     // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器 / W1 对话卡跳转共用 data-open → renderMode 一条路。
     // 从区切换器进入 Governance 时回到对话面；工作台是复核时的显式选择。
     if (event.target.closest('.zone-btn[data-open="gov"]')) govSurface = "dialog";
-    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open]");
+    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open], .side-market[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
     const govBundle = event.target.closest("[data-gov-open-bundle]");

@@ -12,3 +12,6 @@ viewer/test-results/
 viewer/playwright-report/
 viewer/node_modules/
 .mock-model-state.json
+
+# 本机 MCP 插件配置（host-reviewed，不入库）
+mcp.json

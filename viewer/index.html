@@ -41,6 +41,13 @@
          inner 由 side-nav.js 的 zoneSwitchHtml 生成，active 跟随视图。 -->
     <div class="zone-switch seg" id="zone-switch" role="group" aria-label="Work and Governance"></div>
 
+    <!-- 插件市场：内置能力 + 审查过的 MCP 插件。目录在服务端；安装只写本机
+         mcp.json，桥接后台重连。这是操作员动作，不是模型可写入口。 -->
+    <button class="side-market" type="button" data-open="market" title="插件市场">
+      <span data-doodle="cube"></span><span>插件市场</span>
+      <span class="side-count">插件</span>
+    </button>
+
     <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
          结构：区切换器（Work/Governance，两区对话的直接入口）→ 置顶 →
          Projects → 对话 → 任务。功能导航已清空撤除——治理台不再占侧栏

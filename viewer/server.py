@@ -64,6 +64,7 @@ from console_common import (  # noqa: E402
 )
 from audit_service import AuditService  # noqa: E402
 from gov_bots import GovBotService  # noqa: E402
+from plugin_market import PluginMarket  # noqa: E402
 from console_manager import RunManager as _RunManager  # noqa: E402
 
 class RunManager(_RunManager):
@@ -83,6 +84,7 @@ class Handler(SimpleHTTPRequestHandler):
     repo: Path | None = None  # set by create_server(); audit artifacts live here
     audit: AuditService | None = None  # set by create_server(); Governance-zone service
     gov_bots: GovBotService | None = None  # set by create_server(); governance team roster
+    plugins: PluginMarket | None = None  # set by create_server(); curated plugin market
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, directory=str(VIEWER_DIR), **kwargs)
@@ -403,6 +405,27 @@ class Handler(SimpleHTTPRequestHandler):
                 "ready": mgr.mcp.get("ready", False),
                 "servers": mgr.mcp_tools(),
                 "approvalTools": list(bridge.approval_names()) if bridge else [],
+            })
+        if path == "/api/plugins":
+            plugins = getattr(self, "plugins", None)
+            if plugins is None:
+                return self._json({"error": "plugin market is unavailable"}, 503)
+            tool_names: set[str] = set()
+            if mgr.runtime is not None:
+                try:
+                    tool_names = {
+                        str(item.get("name"))
+                        for item in mgr.runtime.template_tools("general-research")
+                        if isinstance(item, dict)
+                    }
+                except Exception:  # noqa: BLE001 — market still lists MCP plugins
+                    tool_names = set()
+            return self._json({
+                "plugins": plugins.entries(
+                    tool_names=tool_names,
+                    mcp_servers=mgr.mcp_tools(),
+                ),
+                "mcp_ready": bool(mgr.mcp.get("ready", False)),
             })
         if path == "/api/tools":
             if mgr.runtime is None:
@@ -815,6 +838,17 @@ def create_server(
     except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
         traceback.print_exc()
         Handler.gov_bots = None
+    # Curated plugin market over mcp.json. Install/uninstall is a host action
+    # with catalog-only ids; the UI cannot invent commands.
+    try:
+        Handler.plugins = PluginMarket(
+            config_path=os.environ.get("FCODE_MCP_CONFIG")
+            or (Handler.repo / "mcp.json" if Handler.repo else ""),
+            repo=Handler.repo,
+        )
+    except Exception:  # noqa: BLE001 — market UI degrades, runtime stays up
+        traceback.print_exc()
+        Handler.plugins = None
     httpd = ConsoleHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     return httpd

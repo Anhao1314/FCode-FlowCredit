@@ -50,6 +50,35 @@ def post_audit_run(handler):
     return handler._json({"job_id": job_id, "status": "running"})
 
 
+def post_plugin_install(handler):
+    """Install one curated MCP plugin by writing the host-reviewed mcp.json."""
+    market = getattr(handler, "plugins", None)
+    if market is None:
+        return handler._json({"error": "plugin market is unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        entry = market.install(str(body.get("id") or ""))
+    except Exception as error:  # noqa: BLE001 — market errors are user-facing
+        code = 404 if "unknown plugin" in str(error) else 400
+        return handler._json({"error": str(error)}, code)
+    handler.manager.reload_mcp()
+    return handler._json({"plugin": entry}, 202)
+
+
+def post_plugin_uninstall(handler):
+    market = getattr(handler, "plugins", None)
+    if market is None:
+        return handler._json({"error": "plugin market is unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        entry = market.uninstall(str(body.get("id") or ""))
+    except Exception as error:  # noqa: BLE001 — market errors are user-facing
+        code = 404 if "unknown plugin" in str(error) else 400
+        return handler._json({"error": str(error)}, code)
+    handler.manager.reload_mcp()
+    return handler._json({"plugin": entry}, 202)
+
+
 def post_gov_bot_run(handler, bot_id):
     """Dispatch one manual run to a governance bot (auditor / verifier)."""
     service = getattr(handler, "gov_bots", None)
@@ -171,6 +200,8 @@ _STATIC = {
     "/api/audit/run": post_audit_run,
     "/api/gov/routines": post_gov_routine,
     "/api/gov/skills": post_gov_skill,
+    "/api/plugins/install": post_plugin_install,
+    "/api/plugins/uninstall": post_plugin_uninstall,
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,

@@ -134,12 +134,36 @@ class RunManager:
         try:
             from flowagent.tools.mcp.bridge import McpBridge
 
+            print(f"[mcp] connecting {config_path}", flush=True)
             bridge = McpBridge(config_path, cwd=self.runtime.repo if self.runtime else None)
             bridge.connect()
             self.mcp = {"ready": True, "bridge": bridge}
+            print(f"[mcp] connected · {len(bridge.statuses())} server(s)", flush=True)
         except Exception as error:  # noqa: BLE001 — the bridge must never kill the console
             traceback.print_exc()
             self.mcp = {"ready": True, "bridge": None, "error": f"{type(error).__name__}: {error}"}
+
+    def reload_mcp(self) -> None:
+        """Reconnect MCP after mcp.json changes (plugin install/uninstall).
+
+        The old bridge's subprocesses are stopped first; the new bridge comes
+        up off-thread so a hanging server still cannot block the console. New
+        runs pick up the refreshed specs through RunDriver.
+        """
+        old = self.mcp.get("bridge")
+        if old is not None:
+            try:
+                old.disconnect()
+            except Exception:  # noqa: BLE001 — teardown must not block reload
+                traceback.print_exc()
+        self.mcp = {"ready": False, "bridge": None}
+        if self.runtime is None:
+            return
+        config_path = os.environ.get("FCODE_MCP_CONFIG") or str(self.runtime.repo / "mcp.json")
+        print(f"[mcp] reload requested · {config_path}", flush=True)
+        threading.Thread(
+            target=self._connect_mcp, args=(config_path,), name="mcp:reload", daemon=True,
+        ).start()
 
     def mcp_tools(self) -> list[dict]:
         """Honest MCP availability for the console (server-by-server)."""

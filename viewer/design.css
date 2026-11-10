@@ -3750,3 +3750,94 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   .gov-finding-row, .gov-findings-head { grid-template-columns: 36px 88px minmax(0, 1fr) auto 12px; }
   .gov-row-cat, .gov-findings-head span:nth-child(3) { display: none; }
 }
+
+/* ============================================================ 插件市场
+   侧栏入口 + 目录页。视觉沿用 Paper & Proof：白卡、细线、等宽数字；
+   状态色只表达连接事实，不表达营销情绪。 */
+.side-market {
+  display: flex; align-items: center; gap: 7px;
+  width: calc(100% - 8px); height: 36px; margin: 6px 4px 10px;
+  padding: 0 12px; border: 0; border-radius: 10px;
+  background: none; color: var(--text-2); font-size: 14px; cursor: pointer;
+  transition: background-color var(--t) ease, color var(--t) ease;
+}
+.side-market:hover { background: var(--k-fill-1); color: var(--text-1); }
+.side-market.active { background: var(--k-fill-2); color: var(--text-1); }
+.side-market .d-icon { width: 16px; height: 16px; flex: none; color: var(--text-3); }
+.side-market .side-count { margin-left: auto; font: 10.5px var(--font-mono); color: var(--text-3); }
+
+.mkt-page { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.mkt-summary {
+  display: flex; align-items: center; gap: 6px 14px; flex: none;
+  padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px;
+  background: var(--panel); color: var(--text-2); font-size: 12px;
+}
+.mkt-summary b { color: var(--text-1); font-family: var(--font-mono); font-weight: 600; }
+.mkt-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 0 2px; border-bottom: 1px solid var(--line);
+}
+.mkt-search {
+  width: min(260px, 100%); height: 30px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--raised); color: var(--text-1); font: 12px var(--font-ui);
+  outline: none; transition: border-color var(--t) ease;
+}
+.mkt-search::placeholder { color: var(--text-4); }
+.mkt-search:focus { border-color: var(--text-3); }
+.mkt-filters { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--panel); }
+.mkt-filter {
+  height: 26px; padding: 0 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--text-2); font: 12px/1 var(--font-ui); cursor: pointer;
+  transition: background-color var(--t) ease, color var(--t) ease;
+}
+.mkt-filter:hover { color: var(--text-1); }
+.mkt-filter.active {
+  background: var(--raised); color: var(--text-1); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+.mkt-count { margin-left: auto; font: 11px var(--font-mono); color: var(--text-3); white-space: nowrap; }
+.mkt-grid-host { min-width: 0; }
+.mkt-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px; padding: 12px 0 24px;
+}
+.mkt-card {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--raised); min-width: 0;
+}
+.mkt-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mkt-card-head b {
+  font: 600 13.5px/1.3 var(--font-ui); color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mkt-kind {
+  flex: none; padding: 0 6px; border-radius: 5px; background: var(--inset);
+  color: var(--text-3); font: 10px/18px var(--font-mono);
+}
+.mkt-status {
+  margin-left: auto; flex: none; padding: 0 8px; border-radius: var(--radius-pill);
+  font: 10.5px/20px var(--font-mono); color: var(--text-3); border: 1px solid var(--line);
+}
+.mkt-status.is-connected { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.mkt-status.is-installed { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.mkt-status.is-failed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
+.mkt-card-summary { margin: 0; color: var(--text-2); font-size: 12px; line-height: 1.6; }
+.mkt-meta { min-width: 0; color: var(--text-3); font: 10.5px/1.5 var(--font-mono); }
+.mkt-command, .mkt-tools { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.mkt-meta code {
+  padding: 2px 5px; border-radius: 4px; background: var(--inset);
+  color: var(--text-2); font: 10px var(--font-mono); overflow-wrap: anywhere;
+}
+.mkt-reason { margin: 0; color: var(--bad); font-size: 11.5px; line-height: 1.5; }
+.mkt-card-foot {
+  display: flex; align-items: center; gap: 8px; margin-top: auto;
+  color: var(--text-3); font: 10.5px var(--font-mono);
+}
+.mkt-card-foot .gov-wb-button { margin-left: auto; height: 28px; }
+.mkt-note { color: var(--text-3); font-size: 10.5px; }
+@media (max-width: 860px) {
+  .mkt-grid { grid-template-columns: 1fr; }
+  .mkt-summary { align-items: flex-start; flex-direction: column; }
+}

@@ -42,6 +42,9 @@ export function createSidebar(deps) {
     document.body.dataset.zone = zonePainted;
     const flavor = document.getElementById("side-flavor");
     if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
+    // 插件市场是功能页不是区：按钮自己点亮，不改变 Work/Governance 分区。
+    const marketButton = document.querySelector(".side-market");
+    if (marketButton) marketButton.classList.toggle("active", view === "market");
     if (zonePainted === "gov" && (changed || !govHistPainted)) renderGovHistory();
     ensureGovHistoryPolling();
   }
