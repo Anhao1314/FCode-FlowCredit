@@ -342,6 +342,7 @@ export function createChatUI(deps) {
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     renderChatAttachChips();
     paintSendState();
+    d.paintCtxRing?.();
     d.adoptDefaultChatModel(d.getChatConfig() && d.getChatConfig().default_model);
     d.loadChatModels();
   }
@@ -367,6 +368,7 @@ export function createChatUI(deps) {
       const ta = document.getElementById("composer-ta");
       if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
       paintSendState();
+      d.paintCtxRing?.();
       return;
     }
 
@@ -393,6 +395,7 @@ export function createChatUI(deps) {
     const ta = document.getElementById("composer-ta");
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     paintSendState();
+    d.paintCtxRing?.();
   }
 
   function renderChat({ forceBottom = false } = {}) {
@@ -689,6 +692,7 @@ export function createChatUI(deps) {
       if (visible(threadRef)) {
         renderChat();
         renderChatHead();
+        d.paintCtxRing?.();
       }
       await loadChatThreads();
     }

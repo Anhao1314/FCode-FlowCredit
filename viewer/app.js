@@ -1346,15 +1346,26 @@ function composerFooterText(running) {
 function paintCtxRing() {
   const ring = document.getElementById("ctx-ring");
   if (!ring) return;
-  // 从当前展示的 trace（回放或 live）取最新 budget_after
-  const trace = shownTrace() || (activeSession() && activeSession().trace) || null;
-  const rounds = trace ? (trace.rounds || []) : [];
+  // 聊天线程有自己的预算：先读 chat.current.budget（服务端 thread_view 带回），
+  // 没有再回落到运行 trace 的 budget_after。
   let budget = null;
-  for (let i = rounds.length - 1; i >= 0; i--) {
-    const b = (rounds[i].budget_after || {});
-    if (b.tokens_used !== undefined && b.limits && b.limits.max_tokens) {
-      budget = b;
-      break;
+  if (chat.active && chat.current && chat.current.budget) {
+    const chatBudget = chat.current.budget;
+    if (chatBudget.tokens_used !== undefined
+        && chatBudget.limits && chatBudget.limits.max_tokens) {
+      budget = chatBudget;
+    }
+  }
+  if (!budget) {
+    // 从当前展示的 trace（回放或 live）取最新 budget_after
+    const trace = shownTrace() || (activeSession() && activeSession().trace) || null;
+    const rounds = trace ? (trace.rounds || []) : [];
+    for (let i = rounds.length - 1; i >= 0; i--) {
+      const b = (rounds[i].budget_after || {});
+      if (b.tokens_used !== undefined && b.limits && b.limits.max_tokens) {
+        budget = b;
+        break;
+      }
     }
   }
   if (!budget) {
@@ -2960,6 +2971,7 @@ const {
   chatCardHtml: (...args) => chatCardHtml(...args),
   nearMainBottom, scrollMainBottom, hydrateDoodles, parseSseFrame, renderMarkdown,
   copyText, startIntake, threadOrigin, adoptDefaultChatModel, loadChatModels,
+  paintCtxRing,
   getHealth: () => health,
   getChatThreads: () => chatThreads,
   setChatThreads: value => { chatThreads = value; },
