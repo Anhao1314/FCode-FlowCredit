@@ -15,7 +15,14 @@ import { fileURLToPath } from "node:url";
 
 export const E2E_REPO = join(tmpdir(), "fcode-e2e", "repo");
 
-export default function globalSetup() {
+// 幂等装配：playwright 的 webServer 在 globalSetup 之前启动（冷启动时
+// 隔离仓还不存在，Runtime 会判定 live mode OFF，一整批运行类用例连锁
+// 失败）。配置文件在主进程加载时先调一次，globalSetup 再调时直接复用。
+let prepared = false;
+
+export function prepareE2ERepo() {
+  if (prepared) return E2E_REPO;
+  prepared = true;
   const projectRoot = resolve(fileURLToPath(import.meta.url), "../../..");
   const srcReal = join(projectRoot, "src");
   const auditReal = join(projectRoot, "work", "audit");
@@ -57,4 +64,8 @@ export default function globalSetup() {
     "utf-8",
   );
   return E2E_REPO;
+}
+
+export default function globalSetup() {
+  return prepareE2ERepo();
 }

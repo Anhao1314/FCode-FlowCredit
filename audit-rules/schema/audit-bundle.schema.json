@@ -230,7 +230,50 @@
               "false_positive_disputed",
               "wont_fix"
             ]
+          },
+          "fingerprint": {
+            "description": "Stable per-instance identity across audits: root cause plus the evidence path set (line numbers excluded). Two findings from the same rule at different sites keep distinct fingerprints.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
           }
+        }
+      }
+    },
+    "regression": {
+      "description": "Derived comparison against the previous audit of the same target identity. Present only when a baseline exists; counts match regression.json, which carries the full buckets.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prior_audit_id",
+        "prior_manifest_sha256",
+        "known",
+        "new",
+        "fixed",
+        "regressed"
+      ],
+      "properties": {
+        "prior_audit_id": {
+          "type": "string"
+        },
+        "prior_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "known": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fixed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "regressed": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

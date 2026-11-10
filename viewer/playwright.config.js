@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, rmSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
-import globalSetup, { E2E_REPO } from "./e2e/global-setup.js";
+import globalSetup, { E2E_REPO, prepareE2ERepo } from "./e2e/global-setup.js";
 
 const PORT = Number(process.env.FCODE_E2E_PORT || 8610);
 const stateRoot = join(tmpdir(), "fcode-e2e");
@@ -33,6 +33,9 @@ if (process.env.TEST_WORKER_INDEX === undefined) {
     "chat-memory.sqlite", "artifacts.sqlite"]) {
     rmSync(join(stateRoot, db), { force: true });
   }
+  // webServer 早于 globalSetup 启动；冷启动时隔离仓必须先存在，
+  // 否则 Runtime 找不到 flowagent，整批运行类用例拿到 503。
+  prepareE2ERepo();
 }
 mkdirSync(runsDir, { recursive: true });
 const repoForServer = process.env.FCODE_E2E_REPO || E2E_REPO;

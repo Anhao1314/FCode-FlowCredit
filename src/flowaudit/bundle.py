@@ -47,7 +47,8 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
                  target_snapshot_sha256: str | None = None,
                  target_profile: str | None = None,
                  rea_facts_ref: dict | None = None,
-                 rea_control_facts_ref: dict | None = None) -> dict:
+                 rea_control_facts_ref: dict | None = None,
+                 regression: dict | None = None) -> dict:
     target = {
         "identity": target_identity,
         "version": target_version,
@@ -77,6 +78,7 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
         "poc_evidence_refs": [record["poc_id"] for record in poc_records],
         "findings": findings,
         "uncovered_surfaces": uncovered_surfaces,
+        **({"regression": regression} if regression else {}),
         "rea_evidence_refs": rea_evidence_refs or [],
         **({"rea_facts_ref": rea_facts_ref} if rea_facts_ref else {}),
         **({"rea_control_facts_ref": rea_control_facts_ref}

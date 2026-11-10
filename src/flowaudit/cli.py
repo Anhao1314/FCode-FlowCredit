@@ -225,27 +225,37 @@ def cmd_audit(args: argparse.Namespace) -> int:
         (out_dir / f"{record['poc_id']}.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    from .episodes import EpisodeStore, fingerprint_for, regression as compute_regression
     ledgers = session.ledgers()
     cand_by_id = {c["candidate_id"]: c for c in ledgers["candidates"]}
-    findings = [
-        {
-            "finding_id": f["finding_id"],
-            "root_cause_group": cand_by_id.get(f["candidate_id"], {}).get(
-                "root_cause_group", f["candidate_id"]),
-            "category": cand_by_id.get(f["candidate_id"], {}).get("category", ""),
-            "severity": cand_by_id.get(f["candidate_id"], {}).get("severity", "info"),
-            "poc_refs": [f["poc_id"]],
-        }
-        for f in ledgers["findings"]
-    ]
+    findings = []
+    for finding in ledgers["findings"]:
+        candidate = cand_by_id.get(finding["candidate_id"], {})
+        root_cause_group = candidate.get(
+            "root_cause_group", finding["candidate_id"])
+        category = candidate.get("category", "")
+        findings.append({
+            "finding_id": finding["finding_id"],
+            "root_cause_group": root_cause_group,
+            "category": category,
+            "severity": candidate.get("severity", "info"),
+            "poc_refs": [finding["poc_id"]],
+            # 跨版本实例身份:根因 + 证据路径集合。行号/片段会漂移,
+            # 但"同一处缺陷"的路径集合稳定;修复改变集合才报 fixed。
+            "fingerprint": fingerprint_for(
+                category, root_cause_group, candidate.get("evidence") or []),
+        })
 
     # L3 情景投影:会话收尾自动入册;同靶时间线上算回归(known/new/fixed/regressed)。
-    from .episodes import EpisodeStore, regression as compute_regression
+    # 时间线按 target identity(路径)而不是 manifest 哈希:修复会改哈希,
+    # 而那正是需要基线的时刻。manifest 哈希仍是内容版本,留在 episode 里。
     episodes_db = Path(args.episodes_db).resolve() if args.episodes_db \
         else DEFAULT_RULES.parent / "work" / "audit" / "episodes.sqlite"
     episode_store = EpisodeStore(episodes_db)
-    prior = episode_store.prior_episode(target_ref["manifest_sha256"], audit_id)
-    current_episode = episode_store.close_episode(
+    timeline = [e for e in episode_store.episodes_for_identity(str(target))
+                if e["audit_id"] != audit_id]
+    prior = timeline[-1] if timeline else None
+    episode_store.close_episode(
         bundle={"audit_id": audit_id, "target": {"manifest_sha256": manifest_sha256,
                                                  "identity": str(target)},
                 "authorization": {"granted_at": now_iso},
@@ -258,8 +268,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
     prior_findings = prior["findings"] if prior else []
     # 无 prior 情景(首次审计)不产生回归判断——判定是 CLI 的职责,
     # 纯函数只对给定两方诚实(prior 空=干净靶子,发现即 new)。
-    regression = compute_regression(prior_findings, findings) if prior else {
-        "known": [], "new": [], "fixed": [], "regressed": []}
+    regression = compute_regression(
+        prior_findings, findings,
+        earlier=[e["findings"] for e in timeline[:-1]]) if prior else {
+            "known": [], "new": [], "fixed": [], "regressed": []}
     (out_dir / "regression.json").write_text(
         json.dumps({
             "prior_audit_id": (prior or {}).get("audit_id"),
@@ -285,6 +297,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
         },
         poc_records=poc_records,
         findings=findings,
+        regression=(
+            {"prior_audit_id": prior["audit_id"],
+             "prior_manifest_sha256": prior["target_hash"],
+             **{key: len(value) for key, value in regression.items()}}
+            if prior else None),
         uncovered_surfaces=[
             {"surface": "dynamic probing (message/HTTP/behavior)",
              "reason": "this bundle records static REA facts; separate isolated runtime observation is retained outside the bundle and is not full dynamic probing"},
