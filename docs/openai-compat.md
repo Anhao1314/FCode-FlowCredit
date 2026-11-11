@@ -76,6 +76,16 @@ export FCODE_OPENAI_COMPAT_PROVIDERS="LMSTUDIO" # 声明（多个用逗号分隔
 （0 元即模板草案）。此后创建委托选择它即可——门控、审批、收据、
 unknown 语义、链验证与任何 provider 完全一致。
 
+### 可选 · 隐藏不用的 provider
+
+```bash
+export FCODE_DISABLED_PROVIDERS="kimi"   # 逗号分隔，大小写不敏感
+```
+
+被禁用的 key 不会出现在模型菜单里，创建委托时也会被拒绝（`未知模型`）。
+这比"不可用"更强：不可用会列出原因，禁用则视为不存在。preset 代码与其测试
+不受影响，适合团队统一到单一供应商的部署。
+
 ## 主机审阅要点
 
 - 声明前缀 = 允许一个外部调用面。确认 base_url 指向你信任的服务

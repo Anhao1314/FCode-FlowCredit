@@ -24,6 +24,7 @@ from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
 from flowagent.demo.fixtures import get_scenario  # noqa: E402
 from flowagent.providers.catalog import (  # noqa: E402
+    compat_settings_for,
     merged_env,
     provider_catalog,
     settings_as_env,
@@ -124,6 +125,27 @@ class DelegationCatalogTests(unittest.TestCase):
         entry = find(provider_catalog(env={}), "kimi")
         self.assertFalse(entry["available"])
         self.assertIn("Host 配置不完整", entry["reason"])
+
+
+class DisabledProviderTests(unittest.TestCase):
+    """A host can remove a preset without deleting code or its tests."""
+
+    def test_disabled_provider_is_absent_and_unresolvable(self) -> None:
+        overlay = settings_as_env({"kimi": KIMI_SETTINGS})
+        env = {"FCODE_DISABLED_PROVIDERS": "kimi"}
+        keys = [
+            entry["key"]
+            for entry in provider_catalog(settings_env=overlay, env=env)
+        ]
+        self.assertNotIn("kimi", keys)
+        self.assertIn("deepseek", keys)
+        self.assertIsNone(compat_settings_for("kimi", env={**overlay, **env}))
+
+    def test_disable_list_is_case_insensitive_and_comma_separated(self) -> None:
+        env = {"FCODE_DISABLED_PROVIDERS": " Kimi , deepseek "}
+        keys = [entry["key"] for entry in provider_catalog(env=env)]
+        self.assertNotIn("kimi", keys)
+        self.assertNotIn("deepseek", keys)
 
 
 class BothSurfacesAgreeTests(unittest.TestCase):

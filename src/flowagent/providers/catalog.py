@@ -7,7 +7,8 @@ presets (kimi, deepseek) and every prefix the host declared in
 configuration is complete, with honest availability — an incomplete entry
 appears too, marked unavailable with the exact environment variable that is
 missing. Nothing here can invent a provider that was not configured, and
-nothing hides one that failed to load.
+nothing hides one that failed to load — except a provider the host explicitly
+disabled in ``FCODE_DISABLED_PROVIDERS``.
 """
 
 from __future__ import annotations
@@ -27,13 +28,33 @@ from .openai_compat import (
 )
 
 __all__ = [
+    "DISABLED_PROVIDERS_ENV",
     "PROVIDER_PRESETS",
     "compat_settings_for",
+    "disabled_providers",
     "merged_env",
     "provider_catalog",
     "resolved_provider_env",
     "settings_as_env",
 ]
+
+#: Comma-separated provider keys the host wants removed from the menu and from
+#: run creation. A deployment that standardises on one vendor uses this instead
+#: of deleting presets: the preset code and its tests stay, the operator chooses
+#: what is offered. Disabled is stronger than unavailable — an unavailable
+#: provider is listed with a reason, a disabled one does not exist.
+DISABLED_PROVIDERS_ENV = "FCODE_DISABLED_PROVIDERS"
+
+
+def disabled_providers(env: Mapping[str, str] | None = None) -> set[str]:
+    """Provider keys the host explicitly disabled (lowercase)."""
+    source = os.environ if env is None else env
+    raw = source.get(DISABLED_PROVIDERS_ENV, "")
+    return {
+        item.strip().lower()
+        for item in str(raw).split(",")
+        if item.strip()
+    }
 
 #: Settings-page field names → the preset environment names the engine reads.
 #: One settings page configures both surfaces: a key typed in the app must be
@@ -221,7 +242,9 @@ def provider_catalog(
 
     try:
         settings = compat_settings_for("deepseek", env=source)
-        entries.append(_entry_from_settings("deepseek", "DeepSeek 云端", settings))
+        if settings is not None:
+            entries.append(_entry_from_settings(
+                "deepseek", "DeepSeek 云端", settings))
     except ValueError as error:
         entries.append(_unavailable(
             "deepseek", "DeepSeek 云端", source.get("DEEPSEEK_MODEL", "").strip() or "deepseek-chat",
@@ -243,16 +266,21 @@ def provider_catalog(
             continue
         entries.append(_entry_from_settings(key, label, settings))
 
-    return entries
+    disabled = disabled_providers(source)
+    return [entry for entry in entries if entry["key"] not in disabled]
 
 
 def compat_settings_for(key: str, *, env: Mapping[str, str] | None = None) -> CompatSettings | None:
     """Load the settings a configured provider key names, or ``None``.
 
     The console and the factory use this to construct exactly the provider
-    the operator selected — never a fallback.
+    the operator selected — never a fallback. A host-disabled key resolves to
+    ``None`` here too, so a stale run spec cannot resurrect it after the menu
+    stopped offering it.
     """
     source = os.environ if env is None else env
+    if str(key).strip().lower() in disabled_providers(source):
+        return None
     if key == "kimi":
         return load_kimi_settings(env=source)
     if key == "deepseek":
