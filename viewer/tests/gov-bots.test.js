@@ -49,8 +49,10 @@ test("团队摘要:角色数、执行中、待批准、运行数与 Phase C 标�
 test("Bot 卡片:头像、职责、运行态、最近目标与派活入口", () => {
   const html = govBotCardHtml(bots[0]);
   assert.match(html, /data-bot-id="auditor"/);
-  assert.match(html, /class="bot-avatar bot-avatar-auditor is-running"/);
-  assert.match(html, /aria-label="审计员 · 执行中"/);
+  assert.match(html, /class="ai-avatar ai-avatar--thinking is-thinking"/);
+  assert.match(html, /data-ai-state="thinking"/);
+  assert.match(html, /aria-label="审计员"/);
+  assert.match(html, /aria-label="审计员"/);
   assert.match(html, /REA Auditor/);
   assert.match(html, /执行中/);
   assert.match(html, /demo-target/);
@@ -143,7 +145,8 @@ test("排程列表:身份头像、下次触发、启停与删除", () => {
   }];
   const html = govBotRoutinesHtml(withRoutine);
   assert.match(html, /data-routine-id="rt-1"/);
-  assert.match(html, /class="bot-avatar bot-avatar-auditor is-idle"/);
+  assert.match(html, /class="ai-avatar ai-avatar--idle"/);
+  assert.match(html, /data-ai-state="idle"/);
   assert.match(html, /fixtures\/demo-target/);
   assert.match(html, /每天 09:00/);
   assert.match(html, /data-gov-routine-toggle="rt-1" checked/);
@@ -240,7 +243,9 @@ test("Bot 详情:动画头像、职责、设置、技能、排程与最近运行
   const html = govBotDetailHtml(bot, [{
     run_id: "rp", bot_id: "auditor", target: "demo", status: "pending", trigger: "routine",
   }]);
-  assert.match(html, /class="bot-avatar bot-avatar-auditor is-pending"/);
+  assert.match(html, /class="ai-avatar ai-avatar--pending"/);
+  assert.match(html, /data-ai-state="pending"/);
+  assert.match(html, /ai-avatar-ring is-pending/);
   assert.match(html, /职责与权限/);
   assert.match(html, /预算与审批/);
   assert.match(html, /gov-bot-settings-form/);

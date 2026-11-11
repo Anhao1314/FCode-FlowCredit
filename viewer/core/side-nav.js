@@ -20,7 +20,7 @@
 
 import { esc, num } from "./format.js";
 import { aggregateTargets, targetLabel } from "./gov-workbench.js";
-import { botAvatarHtml } from "./bot-avatar.js";
+import { aiAvatarHtml } from "./ai-avatar.js";
 import { botStatusLabel } from "./gov-bots.js";
 
 /* 侧栏导航已清空:治理台不再作为侧栏条目——两区对话面由区切换器直达
@@ -183,7 +183,8 @@ export function projectSectionHtml(projects, options) {
 }
 
 export function runSectionHtml(title, count) {
-  return sectionHeadHtml(title || "任务", { key: "tasks" }, count || 0)
+  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务">＋</button>';
+  return sectionHeadHtml(title || "任务", { key: "tasks", action: add }, count || 0)
     .replace('class="side-count"', 'class="side-count" data-task-count');
 }
 
@@ -278,10 +279,11 @@ function localDayString(date) {
    一行，指向最近一次审计）；团队运行保留最近几条 Bot 事实，点击回到
    Bot 详情。审计行的版本号来自 bundle.toolchain.ruleset_version。 */
 function govRunAvatarState(status) {
-  if (status === "queued" || status === "running") return "running";
+  if (status === "queued" || status === "running") return "thinking";
   if (status === "pending") return "pending";
-  if (status === "failed" || status === "rejected") return "failed";
-  if (status === "done") return "done";
+  if (status === "failed" || status === "rejected") return "bad";
+  if (status === "done") return "ok";
+  if (status === "stopped" || status === "recovery_required") return "warn";
   return "idle";
 }
 
@@ -304,7 +306,7 @@ function govRunRowHtml(run, bots) {
   return '<button class="session chat-row gov-run-row" type="button"'
     + ' data-gov-bot-open="' + esc(run.bot_id) + '" data-gov-run-id="' + esc(run.run_id) + '"'
     + ' title="' + esc(title) + '">'
-    + '<span class="gov-run-avatar">' + botAvatarHtml(run.bot_id, govRunAvatarState(run.status), 20, name) + "</span>"
+    + '<span class="gov-run-avatar">' + aiAvatarHtml(govRunAvatarState(run.status), 20, name) + "</span>"
     + '<span class="slabel">' + esc(name) + " · " + esc(target) + "</span>"
     + '<span class="smeta">' + esc(govRunMeta(run)) + "</span></button>";
 }

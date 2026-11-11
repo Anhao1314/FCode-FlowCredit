@@ -12,19 +12,19 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
   await expect(page.locator("#gov-team-summary")).toContainText("常驻角色");
   await expect(page.locator("#gov-team-summary")).toContainText("Phase C");
-  await expect(page.locator("#gov-team-roster .bot-avatar-auditor")).toBeVisible();
-  await expect(page.locator("#gov-team-roster .bot-avatar-verifier")).toBeVisible();
+  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state]')).toHaveCount(2);
+  // 头像不是静态图案：眨眼/呼吸持续在跑（与对话区同一张实时脸）
+  await expect.poll(async () => page.locator('#gov-team-roster .ai-avatar').first()
+    .locator('.ai-eye').first().evaluate(el => getComputedStyle(el).animationName)).toBe("ai-avatar-blink");
   await expect(page.locator(".composer-wrap")).toBeHidden();
-  // 身份头像不是静态图案：审计员扫掠、复核员轨道都有 CSS 动画
-  await expect.poll(async () => page.locator(".bot-avatar-auditor .ba-sweep").first()
-    .evaluate(el => getComputedStyle(el).animationName)).toBe("botSweep");
-  await expect.poll(async () => page.locator(".bot-avatar-verifier .ba-orbit").first()
-    .evaluate(el => getComputedStyle(el).animationName)).toBe("botOrbit");
 
   // 审计员：目标路径 → 团队频道出现运行消息并完成
   await page.locator("#gov-bot-select").selectOption("auditor");
   await page.locator("#gov-bot-target").fill("fixtures/demo-target");
   await page.locator("#gov-bot-dispatch button[type=submit]").click();
+  // 实时状态：派活后花名册头像立即进入 thinking（扫视 + 呼吸环）
+  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state="thinking"]').first())
+    .toBeVisible({ timeout: 15_000 });
   const auditorMessage = page.locator("#gov-team-channel .gov-bot-message", { hasText: "审计员" }).last();
   await expect(auditorMessage).toBeVisible({ timeout: 15_000 });
   await expect(auditorMessage).toContainText("完成", { timeout: 90_000 });
@@ -39,7 +39,7 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await expect(page.locator("#gov-bot-detail-host")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("#gov-bot-detail-host .gov-skill-row")).toHaveCount(1);
   await expect(page.locator("#gov-bot-detail-host")).toContainText("审计员");
-  await expect(page.locator("#gov-bot-detail-host .bot-avatar-auditor").first()).toBeVisible();
+  await expect(page.locator('#gov-bot-detail-host .ai-avatar[data-ai-state]').first()).toBeVisible();
   await page.locator("#gov-bot-daily-limit").fill("5");
   await page.locator("#gov-bot-settings-form button[type=submit]").click();
   await expect(page.locator("#gov-bot-daily-limit")).toHaveValue("5", { timeout: 10_000 });

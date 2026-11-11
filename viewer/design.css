@@ -3423,65 +3423,9 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 
 /* 每个身份一套几何 + 动效：审计员是雷达扫掠，复核员是盾牌/勾选/轨道。
    状态只加语义（running 加速、failed 转危险色），不改变身份形状。 */
-.bot-avatar {
-  width: var(--bot-size, 32px); height: var(--bot-size, 32px);
-  flex: none; display: inline-flex; border-radius: 50%;
-  background: #111; overflow: hidden; vertical-align: middle;
-}
-.bot-avatar svg { width: 100%; height: 100%; display: block; }
-.ba-disc { fill: #111; }
-.ba-ring, .ba-shield, .ba-orbit {
-  fill: none; stroke: rgba(255, 255, 255, .62); stroke-width: 1.5;
-}
-.ba-orbit { stroke: rgba(255, 255, 255, .42); stroke-width: 1.2; }
-.ba-sweep-line { stroke: rgba(255, 255, 255, .88); stroke-width: 1.7; stroke-linecap: round; }
-.ba-sweep-wedge { fill: rgba(255, 255, 255, .16); }
-.ba-eye-ring { fill: none; stroke: rgba(255, 255, 255, .38); stroke-width: 1; }
-.ba-eye { fill: #fff; }
-.ba-check {
-  fill: none; stroke: #fff; stroke-width: 2.6;
-  stroke-linecap: round; stroke-linejoin: round;
-}
-.ba-sweep, .ba-eye, .ba-eye-ring, .ba-check, .ba-orbit {
-  transform-box: view-box; transform-origin: 20px 20px;
-}
-.bot-avatar-auditor .ba-sweep { animation: botSweep 4.2s linear infinite; }
-.bot-avatar-auditor .ba-eye { animation: botEye 2.6s ease-in-out infinite; }
-.bot-avatar-verifier .ba-shield { animation: botShield 3.6s ease-in-out infinite; }
-.bot-avatar-verifier .ba-check { animation: botCheckPulse 3.6s ease-in-out infinite; }
-.bot-avatar-verifier .ba-orbit { animation: botOrbit 5.4s linear infinite; }
-.bot-avatar.is-running .ba-sweep { animation-duration: 1.1s; }
-.bot-avatar.is-running .ba-eye { animation-duration: .8s; }
-.bot-avatar.is-running .ba-shield { animation-duration: 1.6s; }
-.bot-avatar.is-running .ba-check { animation-duration: 1.2s; }
-.bot-avatar.is-running .ba-orbit { animation-duration: 1.8s; }
-.bot-avatar.is-done .ba-check { opacity: 1; animation: none; }
-.bot-avatar.is-pending .ba-ring,
-.bot-avatar.is-pending .ba-shield,
-.bot-avatar.is-pending .ba-orbit { stroke: var(--warn); }
-.bot-avatar.is-pending .ba-eye { fill: var(--warn); }
-.bot-avatar.is-failed .ba-ring,
-.bot-avatar.is-failed .ba-shield,
-.bot-avatar.is-failed .ba-orbit,
-.bot-avatar.is-failed .ba-eye-ring { stroke: var(--bad); }
-.bot-avatar.is-failed .ba-check { stroke: var(--bad); animation: none; }
-@keyframes botSweep { to { transform: rotate(360deg); } }
-@keyframes botEye {
-  0%, 100% { opacity: .55; transform: scale(.82); }
-  50% { opacity: 1; transform: scale(1.12); }
-}
-@keyframes botCheckPulse {
-  0%, 100% { opacity: .72; transform: scale(.96); }
-  50% { opacity: 1; transform: scale(1.03); }
-}
-@keyframes botOrbit { to { transform: rotate(360deg); } }
-@keyframes botShield {
-  0%, 100% { opacity: .78; }
   50% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .bot-avatar * { animation: none !important; }
-  .bot-avatar-verifier .ba-check { opacity: 1; }
 }
 
 .gov-bot-identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

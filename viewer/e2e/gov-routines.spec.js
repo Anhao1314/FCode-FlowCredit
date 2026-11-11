@@ -22,7 +22,7 @@ test("治理团队:创建排程、暂停、删除", async ({ page }) => {
   await expect(row).toContainText("审计员");
   await expect(row).toContainText("fixtures/demo-target");
   await expect(row).toContainText("每天 23:59");
-  await expect(row.locator(".bot-avatar-auditor")).toBeVisible();
+  await expect(row.locator(".ai-avatar[data-ai-state]").first()).toBeVisible();
   const routineId = await row.getAttribute("data-routine-id");
   const routineRow = page.locator(`#gov-routine-list-host [data-routine-id="${routineId}"]`);
 

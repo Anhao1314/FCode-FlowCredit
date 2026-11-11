@@ -422,6 +422,13 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   animation: ai-avatar-breathe 1.6s ease-in-out infinite;
   pointer-events: none;
 }
+/* 治理 Bot 的等待态：慢环 + 语义色（等操作员批准），脸本身不背颜色。 */
+.ai-avatar--pending .ai-avatar-scan { animation-duration: 5.2s; }
+.ai-avatar--pending > svg { animation-duration: 3.6s; }
+.ai-avatar-ring.is-pending {
+  border-color: var(--warn); opacity: .34;
+  animation-duration: 3.2s;
+}
 @keyframes ai-avatar-breathe {
   0%, 100% { transform: scale(.985); }
   50% { transform: scale(1.035); }

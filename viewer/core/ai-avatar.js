@@ -21,6 +21,7 @@ export const AVATAR_CANVAS = "#FBFAF9";
 export const AVATAR_STYLE = {
   idle: { mark: "hollow", label: "FCode" },
   thinking: { mark: "solid", label: "FCode · 正在生成" },
+  pending: { mark: "hollow", label: "FCode · 等待批准" },
   ok: { mark: "solid", label: "FCode · 已完成" },
   warn: { mark: "tick", label: "FCode · 已停止" },
   bad: { mark: "slash", label: "FCode · 调用失败" },
@@ -64,15 +65,18 @@ function eyes() {
     + "</g></g></g>";
 }
 
-export function aiAvatarHtml(state = "idle", size = 28) {
+export function aiAvatarHtml(state = "idle", size = 28, labelOverride = "") {
   const key = AVATAR_STYLE[state] ? state : "idle";
   const style = AVATAR_STYLE[key];
+  // 治理区等调用方带身份标签（bot 名）；对话侧沿用默认标签。
+  const label = String(labelOverride || "").trim() || style.label;
+  const ring = key === "thinking" || key === "pending";
   return '<span class="ai-avatar ai-avatar--' + key + (key === "thinking" ? " is-thinking" : "")
-    + '" style="--ai-avatar-size:' + size + 'px" role="img" aria-label="' + esc(style.label) + '"'
+    + '" style="--ai-avatar-size:' + size + 'px" role="img" aria-label="' + esc(label) + '"'
     + ' data-ai-state="' + key + '" data-live="1">'
     + '<svg viewBox="0 0 64 64" width="' + size + '" height="' + size + '" aria-hidden="true">'
     + eyes()
     + "</svg>"
-    + (key === "thinking" ? '<span class="ai-avatar-ring" aria-hidden="true"></span>' : "")
+    + (ring ? '<span class="ai-avatar-ring' + (key === "pending" ? " is-pending" : "") + '" aria-hidden="true"></span>' : "")
     + "</span>";
 }

@@ -6,7 +6,7 @@
  */
 
 import { esc, num } from "./format.js";
-import { botAvatarHtml } from "./bot-avatar.js";
+import { aiAvatarHtml } from "./ai-avatar.js";
 
 const STATUS_LABEL = {
   queued: "排队",
@@ -39,6 +39,12 @@ function avatarState(status) {
   if (status === "failed" || status === "rejected") return "failed";
   if (status === "done") return "done";
   return "idle";
+}
+
+/* Bot 状态 → 对话同款 AI 脸的状态：running 扫视+呼吸环，pending 慢环等待，
+   done/failed 收敛成 ok/bad。脸不背颜色语义，状态全在动效与环上。 */
+function faceState(status) {
+  return { running: "thinking", pending: "pending", failed: "bad", done: "ok" }[avatarState(status)] || "idle";
 }
 
 function formatTime(value) {
@@ -88,7 +94,7 @@ export function govBotCardHtml(bot) {
         : `<span class="dim">还没有运行记录</span>`;
   return `<article class="gov-bot-card${status === "running" ? " is-running" : ""}${status === "pending" ? " is-pending" : ""}" data-bot-id="${esc(bot.id)}">
     <header class="gov-bot-card-head">
-      ${botAvatarHtml(bot.id, status, 38, bot.name)}
+      ${aiAvatarHtml(faceState(status), 38, bot.name)}
       <div class="gov-bot-identity">
         <b>${esc(bot.name)}</b>
         <span>${esc(bot.role || "")}</span>
@@ -190,7 +196,7 @@ export function govBotRoutinesHtml(bots) {
       ? ` · ${routine.last_status.startsWith("error:") ? "失败" : botStatusLabel(routine.last_status)}`
       : "";
     return `<div class="gov-routine-row" data-routine-id="${esc(routine.id)}">
-      ${botAvatarHtml(bot.id, "idle", 30, bot.name)}
+      ${aiAvatarHtml("idle", 30, bot.name)}
       <div class="gov-routine-main">
         <div class="gov-routine-title"><b>${esc(bot.name)}</b><span>·</span>${target}</div>
         <div class="gov-routine-meta">${esc(routine.next || routine.frequency)} · ${last}${esc(lastState)}</div>
@@ -298,7 +304,7 @@ function runRowHtml(bot, run) {
   const state = botStatusLabel(run.status);
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
   return `<div class="gov-bot-run-row" data-run-id="${esc(run.run_id)}">
-    ${botAvatarHtml(bot.id, avatarState(run.status), 26, bot.name)}
+    ${aiAvatarHtml(faceState(run.status), 26, bot.name)}
     <div class="gov-bot-run-main">
       <div class="gov-bot-run-title"><b>${esc(target)}</b><span>${esc(trigger)}</span><span class="${botStatusClass(run.status)}">${esc(state)}</span></div>
       <div class="gov-bot-run-meta">${esc(formatTime(run.finished_at || run.started_at))}${
@@ -316,7 +322,7 @@ export function govBotDetailHtml(bot, runs = []) {
     : bot.status === "pending" ? "pending" : "idle";
   return `<div class="gov-bot-detail">
     <header class="gov-bot-detail-head">
-      ${botAvatarHtml(bot.id, status, 72, bot.name)}
+      ${aiAvatarHtml(faceState(status), 72, bot.name)}
       <div class="gov-bot-detail-title">
         <p class="eyebrow">GOVERNANCE / BOT</p>
         <h1>${esc(bot.name)}</h1>
@@ -369,7 +375,7 @@ export function govBotRunHtml(bot, run) {
     verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
   }</span></div>
   <div class="gov-bot-message">
-    ${botAvatarHtml(bot.id, avatarState(run.status), 30, bot.name)}
+    ${aiAvatarHtml(faceState(run.status), 30, bot.name)}
     <div class="gov-bot-message-body">
       <header class="gov-bot-message-head">
         <b>${esc(bot.name)}</b><span>${esc(bot.role || "")}</span>

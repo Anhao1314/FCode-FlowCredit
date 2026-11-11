@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   ZONES, chatRowsHtml, chatSectionHtml, govHistorySectionHtml,
   pinnedSectionHtml, projectSectionHtml, quickStartHtml,
-  runRowsHtml, statusDotHtml, taskSectionHtml, zoneOf, zoneSwitchHtml,
+  runRowsHtml, runSectionHtml, statusDotHtml, zoneOf, zoneSwitchHtml,
 } from "../core/side-nav.js";
 
 test("功能导航已撤除:治理台走 Governance 区切换器,不再有侧栏条目", async () => {
@@ -100,7 +100,7 @@ test("对话行置顶状态写回文案与标志", () => {
 });
 
 test("section 标题与折叠按钮在任务段带上 ＋ 与计数", () => {
-  const html = taskSectionHtml(4);
+  const html = runSectionHtml("未归属运行", 4);
   assert.match(html, /data-section-toggle="tasks"/);
   assert.match(html, /data-task-count>4</);
   assert.match(html, /data-new-task/);
@@ -192,7 +192,8 @@ test("治理历史:团队运行按最近顺序进入侧栏,带身份头像与状
   });
   assert.match(html, /团队运行/);
   assert.match(html, /data-gov-bot-open="auditor"/);
-  assert.match(html, /bot-avatar-auditor/);
+  assert.match(html, /class="ai-avatar ai-avatar--ok"/);
+  assert.match(html, /data-ai-state="ok"/);
   assert.match(html, /审计员 · demo-target/);
   assert.match(html, /3 发现/);
   assert.match(html, /data-gov-bot-open="verifier"/);
