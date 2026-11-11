@@ -54,12 +54,20 @@ test("Work 侧栏：项目创建 → 运行嵌套 → 刷新 → 归档", async 
     await reopened.locator(".proj-runs .run-row").first().click();
     await expect(page.locator("#main")).toHaveAttribute("data-view", "run");
 
-    // 设置 → 归档（动作按钮悬停出现）
+    // 设置 → 两步确认归档（不用原生 confirm）；归档清掉 composer 绑定
     await page.locator("[data-proj-toggle]").filter({ hasText: "E2E 侧栏项目" }).hover();
     await reopened.locator("[data-proj-edit]").click();
-    page.once("dialog", dialog => dialog.accept());
-    await page.locator("[data-proj-archive]").click();
+    const archiveBtn = page.locator("[data-proj-archive]");
+    await archiveBtn.click();
+    await expect(archiveBtn).toHaveText("确认归档？");
+    await archiveBtn.click();
     await expect(page.locator("[data-proj-toggle]").filter({ hasText: "E2E 侧栏项目" })).toHaveCount(0);
+    await expect(page.locator("#composer-ta")).toHaveAttribute(
+      "placeholder", "从项目开始，或直接描述任务…");
+    await expect.poll(() => page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem("fa.workProject") || "{}");
+      return saved.projectId || "";
+    })).toBe("", "归档必须清掉 composer 的项目绑定");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

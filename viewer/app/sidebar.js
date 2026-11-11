@@ -148,15 +148,24 @@ export function createSidebar(deps) {
   /* --------------------------------------------------------------- 置顶 */
 
   function renderPinned() {
-    // 置顶运行行原宿主在 pane-work（已随侧栏重建删除），不再渲染；
-    // 对话置顶保持在本机，行上带 ★ 开关。
+    // 置顶对话与置顶运行都渲染；运行的置顶不再让它从侧栏消失
+    //（此前 renderPinned 只渲染 chat，而平坦列表又过滤 pinned——两边都不出现）。
     const threads = d.getChatThreads().filter(thread => d.isChatPinned(thread.id));
-    const chatHost = document.getElementById("chat-pinned");
-    if (chatHost) {
-      chatHost.innerHTML = pinnedSectionHtml(threads, {
-        kind: "chat", pinnedOf: d.isChatPinned,
+    const runs = (d.getRunHistory() || []).filter(run => run.pinned);
+    const host = document.getElementById("chat-pinned");
+    if (!host) return;
+    let html = "";
+    if (threads.length) {
+      html += pinnedSectionHtml(threads, {
+        kind: "chat", pinnedOf: d.isChatPinned, title: "置顶对话",
       });
     }
+    if (runs.length) {
+      html += pinnedSectionHtml(runs, {
+        kind: "run", rowHtml: runRowHtml, title: "置顶运行",
+      });
+    }
+    host.innerHTML = html;
   }
 
   /* ------------------------------------------------------- 首次使用卡 */
@@ -277,11 +286,16 @@ export function createSidebar(deps) {
 
   const projectRunCount = pid => Object.values(runProjects).filter(x => x === pid).length;
 
-  function renderProjects() {
+  function renderProjects(force = false) {
     syncProjects();
     const editing = editingProjectId
       ? projects.find(project => project.id === editingProjectId) || null
       : null;
+    // 轮询触发的整体重绘不能吞掉正在填写的表单：表单开着时跳过重绘，
+    // 等 begin*/cancel 显式 force 或提交/取消后自然恢复。
+    const host = document.getElementById("chat-projects");
+    const formOpen = addingProject || editingProjectId;
+    if (!force && formOpen && host && host.querySelector("[data-proj-form]")) return;
     const html = projectSectionHtml(projects, {
       filter: projectFilter,
       runs: d.getRunHistory() || [],
@@ -290,26 +304,25 @@ export function createSidebar(deps) {
       adding: addingProject,
       editing,
     });
-    const host = document.getElementById("chat-projects");
     if (host) host.innerHTML = html;
   }
 
   function beginProjectCreate() {
     addingProject = true;
     editingProjectId = null;
-    renderProjects();
+    renderProjects(true);
   }
 
   function beginProjectEdit(projectId) {
     editingProjectId = projectId;
     addingProject = false;
-    renderProjects();
+    renderProjects(true);
   }
 
   function cancelProjectForm() {
     addingProject = false;
     editingProjectId = null;
-    renderProjects();
+    renderProjects(true);
   }
 
   function toggleProject(projectId) {

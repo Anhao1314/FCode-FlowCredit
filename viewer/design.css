@@ -3864,7 +3864,12 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .proj-badge.is-live { color: var(--ok); background: var(--ok-soft); }
 .proj-badge.is-attention { color: var(--warn); background: var(--warn-soft); }
 .proj-row-actions { display: none; gap: 2px; flex: none; padding-right: 2px; }
-.proj-row-shell:hover .proj-row-actions, .proj-block.is-active .proj-row-actions { display: flex; }
+.proj-row-shell:hover .proj-row-actions,
+.proj-row-shell:focus-within .proj-row-actions,
+.proj-block.is-active .proj-row-actions { display: flex; }
+@media (hover: none) {
+  .proj-row-actions { display: flex; }
+}
 .proj-row-actions button {
   width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent;
   color: var(--text-3); cursor: pointer; font-size: 12px; line-height: 18px;

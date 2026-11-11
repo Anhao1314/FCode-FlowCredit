@@ -104,7 +104,8 @@ export function pinnedSectionHtml(pins, options) {
       ? pinnedChatRowHtml(item, opts)
       : pinnedRunRowHtml(item, opts.rowHtml);
   }).join("");
-  return sectionHeadHtml("置顶", { key: "pinned" }, pins.length)
+  const title = opts.title || "置顶";
+  return sectionHeadHtml(title, { key: "pinned" }, pins.length)
     + revealHtml('<nav class="nav" data-pin-nav>' + rows + "</nav>");
 }
 

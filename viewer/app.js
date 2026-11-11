@@ -385,6 +385,9 @@ function newWorkThread() {
   renderMain(stageEmptyHtml("从项目开始，或直接描述任务…", { work: true }), { mode: "empty" });
   paintChatChrome(false);
   setWorkChrome();
+  // Work 舞台强制通用模板：tplKey 可能残留 finance（看过一次完整研究/finance
+  // 运行就会变），不重置会让 Work 提交走 finance 问卷与 finance 运行。
+  if (templates.some(t => t.key === "general-research")) setTemplate("general-research");
   setComposerRunning(false);
   paintModelBadge();
   const input = document.getElementById("composer-ta");
@@ -1842,6 +1845,7 @@ const runsPoller = createRunsPoller({
     const signature = next.map(run => [
       run.id, run.status, run.rounds, run.name, run.pinned ? 1 : 0,
       run.projectId || "",
+      run.attention || "",
       (run.cost && run.cost.costMicrousd) || 0,
     ].join(":")).join("|");
     if (signature === runSignature) return;
@@ -4906,9 +4910,23 @@ function bindNavigation() {
         event.stopPropagation();
         const project = getProject(archive.dataset.projArchive);
         if (!project) return;
-        if (!window.confirm(`归档项目「${project.name}」？历史运行会保留。`)) return;
+        // 两步确认，与运行删除同型；不用原生 confirm（设计系统不一致）。
+        if (archive.dataset.confirm !== "1") {
+          archive.dataset.confirm = "1";
+          archive.textContent = "确认归档？";
+          return;
+        }
         try {
           await postJson("/api/projects/archive", { id: project.id });
+          // 归档的是当前绑定项目时必须清掉 composer 上下文，
+          // 否则下一次提交带着已归档的 project_id，必然 400。
+          if (attach.project.projectId === project.id) {
+            attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+            saveProjectContext();
+            renderProjectComposer();
+            const input = document.getElementById("composer-ta");
+            if (input) input.placeholder = "从项目开始，或直接描述任务…";
+          }
           cancelProjectForm();
           await loadProjects();
           renderRuns();

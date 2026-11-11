@@ -265,6 +265,42 @@ test("createProject/assignRunProject:侧栏表单与服务端动作", () => {
     "侧栏不再写本地项目标签");
 });
 
+test("renderPinned:置顶运行进入置顶段，平坦列表不再出现", () => {
+  const { sidebar, els, state } = harness();
+  const pinnedHost = makeEl();
+  els["chat-pinned"] = pinnedHost;
+  const tasks = makeEl();
+  els["chat-tasks"] = tasks;
+  const now = new Date().toISOString();
+  state.runs = [{
+    id: "rp", status: "running", created: now, template: "general",
+    rounds: 1, objective: "置顶的运行", pinned: true, projectId: "",
+  }];
+  sidebar.renderPinned();
+  assert.match(pinnedHost.innerHTML, /置顶运行/);
+  assert.match(pinnedHost.innerHTML, /rp/);
+  sidebar.renderRuns();
+  assert.doesNotMatch(tasks.innerHTML, /rp/,
+    "置顶运行只出现在置顶段，不再两边都丢");
+});
+
+test("renderProjects:表单打开时轮询重绘不吞输入", () => {
+  const { sidebar, els, state } = harness();
+  const host = makeEl();
+  els["chat-projects"] = host;
+  sidebar.beginProjectCreate();
+  const before = host.innerHTML;
+  assert.match(before, /data-proj-form/);
+  state.runs = [{
+    id: "r1", status: "running", created: new Date().toISOString(),
+    template: "general", rounds: 1, objective: "poll", pinned: false,
+  }];
+  sidebar.renderProjects();
+  assert.equal(host.innerHTML, before, "轮询重绘跳过打开中的表单");
+  sidebar.cancelProjectForm();
+  assert.doesNotMatch(host.innerHTML, /data-proj-form/);
+});
+
 test("renderProjects:过滤态与运行计数来自服务端快照", () => {
   const { sidebar, els, state } = harness();
   const host = makeEl();
