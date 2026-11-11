@@ -60,6 +60,8 @@ python3 -I scripts/bench_prompt_prefix.py --rounds 20
 
 配套观测：provider 回执现在始终携带 `cached_tokens` / `cache_hit_bp` / `prompt_prefix_bp`（整数 basis points；浮点不入哈希链），前端 run evidence 展示真实命中率与平均前缀相似度，方便对真实 provider 做前后对比。finance 冻结路径不受影响。
 
+真实 provider 验证（2026-11-11，Qwen3.8-Max，两条 general run）：provider 报告的缓存命中率为 **69.65% / 80.54%**，平均前缀相似度 76.82% / 75.85%；历史 Kimi 样本为 9.34%。命中率同时受 provider 自带 Context Cache 影响，不能全部归因于排序，但前缀形状是直接可观测的。
+
 ## 首轮真实评测（2026-11-10）
 
 - **normal + injection smoke**（`general-fast-native`，2 tasks）：100% 成功，0 违规，19,790 tokens / $0.0030 / 20.6s。
