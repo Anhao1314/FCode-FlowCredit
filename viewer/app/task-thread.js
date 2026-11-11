@@ -506,16 +506,18 @@ export function projectTaskThread(trace, live = {}, options = {}) {
   const failure = terminal.failure || {};
   const stopped = terminalKind(terminal) === "stopped";
   if (terminal.status && terminal.status !== "succeeded") {
+    const code = String(failure.code || "").toUpperCase();
     items.push({
       kind: "error",
       key: "error",
       status: stopped ? "stopped" : String(terminal.status),
       tone: stopped ? "warn" : "bad",
-      code: String(failure.code || terminal.status).toUpperCase(),
+      code: code || String(terminal.status).toUpperCase(),
       message: String(failure.message || ""),
       text: options.failureText ? String(options.failureText(terminal) || "") : "",
       detailHtml: options.failureDetailHtml ? String(options.failureDetailHtml(source) || "") : "",
       actionsHtml: options.answerActionsHtml ? String(options.answerActionsHtml(source) || "") : "",
+      recoverHtml: recoveryActionHtml(code),
     });
   } else if (terminal.status === "succeeded") {
     const result = terminal.result || {};
@@ -875,11 +877,29 @@ function answerItemHtml(item) {
   </article>`;
 }
 
+/* Unknown model outcome is the one failure with an operator recovery exit.
+   The wording must say "可能重复计费": the disputed round stays charged and
+   unknown, and re-issuing prices a brand-new round. Confirmation is an inline
+   DOM second step (no native confirm), so the projection stays Node-testable. */
+function recoveryActionHtml(code) {
+  if (code !== "MODEL_OUTCOME_UNKNOWN") return "";
+  return `<div class="th-recover" data-recover-box>
+    <button class="a-btn strong" type="button" data-run-recover>确认恢复</button>
+    <p class="th-note">这一轮模型调用的结果未知，且没有可用回执。恢复会以新的一轮重新出价并独立计费，可能重复计费；旧轮仍保持未知，不会被标记成功。</p>
+    <div class="th-recover-confirm" data-recover-confirm hidden>
+      <span>确认以新一轮继续？</span>
+      <button class="a-btn strong" type="button" data-recover-apply>确认恢复并继续</button>
+      <button class="a-btn" type="button" data-recover-cancel>取消</button>
+    </div>
+  </div>`;
+}
+
 function errorItemHtml(item) {
   return `<article class="th-item th-error ${esc(item.tone || "bad")}" data-thread-key="error" data-thread-item="error" role="alert">
     <div class="th-error-head"><span class="th-ic">${icon("alert")}</span><span class="th-error-title">${esc(item.status === "stopped" ? "运行已停止" : item.status === "unknown" ? "运行状态未知" : "运行未能完成")}</span><span class="grow"></span><code class="th-tool-code">${esc(item.code)}</code></div>
     ${item.text ? `<p class="th-error-text">${esc(item.text)}</p>` : ""}
     ${item.message ? `<p class="th-note">${esc(item.message)}</p>` : ""}
+    ${item.recoverHtml || ""}
     ${item.actionsHtml ? `<div class="th-answer-actions">${item.actionsHtml}</div>` : ""}
     ${item.detailHtml ? `<details class="th-answer-detail" data-keep="error-detail"><summary>失败依据与判断</summary><div class="th-answer-detail-body">${item.detailHtml}</div></details>` : ""}
   </article>`;

@@ -38,7 +38,7 @@ flowcredit/viewer/
   console_runtime.py  ← runtime 导入、单次运行、观察者与崩溃检查
   console_manager.py  ← 运行历史、创建、控制、续跑与持久化
   projects.py         ← Work 项目注册表（目录 / 验证命令 / 归档）
-  tests/              ← 前端纯函数测试（node --test，357 项）
+  tests/              ← 前端纯函数测试（node --test，360 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）
@@ -125,6 +125,7 @@ open 'http://127.0.0.1:8642/?desktop=1'
 - **计划与预算**：线程内紧凑清单，可跳过 / 提前某个 todo；预算只能调高，
   下一轮生效，明细收在可展开的用量区。
 - **续跑**：仅接受 `BUDGET_EXCEEDED` / `ROUND_LIMIT`，从事件日志续写，已付的读取不重发。
+- **确认恢复**：失败卡仅在 `MODEL_OUTCOME_UNKNOWN` 时出现，二次确认后 `POST /recover`。有匹配回执走对账（不重复计费）；无回执留 `model_reissued` 事件（含 `possible double billing`），旧轮保持 unknown，以全新一轮重新出价。默认额度 40 calls / 160 reads / 1,000,000 µUSD / 300,000 tokens / 40 extra rounds。
 - **随时停止**：轮次边界停止，终态 `STOPPED_BY_OPERATOR`，链仍完整可验。
 - **工具卡按运行时词汇渲染**：通用工具是 `ls_workspace` / `repo_map` / `search_codebase` /
   `read_file` / `grep_workspace` / `find_files` / `git_status` / `browser_inspect` /
@@ -170,6 +171,7 @@ open 'http://127.0.0.1:8642/?desktop=1'
 | POST | `/api/runs/{id}/plan` | `{"action": "skip"\|"promote", "todoId": "t4"}` |
 | POST | `/api/runs/{id}/budget` | 只能调高，下一轮生效 |
 | POST | `/api/runs/{id}/resume` | 追加预算并续跑 |
+| POST | `/api/runs/{id}/recover` | 显式恢复 unknown 结果（body 可选，状态不对 409） |
 | POST | `/api/runs/{id}/meta` | 重命名 / 置顶 |
 | GET | `/api/chat/workspace-file?path=` | 读取一个工作区文本文件（附件 / 引用，越权与凭据拒绝） |
 | GET | `/api/chat/workspace-files?q=&limit=` | 检索工作区相对路径（`@` 选择器；只返回元数据） |

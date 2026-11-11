@@ -379,9 +379,10 @@ class Harness:
     def reconcile(self, task: Task, receipt_ref: str) -> Task:
         """Resolve an unknown outcome with a signed, matching receipt.
 
-        This is the only exit from ``recovery_required``. It does not re-send the
-        call, does not refund the reservation, and does not accept a receipt for
-        a different round.
+        This is the *receipt* exit from ``recovery_required``; the other is
+        :meth:`recover_unknown` with no matching receipt, which explicitly
+        re-issues a new round. Neither re-sends the disputed call, refunds the
+        reservation, nor accepts a receipt for a different round.
         """
         if task.status != "recovery_required":
             raise AgentError("RECONCILIATION_BLOCKED", f"task is {task.status}, not recovery_required")
@@ -403,6 +404,52 @@ class Harness:
         )
         updated.failure = None
         return self._commit(task, updated.advance("running"), "model_reconciled", {"receipt_ref": receipt_ref})
+
+    def recover_unknown(self, task: Task, *, operator: str) -> Task:
+        """Operator-confirmed exit from a call whose outcome is unknown.
+
+        Two paths, and only two:
+
+        * a **verified receipt** for this exact task/round exists -> the existing
+          :meth:`reconcile` path. No new dispatch, no second charge, the old
+          round's answer is used as-is.
+        * **no receipt** -> an explicit ``model_reissued`` event that names the
+          operator, the unknown round, the absent receipt and the risk of
+          double billing. The old round stays unknown (it is never refunded or
+          guessed successful); the task returns to ``running`` so the loop
+          prices and dispatches a brand-new round.
+
+        The guard is intentionally narrow. A ``failed`` task, a tool-side
+        unknown, or any other failure code has its own recovery semantics and
+        must not be routed through this entry point.
+        """
+        if task.status != "recovery_required":
+            raise AgentError(
+                "RECOVERY_BLOCKED",
+                f"task is {task.status}, not recovery_required",
+            )
+        failure = task.failure or {}
+        if failure.get("code") != "MODEL_OUTCOME_UNKNOWN":
+            raise AgentError(
+                "RECOVERY_BLOCKED",
+                f"failure is {failure.get('code') or 'none'}, not MODEL_OUTCOME_UNKNOWN",
+            )
+        unknown_round = int(failure.get("intent_round") or task.model.attempts)
+        ref = self.receipts.find_intent(task.id, unknown_round)
+        if ref:
+            return self.reconcile(task, ref)
+
+        detail = {
+            "by": operator,
+            "unknown_round": unknown_round,
+            "receipt_ref": "",
+            "risk": "possible double billing",
+        }
+        cleared = replace(task, failure=None)
+        # unknown -> reissued, then reissued -> started when the next round is
+        # priced by the loop. `validated` would claim we had an answer; we do not.
+        cleared = cleared.with_model(status="reissued")
+        return self._commit(task, cleared.advance("running"), "model_reissued", detail)
 
     def transition(self, task: Task, status: str, event: str, detail: dict[str, Any] | None = None) -> Task:
         """Move the task to a non-terminal status and record why.

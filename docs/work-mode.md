@@ -63,6 +63,21 @@ Projects                                   ＋
 - 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
 - 运行视图沿用既有任务线程 / 项目三视图（执行、变更、文件）；Work 不再有主区项目卡或看板。
 
+## unknown 结果的恢复出口
+
+长跑在传输层 0 字节断连时会落 `recovery_required / MODEL_OUTCOME_UNKNOWN`。此前控制台没有出口：`reconcile` 要求一张匹配回执，而 `resume` 只接受 `failed + BUDGET_EXCEEDED/ROUND_LIMIT`。现在失败卡仅对这一失败码显示「确认恢复」，二次确认后走 `POST /api/runs/{id}/recover`（202；状态不对 409）。
+
+两条路径，都不猜测旧调用成功：
+
+| 条件 | 动作 | 账目 |
+| --- | --- | --- |
+| `find_intent(task_id, intent_round)` 找到验签通过的回执 | `reconcile`，不重发 | 无新增 paid call，`attempts` 不变 |
+| 无回执 | `model_reissued` 事件后回到 `running` | 旧轮保持 unknown 且已计费；下一轮是全新计费，事件写明 `possible double billing` |
+
+`model_reissued` 的 detail 固定含 `{by, unknown_round, receipt_ref: "", risk}`。状态机新增 `reissued`，只允许 `unknown → reissued → started`；`unknown → validated` 仍是回执专用路径，`unknown → started` / `→ succeeded` 都被显式拒绝。
+
+传输层只有 `RemoteDisconnected` 与 `partial` 为空的 `IncompleteRead` 会自动重试一次，并把 `transport_retries`（整数）写进 usage、metadata 与签名回执；HTTP 4xx/5xx、超时、半包、非 JSON 一律不重试，仍走 `MODEL_CALL_FAILED` → unknown。
+
 ## 迁移与兼容
 
 - 旧 `fa.projects` / `fa.runProjects` **不删除、不再读取**；项目以服务端为准。

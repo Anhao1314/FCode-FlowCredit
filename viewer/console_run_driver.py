@@ -22,12 +22,24 @@ from flowagent.providers.prompt import GENERAL_FAST_INSTRUCTION
 
 
 class RunDriver:
-    def __init__(self, manager, run, *, resume_limits=None, extra_rounds: int = 6) -> None:
+    def __init__(
+        self,
+        manager,
+        run,
+        *,
+        resume_limits=None,
+        extra_rounds: int = 6,
+        recover_unknown: bool = False,
+    ) -> None:
         self.manager = manager
         self.run = run
         self.rt = manager.runtime
         self.resume_limits = resume_limits
         self.extra_rounds = extra_rounds
+        #: Operator-confirmed recovery of an unknown model outcome. It reuses
+        #: the operator's limits (and trace seeding) but must NOT go through
+        #: ``harness.resume`` — that entry only accepts ``failed`` tasks.
+        self.recover_unknown = recover_unknown
         #: Opt-in fast experiment: batch actions per model round, native tool
         #: calling, operator envelope without price-scaled call shrink.
         self.fast = bool((getattr(run, "spec", None) or {}).get("fast")) \
@@ -474,13 +486,24 @@ class RunDriver:
     # --------------------------------------------------------------- execution
 
     def _prepare_task(self):
-        if self.resume_limits:
+        restore_state = False
+        if self.recover_unknown:
+            # Unknown model outcome: the operator explicitly accepted the risk.
+            # A matching receipt reconciles in place; otherwise a fresh round is
+            # priced. Either way the loop must start from the durable event log,
+            # never from ``harness.resume`` (which only accepts failed tasks).
+            task = self.store.load(self.run.task_id)
+            task = self.harness.recover_unknown(task, operator="console-operator")
+            self.max_rounds = task.model.attempts + self.extra_rounds
+            restore_state = True
+        elif self.resume_limits:
             task = self.store.load(self.run.task_id)
             task = self.harness.resume(
                 task,
                 detail={"by": "operator", "reason": "budget topped up", "limits": self.limits.to_dict()},
             )
             self.max_rounds = max(self.scenario.max_rounds, task.model.attempts + self.extra_rounds)
+            restore_state = True
         else:
             binding = {
                 "scenario": self.scenario.key,
@@ -527,7 +550,7 @@ class RunDriver:
         base_planner = self.module.make_planner(self.world)
         self.planner = ScopedPlanner(self.rt, base_planner, set(self.scope)) if self.scope else base_planner
         self.loop = self._new_loop()
-        if self.resume_limits:
+        if restore_state:
             self.world.apply_state(self.loop.restore(task).state())
         return task
 

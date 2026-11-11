@@ -151,6 +151,45 @@ test("failed, stopped and unknown runs each get an explicit error item with the 
   assert.match(unknownItem.text, /状态未知/);
 });
 
+test("the recovery button appears only for MODEL_OUTCOME_UNKNOWN", () => {
+  const unknown = projectTaskThread(trace({
+    terminal: {
+      status: "recovery_required",
+      failure: { code: "MODEL_OUTCOME_UNKNOWN", message: "transport dropped" },
+    },
+  }), {});
+  const item = unknown.items[unknown.items.length - 1];
+  assert.equal(item.kind, "error");
+  assert.equal(item.code, "MODEL_OUTCOME_UNKNOWN");
+  const html = threadItemHtml(item);
+  assert.match(html, /data-run-recover/);
+  assert.match(html, /可能重复计费/);
+
+  for (const code of ["BUDGET_EXCEEDED", "ROUND_LIMIT", "TOOL_OUTCOME_UNKNOWN", "STOPPED_BY_OPERATOR"]) {
+    const other = projectTaskThread(trace({
+      terminal: { status: "failed", failure: { code } },
+    }), {});
+    const otherHtml = threadItemHtml(other.items[other.items.length - 1]);
+    assert.ok(!otherHtml.includes("data-run-recover"), `${code} must not open unknown recovery`);
+    assert.ok(!otherHtml.includes("可能重复计费"), `${code} must not show the billing warning`);
+  }
+});
+
+test("unknown recovery requires a second, inline confirmation", () => {
+  const projected = projectTaskThread(trace({
+    terminal: {
+      status: "recovery_required",
+      failure: { code: "MODEL_OUTCOME_UNKNOWN" },
+    },
+  }), {});
+  const html = threadItemHtml(projected.items[projected.items.length - 1]);
+  assert.match(html, /data-recover-confirm[^>]*hidden/);
+  assert.match(html, /data-recover-apply/);
+  assert.match(html, /data-recover-cancel/);
+  assert.ok(!html.includes("window.confirm"), "no native confirm is allowed");
+  assert.match(html, /旧轮仍保持未知/);
+});
+
 test("an unknown model round is a tool item, never a fabricated success", () => {
   const unknownRound = { index: 1, proposal: null, decision: null, observation: null, receipt: null };
   const liveTrace = trace({

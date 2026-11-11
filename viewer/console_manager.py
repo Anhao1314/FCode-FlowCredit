@@ -843,7 +843,13 @@ class RunManager:
             store.close()
         code = (task.failure or {}).get("code", "")
         if task.status != "failed" or code not in ("BUDGET_EXCEEDED", "ROUND_LIMIT"):
-            raise ValueError(f"run cannot be resumed from {task.status}/{code or 'no failure'}")
+            hint = (
+                "; an unknown model outcome uses the explicit recovery entry "
+                "POST /api/runs/{id}/recover instead"
+                if task.status == "recovery_required" and code == "MODEL_OUTCOME_UNKNOWN"
+                else ""
+            )
+            raise ValueError(f"run cannot be resumed from {task.status}/{code or 'no failure'}{hint}")
         with run.lock:
             run.finished = False
             run.status = "running"
@@ -855,6 +861,54 @@ class RunManager:
             target=self._run_thread,
             args=(run,),
             kwargs={"resume_limits": limits, "extra_rounds": extra_rounds},
+            name=f"run:{run.id}",
+            daemon=True,
+        )
+        thread.start()
+        return run
+
+    def recover_unknown(self, run: Run, *, limits: dict, extra_rounds: int = 40) -> Run:
+        """Explicit operator recovery from a run whose model outcome is unknown.
+
+        Only ``recovery_required`` + ``MODEL_OUTCOME_UNKNOWN`` is accepted. The
+        driver then either reconciles against a signed receipt or records a
+        ``model_reissued`` event with the double-billing risk before pricing a
+        fresh round; this method never guesses the disputed call succeeded.
+        """
+        rt = self.runtime
+        if rt is None:
+            raise ValueError("live runtime is unavailable")
+        if not run.finished:
+            raise ValueError("run is still active")
+        if not run.task_id:
+            raise ValueError("run has no durable task to continue")
+        db = self.runs_dir / run.id / "task.sqlite"
+        store = rt.TaskStore(db)
+        try:
+            task = store.load(run.task_id)
+        finally:
+            store.close()
+        code = (task.failure or {}).get("code", "")
+        if task.status != "recovery_required" or code != "MODEL_OUTCOME_UNKNOWN":
+            raise ValueError(
+                f"run cannot be recovered from {task.status}/{code or 'no failure'}; "
+                "only recovery_required/MODEL_OUTCOME_UNKNOWN qualifies"
+            )
+        with run.lock:
+            run.finished = False
+            run.status = "running"
+            run.error = ""
+            run.stop_requested = False
+            run.pending = None
+            run.bump()
+        thread = threading.Thread(
+            target=self._run_thread,
+            args=(run,),
+            kwargs={
+                "resume_limits": limits,
+                "extra_rounds": extra_rounds,
+                "recover_unknown": True,
+            },
             name=f"run:{run.id}",
             daemon=True,
         )
@@ -976,10 +1030,22 @@ class RunManager:
             env=merged_provider_env(self.settings_env()),
         )
 
-    def _run_thread(self, run: Run, *, resume_limits: dict | None = None, extra_rounds: int = 6) -> None:
+    def _run_thread(
+        self,
+        run: Run,
+        *,
+        resume_limits: dict | None = None,
+        extra_rounds: int = 6,
+        recover_unknown: bool = False,
+    ) -> None:
         from console_run_driver import RunDriver
 
-        RunDriver(self, run, resume_limits=resume_limits, extra_rounds=extra_rounds).execute()
+        RunDriver(
+            self, run,
+            resume_limits=resume_limits,
+            extra_rounds=extra_rounds,
+            recover_unknown=recover_unknown,
+        ).execute()
 
 
 # -------------------------------------------------------------------- observer

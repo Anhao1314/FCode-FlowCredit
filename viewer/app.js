@@ -2397,6 +2397,45 @@ async function resumeRun() {
   }
 }
 
+/* Operator-confirmed recovery of MODEL_OUTCOME_UNKNOWN. The button in the
+   failure card has already asked a second, inline confirmation; this is the
+   only place that actually POSTs, so a single click can never re-bill. */
+async function recoverUnknownRun() {
+  const id = store.key && store.key.startsWith("run:") ? store.key.slice(4) : null;
+  if (!id) { toast("没有可恢复的运行"); return; }
+  const button = document.querySelector("[data-recover-apply]");
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`/api/runs/${encodeURIComponent(id)}/recover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+    const current = activeSession();
+    const run = runHistory.find(item => item.id === id) || (current && current.id === id ? current : null);
+    const trace = shownTrace();
+    const objective = (run && run.objective) || (trace && trace.task && trace.task.objective) || "";
+    const template = (run && run.template) || ((trace && trace.task && trace.task.binding || {}).scenario) || "full";
+    toast("已确认恢复 · 以新一轮继续（可能重复计费）");
+    const stale = sessions.get(id);
+    const priorModel = stale
+      ? (stale.confirmedModel || (stale.trace && stale.trace.model && stale.trace.model.provider) || "")
+      : "";
+    if (stale) { if (stale.es) stale.es.close(); sessions.delete(id); }
+    if (store.sessionId === id) store.sessionId = null;
+    cache.delete("run:" + id);
+    openLive(id, objective, template, priorModel);
+    refreshRuns({ force: true });
+  } catch (error) {
+    if (button) button.disabled = false;
+    toast(error.message || "恢复失败");
+  }
+}
+
 async function retryRun(objective, template) {
   try {
     const response = await fetch("/api/runs", {
@@ -5303,6 +5342,25 @@ function bindMainInteractions() {
     }
     if (event.target.closest("[data-budget-apply]")) { queueBudget(); return; }
     if (event.target.closest("[data-resume-apply]")) { resumeRun(); return; }
+    const recoverStart = event.target.closest("[data-run-recover]");
+    if (recoverStart) {
+      const box = recoverStart.closest("[data-recover-box]");
+      const confirm = box && box.querySelector("[data-recover-confirm]");
+      if (confirm) { confirm.hidden = false; recoverStart.disabled = true; }
+      return;
+    }
+    const recoverCancel = event.target.closest("[data-recover-cancel]");
+    if (recoverCancel) {
+      const box = recoverCancel.closest("[data-recover-box]");
+      if (box) {
+        const confirm = box.querySelector("[data-recover-confirm]");
+        const start = box.querySelector("[data-run-recover]");
+        if (confirm) confirm.hidden = true;
+        if (start) start.disabled = false;
+      }
+      return;
+    }
+    if (event.target.closest("[data-recover-apply]")) { recoverUnknownRun(); return; }
     const resumeCancel = event.target.closest("[data-resume-cancel]");
     if (resumeCancel) {
       const form = resumeCancel.closest(".resume-form");

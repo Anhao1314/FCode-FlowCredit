@@ -309,6 +309,54 @@ def post_run_resume(handler, run_id: str):
     return handler._json(run.to_json(detail=True), 202)
 
 
+#: Recovery is a fresh round, not a top-up of the disputed one (which stays
+#: charged and unknown). These are the operator's default hard ceilings for it.
+RECOVER_DEFAULT_LIMITS = {
+    "maxCalls": 40,
+    "maxReads": 160,
+    "maxCostMicrousd": 1_000_000,
+    "maxTokens": 300_000,
+    "extraRounds": 40,
+}
+
+
+def post_run_recover(handler, run_id: str):
+    """Explicit, one-shot recovery of an unknown model outcome (202/409).
+
+    The body is optional: an operator clicking 「确认恢复」 gets the documented
+    defaults. A run in any other state is a 409 — recovery is never a generic
+    "continue" button.
+    """
+    run = _run(handler, run_id)
+    if run is None:
+        return None
+    body = handler._read_body() or {}
+    defaults = RECOVER_DEFAULT_LIMITS
+    try:
+        max_calls = int(body.get("maxCalls", defaults["maxCalls"]))
+        max_reads = int(body.get("maxReads", defaults["maxReads"]))
+        max_cost = int(body.get("maxCostMicrousd", defaults["maxCostMicrousd"]))
+        max_tokens = int(body.get("maxTokens", defaults["maxTokens"]))
+        extra_rounds = int(body.get("extraRounds", defaults["extraRounds"]))
+    except (TypeError, ValueError):
+        return handler._json({"error": "recovery limits must be integers"}, 400)
+    if min(max_calls, max_reads, max_cost, max_tokens) < 1 or not 0 <= extra_rounds <= 50:
+        return handler._json(
+            {"error": "limits must be positive and extraRounds between 0 and 50"}, 400,
+        )
+    limits = {
+        "maxCalls": max_calls,
+        "maxReads": max_reads,
+        "maxCostMicrousd": max_cost,
+        "maxTokens": max_tokens,
+    }
+    try:
+        handler.manager.recover_unknown(run, limits=limits, extra_rounds=extra_rounds)
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 409)
+    return handler._json(run.to_json(detail=True), 202)
+
+
 def post_run_meta(handler, run_id: str):
     run = _run(handler, run_id)
     if run is None:

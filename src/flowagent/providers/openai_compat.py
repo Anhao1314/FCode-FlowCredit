@@ -9,7 +9,10 @@ rules:
 * prices are host-reviewed and mandatory (zeros for a free local endpoint —
   the budget machinery stays honest even when money is not involved);
 * budget is reserved from a conservative upper bound before dispatch;
-* transport failure is an unknown outcome — no retry, no mock fallback;
+* transport failure is an unknown outcome — no retry, no mock fallback.
+  The single narrow exception is a disconnect before *any* response byte
+  arrived: no request can have been answered, so one re-send is safe and is
+  recorded as ``transport_retries`` on the receipt;
 * calls are paced apart when the host sets an interval.
 
 This module is the general engine. ``kimi`` and ``deepseek`` are preset
@@ -38,6 +41,7 @@ Knobs the presets and generic entries differ on:
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -502,9 +506,35 @@ def load_compat_settings(
 
 # ------------------------------------------------------------------- client
 
+#: One re-send at most, and only when the peer closed before sending a single
+#: response byte. Anything else could already be a billed, executed call: an
+#: HTTP status, a timeout, half a body or a bad JSON document all mean bytes
+#: crossed the wire, and re-sending them would risk double billing.
+MAX_ZERO_BYTE_TRANSPORT_RETRIES = 1
+
+
+def _zero_byte_disconnect(error: BaseException) -> bool:
+    """True only for a disconnect that delivered no response bytes at all.
+
+    ``urllib`` wraps some transport errors in ``URLError.reason``; unwrap that
+    chain rather than matching the wrapper. ``IncompleteRead`` is retryable
+    only when ``partial`` is empty — a partial body is evidence the provider
+    answered, which makes a re-send a second, separately billed call.
+    """
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, http.client.RemoteDisconnected):
+            return True
+        if isinstance(current, http.client.IncompleteRead):
+            return not current.partial
+        current = getattr(current, "reason", None) or getattr(current, "__cause__", None)
+    return False
+
 
 class CompatClient:
-    """One HTTP transport for one endpoint; nothing here retries or falls back."""
+    """One HTTP transport for one endpoint; no fallback, one narrow re-send."""
 
     def __init__(
         self,
@@ -603,23 +633,39 @@ class CompatClient:
             method="POST",
             headers=headers,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")[:200]
-            code = "MODEL_AUTH_FAILED" if error.code in (401, 403) else "MODEL_CALL_FAILED"
-            raise AgentError(code, f"{self.label} HTTP {error.code}: {detail}") from error
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} transport: {error}") from error
-        except ValueError as error:
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned non-JSON") from error
+        transport_retries = 0
+        while True:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")[:200]
+                code = "MODEL_AUTH_FAILED" if error.code in (401, 403) else "MODEL_CALL_FAILED"
+                raise AgentError(code, f"{self.label} HTTP {error.code}: {detail}") from error
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+                # A 0-byte disconnect is the only case where the provider cannot
+                # have produced an answer. Everything else (timeouts included)
+                # still resolves to MODEL_CALL_FAILED so the caller lands in
+                # recovery_required instead of silently re-billing the round.
+                if (
+                    transport_retries < MAX_ZERO_BYTE_TRANSPORT_RETRIES
+                    and _zero_byte_disconnect(error)
+                ):
+                    transport_retries += 1
+                    continue
+                raise AgentError("MODEL_CALL_FAILED", f"{self.label} transport: {error}") from error
+            except ValueError as error:
+                raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned non-JSON") from error
 
         choices = payload.get("choices") or []
         if not choices:
             raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned no choices")
         message = choices[0].get("message") or {}
-        return message, dict(payload.get("usage") or {}), str(payload.get("id") or "")
+        usage = dict(payload.get("usage") or {})
+        if transport_retries:
+            usage["transport_retries"] = transport_retries
+        return message, usage, str(payload.get("id") or "")
 
     def _empty_content_error(self, message: dict[str, Any]) -> AgentError:
         # A reasoning model whose completion budget ran out during the reasoning
@@ -719,6 +765,17 @@ def _prompt_prefix_stats(previous: str | None, current: str) -> dict[str, Any]:
         "prompt_prefix_bp": int(round(
             common / max(1, len(current)) * 10_000)),
     }
+
+
+def _has_usage(usage: dict[str, Any]) -> bool:
+    """True when the endpoint actually reported a usage block.
+
+    ``transport_retries`` is a runtime annotation, not provider usage. A reply
+    with no usage block must still be labelled ``usage_missing`` even when we
+    had to re-send it once — otherwise a 0-byte retry would silently turn an
+    unknown bill into a zero bill.
+    """
+    return any(key != "transport_retries" for key in usage)
 
 
 def _usage_tokens(usage: dict[str, Any]) -> tuple[int, int, int]:
@@ -914,8 +971,9 @@ class OpenAICompatProvider:
                 int(round(cached_tokens / prompt_tokens * 10_000))
                 if prompt_tokens else 0
             ),
-            "cost_microusd": self.price.cost(usage) if usage else 0,
-            "usage_missing": not bool(usage),
+            "cost_microusd": self.price.cost(usage) if _has_usage(usage) else 0,
+            "usage_missing": not _has_usage(usage),
+            "transport_retries": int(usage.get("transport_retries") or 0),
         }
 
     def _pace(self) -> None:
@@ -1138,6 +1196,9 @@ class OpenAICompatProvider:
         prompt_tokens, _, total_tokens = _usage_tokens(usage)
         plan = build_proposal_plan(data)
 
+        # Integer, never a ratio: receipt metadata is committed on-chain and
+        # canonical_json rejects floats. Absent from the raw usage block means 0.
+        transport_retries = int(usage.get("transport_retries") or 0)
         cached_tokens = _provider_cached_tokens(usage)
         metadata: dict[str, Any] = {
             "prompt_version": profile.version,
@@ -1146,9 +1207,10 @@ class OpenAICompatProvider:
             "price_as_of": self.price.as_of,
             "price_source": self.price.source,
             "native_tools": use_native,
+            "transport_retries": transport_retries,
             **prefix_stats,
         }
-        if usage:
+        if _has_usage(usage):
             metadata.update({
                 "usage_prompt_tokens": prompt_tokens,
                 "cached_tokens": cached_tokens,
@@ -1181,7 +1243,7 @@ class OpenAICompatProvider:
             )
             self.calibration_reports.append(calibration_report)
             metadata["calibration"] = calibration_report
-        if not usage:
+        if not _has_usage(usage):
             metadata["usage_missing"] = True
 
         receipt_ref = ""
@@ -1197,6 +1259,7 @@ class OpenAICompatProvider:
                         "tokens": total_tokens,
                         "cost_microusd": self.price.cost(usage),
                         "request_id": request_id,
+                        "transport_retries": transport_retries,
                     },
                 )
                 metadata["hmac_receipt_ref"] = receipt_ref
