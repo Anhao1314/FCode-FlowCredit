@@ -200,7 +200,12 @@ export function createRunEvidence(deps) {
         prompt += Number(meta.usage_prompt_tokens) || 0;
         cached += Number(meta.cached_tokens) || 0;
       }
-      if (meta.prompt_prefix_ratio !== undefined && meta.prompt_prefix_ratio !== null) {
+      if (meta.prompt_prefix_bp !== undefined && meta.prompt_prefix_bp !== null) {
+        prefixSamples += 1;
+        prefixRatio += (Number(meta.prompt_prefix_bp) || 0) / 10000;
+      } else if (meta.prompt_prefix_ratio !== undefined && meta.prompt_prefix_ratio !== null) {
+        // Older traces recorded the ratio as a float; the hash chain now only
+        // carries basis points.
         prefixSamples += 1;
         prefixRatio += Number(meta.prompt_prefix_ratio) || 0;
       }

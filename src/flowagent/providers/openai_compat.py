@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..core.contracts import PLAN_VERSION, AgentError
+from ..core.numbers import NumberNormalizationError, normalize_json_numbers
 from ..pacing import pace_key, reserve_slot
 from .base import Proposal
 from .prompt import (
@@ -696,18 +697,24 @@ def _provider_cached_tokens(usage: dict[str, Any]) -> int:
 
 
 def _prompt_prefix_stats(previous: str | None, current: str) -> dict[str, Any]:
-    """Measure how much of this request repeats the previous request prefix."""
+    """Measure how much of this request repeats the previous request prefix.
+
+    The ratio is reported in integer basis points, never as a float: these
+    fields travel inside a receipt, and a receipt is committed into the task
+    body where ``canonical_json`` rejects floats by design.
+    """
     if not previous or not current:
-        return {"prompt_prefix_chars": 0, "prompt_prefix_ratio": 0.0}
+        return {"prompt_prefix_chars": 0, "prompt_prefix_bp": 0}
     limit = min(len(previous), len(current))
     common = 0
     while common < limit and previous[common] == current[common]:
         common += 1
     return {
         "prompt_prefix_chars": common,
-        # Ratio over the current request: how much of what we are sending now
-        # the provider could plausibly have cached from the previous request.
-        "prompt_prefix_ratio": round(common / max(1, len(current)), 4),
+        # Basis points over the current request: how much of what we are
+        # sending now the provider could plausibly have cached previously.
+        "prompt_prefix_bp": int(round(
+            common / max(1, len(current)) * 10_000)),
     }
 
 
@@ -927,7 +934,7 @@ class OpenAICompatProvider:
         calls: list[dict[str, Any]],
         max_steps: int,
         request_id: str,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
         """Map native ``tool_calls`` onto plan steps, preserving call order.
 
         A ``submit_plan`` call is not a step: it is the fast profile's plan
@@ -939,10 +946,15 @@ class OpenAICompatProvider:
         it raises PROPOSAL_MALFORMED rather than executing a guessed call. Calls
         beyond the batch bound are dropped and counted; the loop cannot execute
         what the profile did not promise to execute.
+
+        Integral floats in arguments are normalized to ints before the step is
+        built (returned as the fourth value); fractional numbers raise. The
+        normalization happens here, before any plan hash is taken.
         """
         steps: list[dict[str, Any]] = []
         additions: list[dict[str, Any]] = []
         dropped = 0
+        normalized_numbers = 0
         for index, call in enumerate(calls):
             if not isinstance(call, dict):
                 continue
@@ -962,6 +974,15 @@ class OpenAICompatProvider:
                 arguments = dict(raw_arguments)
             else:
                 arguments = {}
+            try:
+                arguments, count = normalize_json_numbers(arguments)
+                normalized_numbers += count
+            except NumberNormalizationError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"tool call {name or '<unnamed>'}: {error}",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                ) from error
             if not name:
                 raise AgentError(
                     "PROPOSAL_MALFORMED",
@@ -984,7 +1005,17 @@ class OpenAICompatProvider:
                 "native reply carried no usable tool calls",
                 details={"raw_tool_calls": calls[:4], "request_id": request_id},
             )
-        return steps, additions, dropped
+        if additions:
+            try:
+                additions, count = normalize_json_numbers(additions)
+                normalized_numbers += count
+            except NumberNormalizationError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan arguments: {error}",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                ) from error
+        return steps, additions, dropped, normalized_numbers
 
     def _additions_from_submit_plan(
         self, arguments: dict[str, Any], request_id: str,
@@ -1074,8 +1105,12 @@ class OpenAICompatProvider:
             self.raw_sink(raw)
 
         dropped_tool_calls = 0
+        normalized_numbers = 0
         if use_native:
-            steps, plan_additions, dropped_tool_calls = self._steps_from_tool_calls(
+            (
+                steps, plan_additions, dropped_tool_calls,
+                normalized_numbers,
+            ) = self._steps_from_tool_calls(
                 tool_calls or [], profile.max_steps, request_id,
             )
             data: dict[str, Any] = {"version": PLAN_VERSION, "steps": steps}
@@ -1084,6 +1119,10 @@ class OpenAICompatProvider:
         else:
             try:
                 data = parse_proposal_text(content, max_steps=profile.max_steps)
+                # A model writing 30.0 for an integer field said 30. Normalize
+                # before validation so no float can reach canonical_json; a
+                # fractional value raises and becomes a paid, retryable error.
+                data, normalized_numbers = normalize_json_numbers(data)
             except ValueError as error:
                 raise AgentError(
                     "PROPOSAL_MALFORMED",
@@ -1108,18 +1147,24 @@ class OpenAICompatProvider:
             metadata.update({
                 "usage_prompt_tokens": prompt_tokens,
                 "cached_tokens": cached_tokens,
-                "cache_hit_rate": round(
-                    cached_tokens / prompt_tokens, 4
-                ) if prompt_tokens else 0.0,
+                # Basis points: receipt metadata is committed on-chain.
+                "cache_hit_bp": int(round(
+                    cached_tokens / prompt_tokens * 10_000
+                )) if prompt_tokens else 0,
             })
         if dropped_tool_calls:
             metadata["dropped_tool_calls"] = dropped_tool_calls
+        if normalized_numbers:
+            metadata["normalized_numbers"] = normalized_numbers
         if self.receipt_detail == "full":
             metadata.update({
                 "input_microusd_per_mtok": self.price.input_microusd_per_mtok,
                 "output_microusd_per_mtok": self.price.output_microusd_per_mtok,
                 "reasoning_effort": self.reasoning_effort,
-                "temperature": self.temperature,
+                "temperature_bp": (
+                    int(round(self.temperature * 10_000))
+                    if self.temperature is not None else None
+                ),
                 "reserved_prompt_tokens": reserved_prompt_tokens,
                 "cache_billing": self.price.billing,
                 "raw_content": content,

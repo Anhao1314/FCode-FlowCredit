@@ -248,7 +248,9 @@ class KimiProviderTests(unittest.TestCase):
                 {"objective": "test", "round": 1, "intent": {"task_id": "t", "round": 1}}
             )
         self.assertEqual(seen["body"]["temperature"], 1)
-        self.assertEqual(proposal.metadata["temperature"], 1)
+        # Receipt metadata is committed on-chain: the configured temperature
+        # travels as basis points so a fractional pin cannot crash the store.
+        self.assertEqual(proposal.metadata["temperature_bp"], 10_000)
 
     def test_pacing_waits_full_interval_on_first_call(self) -> None:
         # A fresh process conservatively assumes a sibling or resumed worker

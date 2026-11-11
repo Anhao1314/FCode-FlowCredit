@@ -58,7 +58,7 @@ python3 -I scripts/bench_prompt_prefix.py --rounds 20
 | sorted（旧路径） | 0.0117 | 0.0041 |
 | cache-friendly（新路径） | **0.8065** | **0.9325** |
 
-配套观测：provider 回执现在始终携带 `cached_tokens` / `cache_hit_rate` / `prompt_prefix_ratio`，前端 run evidence 直接展示真实命中率与平均前缀相似度，方便后续对真实 provider 做前后对比。finance 冻结路径不受影响。
+配套观测：provider 回执现在始终携带 `cached_tokens` / `cache_hit_bp` / `prompt_prefix_bp`（整数 basis points；浮点不入哈希链），前端 run evidence 展示真实命中率与平均前缀相似度，方便对真实 provider 做前后对比。finance 冻结路径不受影响。
 
 ## 首轮真实评测（2026-11-10）
 

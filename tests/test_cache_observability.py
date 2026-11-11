@@ -13,6 +13,7 @@ sys_path = str(ROOT / "src")
 if sys_path not in __import__("sys").path:
     __import__("sys").path.insert(0, sys_path)
 
+from flowagent.core.hashing import canonical_json  # noqa: E402
 from flowagent.memory.context import (  # noqa: E402
     WorkingMemory, _cache_ordered_context,
 )
@@ -115,11 +116,11 @@ class PromptPrefixStatsTests(unittest.TestCase):
     def test_prefix_stats_measure_common_prefix_over_current_request(self) -> None:
         stats = _prompt_prefix_stats("abcdef", "abcxyz")
         self.assertEqual(stats["prompt_prefix_chars"], 3)
-        self.assertEqual(stats["prompt_prefix_ratio"], 0.5)
+        self.assertEqual(stats["prompt_prefix_bp"], 5000)
 
     def test_first_request_has_no_previous_prefix(self) -> None:
         self.assertEqual(_prompt_prefix_stats(None, "abc")["prompt_prefix_chars"], 0)
-        self.assertEqual(_prompt_prefix_stats("", "abc")["prompt_prefix_ratio"], 0.0)
+        self.assertEqual(_prompt_prefix_stats("", "abc")["prompt_prefix_bp"], 0)
 
 
 class ProviderCacheMetadataTests(unittest.TestCase):
@@ -166,14 +167,18 @@ class ProviderCacheMetadataTests(unittest.TestCase):
         provider = self._provider()
         first, _ = self._propose(provider, 1, cached_tokens=0)
         self.assertEqual(first.metadata["cached_tokens"], 0)
-        self.assertEqual(first.metadata["prompt_prefix_ratio"], 0.0)
+        self.assertEqual(first.metadata["prompt_prefix_bp"], 0)
         self.assertNotIn("raw_content", first.metadata, "compact receipt stays compact")
 
         second, seen = self._propose(provider, 2, cached_tokens=700)
         self.assertEqual(second.metadata["cached_tokens"], 700)
-        self.assertEqual(second.metadata["cache_hit_rate"], 0.7)
+        self.assertEqual(second.metadata["cache_hit_bp"], 7000)
         self.assertGreater(second.metadata["prompt_prefix_chars"], 0)
-        self.assertGreater(second.metadata["prompt_prefix_ratio"], 0)
+        self.assertGreater(second.metadata["prompt_prefix_bp"], 0)
+        # Receipt metadata is committed into the task body; a float here used
+        # to crash real-provider runs at the store boundary.
+        canonical_json(first.metadata)
+        canonical_json(second.metadata)
         # Stable contract fields must precede the per-round field in the user
         # message, otherwise the observed prefix similarity stays artificial.
         user = next(item["messages"][1]["content"] for item in seen)

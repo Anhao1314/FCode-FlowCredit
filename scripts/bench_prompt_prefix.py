@@ -40,7 +40,7 @@ def _render(context: dict[str, Any], mode: str) -> str:
 
 
 def _lcp_ratio(previous: str, current: str) -> float:
-    return _prompt_prefix_stats(previous, current)["prompt_prefix_ratio"]
+    return _prompt_prefix_stats(previous, current)["prompt_prefix_bp"] / 10_000
 
 
 def run(mode: str, rounds: int) -> dict[str, Any]:
@@ -64,7 +64,7 @@ def run(mode: str, rounds: int) -> dict[str, Any]:
         context = memory.build(round_no, {"calls": f"{round_no}/40"})
         current = _render(context, mode)
         stats = _prompt_prefix_stats(previous, current)
-        ratios.append(stats["prompt_prefix_ratio"])
+        ratios.append(stats["prompt_prefix_bp"] / 10_000)
         chars.append(stats["prompt_prefix_chars"])
         previous = current
     measured = ratios[1:] or [0.0]
