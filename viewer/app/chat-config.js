@@ -32,9 +32,17 @@ export function createChatConfig(deps) {
   };
 
   function adoptDefaultChatModel(defaultKey) {
-    adoptDefaultWorkModel?.(defaultKey);
-    if (getChatModelTouched() || !defaultKey) return;
-    const entry = getChatModels().find(m => m.key === defaultKey && m.available);
+    if (getChatModelTouched()) return;
+    const models = getChatModels();
+    const preferred = models.find(m => m.key === defaultKey && m.available);
+    if (preferred && chatModelChoice.key !== preferred.key) {
+      chatModelChoice.key = preferred.key;
+      saveChatModelChoice();
+      paintModelBadge();
+      return;
+    }
+    if (models.some(m => m.key === chatModelChoice.key && m.available)) return;
+    const entry = models.find(m => m.available);
     if (entry && chatModelChoice.key !== entry.key) {
       chatModelChoice.key = entry.key;
       saveChatModelChoice();

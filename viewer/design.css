@@ -3845,7 +3845,15 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 /* ---------------------------------------------------------------- Work home
    Codex 式 Work 工作台：项目卡 + 运行看板。布局只属于 #main[data-view="work"]，
    不引入新壳；证据/审批仍走既有会话面。 */
-.work-home { max-width: 1180px; margin: 0 auto; padding: 28px 28px 80px; }
+#main[data-view="work"] {
+  /* #main is also .main-inner (reading column). The Work dashboard is a
+     full-width console, not prose: drop the reading max-width and padding. */
+  max-width: none; padding: 0; margin: 0; height: 100%;
+}
+.work-home {
+  max-width: 1180px; margin: 0 auto; padding: 24px 28px;
+  height: 100%; display: flex; flex-direction: column; box-sizing: border-box;
+}
 .work-home-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .work-kicker { font-size: 11px; letter-spacing: .18em; color: var(--text-3); font-weight: 600; }
 .work-home-head h1 { margin: 4px 0 6px; font-size: 30px; line-height: 1.15; letter-spacing: -.02em; }
@@ -3868,7 +3876,7 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .work-home-notice { color: var(--text-2); background: var(--warn-soft); border: 1px solid rgba(180, 83, 9, .18); }
 .work-projects {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px; margin: 22px 0 26px;
+  gap: 12px; margin: 18px 0 20px; flex: none;
 }
 .project-card {
   display: flex; flex-direction: column; background: var(--raised);
@@ -3903,29 +3911,38 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 }
 .project-card-edit { padding: 6px 10px; }
 .work-empty {
-  grid-column: 1 / -1; border: 1px dashed var(--line-strong); border-radius: var(--radius-card);
-  padding: 28px; text-align: center; color: var(--text-2);
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius-card);
+  padding: 16px 20px; text-align: left; color: var(--text-2);
 }
-.work-empty h2 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); }
-.work-empty p { margin: 0 0 14px; font-size: 12px; }
+.work-empty h2 { margin: 0 0 3px; font-size: 15px; color: var(--text-1); }
+.work-empty p { margin: 0; font-size: 12px; }
+.work-empty .primary { flex: none; }
 .work-selected {
   display: flex; align-items: center; gap: 10px; margin: 4px 0 10px;
   font-size: 12px; color: var(--text-2);
 }
 .work-selected b { color: var(--text-1); }
 .work-selected-label { font-size: 11px; letter-spacing: .08em; color: var(--text-3); }
-.board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.board-filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.board-title { display: flex; align-items: baseline; gap: 10px; }
+.board-title h2 { margin: 0; font-size: 16px; letter-spacing: -.01em; }
+.board-filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; }
 .board-filter {
   flex: none; background: transparent; color: var(--text-2); border: 1px solid var(--line);
   border-radius: var(--radius-pill); padding: 5px 11px; font-size: 11px; cursor: pointer;
 }
 .board-filter.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .board-total { flex: none; font-size: 11px; color: var(--text-3); }
-.board-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.work-board { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.board-columns {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
 .board-col {
-  min-height: 180px; padding: 10px; border: 1px solid var(--line);
+  min-height: 0; overflow-y: auto; padding: 10px; border: 1px solid var(--line);
   border-radius: var(--radius-card); background: rgba(0, 0, 0, .015);
+  scrollbar-width: thin; scrollbar-color: rgba(0, 0, 0, .14) transparent;
 }
 .board-col h3 {
   display: flex; align-items: center; justify-content: space-between;
@@ -3956,6 +3973,10 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   display: grid; gap: 10px; max-width: 560px;
 }
 .work-form-head { display: flex; align-items: center; justify-content: space-between; }
+.work-form-head .ghost {
+  background: transparent; color: var(--text-2); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill); padding: 6px 12px; font-size: 12px; cursor: pointer;
+}
 .work-form-head h2 { margin: 0; font-size: 15px; }
 .work-project-form label { display: grid; gap: 5px; font-size: 12px; color: var(--text-2); }
 .work-project-form input {
@@ -3971,7 +3992,9 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   border-radius: var(--radius-pill); padding: 7px 12px; font-size: 12px; cursor: pointer;
 }
 @media (max-width: 900px) {
-  .work-home { padding: 20px 16px 70px; }
+  #main[data-view="work"] { height: auto; }
+  .work-home { padding: 20px 16px 70px; height: auto; }
   .board-columns { grid-template-columns: 1fr; }
+  .board-col { overflow: visible; }
   .work-home-head { flex-direction: column; }
 }

@@ -106,6 +106,8 @@ class RunProjectFieldsTests(unittest.TestCase):
         self.assertEqual(run.to_json()["attention"], "failed")
         run.status = "recovery_required"
         self.assertEqual(run.to_json()["attention"], "recovery")
+        run.status = "error"
+        self.assertEqual(run.to_json()["attention"], "error")
 
 
 if __name__ == "__main__":

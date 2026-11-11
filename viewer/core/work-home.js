@@ -21,6 +21,7 @@ const ATTENTION_TEXT = {
   recovery: "待恢复",
   failed: "失败",
   denied: "拒绝",
+  error: "错误",
 };
 
 export function statusText(status) {
@@ -157,8 +158,9 @@ export function boardHtml({ projects, runs, selectedProjectId }) {
       '<button type="button" class="board-filter' + (selectedProjectId === project.id ? " is-active" : "")
       + '" data-work-filter="' + esc(project.id) + '">' + esc(project.name) + "</button>").join("");
   return '<section class="work-board">'
-    + '<header class="board-head"><div class="board-filters">' + filters + "</div>"
-    + '<span class="board-total">' + list.length + " 个运行</span></header>"
+    + '<header class="board-head"><div class="board-title"><h2>运行</h2>'
+    + '<span class="board-total">' + list.length + " 个运行</span></div></header>"
+    + '<div class="board-filters">' + filters + "</div>"
     + '<div class="board-columns">'
     + columnHtml("running", "进行中", grouped.running, projectsById)
     + columnHtml("attention", "待处理", grouped.attention, projectsById)
@@ -184,7 +186,9 @@ export function workHomeHtml({
     + '<p>项目、运行与待处理事项，集中在一个工作台。</p></div>'
     + '<div class="work-home-actions">'
     + '<button type="button" class="ghost" data-work-refresh>刷新</button>'
-    + '<button type="button" class="primary" data-work-new-project>新建项目</button>'
+    + (projects.length
+      ? '<button type="button" class="primary" data-work-new-project>新建项目</button>'
+      : "")
     + "</div></header>"
     + (error ? '<div class="work-home-error" role="alert">' + esc(error) + "</div>" : "")
     + (legacyCount
@@ -195,7 +199,9 @@ export function workHomeHtml({
       : "")
     + (creating || editingProject ? projectFormHtml(editingProject) : "")
     + '<section class="work-projects" aria-label="项目">'
-    + (projectRows || '<div class="work-empty"><h2>还没有项目</h2><p>创建一个项目，把运行按目录归档；项目和运行都会持久化在服务端。</p><button type="button" class="primary" data-work-new-project>新建项目</button></div>')
+    + (projectRows || (creating || editingProject
+      ? ""
+      : '<div class="work-empty"><div><h2>还没有项目</h2><p>创建一个项目，把运行按目录归档；项目和运行都会持久化在服务端。</p></div><button type="button" class="primary" data-work-new-project>新建项目</button></div>'))
     + "</section>"
     + (selected ? '<div class="work-selected"><span class="work-selected-label">当前项目</span><b>' + esc(selected.name) + "</b>"
       + '<button type="button" class="ghost" data-work-filter="">查看全部</button></div>' : "")

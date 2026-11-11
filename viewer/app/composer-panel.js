@@ -28,8 +28,22 @@ export function createComposerPanel(deps) {
 
   function adoptDefaultWorkModel(defaultKey) {
     const modelChoice = d.getModelChoice();
-    if (modelChoice.touched || !defaultKey) return;
-    const entry = d.getModelCatalog().find(model => model.key === defaultKey && model.available);
+    const catalog = d.getModelCatalog();
+    const preferred = catalog.find(model => model.key === defaultKey && model.available);
+    // The host default wins only while the operator has not chosen a model.
+    // After that, a deliberate choice is never silently overwritten.
+    if (!modelChoice.touched && preferred && preferred.key !== modelChoice.key) {
+      modelChoice.key = preferred.key;
+      saveModelChoice();
+      paintModelBadge();
+      return;
+    }
+    if (catalog.some(model => model.key === modelChoice.key && model.available)) return;
+    // A stored choice can outlive its provider (key removed, provider
+    // disabled). Never leave the composer pointing at a model the server
+    // would reject: fall back to the first available non-mock provider.
+    const entry = catalog.find(model => model.key !== "mock" && model.available)
+      || catalog.find(model => model.available);
     if (!entry || modelChoice.key === entry.key) return;
     modelChoice.key = entry.key;
     saveModelChoice();

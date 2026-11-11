@@ -26,16 +26,18 @@ function harness({ chatTouched = false } = {}) {
   return { config, chatChoice, work };
 }
 
-test("the configured default model is shared by Chat and Work", () => {
+test("the chat default does not overwrite the run-model default", () => {
   const { config, chatChoice, work } = harness();
   config.adoptDefaultChatModel("kimi");
   assert.equal(chatChoice.key, "kimi");
-  assert.deepEqual(work, ["kimi"]);
+  // Run models are a different surface (generic providers included); their
+  // default comes from /api/models, not from the chat settings page.
+  assert.deepEqual(work, []);
 });
 
-test("an explicit chat model choice is preserved while Work still adopts its default", () => {
+test("an explicit chat choice is preserved without touching the run model", () => {
   const { config, chatChoice, work } = harness({ chatTouched: true });
   config.adoptDefaultChatModel("kimi");
   assert.equal(chatChoice.key, "mock");
-  assert.deepEqual(work, ["kimi"]);
+  assert.deepEqual(work, []);
 });

@@ -40,6 +40,8 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 - **过滤**：全部项目 / 单个项目 / 未归属（历史 run 没有 `projectId`）。
 - **新运行**：把项目上下文交给现有 composer，仍走同一套 intake / 门控 / 预算 / 回执；不复制第二套运行表单。
 - 列表接口新增紧凑字段 `projectId` 与 `attention`；完整 `pending`（含命令预览）仍只在 detail 返回。
+- Work 是 **全宽控制台**（覆盖 `#main` 的阅读列宽）；看板三列各自滚动，页面底部留给 composer。
+- 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
 
 ## 迁移与兼容
 

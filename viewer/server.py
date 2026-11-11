@@ -262,7 +262,7 @@ class Handler(SimpleHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             template_key = (query.get("template") or [""])[0].strip()
             return self._json({
-                "default": "mock",
+                "default": (os.environ.get("FCODE_DEFAULT_RUN_MODEL") or "mock").strip() or "mock",
                 "template": template_key or None,
                 "models": mgr.model_catalog_with_budget(template_key or None),
             })

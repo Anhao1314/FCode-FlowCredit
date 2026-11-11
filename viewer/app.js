@@ -469,10 +469,22 @@ function paintGovChrome(gov) {
 }
 
 /* 主区视图入口：只有导航动作走这里；各渲染函数是具体实现。 */
+function setWorkChrome() {
+  const title = document.getElementById("tb-title");
+  if (title) title.textContent = "工作";
+  const chips = document.getElementById("tb-chips");
+  if (chips) chips.innerHTML = '<span class="chip">项目 · 运行</span>';
+  const badge = document.getElementById("chain-badge");
+  if (badge) {
+    badge.className = "chain-pill";
+    badge.innerHTML = '<span class="dot"></span><span>无运行</span>';
+  }
+}
+
 const MODE_ENTRY = {
   run: payload => render(payload.trace, payload.title),
   // Work 默认落地：项目/运行工作台；Chat 仍由对话列表与新对话入口进入。
-  work: () => workHome.open(),
+  work: () => { setWorkChrome(); workHome.open(); },
   chat: () => newChat(),
   intake: () => renderIntake(),
   ledger: () => openLedger(),
@@ -1965,6 +1977,7 @@ async function initLive() {
     try {
       const data = await fetch("/api/models", { cache: "no-store" }).then(r => r.ok ? r.json() : null);
       modelCatalog = data && Array.isArray(data.models) ? data.models : [];
+      adoptDefaultWorkModel(data && data.default);
     } catch {
       modelCatalog = [];
     }

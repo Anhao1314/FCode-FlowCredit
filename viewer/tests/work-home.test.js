@@ -33,6 +33,7 @@ test("statusText/attentionText:状态用文字,不用 emoji", () => {
   assert.equal(statusText("running"), "进行中");
   assert.equal(statusText("recovery_required"), "待恢复");
   assert.equal(attentionText({ attention: "approval" }), "等待审批");
+  assert.equal(attentionText({ attention: "error" }), "错误");
   assert.equal(attentionText({ attention: "" }), "");
 });
 

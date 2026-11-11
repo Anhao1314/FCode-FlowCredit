@@ -94,6 +94,8 @@ export function createWorkHome({
     state.creating = false;
     state.editingProject = null;
     state.error = "";
+    const composer = document.getElementById("composer-ta");
+    if (composer) composer.placeholder = "从项目开始，或直接描述任务…";
     paint(workHomeHtml({
       projects: state.projects,
       runs: state.runs,

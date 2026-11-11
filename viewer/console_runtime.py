@@ -300,6 +300,8 @@ class Run:
             return "failed"
         if self.status == "denied":
             return "denied"
+        if self.status == "error":
+            return "error"
         return ""
 
     def to_json(self, *, detail: bool = False) -> dict:
