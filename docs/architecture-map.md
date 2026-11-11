@@ -129,7 +129,7 @@ core  →  tools / providers  →  runtime  →  demo
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
 | **合计** | **~149** | **29,392** | | |
 
-外围：`tests/` 91 个文件、18,900 行、1,135 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 357 个前端测试）；`docs/` 38 篇。
+外围：`tests/` 91 个文件、18,900 行、1,141 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 357 个前端测试）；`docs/` 38 篇。
 
 ---
 
