@@ -553,6 +553,7 @@ class CompatClient:
         tool_choice: str | None = None,
         max_completion_tokens: int | None = None,
         reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], str]:
         budget = (
             self.max_completion_tokens if max_completion_tokens is None
@@ -584,7 +585,7 @@ class CompatClient:
             # redundant everywhere: the tool schema already constrains the shape.
             body["tools"] = tools
             body["tool_choice"] = tool_choice or "auto"
-        elif self.json_mode:
+        elif self.json_mode if json_mode is None else json_mode:
             body["response_format"] = {"type": "json_object"}
         effort = reasoning_effort if reasoning_effort is not None else self.reasoning_effort
         if effort:
@@ -642,10 +643,12 @@ class CompatClient:
         *,
         max_completion_tokens: int | None = None,
         reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
     ) -> tuple[str, dict[str, Any], str]:
         message, usage, request_id = self._post(
             system, user, max_completion_tokens=max_completion_tokens,
             reasoning_effort=reasoning_effort,
+            json_mode=json_mode,
         )
         content = message.get("content") or ""
         if not isinstance(content, str) or not content.strip():
@@ -867,6 +870,7 @@ class OpenAICompatProvider:
         *,
         max_tokens: int | None = None,
         reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """One raw auxiliary completion (memory policy head, judges).
 
@@ -886,6 +890,7 @@ class OpenAICompatProvider:
             # Only reasoning-configured endpoints get the override; a plain
             # chat endpoint would reject the field.
             reasoning_effort=(reasoning_effort if self.reasoning_effort else None),
+            json_mode=json_mode,
         )
         latency_ms = int((time.monotonic() - started) * 1000)
         prompt_tokens, completion_tokens, total_tokens = _usage_tokens(usage)

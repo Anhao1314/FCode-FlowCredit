@@ -36,6 +36,30 @@ from console_post_runs import (
 )
 
 
+def post_gov_run_explain(handler, run_id: str):
+    """治理解释层：基于已完成运行的确定性审计包生成模型解读（非裁决）。
+
+    fail-closed：gov/explainer 不可用、运行未完成、provider 不支持
+    都直接拒绝——解释层缺位时，治理功能一个不少。"""
+    explainer = getattr(handler, "gov_explainer", None)
+    if explainer is None or getattr(handler, "gov_bots", None) is None:
+        return handler._json({"error": "governance is unavailable"}, 503)
+    body = handler._read_body()
+    question = body.get("question")
+    model = body.get("model")
+    try:
+        record = explainer.explain(
+            run_id,
+            question=str(question) if isinstance(question, str) else "",
+            model_key=model if isinstance(model, str) else None,
+        )
+    except ValueError as error:
+        message = str(error)
+        code = 503 if "provider" in message or "模型不支持" in message else 400
+        return handler._json({"error": message}, code)
+    return handler._json(record)
+
+
 def post_audit_run(handler):
     """`/挖洞 <target>` 与 `/audit <target>` 的落点:离线审计管线跑成后台作业。
     adapter 可显式指定；缺省按目标位置解析（仓库内=repo,放行根内=rea）。"""
@@ -328,6 +352,7 @@ def dispatch_post(handler, path: str):
     match = _suffix(path, "/api/gov/runs/", {
         "/approve": post_gov_run_approve,
         "/reject": post_gov_run_reject,
+        "/explain": post_gov_run_explain,
     })
     if match is not None:
         run_id, route = match

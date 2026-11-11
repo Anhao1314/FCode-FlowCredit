@@ -200,6 +200,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [多 Agent 实验](docs/multi-agent-lab.md) | 多 Agent 方向的边界与探索 |
 | [视觉系统](docs/design-system.md) | 黑白、留白、轨道与证据语言 |
 | [Work 模式](docs/work-mode.md) | 项目实体、运行看板与待处理队列的当前边界 |
+| [治理解释层](docs/gov-explainer.md) | 模型解释确定性证据（非裁决）的边界与 API |
 | [桌面设计](docs/desktop-design.md) | Work 控制台的结构与交互 |
 | [重构评估](docs/refactor-evaluation.md) | 技术债、模块边界与演进记录 |
 

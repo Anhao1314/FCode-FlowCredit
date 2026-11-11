@@ -368,6 +368,30 @@ class RunManager:
                     raise ValueError(f"budget.{name} must be a positive integer")
         return spec
 
+    def gov_explainer_provider(self, model_key: str | None = None):
+        """解释层的裸补全 provider；不可用时返回 None（fail-closed）。
+
+        解释层走与运行相同的 provider 纪律（目录可用性 + 价格 + 回执字段），
+        但不接回执存储——它的产物进 governance.sqlite，不进审计包。
+        mock 永远不可用：解释层不伪造模型输出。
+        """
+        from console_common import merged_provider_env
+        from flowagent.providers.catalog import compat_settings_for
+        from flowagent.providers.openai_compat import OpenAICompatProvider
+
+        env = merged_provider_env(self.settings_env())
+        key = str(model_key or os.environ.get("FCODE_DEFAULT_RUN_MODEL") or "").strip()
+        if not key or key == "mock":
+            return None
+        entry = next((item for item in self.model_catalog_with_budget(None)
+                      if item.get("key") == key and item.get("available")), None)
+        if entry is None:
+            return None
+        settings = compat_settings_for(key, env=env)
+        if settings is None:
+            return None
+        return OpenAICompatProvider.from_settings(settings)
+
     def model_catalog_with_budget(self, template_key: str | None) -> list[dict]:
         """模型清单 + 该模板下各自真实生效的预算顶（草稿预览的单一事实源）。"""
         models = model_catalog(self.local_endpoint, settings_env=self.settings_env())

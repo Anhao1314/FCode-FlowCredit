@@ -38,6 +38,7 @@ BOT_DEFS = [
         "charter": "对目标执行离线确定性审计，产出 findings 与证据；只读，不改代码。",
         "tools": ["audit.run", "bundle.read"],
         "model_policy": "deterministic",
+        "explain_policy": "model-explainer",
         "mode": "on-demand",
     },
     {
@@ -48,6 +49,7 @@ BOT_DEFS = [
         "charter": "验证签名链与回归对比，确认一次审计是否完整、是否出现回归。",
         "tools": ["chain.read", "regression.read", "bundle.read"],
         "model_policy": "deterministic",
+        "explain_policy": "model-explainer",
         "mode": "on-demand",
     },
 ]
@@ -97,6 +99,17 @@ CREATE TABLE IF NOT EXISTS bot_skills (
     source_run_id TEXT NOT NULL,
     target TEXT NOT NULL DEFAULT '',
     version INTEGER NOT NULL DEFAULT 1,
+    created TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bot_explanations (
+    run_id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    question TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL,
+    prompt_sha256 TEXT NOT NULL,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    cost_microusd INTEGER NOT NULL DEFAULT 0,
     created TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS bot_skills_run ON bot_skills(source_run_id);
@@ -171,6 +184,7 @@ class GovBotService:
             settings = self.get_settings(definition["id"])
             bots.append({
                 **definition,
+                "explain_policy": definition.get("explain_policy", ""),
                 "status": "running" if current else "pending" if pending else "idle",
                 "current": current,
                 "pending": pending,
@@ -211,6 +225,46 @@ class GovBotService:
                 "SELECT * FROM bot_runs WHERE run_id=?", (run_id,)
             ).fetchone()
         return self._row(row) if row else None
+
+    # ------------------------------------------------------------ explanations
+    # 解释层产物：非确定性、非裁决、不进审计包；单独建表就是为了
+    # 让这个边界在存储层可见——bundle 表和解释表永远不混。
+
+    def save_explanation(self, record: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO bot_explanations"
+                " (run_id, bot_id, model, question, text, prompt_sha256,"
+                "  tokens, cost_microusd, created) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    str(record["run_id"]),
+                    str(record.get("bot_id") or ""),
+                    str(record.get("model") or ""),
+                    str(record.get("question") or ""),
+                    str(record.get("text") or ""),
+                    str(record.get("prompt_sha256") or ""),
+                    int(record.get("tokens") or 0),
+                    int(record.get("cost_microusd") or 0),
+                    record.get("created") or datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                ),
+            )
+            self._db.commit()
+            return self.explanation(record["run_id"])  # type: ignore[return-value]
+
+    def explanation(self, run_id: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM bot_explanations WHERE run_id=?", (run_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def explanations_map(self, limit: int = 200) -> dict[str, dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM bot_explanations ORDER BY created DESC, rowid DESC LIMIT ?",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
+        return {row["run_id"]: dict(row) for row in rows}
 
     # ------------------------------------------------------- settings / skills
 

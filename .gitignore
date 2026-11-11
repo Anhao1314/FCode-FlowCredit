@@ -15,3 +15,6 @@ viewer/node_modules/
 
 # 本机 MCP 插件配置（host-reviewed，不入库）
 mcp.json
+
+# 运行产物不入库（trace/meta/workspace 属本机产品；runs 目录另含内嵌 git 仓）
+viewer/runs/

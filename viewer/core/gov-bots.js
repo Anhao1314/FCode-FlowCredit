@@ -7,6 +7,7 @@
 
 import { esc, num } from "./format.js";
 import { aiAvatarHtml } from "./ai-avatar.js";
+import { renderMarkdown } from "./chat-format.js";
 
 const STATUS_LABEL = {
   queued: "排队",
@@ -260,7 +261,11 @@ function runActions(run, opts = {}) {
   const teach = opts.teach === false ? ""
     : `<button class="gov-wb-button quiet" type="button" data-gov-skill-run="${esc(run.run_id)}"
       title="从这次已完成的运行生成可复用技能">教一次</button>`;
-  return `<div class="gov-bot-run-actions">${links}${teach}</div>`;
+  const explain = run.audit_id
+    ? `<button class="gov-wb-button quiet" type="button" data-gov-explain="${esc(run.run_id)}"
+      title="基于审计包生成模型解读（非裁决，不进审计包）">AI 解读</button>`
+    : "";
+  return `<div class="gov-bot-run-actions">${links}${teach}${explain}</div>`;
 }
 
 export function govBotSettingsFormHtml(bot) {
@@ -365,12 +370,13 @@ export function govBotDetailHtml(bot, runs = []) {
   </div>`;
 }
 
-export function govBotRunHtml(bot, run) {
+export function govBotRunHtml(bot, run, explanations = {}) {
   const target = targetLabel(run.target);
   const verb = run.trigger === "routine"
     ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
     : (bot.id === "verifier" ? "验证" : "扫描");
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
+  const explainByRun = explanations || {};
   return `<div class="gov-entry user"><span class="gov-echo">@${esc(bot.name)} ${
     verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
   }</span></div>
@@ -384,17 +390,30 @@ export function govBotRunHtml(bot, run) {
       </header>
       ${runStatusLine(bot, run)}
       ${runActions(run, { teach: !captured })}
+      ${govExplainBlock(explainByRun[run.run_id])}
     </div>
   </div>`;
 }
 
-export function govBotChannelHtml(runs, bots) {
+/* 解释层产物：非确定性、非裁决，渲染时必须带边界标签。 */
+export function govExplainBlock(explanation) {
+  const e = explanation || {};
+  if (!e.text) return "";
+  return `<details class="gov-explain" data-gov-explain-block="${esc(e.run_id || "")}" open>
+    <summary><span class="gov-explain-badge">AI 解读</span><span class="gov-explain-boundary">非裁决 · 引用确定性证据 · 不进审计包</span></summary>
+    <div class="gov-explain-body">${renderMarkdown(e.text)}</div>
+    <p class="gov-explain-meta">${esc(e.model || "")} · ${num(e.tokens || 0)} tokens · prompt ${esc(String(e.prompt_sha256 || "").slice(0, 12))}</p>
+  </details>`;
+}
+
+export function govBotChannelHtml(runs, bots, explanations = {}) {
+  const explainByRun = explanations || {};
   const list = (runs || []).slice().reverse(); // API is newest-first; channel is chronological
   if (!list.length) {
     return `<div class="gov-empty-state"><b>团队频道还是空的</b><span>把第一个目标派给审计员，运行结果会出现在这里。</span></div>`;
   }
   return list.map(run => {
     const bot = botOf(bots, run.bot_id);
-    return bot ? govBotRunHtml(bot, run) : "";
+    return bot ? govBotRunHtml(bot, run, explainByRun) : "";
   }).join("");
 }

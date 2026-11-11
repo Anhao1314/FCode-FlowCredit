@@ -2706,7 +2706,7 @@ const govWork = {
   dir: "", severity: "all", unhandled: false, query: "", finding: "", inspector: "",
 };
 const govTeam = {
-  bots: [], runs: [], loaded: false,
+  bots: [], runs: [], explanations: {}, loaded: false,
 };
 let govTeamSeq = 0;
 let govTeamTimer = null;
@@ -2982,7 +2982,7 @@ function paintGovTeam() {
   }
   if (channelHost) {
     channelHost.innerHTML = govTeam.loaded
-      ? govBotChannelHtml(govTeam.runs, govTeam.bots)
+      ? govBotChannelHtml(govTeam.runs, govTeam.bots, govTeam.explanations)
       : `<div class="gov-loading dim">正在读取团队频道…</div>`;
   }
   const routineListHost = document.getElementById("gov-routine-list-host");
@@ -3016,6 +3016,7 @@ async function loadGovTeam() {
     if (seq !== govTeamSeq) return;
     govTeam.bots = Array.isArray(botsData.bots) ? botsData.bots : [];
     govTeam.runs = Array.isArray(runsData.runs) ? runsData.runs : [];
+    govTeam.explanations = runsData.explanations || {};
     govTeam.loaded = true;
     if (!govTeam.bots.some(bot => bot.id === govBotSelected) && govTeam.bots[0]) {
       govBotSelected = govTeam.bots[0].id;
@@ -3023,7 +3024,7 @@ async function loadGovTeam() {
     if (!govTeam.bots.some(bot => bot.id === govRoutineSelected) && govTeam.bots[0]) {
       govRoutineSelected = govTeam.bots[0].id;
     }
-    const signature = JSON.stringify([govTeam.bots, govTeam.runs]);
+    const signature = JSON.stringify([govTeam.bots, govTeam.runs, govTeam.explanations]);
     if (govActive() && govSurface === "team" && signature !== govTeamSig) {
       govTeamSig = signature;
       paintGovTeam();
@@ -3273,6 +3274,25 @@ async function decideGovRun(runId, approve) {
     else await loadGovTeam();
   } catch (error) {
     toast("审批失败：" + error.message);
+  }
+}
+
+/* 治理解释层：模型基于审计包解释发现（非裁决）。按钮即操作员显式动作，
+   产物进 governance.sqlite 并在频道渲染，绝不写进审计包。 */
+async function explainGovRun(runId) {
+  toast("正在生成 AI 解读…");
+  try {
+    const response = await fetch(`/api/gov/runs/${encodeURIComponent(runId)}/explain`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    await loadGovTeam();
+    toast("AI 解读已生成（非裁决）");
+  } catch (error) {
+    toast("AI 解读失败：" + error.message);
   }
 }
 
@@ -4558,6 +4578,11 @@ function bindGlobalActions() {
     const govSkillRun = event.target.closest("[data-gov-skill-run]");
     if (govSkillRun) {
       teachFromRun(govSkillRun.dataset.govSkillRun);
+      return;
+    }
+    const govExplain = event.target.closest("[data-gov-explain]");
+    if (govExplain) {
+      explainGovRun(govExplain.dataset.govExplain);
       return;
     }
     const govSkillSchedule = event.target.closest("[data-gov-skill-schedule]");

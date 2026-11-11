@@ -463,7 +463,10 @@ class Handler(SimpleHTTPRequestHandler):
                 limit = int((query.get("limit") or ["50"])[0])
             except (TypeError, ValueError):
                 return self._json({"error": "limit must be an integer"}, 400)
-            return self._json({"runs": bots.runs(bot_id, limit)})
+            return self._json({
+                "runs": bots.runs(bot_id, limit),
+                "explanations": bots.explanations_map(),
+            })
         # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
         if path == "/api/audit/bundles":
             return self._json(self.audit.bundles())
@@ -852,6 +855,22 @@ def create_server(
     except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
         traceback.print_exc()
         Handler.gov_bots = None
+    # 解释层：模型解释确定性证据，不做裁决。bundle 读取走审计服务（同一 jail），
+    # provider 构建走与运行相同的目录纪律；产物落 governance.sqlite。
+    Handler.gov_explainer = None
+    if Handler.gov_bots is not None:
+        try:
+            from gov_explainer import GovExplainer
+
+            Handler.gov_explainer = GovExplainer(
+                service=Handler.gov_bots,
+                bundle_loader=lambda name: Handler.audit.bundle(name),
+                provider_factory=lambda key: manager.gov_explainer_provider(key),
+                default_model=os.environ.get("FCODE_DEFAULT_RUN_MODEL", ""),
+            )
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            Handler.gov_explainer = None
     # Curated plugin market over mcp.json. Install/uninstall is a host action
     # with catalog-only ids; the UI cannot invent commands.
     try:

@@ -266,3 +266,33 @@ test("团队频道按时间正序，并对失败文本转义", () => {
   assert.ok(html.indexOf("&lt;img&gt;") < html.indexOf("@复核员"));
   assert.match(govBotChannelHtml([], bots), /团队频道还是空的/);
 });
+
+test("AI 解读：非裁决标签显式、正文转义、done 运行带入口", () => {
+  const explanations = {
+    new: {
+      run_id: "new", model: "glm-5.3-flash", tokens: 1234,
+      prompt_sha256: "abc123", text: "发现 fp-1 的依据是<审计包>证据<script>bad</script>。",
+    },
+  };
+  const html = govBotChannelHtml([
+    { run_id: "new", bot_id: "verifier", target: "b", status: "done", audit_id: "b", chain_intact: true },
+  ], bots, explanations);
+  assert.match(html, /AI 解读/);
+  assert.match(html, /非裁决/);
+  assert.match(html, /不进审计包/);
+  assert.match(html, /glm-5\.3-flash/);
+  assert.doesNotMatch(html, /<script>bad/);
+  assert.match(html, /&lt;审计包&gt;/);
+  // done + audit_id 的运行在频道里带解读入口
+  assert.match(html, /data-gov-explain="new"/);
+  // 没有解读的运行不渲染块
+  const bare = govBotChannelHtml([
+    { run_id: "old", bot_id: "auditor", target: "b", status: "done", audit_id: "a2" },
+  ], bots, explanations);
+  assert.doesNotMatch(bare, /gov-explain-block="old"/);
+  // done 但没有 audit_id：没有解读入口
+  const noBundle = govBotRunHtml(bots[0], {
+    run_id: "r9", bot_id: "auditor", target: "t", status: "done", audit_id: "",
+  });
+  assert.doesNotMatch(noBundle, /data-gov-explain/);
+});
