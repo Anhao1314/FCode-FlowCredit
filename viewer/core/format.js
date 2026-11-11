@@ -37,7 +37,17 @@ export async function verifyChain(trace) {
   return { ok: true, events: events.length, head: previous };
 }
 
-export const esc = value => String(value).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+export const esc = value => String(value).replace(/[&<>"']/g, c => ESC_MAP[c]);
+
+/* URL 白名单：模型/工具结果里的 href 与 img src 一律过这里。
+   只放行相对路径、http(s) 与图片 data URL——其它 scheme（javascript: 等）
+   直接丢弃成空串，宁可少一个链接也不多一个注入面。 */
+const SAFE_URL = /^(?:https?:\/\/|data:image\/|\/(?!\/))/i;
+export function safeUrl(value) {
+  const raw = String(value || "");
+  return SAFE_URL.test(raw) ? raw : "";
+}
 export const pct = bp => (bp / 100).toFixed(2) + "%";
 export const pp = bp => (bp >= 0 ? "+" : "") + (bp / 100).toFixed(2) + " pp";
 export const num = n => Number(n).toLocaleString("en-US");

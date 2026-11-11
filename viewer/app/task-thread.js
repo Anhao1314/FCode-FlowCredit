@@ -7,7 +7,7 @@
    app.js 只负责把同样的 live 状态喂进来，并把变化的条目打补丁进 DOM。
    —— 信息层级：用户任务 → Agent 状态／计划 → 工具与审批 → 最终回复。 */
 
-import { esc, num } from "../core/format.js";
+import { esc, safeUrl, num } from "../core/format.js";
 
 /* ------------------------------------------------------------------ 常量 */
 
@@ -678,7 +678,7 @@ function toolBodyHtml(item, ctx) {
     browserShots.push({ key: "screenshot", shot: browserResult.screenshot, label: "页面" });
   }
   if (browserShots.length) {
-    const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(entry.shot.url)}" target="_blank" rel="noreferrer"><img src="${esc(entry.shot.url)}" alt="浏览器截图 · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
+    const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(safeUrl(entry.shot.url))}" target="_blank" rel="noreferrer"><img src="${esc(safeUrl(entry.shot.url))}" alt="浏览器截图 · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
     const diff = browserResult.diff || {};
     const diffText = diff.changed === undefined ? ""
       : diff.size_changed ? "截图尺寸变化"

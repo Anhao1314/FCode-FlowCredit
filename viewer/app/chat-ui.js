@@ -824,7 +824,7 @@ export function createChatUI(deps) {
 
   return {
     loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-    detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
+    detachChatChrome, switchToChat, newChat, openChat, renderChat,
     renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
     stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
     regenerateChat, copyChatMessage, delegateChatMessage,

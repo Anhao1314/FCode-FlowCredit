@@ -9,7 +9,7 @@
    渲染保持"证据优先"：工具名与参数直接可见，结果放在展开体里；
    status 三态（running/ok/error）是唯一的状态来源，不写形容词。 */
 
-import { esc } from "./format.js";
+import { esc, safeUrl } from "./format.js";
 
 const STATE_LABEL = { running: "运行中", ok: "完成", error: "失败" };
 
@@ -88,8 +88,8 @@ function browserHtml(block) {
     : []);
   if (!shots.length) return "";
   const figures = shots.map(item => `<figure class="chat-browser-figure">
-    <a class="chat-browser-shot" href="${esc(item.shot.url)}" target="_blank" rel="noreferrer">
-      <img src="${esc(item.shot.url)}" alt="浏览器截图 · ${esc(item.label)}" loading="lazy">
+    <a class="chat-browser-shot" href="${esc(safeUrl(item.shot.url))}" target="_blank" rel="noreferrer">
+      <img src="${esc(safeUrl(item.shot.url))}" alt="浏览器截图 · ${esc(item.label)}" loading="lazy">
     </a>
     <figcaption>${esc(item.label)}</figcaption>
   </figure>`).join("");

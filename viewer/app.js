@@ -1037,7 +1037,7 @@ function renderHead(trace, title) {
 /* RENDER LAYER — 舞台式空状态：标识、字标与提示；composer 由 setStageMode
    以单实例 appendChild 搬进 stage-dock，模板 chips 在其下。 */
 function stageEmptyHtml(note = "给想法一个运行空间", opts = {}) {
-  return moonshotStageHtml(note, { ...opts, footnote: WORK_STAGE_FOOTNOTE });
+  return moonshotStageHtml(note, opts);
 }
 
 /* RENDER LAYER — composer 双形态（对齐 kimi.com 的居中舞台 → 吸底节奏）。
@@ -3670,7 +3670,6 @@ const {
   getChatModelTouched: () => chatModelTouched,
 });
 
-const WORK_STAGE_FOOTNOTE = "模型提议，主机守门。每次工具调用都过权限与预算，每一步都有证据。";
 
 /* 判断记录与定时任务两个 surface（viewer/app/pages.js）。
    数据一个来自 API、一个来自 localStorage；渲染原语仍由本文件提供。 */
@@ -3750,7 +3749,7 @@ const {
 const {
   loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
   rememberChatMemory, refreshChatMemory, deleteChatMemory,
-  detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
+  detachChatChrome, switchToChat, newChat, openChat, renderChat,
   renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
   stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
   regenerateChat, copyChatMessage, delegateChatMessage,
@@ -3808,7 +3807,7 @@ const {
     const entry = modelCatalog.find(model => model.key === key);
     return !!(entry && entry.supportsEffort);
   },
-  renderChat, loadChatThreads, toast, applyDelta, setUiMode, openLive,
+  renderChat, loadChatThreads, toast, applyDelta, openLive,
 });
 
 let addMenuWorkspaceOpen = false;
@@ -4703,7 +4702,6 @@ function bindGlobalActions() {
       return;
     }
     if (event.target.closest("[data-new-task]")) { newTask(); return; }
-    if (event.target.closest("[data-proj-add]")) { addProject(event.target.closest("[data-proj-add]")); return; }
     const sectionToggle = event.target.closest("[data-section-toggle]");
     if (sectionToggle) { toggleSection(sectionToggle); return; }
     if (event.target.closest("[data-quickstart-close]")) { dismissQuickStart(); return; }
@@ -5210,7 +5208,7 @@ function bindMainInteractions() {
     const originChip = event.target.closest("[data-origin-thread]");
     if (originChip) {
       const threadId = originChip.dataset.originThread;
-      if (threadId) { setUiMode(); openChat(threadId); }
+      if (threadId) { openChat(threadId); }
       return;
     }
     const threadToggle = event.target.closest("[data-thread-toggle]");
@@ -5557,6 +5555,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       renderMain(`<div class="empty">无法加载运行 ${esc(runParam)}：运行不存在或已删除</div>`, { mode: "error" });
     });
   } else if (param) {
+    // 深链只放行两种 trace 形态：API 路由与 runs 目录静态名。
+    // 其它路径（包括 //host、/api/...）一律拒绝，不给"同源任意读"留门。
+    const traceOk = /^\/?runs\/[A-Za-z0-9._-]+\/trace\.json$/.test(param)
+      || /^\/api\/runs\/[A-Za-z0-9._-]+\/trace$/.test(param);
+    if (!traceOk) {
+      renderMain(`<div class="empty">无法加载 trace ${esc(param)}：路径不合法</div>`, { mode: "error" });
+      document.body.dataset.booted = "1";
+      return;
+    }
     const ticket = viewGate.begin();
     fetch(param, { cache: "no-store" })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))

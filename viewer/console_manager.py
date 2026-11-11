@@ -475,6 +475,7 @@ class RunManager:
                     effort=str(meta.get("effort") or ""),
                     cost=meta.get("cost"),
                     spec=meta.get("spec"),
+                    source=str(meta.get("source") or "manual"),
                     project_id=str(meta.get("projectId") or ""),
                     error=self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or ""),
                     finished=True,

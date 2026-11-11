@@ -41,7 +41,6 @@ body {
 
 .stage-mark { display: inline-flex; align-items: flex-start; gap: 10px; }
 /* .stage-badge 黑底款已删：moonshot.css:21 的透明描边款是定稿（本文件加载序在先，从未生效）。 */
-.stage-chips[hidden] { display: none !important; }
 
 /* ================================================================ 主区 */
 /* 顶栏底边与底色由 desktop.css 的毛玻璃规则定稿（此处旧透明款是死代码，已删）。 */
@@ -52,11 +51,9 @@ body {
 html.desktop-app #app.stage-mode .statusline { display: none; }
 html.desktop-app #app.chat-mode .statusline { display: none; }
 .stage-note { color: var(--text-3); font-size: 15px; line-height: 22px; }
-.stage-chip {
   border: .5px solid rgba(0, 0, 0, .13); background: #FFFFFF; color: var(--text-2);
   font-size: 14px; transition: background-color .15s, color .15s, border-color .15s;
 }
-.stage-chip:hover { background: #F5F5F5; color: var(--text-1); border-color: rgba(0, 0, 0, .20); }
 
 /* rail 旧浮层规则已迁往 desktop.css「rail 双形态」节（含关闭态 visibility 修复）。 */
 
@@ -283,24 +280,15 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
    与 workspace.css 的三行覆写合并为生效值（卡 r14/--line、行透明底+软分隔、
    审批门白底+左缘 3px 警示条、主档 #111）。core/run-card.js 渲染契约不动。 */
 
-/* 舞台脚注与「演示场景」折叠：真实任务模板直接露出，故障注入夹具收进折叠。
-   chips 改为换行布局：Kimi 的模板区是有限几项，横滚是我们自己的历史包袱。 */
-.stage-chips { flex-wrap: wrap; row-gap: 10px; }
-.stage-foot {
   margin: 10px 0 0; max-width: 620px;
   font: 12px/18px var(--font-ui); color: var(--text-4); text-align: center;
 }
-.stage-demos {
   flex: 1 0 100%; margin-top: 2px;
   font: 12px/18px var(--font-ui); color: var(--text-3);
 }
-.stage-demos > summary {
   display: inline-block; padding: 4px 10px; border-radius: 8px; cursor: pointer;
   color: var(--text-3); transition: background-color .15s, color .15s;
 }
-.stage-demos > summary:hover { background: var(--panel); color: var(--text-1); }
-.stage-demo-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 0 4px; }
-.stage-demo-note { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--text-4); }
 
 /* 设置页 provider 卡：作用域说明 + 配置时效 */
 .chatcfg-scope { margin: 2px 0 8px; font: 12px/18px var(--font-ui); color: var(--text-4); }
@@ -347,7 +335,6 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
 /* ================================================================ Work 任务体验
    首页、执行页与输入区共用 Kimi 的阅读宽度和灰阶层级。项目设置、模型与附件
    都是浮层；执行、变更、文件共享一个任务上下文，不再混入需求确认与审计卡片。 */
-.mode-work .stage-foot { display: none; }
 .mode-work .chain-pill { display: none; }
 html.desktop-app .mode-work .statusline { display: none; }
 

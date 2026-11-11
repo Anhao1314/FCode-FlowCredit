@@ -240,7 +240,7 @@ class HistoricalRunServerTests(unittest.TestCase):
         runs.mkdir()
         write_run(runs, "run-20261025-130000-aaaa", projectId="prj-demo")
         write_trace(runs / "run-20261025-130000-aaaa", head="b" * 64)
-        write_run(runs, "run-20261025-120000-bbbb", status="running")
+        write_run(runs, "run-20261025-120000-bbbb", status="running", source="scheduled")
         write_run(runs, "run-20261025-110000-cccc")  # meta only: no trace on disk yet
         # 服务端子进程的输出必须留下：DEVNULL 时代 CI 连红二十次都无从定位。
         cls.server = ConsoleServer(runs_dir=runs, config_dir=root / "config", timeout=30)
@@ -264,6 +264,8 @@ class HistoricalRunServerTests(unittest.TestCase):
         # Project membership survives a restart: the Work board groups by it.
         self.assertEqual(runs["run-20261025-130000-aaaa"]["projectId"], "prj-demo")
         self.assertEqual(runs["run-20261025-120000-bbbb"]["projectId"], "")
+        # 账本徽标的事实字段：重启后不得退回 manual。
+        self.assertEqual(runs["run-20261025-120000-bbbb"]["source"], "scheduled")
 
     def test_the_trace_route_serves_a_run_outside_the_static_root(self) -> None:
         status, body = request(self.url("/api/runs/run-20261025-130000-aaaa/trace"))

@@ -40,7 +40,6 @@ html.desktop-app .c-btn {
 html.desktop-app .c-icon,
 html.desktop-app .send { width: 36px; height: 36px; }
 html.desktop-app .stage-dock { width: min(768px, 100%); }
-html.desktop-app .stage-chips { max-width: min(768px, 100%); }
 
 /* ================================================================ 浮层与 z-index 层级表
    全站 z-index 的当前生效档位（散点定义仍在各规则处；新增浮层对号入座，禁止越档）：

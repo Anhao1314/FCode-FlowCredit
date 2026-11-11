@@ -1915,14 +1915,11 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   width: min(var(--reading-w), 100%);
   margin: 22px auto 0;
 }
-.stage-chips {
   display:flex; gap:8px; max-width:min(var(--reading-w), 100%); margin-top:18px;
   overflow-x:auto; scrollbar-width:none; padding:2px 0 4px;
   justify-content:center;
 }
-.stage-chips::-webkit-scrollbar { display:none; }
 /* chips 统一度量：高 36 / radius 999 / fs 14 / 0 12 0 10 / 白底 + 0.5px 边 */
-.stage-chip {
   flex:none; height:36px; box-sizing:border-box;
   display:inline-flex; align-items:center;
   border:0.5px solid rgba(0, 0, 0, .13); border-radius:999px;
@@ -1930,7 +1927,6 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   padding:0 12px 0 10px; font-size:14px; line-height:1; cursor:pointer;
   transition: background-color var(--t) ease, color var(--t) ease, border-color var(--t) ease;
 }
-.stage-chip:hover { color:var(--text-1); border-color:rgba(0, 0, 0, .2); }
 
 /* composer 双形态：#app.stage-mode = 空状态居中舞台，否则吸底 dock。
    节点搬运后 150ms ease 淡入落位（appendChild 会重放动画），无闪跳。 */
@@ -1953,7 +1949,6 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 @media (max-width: 900px) {
   .app.stage-mode .main-inner { padding:18px 14px 28px; }
   .stage-dock { width:100%; margin-top:16px; }
-  .stage-chips { justify-content:flex-start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .stage-dock > .composer, .composer-wrap > .composer { animation:none; }
@@ -2272,7 +2267,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 /* ================================================================ Moonshot stage（原 moonshot.css，v7 收敛迁入）
    职责：#app.stage-mode 开屏舞台全套——打字机标题/轨道场景/光标、
-   stage-dock 与 stage-chips 槽位、reduce-motion 分支。
+   stage-dock 槽位、reduce-motion 分支。
    变量 --moonshot-mono/--moonshot-black 已迁 app.css :root。
    ================================================================ */
 
@@ -2311,15 +2306,6 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .moonshot-pixels { fill: var(--text-3); }
 .moonshot-stage .stage-dock { width: 100%; margin-top: 38px; align-self: stretch; }
 .moonshot-stage .composer { max-width: none; }
-.stage-prompts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
-.stage-prompt { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 42px; padding: 9px 11px; border: 0; border-radius: 10px; background: transparent; color: var(--text-2); font: 12px/18px var(--font-ui); text-align: left; cursor: pointer; transition: background .15s, color .15s; }
-.stage-prompt:hover { background: var(--panel); color: var(--text-1); }
-.stage-prompt-no { color: var(--text-4); font: 10px/16px var(--moonshot-mono); }
-.stage-prompt-arrow { margin-left: auto; color: var(--text-4); }
-.moonshot-stage .stage-chips { align-self: flex-start; margin-top: 10px; }
-.moonshot-stage .stage-chip { border-color: var(--line); border-radius: 8px; background: transparent; color: var(--text-2); }
-.moonshot-stage .stage-chip:hover { background: var(--panel); border-color: var(--line-strong); color: var(--text-1); }
-.moonshot-stage .stage-foot { max-width: none; margin: 18px 0 0; color: var(--text-3); text-align: left; font-size: 11px; }
 @keyframes moonshot-type { to { clip-path: inset(0); } }
 @keyframes moonshot-cursor { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
 @keyframes moonshot-orbit { to { transform: rotate(360deg); } }
@@ -2344,8 +2330,6 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   .moonshot-title { font-size: clamp(34px, 10vw, 46px); }
   .moonshot-scene { position: absolute; right: -60px; top: -42px; width: 220px; opacity: .16; }
   .moonshot-stage .stage-dock { margin-top: 32px; }
-  .stage-prompts { grid-template-columns: 1fr; gap: 2px; }
-  .stage-prompt { min-height: 38px; }
 }
 
 
