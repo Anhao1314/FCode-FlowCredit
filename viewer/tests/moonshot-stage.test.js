@@ -7,7 +7,6 @@ test("Work opening scene keeps the composer contract and creator message", () =>
   assert.match(html, /Build your/);
   assert.match(html, /own work\./);
   assert.match(html, /id="stage-dock"/);
-  assert.match(html, /MODEL PROPOSES · HOST VERIFIES · YOU DECIDE/);
   assert.doesNotMatch(html, /stage-prompts|stage-chips|class="stage-foot"/);
 });
 
@@ -15,7 +14,6 @@ test("Chat gets its own opening message and hides delegation templates", () => {
   const html = moonshotStageHtml("整理思路", { chat: true });
   assert.match(html, /Bring proof/);
   assert.match(html, /to ideas\./);
-  assert.match(html, /让想法有据可查/);
   assert.doesNotMatch(html, /Bring light/);
   assert.match(html, />CHAT<\/span>/);
 });

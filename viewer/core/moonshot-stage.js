@@ -28,6 +28,5 @@ export function moonshotStageHtml(note, options = {}) {
       </div>
     </div>
     <div class="stage-dock" id="stage-dock"></div>
-    <div class="moonshot-stage-foot" aria-hidden="true"><span>让想法有据可查</span><span>MODEL PROPOSES · HOST VERIFIES · YOU DECIDE</span></div>
   </section>`;
 }
