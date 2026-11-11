@@ -1,21 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { workPromptsHtml } from "../core/work-surface.js";
-
-test("Work suggestions are explicit drafts, never automatic run actions", () => {
-  const html = workPromptsHtml();
-  assert.equal((html.match(/data-stage-prompt=/g) || []).length, 3);
-  assert.match(html, /改造一个代码项目/);
-  assert.doesNotMatch(html, /data-run-start|data-act="start"/);
-});
-
-test("Opening scene exposes three useful Work starting points", () => {
-  const html = workPromptsHtml();
-  assert.match(html, /研究并整理结论/);
-  assert.match(html, /交付一份工作成果/);
-  assert.match(html, /aria-label="任务建议"/);
-});
-
 test("run and trace deep links select Work without changing ordinary startup", () => {
 });
 

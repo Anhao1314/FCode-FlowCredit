@@ -129,7 +129,7 @@ core  →  tools / providers  →  runtime  →  demo
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
 | **合计** | **~149** | **29,392** | | |
 
-外围：`tests/` 91 个文件、18,900 行、1,135 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 359 个前端测试）；`docs/` 38 篇。
+外围：`tests/` 91 个文件、18,900 行、1,135 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 357 个前端测试）；`docs/` 38 篇。
 
 ---
 
@@ -458,7 +458,7 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 ```bash
 cd flowcredit
 python3.12 -m unittest discover -s tests -q     # 791 tests, OK
-node --test viewer/tests/*.test.js              # 183 pass
+node --test viewer/tests/*.test.js              # 357 pass
 python3.12 demo.py all                          # 8 场景全过
 python3.12 audit.py audit fixtures/demo-target
 PYTHONPATH=src python3.12 -m flowagent.benchmark --output /tmp/bench

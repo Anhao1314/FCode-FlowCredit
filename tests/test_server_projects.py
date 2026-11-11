@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import pathlib
 import tempfile
+import time
 import unittest
 import uuid
 
@@ -22,8 +23,19 @@ class ProjectApiTests(unittest.TestCase):
             timeout=30,
         )
         cls.server.start()
+        # LIFO cleanups: stop the server before deleting its runs directory.
+        # A run thread (or a git child it spawned) can still be settling, so
+        # retry the rmtree briefly; a leftover temp dir is better than a red test.
+        def _cleanup_tmp() -> None:
+            for _ in range(10):
+                try:
+                    cls._tmp.cleanup()
+                    return
+                except OSError:
+                    time.sleep(0.2)
+            cls._tmp.cleanup(ignore_cleanup_errors=True)
+        cls.addClassCleanup(_cleanup_tmp)
         cls.addClassCleanup(cls.server.stop)
-        cls.addClassCleanup(cls._tmp.cleanup)
 
     def _new_dir(self, prefix: str) -> pathlib.Path:
         path = self.root / f"{prefix}-{uuid.uuid4().hex[:6]}"

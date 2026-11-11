@@ -38,7 +38,7 @@ flowcredit/viewer/
   console_runtime.py  ← runtime 导入、单次运行、观察者与崩溃检查
   console_manager.py  ← 运行历史、创建、控制、续跑与持久化
   projects.py         ← Work 项目注册表（目录 / 验证命令 / 归档）
-  tests/              ← 前端纯函数测试（node --test，368 项）
+  tests/              ← 前端纯函数测试（node --test，357 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）

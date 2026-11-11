@@ -2,20 +2,6 @@
 
 import { esc } from "./format.js";
 
-/* Suggestions only place a draft in the composer. Starting work remains an
-   explicit operator action, exactly like Kimi's prompt suggestions. */
-const WORK_PROMPTS = [
-  ["01", "改造一个代码项目", "分析项目结构，完成一项明确的改造，并运行独立验证。"],
-  ["02", "研究并整理结论", "研究这个主题，梳理关键事实、分歧与来源，形成一份可核验的报告："],
-  ["03", "交付一份工作成果", "完成这项任务，将过程、验证结果和交付文件整理清楚："],
-];
-
-export function workPromptsHtml() {
-  return `<div class="stage-prompts" aria-label="任务建议">${WORK_PROMPTS.map(([n, title, prompt]) =>
-    `<button class="stage-prompt" type="button" data-stage-prompt="${esc(prompt)}"><span class="stage-prompt-no">${n}</span><span>${esc(title)}</span><span class="stage-prompt-arrow" aria-hidden="true">↗</span></button>`
-  ).join("")}</div>`;
-}
-
 export function bindWorkspaceNavigation({ openPalette, setMobileNavigation }) {
   document.getElementById("side-search")?.addEventListener("click", openPalette);
   document.getElementById("workspace-menu")?.addEventListener("click", () => setMobileNavigation(true));

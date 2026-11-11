@@ -1,7 +1,6 @@
 /* Moonshot's monochrome, orbital visual language inside a calm Kimi-style
    workspace. The scene identifies FCode; it never competes with the task. */
 import { esc } from "./format.js";
-import { workPromptsHtml } from "./work-surface.js";
 
 export function moonshotStageHtml(note, options = {}) {
   const chat = !!options.chat;
@@ -29,9 +28,6 @@ export function moonshotStageHtml(note, options = {}) {
       </div>
     </div>
     <div class="stage-dock" id="stage-dock"></div>
-    ${work ? workPromptsHtml() : ""}
-    <div class="stage-chips" id="stage-chips" aria-label="按模板开始委托"${work ? "" : " hidden"}></div>
-    ${work && footnote ? `<p class="stage-foot">${esc(footnote)}</p>` : ""}
     <div class="moonshot-stage-foot" aria-hidden="true"><span>让想法有据可查</span><span>MODEL PROPOSES · HOST VERIFIES · YOU DECIDE</span></div>
   </section>`;
 }

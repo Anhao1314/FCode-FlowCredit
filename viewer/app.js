@@ -521,18 +521,6 @@ const MODE_ENTRY = {
   market: () => renderMarketplace(),
 };
 
-document.addEventListener("click", event => {
-  const suggestion = event.target.closest("[data-stage-prompt]");
-  if (suggestion) {
-    const input = document.getElementById("composer-ta");
-    input.value = suggestion.dataset.stagePrompt || "";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    autosize(input);
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  }
-});
-
 function renderMode(mode, payload = {}) {
   // 所有导航入口都让旧页面加载失效；selectRun/select 自己已持有当日世代，
   // 通过 internalView 避免把自身误判成陈旧请求。
@@ -1061,42 +1049,10 @@ function setStageMode(on) {
   const wrap = document.querySelector(".composer-wrap");
   if (on && dock && composer.parentElement !== dock) {
     dock.appendChild(composer);
-    renderStageChips();
   } else if (!on && wrap && composer.parentElement !== wrap) {
     wrap.appendChild(composer);
   }
   app.classList.toggle("stage-mode", !!on);
-}
-
-/* 居中 composer 下的模板 chips：与 composer 模板选择器同源（/api/templates），
-   点击 = 选中该模板 + 预填目标 + 聚焦，是真实委托入口。
-
-   七条可靠性场景（越权工具/预算耗尽/崩溃恢复/未知结果/目标无法完成…）是这台机器
-   的故障注入夹具，用来证明门控与恢复是真的——它们是演示素材，不是产品前门。
-   因此真实任务模板直接露出，夹具收进折叠的「演示场景」里，仍然可达。 */
-/* 只有故障注入的那几个才算演示场景——它们演示的是"这台机器出错时如实交代"，
-   属于可靠的证据，不属于任务形态。「完整研究」是真任务，留在前台。 */
-const DEMO_SCENARIOS = new Set([
-  "tool-denied", "budget", "budget-resume", "crash", "unknown", "open-ended",
-]);
-
-function renderStageChips() {
-  const slot = document.getElementById("stage-chips");
-  if (!slot) return;
-  const source = (templates && templates.length)
-    ? templates.map(t => [t.key, (t.title || t.key).split("：")[0]])
-    : SCENARIOS.map(([key, label]) => [key, label]);
-  const tasks = source.filter(([key]) => !DEMO_SCENARIOS.has(key));
-  const demos = source.filter(([key]) => DEMO_SCENARIOS.has(key));
-  const chip = ([key, label]) =>
-    `<button type="button" class="stage-chip" data-stage-chip="${esc(key)}" title="以「${esc(label)}」模板开始委托">${esc(label)}</button>`;
-  slot.innerHTML = [
-    tasks.map(chip).join(""),
-    demos.length ? `<details class="stage-demos"><summary>演示场景 · ${demos.length}</summary>
-      <div class="stage-demo-chips">${demos.map(chip).join("")}</div>
-      <p class="stage-demo-note">可靠性夹具：故意触发越权、耗尽预算、杀掉进程或制造未知结果，用来看门控与恢复是否如实。</p>
-    </details>` : "",
-  ].join("");
 }
 
 /* RENDER LAYER — 阅读列会话头：标题下方一行 meta；证据面板按需打开。 */
@@ -2018,7 +1974,6 @@ async function initLive() {
       templates = [];
     }
     if (!templates.length) health.live = false;
-    renderStageChips();
     try {
       const data = await fetch("/api/models", { cache: "no-store" }).then(r => r.ok ? r.json() : null);
       modelCatalog = data && Array.isArray(data.models) ? data.models : [];
@@ -5191,15 +5146,6 @@ function bindMainInteractions() {
     }
     const qAct = event.target.closest("[data-q-act]");
     if (qAct) { handleQueueAction(qAct); return; }
-    const stageChip = event.target.closest("[data-stage-chip]");
-    if (stageChip) {
-      const key = stageChip.dataset.stageChip;
-      setTemplate(key);
-      const template = (templates || []).find(t => t.key === key);
-      const objective = (template && template.objective) || "";
-      startIntake(objective);
-      return;
-    }
     const intakeChoice = event.target.closest("[data-intake-choice]");
     if (intakeChoice) {
       intakeChoose(intakeChoice.dataset.intakeField, intakeChoice.dataset.intakeValue, intakeChoice.dataset.intakeLabel || "");
