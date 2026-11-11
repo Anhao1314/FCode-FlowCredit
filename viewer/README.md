@@ -2,8 +2,8 @@
 
 一个零依赖、零构建、可离线的 Agent 控制台。三个面（Kimi 桌面端同款
 分段开关）：**对话**——回答流式吐出，可追问、重新生成、编辑上一条、挂文本
-附件、随时停止；**工作**——受治理的委托运行（审批 / 插话 / 调预算 / 续跑、
-看板账本），并只读回放任意已签名 trace；**审计台**——只读展示
+附件、随时停止；**工作**——项目驱动的运行工作台（项目实体 / 进行中·待处理·最近完成
+三列看板 / 审批 / 插话 / 调预算 / 续跑），并只读回放任意已签名 trace；**审计台**——只读展示
 `work/audit/<audit_id>/` 的发现账本、PoC Evidence 与 REA 制品证据。
 
 前端是原生 ES modules，没有框架、打包器或字体请求；服务端只用 Python 标准库。
@@ -21,12 +21,14 @@ flowcredit/viewer/
   app.js              ← 页面逻辑（对话 / 委托 / 回放 / 运行管理）
   app/
     task-thread.js    运行 trace → 统一任务线程（纯投影 + 单条渲染，Node 可测）
+    work-home.js      Work 首页控制器（项目快照 + 看板 + 创建/归档）
   core/               ← 前端纯函数层（全部 Node 可测，无 DOM 依赖）
     format.js         canonical JSON、SHA-256、链验证、格式化
     chat-format.js    Markdown 渲染与 SSE 分帧
     chat-view.js      单条消息 DOM 渲染
     run-card.js       对话内执行提案（紧凑下一步）与运行镜像的投影
     side-nav.js       两侧栏（工作 / 对话）的条目、置顶、Projects、任务与对话列表
+    work-home.js      Work 首页纯渲染（项目卡 / 三列看板 / 空态）
     ai-avatar.js      实时黑灰 AI 脸（消息流 32px / 空态 64px；眨眼、呼吸、指针跟随）
   report.js           ← 自包含审计报告生成器
   icons-doodle.js     ← 图标与涂鸦
@@ -35,7 +37,8 @@ flowcredit/viewer/
   console_common.py   ← 路径、静态拒绝、模型目录与预算换算
   console_runtime.py  ← runtime 导入、单次运行、观察者与崩溃检查
   console_manager.py  ← 运行历史、创建、控制、续跑与持久化
-  tests/              ← 前端纯函数测试（node --test，183 项）
+  projects.py         ← Work 项目注册表（目录 / 验证命令 / 归档）
+  tests/              ← 前端纯函数测试（node --test，368 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）

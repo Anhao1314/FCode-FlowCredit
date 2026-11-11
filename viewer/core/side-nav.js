@@ -32,8 +32,8 @@ import { botStatusLabel } from "./gov-bots.js";
    这类路径打断。点击经 data-open 走 renderMode 一条路（着陆到该区主面：
    工作区→账本，治理区→审计台）。 */
 export const ZONES = [
-  { key: "work", label: "Work", land: "chat", icon: "layout-grid",
-    title: "工作对话：新对话（/账本 /状态 /定时 命令卡）" },
+  { key: "work", label: "Work", land: "work", icon: "layout-grid",
+    title: "工作台：项目、运行与待处理事项" },
   { key: "gov", label: "Governance", land: "gov", icon: "shield-check",
     title: "治理台挖洞与操作员判断" },
 ];
@@ -42,7 +42,7 @@ export const ZONES = [
    切换器保持上一次的点亮态，不闪。 */
 export function zoneOf(view) {
   if (["gov", "audit", "reviews"].indexOf(view) >= 0) return "gov";
-  if (["chat", "ledger", "run", "scheduled", "intake", "empty"].indexOf(view) >= 0) return "work";
+  if (["work", "chat", "ledger", "run", "scheduled", "intake", "empty"].indexOf(view) >= 0) return "work";
   return null;
 }
 

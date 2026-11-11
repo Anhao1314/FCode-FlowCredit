@@ -107,6 +107,7 @@ function harness(overrides = {}) {
     runs: [],
     threads: [],
     catalog: [],
+    projects: [],
     counts: { ledger: 3 },
     pinned: new Set(),
     ...overrides,
@@ -117,6 +118,11 @@ function harness(overrides = {}) {
     renderProjects() {},
     renderRuns() {},
     getRunHistory: () => state.runs,
+    getProjects: () => state.projects,
+    onNewProject: () => { state.newProjectRequested = true; },
+    onAssignProject: (runId, projectId) => {
+      state.assignments = [...(state.assignments || []), [runId, projectId]];
+    },
     getChatThreads: () => state.threads,
     getModelCatalog: () => state.catalog,
     getLedgerOpen: () => state.ledgerOpen,
@@ -212,18 +218,17 @@ test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
   const tasks = makeEl();
   els["chat-tasks"] = tasks;
   const now = new Date().toISOString();
+  state.projects = [{ id: "prj-a", name: "项目甲" }];
   state.runs = [
     { id: "r1", status: "succeeded", created: now, template: "general", rounds: 2,
-      objective: "A", pinned: false },
+      objective: "A", pinned: false, projectId: "prj-a" },
   ];
   sidebar.renderRuns();
   assert.match(tasks.innerHTML, /r1/);
   assert.match(tasks.innerHTML, /今天/);
 
-  // 项目过滤：assign 到项目后过滤，未匹配则空态
-  const pid = sidebar.createProject("项目甲");
-  sidebar.assignRunProject("r1", pid);
-  sidebar.setProjectFilter(pid);
+  // 项目过滤来自服务端 projectId，未匹配则空态
+  sidebar.setProjectFilter("prj-a");
   sidebar.renderRuns();
   assert.match(tasks.innerHTML, /r1/);
   sidebar.setProjectFilter("prj-other");
@@ -237,23 +242,33 @@ test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
   assert.match(tasks.innerHTML, /任务会出现在这里/);
 });
 
-test("createProject/assignRunProject:写入 localStorage 并可查询", () => {
-  const { sidebar, storage } = harness();
-  const pid = sidebar.createProject("项目乙");
-  assert.match(pid, /^prj-/);
-  sidebar.assignRunProject("r9", pid);
-  assert.deepEqual(JSON.parse(storage.getItem("fa.projects")).map(p => p.name), ["项目乙"]);
-  assert.equal(sidebar.getRunProject("r9"), pid);
-  assert.equal(JSON.parse(storage.getItem("fa.runProjects")).r9, pid);
+test("createProject/assignRunProject:交给服务端动作并可查询", () => {
+  const { sidebar, state } = harness();
+  sidebar.createProject("项目乙");
+  assert.equal(state.newProjectRequested, true, "新建项目走 Work 首页表单");
+  state.runs = [{
+    id: "r9", status: "succeeded", created: new Date().toISOString(),
+    template: "general", rounds: 1, objective: "x", projectId: "prj-9",
+  }];
+  assert.equal(sidebar.getRunProject("r9"), "prj-9");
+  sidebar.assignRunProject("r9", "prj-10");
+  assert.deepEqual(state.assignments, [["r9", "prj-10"]]);
+  assert.equal(localStorage.getItem("fa.projects"), null,
+    "侧栏不再写本地项目标签");
 });
 
-test("renderProjects:过滤态与运行计数来自 runProjects", () => {
-  const { sidebar, els } = harness();
+test("renderProjects:过滤态与运行计数来自服务端快照", () => {
+  const { sidebar, els, state } = harness();
   const host = makeEl();
   els["chat-projects"] = host;
-  const pid = sidebar.createProject("含运行项目");
-  sidebar.assignRunProject("r1", pid);
-  sidebar.assignRunProject("r2", pid);
+  state.projects = [{ id: "prj-a", name: "含运行项目" }];
+  state.runs = [
+    { id: "r1", status: "succeeded", created: new Date().toISOString(),
+      template: "general", rounds: 1, objective: "a", projectId: "prj-a" },
+    { id: "r2", status: "running", created: new Date().toISOString(),
+      template: "general", rounds: 1, objective: "b", projectId: "prj-a" },
+  ];
   sidebar.renderProjects();
   assert.match(host.innerHTML, /含运行项目/);
+  assert.match(host.innerHTML, />2</);
 });

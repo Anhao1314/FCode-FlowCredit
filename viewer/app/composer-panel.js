@@ -363,6 +363,10 @@ export function createComposerPanel(deps) {
         if (!verification) throw new Error("请填写项目独立验证命令，例如 pytest -q");
         spec.mode = "open";
         spec.project = { path: d.attach.project.path.trim() };
+        if (d.attach.project.projectId) {
+          // Work 项目身份：服务端据此把 run 归到项目，并复核路径/验证命令。
+          spec.project_id = d.attach.project.projectId;
+        }
         spec.verification = verification;
         spec.reportPath = "FCODE_RESULT.md";
       }

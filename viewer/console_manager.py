@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 import threading
@@ -105,6 +106,15 @@ class RunManager:
         self._lock = threading.Lock()
         self._seq = 0
         self.runs_dir.mkdir(exist_ok=True)
+        # Work 项目注册表：sqlite 住在 runs 目录旁，与 scheduler/governance 同级。
+        # 项目只拥有身份/路径/验证命令；run 统计由 list_runs 组合，避免双事实源。
+        try:
+            from projects import ProjectStore
+
+            self.projects = ProjectStore(self.runs_dir.parent / "projects.sqlite")
+        except Exception:  # noqa: BLE001 — 项目存储故障不拖垮控制台
+            traceback.print_exc()
+            self.projects = None
         self._load_history()
         # 定时任务调度器：排程存 runs 目录旁的 scheduler.sqlite；到点经
         # mgr.create 走与手创运行完全相同的流水线（门控/预算/收据/链）。
@@ -465,6 +475,7 @@ class RunManager:
                     effort=str(meta.get("effort") or ""),
                     cost=meta.get("cost"),
                     spec=meta.get("spec"),
+                    project_id=str(meta.get("projectId") or ""),
                     error=self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or ""),
                     finished=True,
                 )
@@ -520,12 +531,112 @@ class RunManager:
 
     # ------------------------------------------------------------------ public
 
-    def list_runs(self) -> list[dict]:
+    def list_runs(self, project_id: str | None = None) -> list[dict]:
         with self._lock:
-            return [self.runs[rid].to_json() for rid in self.order]
+            runs = [self.runs[rid] for rid in self.order]
+        if project_id is not None:
+            runs = [run for run in runs if run.project_id == project_id]
+        return [run.to_json() for run in runs]
 
     def get(self, run_id: str) -> Run | None:
         return self.runs.get(run_id)
+
+    # ------------------------------------------------------------------ projects
+
+    def list_projects(self, *, include_archived: bool = False) -> list[dict]:
+        """Projects plus run statistics composed from the runs themselves."""
+        if self.projects is None:
+            return []
+        projects = self.projects.list(include_archived=include_archived)
+        with self._lock:
+            runs = list(self.runs.values())
+        out: list[dict] = []
+        for project in projects:
+            mine = [run for run in runs if run.project_id == project["id"]]
+            out.append({
+                **project,
+                "runs": len(mine),
+                "running": sum(
+                    1 for run in mine
+                    if not run.finished and run.status == "running"
+                ),
+                "attention": sum(1 for run in mine if run.attention),
+                "succeeded": sum(1 for run in mine if run.status == "succeeded"),
+                "lastRunAt": max((run.created for run in mine), default=""),
+            })
+        out.sort(key=lambda item: item["lastRunAt"] or item["created"], reverse=True)
+        return out
+
+    def resolve_project_spec(
+        self,
+        spec: dict | None,
+        project_id: str | None,
+        scenario,
+    ) -> dict | None:
+        """Fill a delegation spec from its project before validation.
+
+        The project is the authority for the directory path; the operator may
+        override the verification command per run, but an empty string falls
+        back to the project's command. A project run is always ``open`` mode —
+        the run's plan extends within the project.
+        """
+        if not project_id:
+            return spec
+        if self.projects is None:
+            raise ValueError("项目存储不可用")
+        project = self.projects.get(str(project_id))
+        if project is None or project.get("archived"):
+            raise ValueError(f"项目不存在或已归档：{project_id}")
+        if getattr(scenario, "module", "") == DOMAIN_KEY:
+            raise ValueError("项目运行仅支持通用工作区")
+        merged = dict(spec or {})
+        merged["project"] = {"path": project["path"]}
+        merged["project_id"] = project["id"]
+        merged.setdefault("mode", "open")
+        if merged.get("mode") != "open":
+            raise ValueError("项目运行必须使用 open 模式")
+        raw_verification = merged.get("verification")
+        if isinstance(raw_verification, dict):
+            verification = dict(raw_verification)
+        else:
+            text = str(
+                raw_verification or project["verification"] or "").strip()
+            if not text:
+                raise ValueError("项目缺少验证命令：请先在项目设置中填写")
+            try:
+                parts = shlex.split(text)
+            except ValueError as error:
+                raise ValueError(f"验证命令无法解析：{error}") from error
+            if not parts:
+                raise ValueError("项目缺少验证命令：请先在项目设置中填写")
+            # Mirror the composer's parseVerificationCommand: a bare program
+            # plus args, no shell. build_obligation validates the rest.
+            verification = {
+                "name": f"项目测试：{' '.join(parts)}"[:200],
+                "command": parts[0],
+                "args": parts[1:],
+                "expectExitCode": 0,
+                "timeoutSeconds": 120,
+            }
+        merged["verification"] = verification
+        return merged
+
+    def assign_run_project(self, run_id: str, project_id: str | None) -> Run:
+        """Move a run between projects after the fact (meta-only, not a chain fact)."""
+        run = self.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        target = str(project_id or "")
+        if target:
+            if self.projects is None:
+                raise ValueError("项目存储不可用")
+            project = self.projects.get(target)
+            if project is None or project.get("archived"):
+                raise ValueError(f"项目不存在或已归档：{target}")
+        with run.lock:
+            run.project_id = target
+        self._write_meta(run)
+        return run
 
     def delete(self, run_id: str) -> tuple[bool, str]:
         """Remove a finished run's record and directory. Running runs are refused."""
@@ -616,6 +727,7 @@ class RunManager:
         model_key: str = "mock",
         effort: str = "",
         source: str = "manual",
+        project_id: str = "",
     ) -> Run:
         with self._lock:
             self._seq += 1
@@ -632,6 +744,7 @@ class RunManager:
                 model=model_key,
                 effort=effort,
                 source=source,
+                project_id=str(project_id or ""),
             )
             self.runs[run_id] = run
             self.order.insert(0, run_id)

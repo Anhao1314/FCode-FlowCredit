@@ -57,7 +57,7 @@ test("分区历史:Work 显示对话段,Governance 显示治理历史并深链�
 
   // 回 Work：对话段恢复，治理历史隐藏
   await page.locator('#zone-switch [data-zone="work"]').click();
-  await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "work");
   await expect(page.locator("body")).toHaveAttribute("data-zone", "work");
   await expect(page.locator("#chat-chats")).toBeVisible();
   await expect(page.locator("#gov-history")).toBeHidden();

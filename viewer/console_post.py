@@ -14,6 +14,9 @@ from console_post_chat import (
     post_chat_memory_delete,
 )
 from console_post_runs import (
+    post_project_archive,
+    post_project_create,
+    post_project_update,
     post_run_answer,
     post_run_budget,
     post_run_create,
@@ -21,6 +24,7 @@ from console_post_runs import (
     post_run_message,
     post_run_meta,
     post_run_plan,
+    post_run_project,
     post_run_queue,
     post_run_resume,
     post_run_review,
@@ -189,6 +193,9 @@ def post_gov_routine_delete(handler, routine_id):
 
 _STATIC = {
     "/api/intake": post_intake,
+    "/api/projects": post_project_create,
+    "/api/projects/update": post_project_update,
+    "/api/projects/archive": post_project_archive,
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
     "/api/chat/memory": post_chat_memory,
@@ -291,6 +298,7 @@ _RUN_ROUTES = {
     "/resume": post_run_resume,
     "/apply-patch": post_run_apply_patch,
     "/meta": post_run_meta,
+    "/project": post_run_project,
 }
 
 

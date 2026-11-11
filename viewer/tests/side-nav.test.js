@@ -15,7 +15,7 @@ test("功能导航已撤除:治理台走 Governance 区切换器,不再有侧栏
   }
   // 两区对话面仍在:Work/Governance 的切换器是唯一侧栏入口
   assert.deepEqual(ZONES.map(z => z.label), ["Work", "Governance"]);
-  assert.deepEqual(ZONES.map(z => z.land), ["chat", "gov"]);
+  assert.deepEqual(ZONES.map(z => z.land), ["work", "gov"]);
   const html = zoneSwitchHtml("gov");
   assert.match(html, /data-open="gov"/, "治理台经 Governance 区着陆");
 });
@@ -24,7 +24,7 @@ test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () 
   assert.equal(zoneOf("gov"), "gov");
   assert.equal(zoneOf("audit"), "gov");
   assert.equal(zoneOf("reviews"), "gov");
-  for (const view of ["chat", "ledger", "run", "scheduled", "intake", "empty"]) {
+  for (const view of ["work", "chat", "ledger", "run", "scheduled", "intake", "empty"]) {
     assert.equal(zoneOf(view), "work", `${view} 属工作区`);
   }
   for (const view of ["settings", "canvas", undefined, ""]) {
@@ -35,9 +35,9 @@ test("S2.1 zoneOf:视图归属区,非区视图返回 null(切换器不闪)", () 
 test("S2.1 zoneSwitchHtml:两键带 data-open 着陆与 aria-pressed 点亮", () => {
   assert.deepEqual(ZONES.map(z => z.key), ["work", "gov"]);
   // R1:两区的着陆点都是各自的对话面——工作区=新对话(chat),治理区=治理台
-  assert.deepEqual(ZONES.map(z => z.land), ["chat", "gov"]);
+  assert.deepEqual(ZONES.map(z => z.land), ["work", "gov"]);
   const html = zoneSwitchHtml("gov");
-  assert.match(html, /data-zone="work" data-open="chat"/);
+  assert.match(html, /data-zone="work" data-open="work"/);
   assert.match(html, /data-zone="gov" data-open="gov" title="[^"]*" aria-pressed="true"/);
   assert.match(html, /data-zone="work"[^>]*aria-pressed="false"/);
   assert.equal((html.match(/<button/g) || []).length, 2);

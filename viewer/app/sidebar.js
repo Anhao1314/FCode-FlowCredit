@@ -245,21 +245,27 @@ export function createSidebar(deps) {
      （renderRuns、renderProjects、addProject、createProject、assignRunProject、
      setProjectFilter、getProjects、getRunProject、setOlderOpen）。 */
 
-  let projects = JSON.parse(localStorage.getItem("fa.projects") || "[]");
-  let runProjects = JSON.parse(localStorage.getItem("fa.runProjects") || "{}");
+  let projects = [];
+  let runProjects = {};
   let projectFilter = null;
   let runFilter = "";
   let olderOpen = false;
   let navCounts = {};
 
-  const saveProjects = () => {
-    localStorage.setItem("fa.projects", JSON.stringify(projects));
-    localStorage.setItem("fa.runProjects", JSON.stringify(runProjects));
-  };
+  /* 项目与 run 归属都来自服务端快照（/api/projects、/api/runs 的 projectId）。
+     本地不再写 fa.projects/fa.runProjects；旧 key 原样保留，不迁移、不删除。 */
+  function syncProjects() {
+    projects = Array.isArray(d.getProjects?.()) ? d.getProjects() : [];
+    runProjects = {};
+    for (const run of (d.getRunHistory?.() || [])) {
+      if (run && run.projectId) runProjects[run.id] = run.projectId;
+    }
+  }
 
   const projectRunCount = pid => Object.values(runProjects).filter(x => x === pid).length;
 
   function renderProjects() {
+    syncProjects();
     const html = projectSectionHtml(projects, {
       filter: projectFilter,
       countOf: projectRunCount,
@@ -268,22 +274,21 @@ export function createSidebar(deps) {
     if (host) host.innerHTML = html;
   }
 
-  function createProject(name) {
-    const id = "prj-" + Date.now().toString(36);
-    projects.push({ id, name });
-    saveProjects();
-    return id;
+  function createProject() {
+    // 项目需要目录与服务端身份：交给 Work 首页的创建表单，不再弹一个只有名字的框。
+    d.onNewProject?.();
+    return "";
   }
 
   function assignRunProject(runId, pid) {
     if (!runId) return;
     runProjects[runId] = pid;
-    saveProjects();
+    d.onAssignProject?.(runId, pid);
   }
 
-  function getProjects() { return projects; }
+  function getProjects() { syncProjects(); return projects; }
 
-  function getRunProject(runId) { return runProjects[runId]; }
+  function getRunProject(runId) { syncProjects(); return runProjects[runId]; }
 
   function getProjectFilter() { return projectFilter; }
 
@@ -291,26 +296,8 @@ export function createSidebar(deps) {
 
   function setOlderOpen(open) { olderOpen = !!open; }
 
-  function addProject(button) {
-    if (!button) return;
-    const input = document.createElement("input");
-    input.className = "proj-new-input";
-    input.placeholder = "项目名称，回车保存";
-    button.replaceWith(input);
-    input.focus();
-    let settled = false;
-    const commit = () => {
-      if (settled) return;
-      settled = true;
-      const name = (input.value || "").trim();
-      if (name) createProject(name);
-      renderProjects();
-    };
-    input.addEventListener("keydown", event => {
-      if (event.key === "Enter") commit();
-      if (event.key === "Escape") { settled = true; renderProjects(); }
-    });
-    input.addEventListener("blur", commit);
+  function addProject() {
+    d.onNewProject?.();
   }
 
   /* 运行行的状态点图标（治理事实：PASS/DENIED/UNKNOWN）。 */
@@ -385,6 +372,7 @@ export function createSidebar(deps) {
     // 统一侧栏重建后运行行只有一个宿主 #chat-tasks。
     const chatTasks = document.getElementById("chat-tasks");
     if (!chatTasks) return;
+    syncProjects();
     updateRunCounts();
     const query = runFilter.trim().toLowerCase();
     let runs = d.getRunHistory()

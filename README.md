@@ -84,7 +84,7 @@ python demo.py
 python viewer/server.py --repo . --port 8642
 ```
 
-打开 `http://127.0.0.1:8642/`。控制台包含 Work、Chat、任务与运行历史、审批、轨迹回放和运行控制。
+打开 `http://127.0.0.1:8642/`。默认落在 **Work 工作台**：项目、运行看板与待处理事项；Chat、任务历史、审批、轨迹回放和运行控制仍在同一壳内。
 
 ### 打开审计台
 
@@ -107,7 +107,9 @@ python audit.py audit /Applications/EvoX.app \
 
 ### 一条线程，看清工作
 
-Work 把执行过程组织成 **任务 → 状态／计划 → 工具与审批 → 最终回复**，不再用互相割裂的卡片拼接进度：
+Work 把执行过程组织成 **项目 → 运行 → 状态／计划 → 工具与审批 → 最终回复**，不再用互相割裂的卡片拼接进度：
+
+- **项目是服务端实体**：目录、验证命令与归档状态持久化在 `projects.sqlite`；运行按 `projectId` 归集，看板按「进行中 / 待处理 / 最近完成」分组。待处理包含等待审批、待恢复、失败与拒绝。
 
 - **同一事实，两种视图**：实时运行与历史重开共用统一线程投影；普通项目和完整研究使用相同的阅读结构。
 - **结果可以展开核对**：工具默认保持一行摘要，展开后查看参数、命令、真实 diff、原始输出与签名收据。diff 来自沙箱的实际前后内容，不由前端推测。
@@ -162,7 +164,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**791 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、183 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**1,135 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、368 项前端测试、30 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -197,6 +199,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [上下文管理](docs/context-management.md) | 记忆、压缩与事件重建 |
 | [多 Agent 实验](docs/multi-agent-lab.md) | 多 Agent 方向的边界与探索 |
 | [视觉系统](docs/design-system.md) | 黑白、留白、轨道与证据语言 |
+| [Work 模式](docs/work-mode.md) | 项目实体、运行看板与待处理队列的当前边界 |
 | [桌面设计](docs/desktop-design.md) | Work 控制台的结构与交互 |
 | [重构评估](docs/refactor-evaluation.md) | 技术债、模块边界与演进记录 |
 

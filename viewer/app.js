@@ -25,6 +25,7 @@ import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
 import { createRunEvidence } from "./app/run-evidence.js";
 import { createProjectWork, isProjectTrace, parseVerificationCommand, projectDraftRows } from "./app/project-work.js";
+import { createWorkHome } from "./app/work-home.js";
 import { createChatConfig } from "./app/chat-config.js";
 import { createChatUI } from "./app/chat-ui.js";
 import { createSidebar } from "./app/sidebar.js";
@@ -326,6 +327,14 @@ const attach = {
   mcp: { servers: [], loaded: false },  // MCP 导入的真实可用性
 };
 const projectWork = createProjectWork({ esc });
+const workHome = createWorkHome({
+  paint: html => renderMain(html, { mode: "work" }),
+  onOpenRun: id => selectRun(id),
+  onNewRun: project => startWorkRun(project),
+  onLoaded: () => renderProjects(),
+  toast: message => toast(message),
+  fetchImpl: (...args) => fetch(...args),
+});
 
 function loadProjectContext() {
   try {
@@ -333,8 +342,12 @@ function loadProjectContext() {
     return {
       path: typeof saved.path === "string" ? saved.path : "",
       verification: typeof saved.verification === "string" && saved.verification ? saved.verification : "pytest -q",
+      projectId: typeof saved.projectId === "string" ? saved.projectId : "",
+      name: typeof saved.name === "string" ? saved.name : "",
     };
-  } catch { return { path: "", verification: "pytest -q" }; }
+  } catch {
+    return { path: "", verification: "pytest -q", projectId: "", name: "" };
+  }
 }
 
 function saveProjectContext() {
@@ -346,6 +359,27 @@ function renderProjectComposer() {
   if (!host) return;
   host.hidden = true;  // 工作模式退役后项目直接执行入口不再出现（chat 走 intake 的「添加项目」）
   host.innerHTML = projectWork.projectComposerHtml(attach.project, attach.projectEditing);
+}
+
+/* Work 项目 → 新运行：把项目上下文放进现有 composer，再进入对话。
+   不复制一套运行表单；model/approval/budget 仍由 composer 统一持有。 */
+function startWorkRun(project) {
+  if (!project || !project.path) return;
+  attach.project = {
+    path: project.path,
+    verification: project.verification || "",
+    projectId: project.id,
+    name: project.name || "",
+  };
+  saveProjectContext();
+  renderProjectComposer();
+  newChat();
+  const input = document.getElementById("composer-ta");
+  if (input) {
+    input.placeholder = `在「${project.name || "项目"}」中要完成什么？`;
+    input.focus();
+  }
+  toast(`项目已选中：${project.name || project.path}`);
 }
 
 let scenesOpen = localStorage.getItem("fa.scenesOpen"); // null | "1" | "0"
@@ -437,7 +471,8 @@ function paintGovChrome(gov) {
 /* 主区视图入口：只有导航动作走这里；各渲染函数是具体实现。 */
 const MODE_ENTRY = {
   run: payload => render(payload.trace, payload.title),
-  // R1:工作区对话的着陆点——区切换器的「工作区」= 全新对话,与治理台对称
+  // Work 默认落地：项目/运行工作台；Chat 仍由对话列表与新对话入口进入。
+  work: () => workHome.open(),
   chat: () => newChat(),
   intake: () => renderIntake(),
   ledger: () => openLedger(),
@@ -1813,6 +1848,7 @@ const runsPoller = createRunsPoller({
     // 只在有变化时重绘：轮询 2.5s 一次，但不能打断重命名/悬停等本地状态
     const signature = next.map(run => [
       run.id, run.status, run.rounds, run.name, run.pinned ? 1 : 0,
+      run.projectId || "",
       (run.cost && run.cost.costMicrousd) || 0,
     ].join(":")).join("|");
     if (signature === runSignature) return;
@@ -1824,6 +1860,26 @@ const runsPoller = createRunsPoller({
 
 function refreshRuns(options) {
   return runsPoller(options);
+}
+
+/* Work 项目归属：新 run 在建时写入 binding，事后移动只改 meta（与 pin/rename 同级）。 */
+async function assignRunProjectApi(runId, projectId) {
+  try {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/project`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: projectId || "" }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    await refreshRuns({ force: true });
+    renderProjects();
+    renderRuns();
+    workHome.refresh({ silent: true });
+    toast(projectId ? "已移动到项目" : "已移出项目");
+  } catch (error) {
+    toast("移动失败：" + error.message);
+  }
 }
 
 function setTemplate(key) {
@@ -3659,6 +3715,9 @@ const {
 } = createSidebar({
   renderChats: (...args) => renderChats(...args),
   getRunHistory: () => runHistory,
+  getProjects: () => workHome.state.projects,
+  onNewProject: () => { renderMode("work"); workHome.beginCreate(); },
+  onAssignProject: (runId, projectId) => assignRunProjectApi(runId, projectId),
   getChatThreads: () => chatThreads,
   getModelCatalog: () => modelCatalog,
   getLedgerOpen: () => ledgerOpen,
@@ -4408,33 +4467,18 @@ function bindGlobalActions() {
 
     if (event.target.closest("#proj-add")) {
       event.stopPropagation();
-      const addBtn = event.target.closest("#proj-add");
-      const input = document.createElement("input");
-      input.className = "proj-new-input";
-      input.placeholder = "项目名称，回车保存";
-      addBtn.replaceWith(input);
-      input.focus();
-      const commit = () => {
-        const name = (input.value || "").trim();
-        if (name) createProject(name);
-        renderProjects();
-      };
-      input.addEventListener("keydown", e => {
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") renderProjects();
-      });
-      input.addEventListener("blur", commit);
+      addProject(event.target.closest("#proj-add"));
       return;
     }
     const projAssign = event.target.closest("[data-proj-assign]");
     if (projAssign) {
       event.stopPropagation();
       const runRow = projAssign.closest("[data-run]");
-      let pid = projAssign.dataset.projAssign;
+      const pid = projAssign.dataset.projAssign;
       if (pid === "new") {
-        const name = (prompt("项目名称") || "").trim();
-        if (!name) return;
-        pid = createProject(name);
+        closeRowMenus();
+        addProject();
+        return;
       }
       if (runRow) assignRunProject(runRow.dataset.run, pid);
       closeRowMenus();
@@ -5381,6 +5425,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLive();
   await loadChatThreads();
   loadChatModels();
+  workHome.bind();
+  // Sidebar Projects must have facts even when a deep link lands on a run.
+  workHome.refresh({ silent: true });
   const params = new URLSearchParams(location.search);
   const runParam = params.get("run");
   const param = params.get("trace");
@@ -5414,11 +5461,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderMain(`<div class="empty">无法加载 ${esc(param)}：${esc(error.message)}</div>`, { mode: "error" });
       });
   } else {
-    newChat();
-    setUiMode();
+    // Work 是默认落地页：项目/运行工作台先回答“现在有什么在跑”。
+    // Chat 仍是独立入口（侧栏「新对话」/对话列表），不再占用首屏。
+    renderMode("work");
   }
   // boot 完成标记：以上 await（initLive/loadChatThreads）之后的首页渲染是
-  // 视图定稿点——在此之前进入的任何视图都会被这里的 newChat 打回首页。
+  // 视图定稿点——在此之前进入的任何视图都会被这里的 Work 首页打回。
   // E2E（与外部集成）用它判定"可以开始交互"。
   document.body.dataset.booted = "1";
 });

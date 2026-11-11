@@ -269,6 +269,9 @@ class Run:
     #: 运行来源:manual(操作者/对话发起) | scheduled(定时任务调度器) |
     #: subagent(父运行的 spawn 扇出)。账本可见性的事实字段。
     source: str = "manual"
+    #: Work 项目归属。新 run 在建时写入 binding.spec.project_id（trace 可见）；
+    #: 事后用「移动到项目」只改 meta.json（与 pin/rename 同级）。
+    project_id: str = ""
     controller: Any = None
     lock: threading.RLock = field(default_factory=threading.RLock)
     cond: threading.Condition = field(init=False)
@@ -280,6 +283,24 @@ class Run:
         """Caller must hold the lock."""
         self.version += 1
         self.cond.notify_all()
+
+    @property
+    def attention(self) -> str:
+        """One compact "needs a human" reason for the Work board.
+
+        The list payload deliberately omits the full pending object (it can
+        carry a command preview), but the board still has to know that a run
+        is waiting. This is the minimum fact that routes an operator to it.
+        """
+        if self.pending:
+            return "approval"
+        if self.status == "recovery_required":
+            return "recovery"
+        if self.status == "failed":
+            return "failed"
+        if self.status == "denied":
+            return "denied"
+        return ""
 
     def to_json(self, *, detail: bool = False) -> dict:
         out = {
@@ -299,6 +320,8 @@ class Run:
             "cost": self.cost,
             "spec": self.spec,
             "source": self.source,
+            "projectId": self.project_id,
+            "attention": self.attention,
         }
         if detail:
             out["error"] = self.error

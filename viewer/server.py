@@ -432,7 +432,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": mgr.runtime_error}, 503)
             return self._json({"tools": mgr.runtime.tool_contracts()})
         if path == "/api/runs":
-            return self._json(mgr.list_runs())
+            query = parse_qs(urlparse(self.path).query)
+            project_id = str(
+                (query.get("projectId") or [""])[0] or ""
+            ).strip() or None
+            return self._json(mgr.list_runs(project_id=project_id))
+        if path == "/api/projects":
+            query = parse_qs(urlparse(self.path).query)
+            include_archived = str(
+                (query.get("includeArchived") or [""])[0] or ""
+            ).strip().lower() in ("1", "true", "yes")
+            return self._json({
+                "projects": mgr.list_projects(include_archived=include_archived),
+            })
         # ---- 治理团队（Phase A）：Bot 花名册 + 运行日志 ----
         if path == "/api/gov/bots":
             bots = getattr(self, "gov_bots", None)

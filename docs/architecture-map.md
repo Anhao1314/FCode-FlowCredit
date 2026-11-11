@@ -129,7 +129,7 @@ core  →  tools / providers  →  runtime  →  demo
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
 | **合计** | **~149** | **29,392** | | |
 
-外围：`tests/` 87 个文件、18,528 行、791 个测试；`viewer/` Python 3,902 行 + JS 14,576 行（含 183 个前端测试）；`docs/` 38 篇。
+外围：`tests/` 91 个文件、18,900 行、1,135 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 368 个前端测试）；`docs/` 38 篇。
 
 ---
 
@@ -258,7 +258,7 @@ core  →  tools / providers  →  runtime  →  demo
 
 **前端（14,392 行）：**
 
-`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 183 项。
+`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 368 项。
 
 ---
 

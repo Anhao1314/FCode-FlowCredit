@@ -29,7 +29,7 @@ if (process.env.TEST_WORKER_INDEX === undefined) {
   // 真实默认模型(如 deepseek)会覆盖 E2E 固定 mock 的选择，且把真实
   // API key 带进离线用例。
   rmSync(join(stateRoot, "config"), { recursive: true, force: true });
-  for (const db of ["scheduler.sqlite", "chat.sqlite", "chat.sqlite-shm", "chat.sqlite-wal",
+  for (const db of ["scheduler.sqlite", "projects.sqlite", "chat.sqlite", "chat.sqlite-shm", "chat.sqlite-wal",
     "chat-memory.sqlite", "artifacts.sqlite", "governance.sqlite"]) {
     rmSync(join(stateRoot, db), { force: true });
   }

@@ -41,10 +41,19 @@ def post_run_create(handler):
     approval = str(body.get("approval") or "consequential")
     if approval not in ("off", "consequential", "all"):
         return handler._json({"error": "approval must be off, consequential or all"}, 400)
+    project_id = str(body.get("projectId") or "").strip()
     spec = body.get("spec")
+    if spec is not None and not isinstance(spec, dict):
+        return handler._json({"error": "spec must be an object"}, 400)
+    if not project_id and isinstance(spec, dict):
+        # The composer carries the project identity inside the delegation spec;
+        # the top-level field is for direct API callers.
+        project_id = str(spec.get("project_id") or "").strip()
+    try:
+        spec = mgr.resolve_project_spec(spec, project_id, scenario)
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 400)
     if spec is not None:
-        if not isinstance(spec, dict):
-            return handler._json({"error": "spec must be an object"}, 400)
         if len(json.dumps(spec, ensure_ascii=False).encode("utf-8")) > 4096:
             return handler._json({"error": "spec is too large"}, 400)
         try:
@@ -64,7 +73,10 @@ def post_run_create(handler):
         )
     except ValueError as exc:
         return handler._json({"error": str(exc)}, 400)
-    run = mgr.create(objective, template, approval, spec, model_key=model_key, effort=effort)
+    run = mgr.create(
+        objective, template, approval, spec, model_key=model_key, effort=effort,
+        project_id=project_id,
+    )
     return handler._json(run.to_json(detail=True), 202)
 
 
@@ -365,3 +377,89 @@ def post_schedules_toggle(handler):
     if not mgr.schedules.set_enabled(entry_id, enabled):
         return handler._json({"error": "schedule not found"}, 404)
     return handler._json({"ok": True})
+
+
+# ------------------------------------------------------------------ projects
+
+
+def _projects(handler):
+    mgr = handler.manager
+    if getattr(mgr, "projects", None) is None:
+        handler._json({"error": "project store is unavailable"}, 503)
+        return None
+    return mgr.projects
+
+
+def post_project_create(handler):
+    mgr = handler.manager
+    store = _projects(handler)
+    if store is None:
+        return None
+    body = handler._read_body()
+    try:
+        project = store.create(
+            body.get("name"),
+            body.get("path"),
+            body.get("verification") or "",
+        )
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 400)
+    return handler._json(project, 201)
+
+
+def post_project_update(handler):
+    mgr = handler.manager
+    store = _projects(handler)
+    if store is None:
+        return None
+    body = handler._read_body()
+    project_id = body.get("id")
+    if not isinstance(project_id, str) or not project_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    try:
+        project = store.update(
+            project_id,
+            name=body.get("name"),
+            verification=body.get("verification"),
+            archived=body.get("archived"),
+        )
+    except KeyError:
+        return handler._json({"error": "project not found"}, 404)
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 400)
+    return handler._json(project)
+
+
+def post_project_archive(handler):
+    mgr = handler.manager
+    store = _projects(handler)
+    if store is None:
+        return None
+    body = handler._read_body()
+    project_id = body.get("id")
+    if not isinstance(project_id, str) or not project_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    try:
+        project = store.archive(project_id)
+    except KeyError:
+        return handler._json({"error": "project not found"}, 404)
+    return handler._json(project)
+
+
+def post_run_project(handler, run_id: str):
+    """Move a run into (or out of) a project after the fact."""
+    mgr = handler.manager
+    run = _run(handler, run_id)
+    if run is None:
+        return None
+    body = handler._read_body()
+    project_id = body.get("projectId")
+    if project_id is not None and not isinstance(project_id, str):
+        return handler._json({"error": "projectId must be a string"}, 400)
+    try:
+        run = mgr.assign_run_project(run_id, project_id or "")
+    except KeyError:
+        return handler._json({"error": "no such run"}, 404)
+    except ValueError as exc:
+        return handler._json({"error": str(exc)}, 400)
+    return handler._json(run.to_json())
