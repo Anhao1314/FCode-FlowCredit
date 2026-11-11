@@ -60,17 +60,24 @@ test("置顶段只在真的置顶过东西时出现，任务行复用运行行",
   assert.match(chats, /取消置顶/);
 });
 
-test("Projects 段：标题可折叠 + ＋动作，空段不写引导文案", () => {
+test("Projects 段：标题可折叠 + ＋动作，项目展开后嵌运行", () => {
   const empty = projectSectionHtml([], {});
   assert.match(empty, /data-section-toggle="projects"/);
   assert.match(empty, /data-proj-add/);
-  assert.doesNotMatch(empty, /section-empty/);
-  assert.doesNotMatch(empty, /还没有项目/);
-  const filled = projectSectionHtml([{ id: "prj-1", name: "恒星" }], { countOf: () => 3, filter: "prj-1" });
-  assert.match(filled, /data-proj="prj-1"/);
+  assert.match(empty, /还没有项目/);
+  const runs = [1, 2, 3].map(n => ({
+    id: `r${n}`, projectId: "prj-1", status: "succeeded", attention: "",
+  }));
+  const filled = projectSectionHtml([{ id: "prj-1", name: "恒星", path: "/tmp/x" }], {
+    runs, filter: "prj-1", expanded: new Set(["prj-1"]),
+    rowHtml: run => `<div data-nested="${run.id}"></div>`,
+  });
+  assert.match(filled, /data-proj-toggle="prj-1"/);
   assert.match(filled, /class="smeta">3</);
-  assert.match(filled, /active/);
-  assert.equal((filled.match(/section-empty/g) || []).length, 0, "有项目就不该有空态");
+  assert.match(filled, /is-active/);
+  assert.match(filled, /data-nested="r1"/);
+  assert.match(filled, /data-proj-run="prj-1"/);
+  assert.match(filled, /data-proj-edit="prj-1"/);
 });
 
 test("任务/对话列表交给调用方决定行渲染，空态文案是 Kimi 的原话", () => {

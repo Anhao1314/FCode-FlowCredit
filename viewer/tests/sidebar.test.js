@@ -213,7 +213,7 @@ test("paintScrollMasks:scrollTop>1 才点亮顶部遮罩", () => {
   sidebar.paintScrollMasks();
   assert.equal(mask.classList.contains("is-visible"), true);
 });
-test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
+test("renderRuns:项目运行嵌在项目下，平坦列表只留未归属", () => {
   const { sidebar, els, state } = harness();
   const tasks = makeEl();
   els["chat-tasks"] = tasks;
@@ -224,28 +224,36 @@ test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
       objective: "A", pinned: false, projectId: "prj-a" },
   ];
   sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /r1/);
+  assert.doesNotMatch(tasks.innerHTML, /r1/, "项目运行不再重复进平坦列表");
+  assert.match(tasks.innerHTML, /未归属运行/);
+
+  state.runs = [
+    { id: "r2", status: "succeeded", created: now, template: "general", rounds: 1,
+      objective: "未归属", pinned: false, projectId: "" },
+  ];
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /r2/);
   assert.match(tasks.innerHTML, /今天/);
 
-  // 项目过滤来自服务端 projectId，未匹配则空态
-  sidebar.setProjectFilter("prj-a");
+  // 没有项目时，平坦列表承载全部历史
+  state.projects = [];
+  state.runs = [{ id: "r3", status: "succeeded", created: now, template: "general",
+    rounds: 1, objective: "全部", pinned: false, projectId: "" }];
   sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /r1/);
-  sidebar.setProjectFilter("prj-other");
-  sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /任务会出现在这里|没有匹配/);
-  sidebar.setProjectFilter(null);
+  assert.match(tasks.innerHTML, /r3/);
+  assert.match(tasks.innerHTML, /任务/);
 
-  // 空列表空态
   state.runs = [];
   sidebar.renderRuns();
   assert.match(tasks.innerHTML, /任务会出现在这里/);
 });
 
-test("createProject/assignRunProject:交给服务端动作并可查询", () => {
-  const { sidebar, state } = harness();
+test("createProject/assignRunProject:侧栏表单与服务端动作", () => {
+  const { sidebar, els, state } = harness();
+  const host = makeEl();
+  els["chat-projects"] = host;
   sidebar.createProject("项目乙");
-  assert.equal(state.newProjectRequested, true, "新建项目走 Work 首页表单");
+  assert.match(host.innerHTML, /data-proj-form/, "新建项目在侧栏内联表单");
   state.runs = [{
     id: "r9", status: "succeeded", created: new Date().toISOString(),
     template: "general", rounds: 1, objective: "x", projectId: "prj-9",

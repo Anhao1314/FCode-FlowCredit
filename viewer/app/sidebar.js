@@ -12,7 +12,7 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { pinnedSectionHtml, projectSectionHtml, govHistorySectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { pinnedSectionHtml, projectSectionHtml, govHistorySectionHtml, runSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -248,9 +248,22 @@ export function createSidebar(deps) {
   let projects = [];
   let runProjects = {};
   let projectFilter = null;
+  let expandedProjects = new Set();
+  try {
+    const stored = JSON.parse(localStorage.getItem("fa.projExpanded") || "[]");
+    if (Array.isArray(stored)) expandedProjects = new Set(stored);
+  } catch { /* ignore a damaged preference */ }
+  let addingProject = false;
+  let editingProjectId = null;
   let runFilter = "";
   let olderOpen = false;
   let navCounts = {};
+
+  function persistExpanded() {
+    try {
+      localStorage.setItem("fa.projExpanded", JSON.stringify([...expandedProjects]));
+    } catch { /* quota */ }
+  }
 
   /* 项目与 run 归属都来自服务端快照（/api/projects、/api/runs 的 projectId）。
      本地不再写 fa.projects/fa.runProjects；旧 key 原样保留，不迁移、不删除。 */
@@ -266,17 +279,58 @@ export function createSidebar(deps) {
 
   function renderProjects() {
     syncProjects();
+    const editing = editingProjectId
+      ? projects.find(project => project.id === editingProjectId) || null
+      : null;
     const html = projectSectionHtml(projects, {
       filter: projectFilter,
-      countOf: projectRunCount,
+      runs: d.getRunHistory() || [],
+      expanded: expandedProjects,
+      rowHtml: runRowHtml,
+      adding: addingProject,
+      editing,
     });
     const host = document.getElementById("chat-projects");
     if (host) host.innerHTML = html;
   }
 
+  function beginProjectCreate() {
+    addingProject = true;
+    editingProjectId = null;
+    renderProjects();
+  }
+
+  function beginProjectEdit(projectId) {
+    editingProjectId = projectId;
+    addingProject = false;
+    renderProjects();
+  }
+
+  function cancelProjectForm() {
+    addingProject = false;
+    editingProjectId = null;
+    renderProjects();
+  }
+
+  function toggleProject(projectId) {
+    const selecting = projectFilter !== projectId;
+    projectFilter = selecting ? projectId : null;
+    if (selecting) expandedProjects.add(projectId);
+    else expandedProjects.delete(projectId);
+    persistExpanded();
+    renderProjects();
+    renderRuns();
+    d.renderChats?.();
+    return selecting;
+  }
+
+  function getProject(projectId) {
+    syncProjects();
+    return projects.find(project => project.id === projectId) || null;
+  }
+
   function createProject() {
-    // 项目需要目录与服务端身份：交给 Work 首页的创建表单，不再弹一个只有名字的框。
-    d.onNewProject?.();
+    beginProjectCreate();
     return "";
   }
 
@@ -297,7 +351,7 @@ export function createSidebar(deps) {
   function setOlderOpen(open) { olderOpen = !!open; }
 
   function addProject() {
-    d.onNewProject?.();
+    beginProjectCreate();
   }
 
   /* 运行行的状态点图标（治理事实：PASS/DENIED/UNKNOWN）。 */
@@ -377,21 +431,22 @@ export function createSidebar(deps) {
     const query = runFilter.trim().toLowerCase();
     let runs = d.getRunHistory()
       .filter(run => !query || `${run.name || ""} ${run.objective} ${run.id}`.toLowerCase().includes(query));
-    if (projectFilter) {
-      runs = runs.filter(run => runProjects[run.id] === projectFilter);
-    }
+    // Project runs live nested under their project row. The flat list keeps
+    // only unassigned runs; with no projects it is the whole history.
+    if (projects.length) runs = runs.filter(run => !run.projectId);
     // 置顶的运行由「置顶」分组渲染，主列表不再重复
     runs = runs.filter(run => !run.pinned);
+    const title = projects.length ? "未归属运行" : "任务";
 
     if (!runs.length) {
       const emptyHtml = query
         ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
-        : `<div class="section-empty">任务会出现在这里</div>`;
-      chatTasks.innerHTML = emptyHtml;
+        : `<div class="section-empty">${projects.length ? "没有未归属的运行" : "任务会出现在这里"}</div>`;
+      chatTasks.innerHTML = runSectionHtml(title, 0) + emptyHtml;
       return;
     }
 
-    let html = "";
+    let html = runSectionHtml(title, runs.length);
     if (query) {
       html += `<div class="side-head-label">${runs.length} 条结果</div>`;
       html += runs.map(runRowHtml).join("");
@@ -524,6 +579,7 @@ export function createSidebar(deps) {
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,
     renderRuns, renderProjects, addProject, createProject, assignRunProject,
+    beginProjectCreate, beginProjectEdit, cancelProjectForm, toggleProject, getProject,
     getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
     paintScrollMasks, mountShell,
   };

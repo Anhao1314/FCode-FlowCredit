@@ -108,21 +108,82 @@ export function pinnedSectionHtml(pins, options) {
     + revealHtml('<nav class="nav" data-pin-nav>' + rows + "</nav>");
 }
 
-/* Projects 分组：标题 + “＋”动作（Kimi 的 workspace-add-pop：从零开始 / 用已有文件夹）。
-   empty 只在真的没有项目时出现，文案对应 sidebar.workspaceEmpty。 */
+/* Projects 分组：项目是 run 的容器，线程（run）嵌在项目下面。
+   侧栏是 Work 的主导航；主区只显示选中的对话/运行。 */
+export function projectFormHtml(project) {
+  const editing = !!project;
+  return '<form class="proj-form" data-proj-form'
+    + (editing ? ' data-proj-edit-id="' + esc(project.id) + '"' : "") + '>'
+    + '<input class="proj-input" name="name" required maxlength="80" placeholder="项目名称" value="'
+    + esc(editing ? project.name : "") + '">'
+    + (editing
+      ? '<div class="proj-path mono" title="' + esc(project.path) + '">' + esc(project.path) + "</div>"
+      : '<input class="proj-input" name="path" required placeholder="/绝对路径">')
+    + '<input class="proj-input" name="verification" maxlength="300" placeholder="验证命令（可空）" value="'
+    + esc(editing ? project.verification : "") + '">'
+    + '<div class="proj-form-actions">'
+    + '<button class="proj-submit" type="submit">' + (editing ? "保存" : "创建") + "</button>"
+    + '<button class="proj-cancel" type="button" data-proj-cancel>取消</button>'
+    + (editing
+      ? '<button class="proj-archive" type="button" data-proj-archive="' + esc(project.id) + '">归档</button>'
+      : "")
+    + "</div></form>";
+}
+
 export function projectSectionHtml(projects, options) {
   const opts = options || {};
-  const rows = (projects || []).map(function (prj) {
-    const count = opts.countOf ? opts.countOf(prj.id) : 0;
-    const active = opts.filter === prj.id ? " active" : "";
-    const pin = prj.pinned ? '<span class="pin-mark" title="已置顶">★</span>' : "";
-    return '<button class="session proj-row' + active + '" data-proj="' + esc(prj.id) + '">'
-      + pin + '<span class="slabel">' + esc(prj.name) + "</span>"
-      + '<span class="smeta">' + (count || "") + "</span></button>";
+  const list = projects || [];
+  const expanded = opts.expanded instanceof Set
+    ? opts.expanded
+    : new Set(opts.expanded || []);
+  const runs = opts.runs || [];
+  const rows = list.map(function (prj) {
+    const mine = runs.filter(run => run.projectId === prj.id);
+    const count = mine.length;
+    const running = mine.filter(run => run.status === "running").length;
+    const attention = mine.filter(run => !!run.attention).length;
+    const open = expanded.has(prj.id) || opts.filter === prj.id;
+    const active = opts.filter === prj.id ? " is-active" : "";
+    const badges = (running
+      ? '<span class="proj-badge is-live" title="进行中">' + running + "</span>"
+      : "")
+      + (attention
+        ? '<span class="proj-badge is-attention" title="待处理">' + attention + "</span>"
+        : "");
+    const nested = open
+      ? '<div class="proj-runs">' + (mine.length
+        ? mine.map(opts.rowHtml).join("")
+        : '<div class="proj-empty">还没有运行</div>') + "</div>"
+      : "";
+    return '<div class="proj-block' + active + '" data-proj-block="' + esc(prj.id) + '">'
+      + '<div class="proj-row-shell">'
+      + '<button type="button" class="proj-row" data-proj-toggle="' + esc(prj.id)
+      + '" title="' + esc(prj.path) + '">'
+      + '<span class="proj-caret">' + (open ? "▾" : "▸") + "</span>"
+      + '<span class="slabel">' + esc(prj.name) + "</span>"
+      + badges
+      + '<span class="smeta">' + (count || "") + "</span>"
+      + "</button>"
+      + '<span class="proj-row-actions">'
+      + '<button type="button" data-proj-run="' + esc(prj.id) + '" title="新运行">＋</button>'
+      + '<button type="button" data-proj-edit="' + esc(prj.id) + '" title="项目设置">⋯</button>'
+      + "</span></div>" + nested + "</div>";
   }).join("");
   const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目">＋</button>';
-  return sectionHeadHtml("Projects", { key: "projects", action: add }, (projects || []).length)
-    + revealHtml('<nav class="nav" data-proj-nav>' + rows + "</nav>");
+  const form = (opts.adding || opts.editing)
+    ? projectFormHtml(opts.editing)
+    : "";
+  const body = form + (rows
+    || (opts.adding || opts.editing
+      ? ""
+      : '<div class="proj-empty">还没有项目</div>'));
+  return sectionHeadHtml("Projects", { key: "projects", action: add }, list.length)
+    + revealHtml('<nav class="nav" data-proj-nav>' + body + "</nav>");
+}
+
+export function runSectionHtml(title, count) {
+  return sectionHeadHtml(title || "任务", { key: "tasks" }, count || 0)
+    .replace('class="side-count"', 'class="side-count" data-task-count');
 }
 
 export function runRowsHtml(runs, options) {

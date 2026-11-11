@@ -25,7 +25,6 @@ import { createReviewUI } from "./app/review.js";
 import { createChatRuns } from "./app/chat-runs.js";
 import { createRunEvidence } from "./app/run-evidence.js";
 import { createProjectWork, isProjectTrace, parseVerificationCommand, projectDraftRows } from "./app/project-work.js";
-import { createWorkHome } from "./app/work-home.js";
 import { createChatConfig } from "./app/chat-config.js";
 import { createChatUI } from "./app/chat-ui.js";
 import { createSidebar } from "./app/sidebar.js";
@@ -327,14 +326,7 @@ const attach = {
   mcp: { servers: [], loaded: false },  // MCP 导入的真实可用性
 };
 const projectWork = createProjectWork({ esc });
-const workHome = createWorkHome({
-  paint: html => renderMain(html, { mode: "work" }),
-  onOpenRun: id => selectRun(id),
-  onNewRun: project => startWorkRun(project),
-  onLoaded: () => renderProjects(),
-  toast: message => toast(message),
-  fetchImpl: (...args) => fetch(...args),
-});
+let projects = [];
 
 function loadProjectContext() {
   try {
@@ -361,9 +353,9 @@ function renderProjectComposer() {
   host.innerHTML = projectWork.projectComposerHtml(attach.project, attach.projectEditing);
 }
 
-/* Work 项目 → 新运行：把项目上下文放进现有 composer，再进入对话。
-   不复制一套运行表单；model/approval/budget 仍由 composer 统一持有。 */
-function startWorkRun(project) {
+/* 项目 → composer 上下文。Work 的主区始终是对话/运行线程；
+   项目列表与运行都住在侧栏，不复制第二套运行表单。 */
+function bindProjectContext(project) {
   if (!project || !project.path) return;
   attach.project = {
     path: project.path,
@@ -373,12 +365,45 @@ function startWorkRun(project) {
   };
   saveProjectContext();
   renderProjectComposer();
-  newChat();
+  const input = document.getElementById("composer-ta");
+  if (input) input.placeholder = `在「${project.name || "项目"}」中要完成什么？`;
+}
+
+function newWorkThread() {
+  // Work 的新线程 = 任务舞台，不是聊天：chat.active=false 让 composer
+  // 走 sendTask → intake → /api/runs；审批/模型/Fast 仍由 Work chrome 显示。
+  viewGate.begin();
+  if (intake.active) closeIntake(false);
+  if (settingsOpen) closeSettingsPage(false);
+  if (activeSession()) detachLive();
+  store.key = null;
+  store.trace = null;
+  chat.active = false;
+  chat.current = null;
+  chat.streaming = false;
+  renderNav();
+  renderMain(stageEmptyHtml("从项目开始，或直接描述任务…", { work: true }), { mode: "empty" });
+  paintChatChrome(false);
+  setWorkChrome();
+  setComposerRunning(false);
+  paintModelBadge();
   const input = document.getElementById("composer-ta");
   if (input) {
-    input.placeholder = `在「${project.name || "项目"}」中要完成什么？`;
+    input.value = "";
+    autosize(input);
+    input.placeholder = attach.project.projectId
+      ? `在「${attach.project.name || "项目"}」中要完成什么？`
+      : "从项目开始，或直接描述任务…";
     input.focus();
   }
+  renderChatAttachChips();
+  paintSendState();
+}
+
+function startWorkRun(project) {
+  if (!project) return;
+  bindProjectContext(project);
+  newWorkThread();
   toast(`项目已选中：${project.name || project.path}`);
 }
 
@@ -484,7 +509,7 @@ function setWorkChrome() {
 const MODE_ENTRY = {
   run: payload => render(payload.trace, payload.title),
   // Work 默认落地：项目/运行工作台；Chat 仍由对话列表与新对话入口进入。
-  work: () => { setWorkChrome(); workHome.open(); },
+  work: () => newWorkThread(),
   chat: () => newChat(),
   intake: () => renderIntake(),
   ledger: () => openLedger(),
@@ -1874,6 +1899,27 @@ function refreshRuns(options) {
   return runsPoller(options);
 }
 
+async function postJson(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+async function loadProjects() {
+  try {
+    const data = await fetch("/api/projects", { cache: "no-store" }).then(r => r.json());
+    projects = Array.isArray(data.projects) ? data.projects : [];
+  } catch {
+    projects = [];
+  }
+  renderProjects();
+}
+
 /* Work 项目归属：新 run 在建时写入 binding，事后移动只改 meta（与 pin/rename 同级）。 */
 async function assignRunProjectApi(runId, projectId) {
   try {
@@ -1887,7 +1933,6 @@ async function assignRunProjectApi(runId, projectId) {
     await refreshRuns({ force: true });
     renderProjects();
     renderRuns();
-    workHome.refresh({ silent: true });
     toast(projectId ? "已移动到项目" : "已移出项目");
   } catch (error) {
     toast("移动失败：" + error.message);
@@ -3724,12 +3769,12 @@ const {
   renderPinned, renderQuickStart, markQuickStart, dismissQuickStart,
   paintSections, toggleSection, mountShell: mountSidebarShell,
   renderRuns, renderProjects, addProject, createProject, assignRunProject,
+  beginProjectCreate, beginProjectEdit, cancelProjectForm, toggleProject, getProject,
   getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
 } = createSidebar({
   renderChats: (...args) => renderChats(...args),
   getRunHistory: () => runHistory,
-  getProjects: () => workHome.state.projects,
-  onNewProject: () => { renderMode("work"); workHome.beginCreate(); },
+  getProjects: () => projects,
   onAssignProject: (runId, projectId) => assignRunProjectApi(runId, projectId),
   getChatThreads: () => chatThreads,
   getModelCatalog: () => modelCatalog,
@@ -4478,11 +4523,6 @@ function bindGlobalActions() {
     if (slashMenu && !slashMenu.hidden && composerBox && !composerBox.contains(event.target)) slashMenu.hidden = true;
     if (!event.target.closest(".run-row")) closeRowMenus();
 
-    if (event.target.closest("#proj-add")) {
-      event.stopPropagation();
-      addProject(event.target.closest("#proj-add"));
-      return;
-    }
     const projAssign = event.target.closest("[data-proj-assign]");
     if (projAssign) {
       event.stopPropagation();
@@ -4873,16 +4913,109 @@ function bindNavigation() {
     if (event.target.closest(".row-menu") || event.target.closest(".rename-input")) return;
     selectRun(row.dataset.run);
   });
-  // Projects 段落只有一个宿主（统一侧栏），事件仍由侧栏统一委托
+  // Projects 段落只有一个宿主（统一侧栏）：项目展开/运行嵌套/创建与设置都在这里。
   {
     const el = document.getElementById("chat-projects");
-    if (el) el.addEventListener("click", event => {
-      const row = event.target.closest("[data-proj]");
-      if (!row) return;
-      setProjectFilter(getProjectFilter() === row.dataset.proj ? null : row.dataset.proj);
-      renderProjects();
-      renderRuns();
-      renderChats();
+    if (el) el.addEventListener("click", async event => {
+      const target = event.target;
+      if (target.closest("[data-proj-add]")) {
+        event.stopPropagation();
+        beginProjectCreate();
+        return;
+      }
+      if (target.closest("[data-proj-cancel]")) {
+        cancelProjectForm();
+        return;
+      }
+      const edit = target.closest("[data-proj-edit]");
+      if (edit) {
+        event.stopPropagation();
+        beginProjectEdit(edit.dataset.projEdit);
+        return;
+      }
+      const run = target.closest("[data-proj-run]");
+      if (run) {
+        event.stopPropagation();
+        const project = getProject(run.dataset.projRun);
+        if (!project) return;
+        if (!String(project.verification || "").trim()) {
+          beginProjectEdit(project.id);
+          toast("这个项目还没有验证命令，先补一条再启动运行");
+          return;
+        }
+        startWorkRun(project);
+        return;
+      }
+      const archive = target.closest("[data-proj-archive]");
+      if (archive) {
+        event.stopPropagation();
+        const project = getProject(archive.dataset.projArchive);
+        if (!project) return;
+        if (!window.confirm(`归档项目「${project.name}」？历史运行会保留。`)) return;
+        try {
+          await postJson("/api/projects/archive", { id: project.id });
+          cancelProjectForm();
+          await loadProjects();
+          renderRuns();
+          toast("项目已归档");
+        } catch (error) {
+          toast("归档失败：" + error.message);
+        }
+        return;
+      }
+      const toggle = target.closest("[data-proj-toggle]");
+      if (toggle) {
+        event.stopPropagation();
+        const projectId = toggle.dataset.projToggle;
+        const selected = toggleProject(projectId);
+        const project = getProject(projectId);
+        if (selected && project) {
+          bindProjectContext(project);
+          const input = document.getElementById("composer-ta");
+          if (input) {
+            input.placeholder = `在「${project.name || "项目"}」中要完成什么？`;
+            input.focus();
+          }
+        } else if (attach.project.projectId === projectId) {
+          attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+          saveProjectContext();
+          renderProjectComposer();
+          const input = document.getElementById("composer-ta");
+          if (input) input.placeholder = "从项目开始，或直接描述任务…";
+        }
+      }
+    });
+    if (el) el.addEventListener("submit", async event => {
+      const form = event.target.closest("[data-proj-form]");
+      if (!form) return;
+      event.preventDefault();
+      const data = new FormData(form);
+      const payload = {
+        name: String(data.get("name") || "").trim(),
+        verification: String(data.get("verification") || "").trim(),
+      };
+      const editId = form.dataset.projEditId || "";
+      try {
+        if (editId) {
+          await postJson("/api/projects/update", { id: editId, ...payload });
+          cancelProjectForm();
+          await loadProjects();
+          toast("项目已保存");
+        } else {
+          payload.path = String(data.get("path") || "").trim();
+          const created = await postJson("/api/projects", payload);
+          cancelProjectForm();
+          await loadProjects();
+          if (created && created.id) {
+            toggleProject(created.id);
+            const project = getProject(created.id);
+            if (project) bindProjectContext(project);
+          }
+          toast("项目已创建");
+        }
+      } catch (error) {
+        toast("项目保存失败：" + error.message);
+      }
     });
   }
   sidebarContainer.addEventListener("keydown", event => {
@@ -5438,9 +5571,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLive();
   await loadChatThreads();
   loadChatModels();
-  workHome.bind();
-  // Sidebar Projects must have facts even when a deep link lands on a run.
-  workHome.refresh({ silent: true });
+  await loadProjects();
   const params = new URLSearchParams(location.search);
   const runParam = params.get("run");
   const param = params.get("trace");

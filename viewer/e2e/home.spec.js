@@ -2,12 +2,12 @@ import { test, expect } from "@playwright/test";
 
 /* 首页壳层：渲染、模型徽章、⌘K 命令面板的开合与过滤。 */
 
-test("Work 首页渲染:项目工作台 + 模型徽章 + 侧栏导航", async ({ page }) => {
+test("Work 落地渲染:任务舞台 + 模型徽章 + 侧栏导航", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector('body[data-booted="1"]');
-  await expect(page.locator("#main")).toHaveAttribute("data-view", "work");
-  await expect(page.locator(".work-home h1")).toHaveText("工作");
-  await expect(page.locator(".work-projects")).toBeVisible();
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
+  await expect(page.locator(".moonshot-title")).toContainText("Build your");
+  await expect(page.locator("#chat-projects")).toContainText("Projects");
   // 模型徽章来自 paintModelBadge(新 composer-panel 模块):全新档案的
   // 默认模型可能落在云端条目或离线 mock,断言"有可读徽章"而非具体值
   await expect(page.locator("#model-label")).toHaveText(/kimi|deepseek|offline-mock|未连接/);
