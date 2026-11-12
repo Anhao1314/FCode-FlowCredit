@@ -981,6 +981,22 @@ function currentWorkTab() {
   return activeSession()?.workTab || store.workTab || "activity";
 }
 
+/* 执行线程常驻，变更/文件在右侧检查器里切换（Kimi 任务页的侧栏交互）。
+   抽屉只影响检查器，不隐藏线程；关闭 = 回到 activity。 */
+function applyWorkTab(layout, tab) {
+  if (!layout) return;
+  layout.querySelectorAll("[data-work-pane]").forEach(pane => {
+    pane.hidden = pane.dataset.workPane !== "activity" && pane.dataset.workPane !== tab;
+  });
+  const inspector = layout.querySelector("[data-work-inspector]");
+  if (inspector) inspector.hidden = tab === "activity";
+  layout.querySelectorAll("[data-work-tab]").forEach(button => {
+    const selected = button.dataset.workTab === tab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+  });
+}
+
 function refreshProjectViews(trace) {
   if (!isProjectTrace(trace) || shownTrace()?.task?.id !== trace.task?.id) return;
   const active = currentWorkTab();
@@ -1923,13 +1939,39 @@ function setApprovalMode(mode) {
   syncSettings();
 }
 
+const APPROVAL_ICONS = { consequential: "key", all: "lock", off: "circle" };
+
 function renderApprovalMenu() {
   const menu = document.getElementById("approval-menu");
   if (!menu) return;
-  menu.innerHTML = APPROVAL_MODES.map(([key, title, desc]) => `<button class="tpl-item${key === approvalMode ? " active" : ""}" data-approval-mode="${esc(key)}">
-    <span class="t"><span>${esc(title)}</span><span class="m">${esc(key)}</span></span>
-    <span class="d">${esc(desc)}</span>
-  </button>`).join("") + `<div class="tpl-note">审批只发生在轮次边界，不打断工具执行；拒绝会终止运行并写入签名链。档位对新任务生效。</div>`;
+  menu.innerHTML = APPROVAL_MODES.map(([key, title, desc]) => {
+    const selected = key === approvalMode;
+    return `<button class="tpl-item apv-item${selected ? " active" : ""}" data-approval-mode="${esc(key)}" role="menuitemradio" aria-checked="${selected}">
+    <span class="apv-ic">${ICON[APPROVAL_ICONS[key]] || ICON.circle}</span>
+    <span class="apv-copy"><span class="t">${esc(title)}</span><span class="d">${esc(desc)}</span></span>
+    ${selected ? `<span class="apv-check">${ICON.check}</span>` : ""}
+  </button>`;
+  }).join("") + `<div class="tpl-note">审批只发生在轮次边界，不打断工具执行；拒绝会终止运行并写入签名链。档位对新任务生效。</div>`;
+}
+
+/* 审批菜单默认向上；舞台态 composer 偏上时上方放不下，改向下展开。
+   量的是实际高度与顶栏下缘，不猜菜单尺寸。 */
+function placeApprovalMenu() {
+  const menu = document.getElementById("approval-menu");
+  const box = document.getElementById("composer-box");
+  if (!menu || !box || menu.hidden) return;
+  const topbar = document.querySelector(".topbar");
+  const ceiling = topbar ? topbar.getBoundingClientRect().bottom + 8 : 8;
+  menu.style.top = "";
+  menu.style.bottom = "";
+  menu.style.transformOrigin = "";
+  const m = menu.getBoundingClientRect();
+  const b = box.getBoundingClientRect();
+  if (b.top - m.height - 8 < ceiling) {
+    menu.style.top = "calc(100% + 8px)";
+    menu.style.bottom = "auto";
+    menu.style.transformOrigin = "top left";
+  }
 }
 
 /* 模型选择器与“+”附加面板（app/composer-panel.js，拆分切片 4c）。
@@ -4282,6 +4324,7 @@ function bindComposer() {
     event.stopPropagation();
     closeModelMenus();
     apvMenu.hidden = !apvMenu.hidden;
+    if (!apvMenu.hidden) placeApprovalMenu();
   });
   const fastBtn = document.getElementById("fast-btn");
   fastBtn?.addEventListener("click", () => {
@@ -5138,14 +5181,15 @@ function bindMainInteractions() {
       const tab = workTab.dataset.workTab;
       const s = activeSession();
       if (s) s.workTab = tab; else store.workTab = tab;
-      const layout = workTab.closest("[data-project-work]");
-      layout?.querySelectorAll("[data-work-pane]").forEach(pane => { pane.hidden = pane.dataset.workPane !== tab; });
-      layout?.querySelectorAll("[data-work-tab]").forEach(button => {
-        const selected = button.dataset.workTab === tab;
-        button.classList.toggle("active", selected);
-        button.setAttribute("aria-selected", String(selected));
-      });
+      applyWorkTab(workTab.closest("[data-project-work]"), tab);
       if (tab === "files" && shownTrace()) loadProjectWorkspace(shownTrace());
+      return;
+    }
+    const workClose = event.target.closest("[data-work-close]");
+    if (workClose) {
+      const s = activeSession();
+      if (s) s.workTab = "activity"; else store.workTab = "activity";
+      applyWorkTab(workClose.closest("[data-project-work]"), "activity");
       return;
     }
     const applyButton = event.target.closest("[data-project-apply]");

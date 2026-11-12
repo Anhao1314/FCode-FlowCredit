@@ -2933,15 +2933,15 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 
 .sidebar {
   /* Kimi 的侧栏色板只在这一层生效，避免改动审计面的 Paper & Proof。 */
-  --canvas: #fbfaf9;
-  --panel: #f5f5f5;
-  --raised: #ffffff;
+  --canvas: #fbfaf7;
+  --panel: #f3f1ec;
+  --raised: #fffefb;
   --text-1: rgba(0, 0, 0, .90);
   --text-2: rgba(0, 0, 0, .60);
   --text-3: rgba(0, 0, 0, .45);
   --text-4: rgba(0, 0, 0, .30);
-  --line: rgba(0, 0, 0, .09);
-  --line-strong: rgba(0, 0, 0, .13);
+  --line: rgba(38, 32, 25, .09);
+  --line-strong: rgba(38, 32, 25, .14);
   --active: #00000008;
   padding: 9px 8px 8px;
   background: var(--canvas);
@@ -3857,3 +3857,204 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 /* 侧栏治理历史行里的迷你脸：20px 也保留完整五官，不降级。 */
 .gov-run-avatar { flex: none; display: inline-flex; }
 .gov-run-avatar .ai-avatar { box-shadow: 0 0 0 .5px rgba(0, 0, 0, .16); }
+
+/* ================================================================ Kimi 2.8 · Work 面刷新
+   2026-11-12：对齐本机 Kimi Work 的“留白优先、线程常驻、检查器侧开”。
+   只改 Work 面的呈现与交互；审计面仍用 Paper & Proof 的排版基线。
+   - 首页舞台居中：标题/说明/composer 一条中轴，轨道场景退为背景水印；
+   - 运行页：视图切换收成一条分段控件，变更/文件进入右侧检查器抽屉；
+   - composer 与审批菜单向 Kimi 的圆角、无边框控件、三行说明靠拢。 */
+
+/* ---- 首页：居中舞台 ------------------------------------------------------- */
+#app.stage-mode .moonshot-stage {
+  width: min(760px, 100%);
+  min-height: min(640px, calc(100svh - 80px));
+  padding-top: clamp(46px, 8vh, 92px);
+  margin: 0 auto;
+  align-items: center;
+  text-align: center;
+}
+.moonshot-stage-top { display: block; position: relative; }
+.moonshot-stage-copy { position: relative; z-index: 2; }
+.moonshot-kicker { justify-content: center; margin-bottom: 18px; }
+.moonshot-title {
+  text-align: center;
+  font-size: clamp(38px, 4.4vw, 54px);
+}
+.moonshot-title-line { margin-right: auto; margin-left: auto; }
+.moonshot-stage .stage-note {
+  max-width: 520px;
+  margin: 18px auto 0;
+  text-align: center;
+}
+.moonshot-scene {
+  position: absolute;
+  z-index: 1;
+  top: -58px;
+  right: -36px;
+  width: 286px;
+  height: 196px;
+  opacity: .10;
+}
+.moonshot-scene svg { height: 164px; }
+.moonshot-stage .stage-dock {
+  width: min(700px, 100%);
+  margin: 30px auto 0;
+}
+@media (max-width: 640px) {
+  .moonshot-scene { top: -44px; right: -96px; width: 240px; opacity: .08; }
+  .moonshot-stage .stage-dock { margin-top: 26px; }
+}
+
+/* ---- composer：更轻的控制条 ------------------------------------------------ */
+.composer-box { border-radius: 24px; }
+.composer-ta { padding: 18px 18px 6px; font-size: 15px; line-height: 1.7; }
+.composer-bar { gap: 6px; padding: 6px 12px 12px; }
+.composer-bar .c-btn { border-color: transparent; padding: 6px 10px; }
+.composer-bar .c-btn:hover { background: var(--active); }
+.composer-bar .c-btn.static { border-color: transparent; }
+.composer .send { width: 36px; height: 36px; }
+
+/* ---- 运行页：头部收敛 + 分段视图切换 --------------------------------------- */
+.session-head {
+  margin: 0 0 18px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.session-head .session-meta { margin-top: 8px; }
+.work-view-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: inline-flex;
+  width: auto;
+  max-width: none;
+  gap: 2px;
+  margin: 0 0 16px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.work-view-tab {
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 18px;
+  transition: background-color var(--t) ease, color var(--t) ease;
+}
+.work-view-tab:hover { background: var(--active); }
+.work-view-tab.active {
+  background: var(--raised);
+  box-shadow: 0 1px 2px rgba(38, 32, 25, .06);
+  font-weight: 560;
+}
+.work-view-tab.active::after { display: none; }
+.project-work-layout { position: relative; }
+
+/* ---- 右侧检查器：线程不离开，变更/文件侧开 ---------------------------------- */
+.work-inspector {
+  position: absolute;
+  z-index: 30;
+  top: 46px;
+  right: 0;
+  width: min(620px, calc(100% - 16px));
+  max-height: min(74vh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--raised);
+  box-shadow: 0 2px 6px rgba(38, 32, 25, .05), 0 24px 70px rgba(38, 32, 25, .16);
+  animation: workInspectorIn 160ms var(--ease);
+}
+.work-inspector[hidden] { display: none; }
+.work-inspector-head {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px -14px 8px;
+  padding: 12px 14px 8px;
+  background: var(--raised);
+}
+.work-inspector-kicker {
+  color: var(--text-3);
+  font: 600 10px var(--font-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.work-inspector-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.work-inspector-close:hover { background: var(--active); color: var(--text-1); }
+.work-inspector-close .i { width: 14px; height: 14px; }
+.work-inspector .project-result,
+.work-inspector .project-files {
+  max-width: none;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.work-inspector .project-result-layout { max-height: min(56vh, 540px); }
+.work-inspector .project-browser { min-height: 0; }
+@keyframes workInspectorIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 720px) {
+  .work-inspector {
+    position: fixed;
+    inset: 64px 10px 12px;
+    width: auto;
+    max-height: none;
+    border-radius: 16px;
+  }
+}
+
+/* ---- 审批菜单：图标 + 两行说明 + 选中勾 ------------------------------------ */
+.approval-menu { width: min(420px, calc(100% - 20px)); padding: 6px; }
+.approval-menu .apv-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  text-align: left;
+}
+.approval-menu .apv-item:hover,
+.approval-menu .apv-item.active { background: var(--panel); }
+.approval-menu .apv-ic {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--canvas);
+  color: var(--text-2);
+}
+.approval-menu .apv-ic .i { width: 15px; height: 15px; }
+.approval-menu .apv-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.approval-menu .apv-copy .t { display: block; font-size: 13.5px; font-weight: 560; line-height: 20px; }
+.approval-menu .apv-copy .d { display: block; color: var(--text-3); font-size: 11.5px; line-height: 17px; }
+.approval-menu .apv-check { align-self: center; margin-left: 4px; color: var(--text-1); }
+.approval-menu .apv-check .i { width: 15px; height: 15px; }
+.approval-menu .tpl-note { margin-top: 6px; padding: 8px 10px 6px; }
+

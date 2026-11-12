@@ -19,26 +19,26 @@
      --canvas  页面画布：近白，最亮的底也是滚动区的底；
      --panel   面板：浅灰，侧栏、卡片等一切"躺在画布上"的表面；
      --raised  悬浮/置顶：纯白，浮层、菜单、命令面板、当前选中项。 */
-  --canvas: #fbfaf9;
-  --panel: #f5f5f5;
-  --raised: #ffffff;
+  --canvas: #fbfaf7;
+  --panel: #f3f1ec;
+  --raised: #fffefb;
   /* 代码 / 输出等嵌入面：比面板再沉一档，白底上的浅灰阅读井 */
-  --inset: #f5f5f5;
+  --inset: #f5f3ee;
 
   /* ---- 线与圆角 ---------------------------------------------------------------
      统一 1px 黑 9% 描边；--line-soft 更轻一档（卡内分隔线），--line-strong
      用于需要比邻居更高一级的边（悬浮层描边、当前项指示）。
      圆角：控件 9px / 卡片 14px / 胶囊 999px / composer 舞台连体胶囊 24px /
      菜单浮层 10px。 */
-  --line: rgba(0, 0, 0, .09);
-  --line-soft: rgba(0, 0, 0, .06);
-  --line-strong: rgba(0, 0, 0, .13);
+  --line: rgba(38, 32, 25, .09);
+  --line-soft: rgba(38, 32, 25, .06);
+  --line-strong: rgba(38, 32, 25, .14);
   --radius: 9px;
   --radius-card: 14px;
   --radius-pill: 999px;
   --radius-stage: 24px;
   --radius-menu: 10px;
-  --shadow-stage: 0 1px 2px rgba(0, 0, 0, .025), 0 8px 28px rgba(0, 0, 0, .045);
+  --shadow-stage: 0 1px 2px rgba(38, 32, 25, .03), 0 10px 36px rgba(38, 32, 25, .05);
 
   /* ---- 文字：四档黑 ------------------------------------------------------------
      --text-1 主文字（结论、标题、正文）：90% 黑；

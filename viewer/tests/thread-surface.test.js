@@ -265,15 +265,19 @@ test("threadCacheFor:会话缓存与会话缺失时的 store 缓存各自独立"
   assert.equal(store.threadCache, b);
 });
 
-test("projectRunHtml:项目任务三视图按当前 tab 展开,线程挂在 activity 面内", () => {
+test("projectRunHtml:线程常驻,变更/文件在检查器里按当前 tab 侧开", () => {
   const { surface } = makeSurface();
   const trace = { task: { id: "task-9" } };
   const html = surface.projectRunHtml(trace);
   assert.ok(html.includes('data-project-work="task-9"'));
   assert.ok(html.includes('data-work-pane="activity"'));
+  assert.ok(!/data-work-pane="activity" hidden/.test(html), "线程面不因 tab 隐藏");
   assert.ok(html.includes('id="thread"'), "activity 面内挂任务线程");
   assert.ok(html.includes('id="changes-slot"'));
   assert.ok(html.includes('data-work-pane="files"'));
+  assert.ok(html.includes("data-work-inspector hidden"), "默认收起检查器");
+  const opened = makeSurface({ currentWorkTab: () => "changes" }).surface.projectRunHtml(trace);
+  assert.ok(/data-work-inspector(?![^>]*hidden)/.test(opened), "changes tab 打开检查器");
   const files = surface.projectRunHtml({ task: { id: "t" }, projectWorkspace: true });
   assert.ok(files.includes("files"), "有工作区时渲染文件面板内容");
 });

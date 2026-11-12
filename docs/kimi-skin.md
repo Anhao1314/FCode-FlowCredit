@@ -4,8 +4,22 @@
 设置页、空状态、动效。这一面以 Kimi 桌面端/网页版的**实测值**为准，所有数字都可追溯到
 它自己的样式表（见文末的 asar 提取一节）。审计底稿与证据面**不适用**本文件，那份规范是
 [design-system.md](design-system.md)（Paper & Proof）。两面分流的理由写在根 README。
-最后核对：2026-10-26。
+最后核对：2026-11-12（Kimi 2.8 Work 桌面端实机复核）。
 
+## 2026-11-12 · Kimi 2.8 Work 增量
+
+本轮在本机 Kimi 桌面端（Work / 任务页）实机复核后，FCode Work 面做了以下对齐：
+
+| 观察 | FCode 落地 |
+| --- | --- |
+| 首页标题、说明、composer 沿中轴排布，装饰元素退到背景 | `#app.stage-mode .moonshot-stage` 居中，轨道场景 `opacity .10` 作水印，composer 收到 700px |
+| 任务页以线程为主体，变更/文件从右侧侧开，不替换线程 | 视图切换收成分段控件；`data-work-inspector` 抽屉只承载变更/文件，关闭回执行线程 |
+| 画布更暖、层级更柔 | `--canvas #fbfaf7`、`--panel #f3f1ec`、`--raised #fffefb`、线色转暖 `rgba(38,32,25,…)` |
+| 审批浮窗三行「图标 + 标题 + 一句说明 + 选中勾」 | `renderApprovalMenu()` 去掉裸 key，补图标/勾；上方放不下时自动向下展开 |
+| composer 控件无边框、圆角更大 | `.composer-bar .c-btn` 去边框，发送键 36px |
+
+旧表（2026-10-25 / 10-26）保留为历史基线；颜色与几何以本节和 `viewer/app.css` 的
+当前 token 为准。
 
 这份文档记录 2026-10-25 在 kimi.com（1600×1000 首页 + 对话页）上直接读取的
 计算样式，以及它们如何映射到 FCode。几何测量见 `desktop-design.md`；这里只写

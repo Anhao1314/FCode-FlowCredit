@@ -211,14 +211,23 @@ export function createThreadSurface(deps) {
 
   function projectRunHtml(trace, { live = false } = {}) {
     const active = d.currentWorkTab();
+    const drawerOpen = active !== "activity";
     return `<div class="project-work-layout" data-project-work="${esc(trace.task?.id || "")}">
       <div class="work-view-tabs" data-work-tabs role="tablist" aria-label="项目任务视图">${d.projectWork.projectTabsHtml(trace, active)}</div>
-      <section class="work-pane" data-work-pane="activity"${active === "activity" ? "" : " hidden"}>
+      <section class="work-pane" data-work-pane="activity">
         ${d.projectWork.projectContextHtml(trace)}
         ${threadMountHtml()}
       </section>
-      <section class="work-pane" data-work-pane="changes"${active === "changes" ? "" : " hidden"}><div id="changes-slot">${d.projectWork.projectResultHtml(trace)}</div></section>
-      <section class="work-pane" data-work-pane="files"${active === "files" ? "" : " hidden"}><div id="files-slot">${trace.projectWorkspace ? d.projectWork.projectFilesHtml(trace) : '<div class="work-pane-empty"><b>查看任务文件</b><span>读取本次运行的隔离工作区，不会访问原目录。</span></div>'}</div></section>
+      <aside class="work-inspector" data-work-inspector${drawerOpen ? "" : " hidden"} aria-label="变更与文件检查器">
+        <div class="work-inspector-head">
+          <span class="work-inspector-kicker">检查器</span>
+          <button type="button" class="work-inspector-close" data-work-close aria-label="关闭检查器">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <section class="work-pane" data-work-pane="changes"${active === "changes" ? "" : " hidden"}><div id="changes-slot">${d.projectWork.projectResultHtml(trace)}</div></section>
+        <section class="work-pane" data-work-pane="files"${active === "files" ? "" : " hidden"}><div id="files-slot">${trace.projectWorkspace ? d.projectWork.projectFilesHtml(trace) : '<div class="work-pane-empty"><b>查看任务文件</b><span>读取本次运行的隔离工作区，不会访问原目录。</span></div>'}</div></section>
+      </aside>
     </div>`;
   }
 

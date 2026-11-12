@@ -58,10 +58,10 @@ Projects                                   ＋
 
 ## 主区
 
-- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`，提交走 `sendTask → intake → /api/runs`，不是聊天。
+- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`，提交走 `sendTask → intake → /api/runs`，不是聊天。舞台按 Kimi 2.8 的中轴排布：标题、说明、composer 居中，轨道场景退为背景水印。
 - 选中项目后，composer 占位符变成「在『项目名』中要完成什么？」，提交时带 `spec.project_id`。
 - 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
-- 运行视图沿用既有任务线程 / 项目三视图（执行、变更、文件）；Work 不再有主区项目卡或看板。
+- 运行视图以任务线程为主体：执行线程常驻；「变更 / 文件」不再替换主区，而是在右侧检查器抽屉里侧开，关闭后回到执行线程。Work 不再有主区项目卡或看板。
 
 ## unknown 结果的恢复出口
 
