@@ -74,8 +74,8 @@
       <!-- 治理区历史（Kimi 式分区历史）：审计记录按日期分组。Work 区
            显示对话/任务段，Governance 区显示审计历史——两套互斥显隐
            （body[data-zone]）。行点击深链 #/audit/<dir>。
-           gov-surface-nav = 治理台三个面（对话/团队/工作台）的切换，
-           从主区头部收进侧栏；点击合同仍是 data-gov-mode。 -->
+           gov-surface-nav = 治理区三个面（团队/工作台/审计台）的切换，
+           从主区头部收进侧栏；审计台走 data-open，其余走 data-gov-mode。 -->
       <nav class="gov-surface-nav" id="gov-surface-nav" aria-label="治理台视图"></nav>
       <div id="gov-history"></div>
     </div>
@@ -116,8 +116,6 @@
       <div class="tb-title" id="tb-title">—</div>
       <div class="tb-chips" id="tb-chips"></div>
       <div class="grow"></div>
-      <button class="tb-audit-link" type="button" data-open="audit"
-        title="发现账本:审计器产出的缺陷与证据">审计台</button>
       <button class="conn-pill" id="conn-pill" type="button" title="运行流连接状态" hidden>
         <span class="conn-dot" aria-hidden="true"></span><span id="conn-pill-text"></span>
       </button>

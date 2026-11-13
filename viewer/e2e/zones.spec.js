@@ -52,6 +52,9 @@ test("分区历史:Work 显示对话段,Governance 显示治理历史并深链�
   await expect(page.locator("#main")).toHaveAttribute("data-view", "audit");
   await expect(page).toHaveURL(/#\/audit\//);
   await expect(page.locator("body")).toHaveAttribute("data-zone", "gov");
+  // 审计台入口就在治理区侧栏，且当前面点亮
+  await expect(page.locator('#gov-surface-nav [data-open="audit"]'))
+    .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".composer-wrap")).toBeVisible();
   await expect(page.locator("#model-btn")).toBeHidden();
   await expect(page.locator("#composer-ta")).toHaveAttribute("placeholder", /治理命令/);

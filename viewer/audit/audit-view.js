@@ -36,7 +36,7 @@ export { DISPOSITION_LABELS } from "../core/gov-cards.js";
 export function auditShellHtml() {
   return `<div class="at-wrap">
     <main class="at-main" id="at-main">
-      <div class="at-none dim">从右上「发现账本」选择一次审计，查看它的发现与证据。</div>
+      <div class="at-none dim">从右侧「发现账本」选择一次审计，查看它的发现与证据。</div>
     </main>
   </div>`;
 }
@@ -655,7 +655,7 @@ export function createAuditSurface(deps) {
       .forEach(b => b.classList.remove("at-sel"));
     const detail = document.getElementById("at-main");
     if (detail) {
-      detail.innerHTML = '<div class="at-none dim">从右上「发现账本」选择一次审计，查看它的发现与证据。</div>';
+      detail.innerHTML = '<div class="at-none dim">从右侧「发现账本」选择一次审计，查看它的发现与证据。</div>';
     }
   }
 

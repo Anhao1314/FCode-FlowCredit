@@ -110,13 +110,15 @@ export function createSidebar(deps) {
     paintZoneSwitch();
   }
 
-  /* 治理台三面切换（对话/团队/工作台）：从主区头部收进侧栏。
-     点击合同不变（data-gov-mode，由全局委托处理）；active 跟随
-     getGovSurface。非 gov 区时容器由 CSS 隐藏，不需这里清空。 */
+  /* 治理台三面切换（团队/工作台/审计台）：从主区头部收进侧栏。
+     data-gov-mode 由全局委托处理，data-open=audit 走 renderMode；
+     active 跟随当前视图（审计台是独立视图，不是 govSurface）。 */
   function paintGovSurfaceNav() {
     const host = document.getElementById("gov-surface-nav");
     if (!host) return;
-    host.innerHTML = govSurfaceSwitchHtml(d.getGovSurface?.() || "dialog");
+    const view = document.getElementById("main")?.dataset.view || "";
+    const active = view === "audit" ? "audit" : (d.getGovSurface?.() || "dialog");
+    host.innerHTML = govSurfaceSwitchHtml(active);
   }
 
   function paintNavActive() {

@@ -4667,10 +4667,11 @@ function bindGlobalActions() {
       document.getElementById("foot-menu").hidden = true;
       document.getElementById("user-btn")?.setAttribute("aria-expanded", "false");
     }
-    // 侧栏 nav-item / 顶栏审计台按钮 / S2.1 区切换器 / W1 对话卡跳转共用 data-open → renderMode 一条路。
+    // 侧栏 nav-item / 治理面切换器(团队/工作台/审计台) / S2.1 区切换器 /
+    // W1 对话卡跳转共用 data-open → renderMode 一条路。
     // 从区切换器进入 Governance 时回到对话面；工作台是复核时的显式选择。
     if (event.target.closest('.zone-btn[data-open="gov"]')) govSurface = "dialog";
-    const navOpen = event.target.closest(".nav-item[data-open], .tb-audit-link[data-open], .zone-btn[data-open], .wcard-jump[data-open], .side-market[data-open]");
+    const navOpen = event.target.closest(".nav-item[data-open], .gov-surface-btn[data-open], .zone-btn[data-open], .wcard-jump[data-open], .side-market[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
     // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
     const govBundle = event.target.closest("[data-gov-open-bundle]");

@@ -10,13 +10,17 @@ import { DISPOSITION_LABELS } from "./gov-cards.js";
 const SEVERITY_LABEL = { high: "高", medium: "中", low: "低" };
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 
-/* 治理区的三个交互面：对话是操作员入口与区落地（新对话按钮/区切换直达），
-   团队是常驻 Bot，工作台是审计复核面。切换器只列两个次级面——
-   对话行与「新对话」按钮是重复入口，已从侧栏清理。 */
+/* 治理区的交互面：常驻团队、审计复核工作台、证据账本审计台。切换器
+   从主区头部收进侧栏；对话行与「新对话」按钮重复，已从侧栏清理。
+   审计台不是 govSurface，用 data-open=audit 走 renderMode 的主路径，
+   高亮由当前视图决定（active === "audit"）。 */
 export function govSurfaceSwitchHtml(active = "dialog") {
   const button = (key, label) => `<button class="gov-surface-btn${active === key ? " active" : ""}"
     type="button" role="tab" data-gov-mode="${key}" aria-selected="${active === key}">${label}</button>`;
-  return `<div class="gov-surface-switch" role="tablist" aria-label="治理台视图">${button("team", "团队")}${button("workbench", "工作台")}</div>`;
+  const auditActive = active === "audit";
+  const audit = `<button class="gov-surface-btn${auditActive ? " active" : ""}"
+    type="button" role="tab" data-open="audit" aria-selected="${auditActive}">审计台</button>`;
+  return `<div class="gov-surface-switch" role="tablist" aria-label="治理台视图">${button("team", "团队")}${button("workbench", "工作台")}${audit}</div>`;
 }
 
 export function targetKey(entry) {
