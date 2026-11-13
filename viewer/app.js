@@ -457,14 +457,13 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   setStageMode(mode === "empty");
   document.getElementById("app")?.classList.toggle("chat-mode", mode === "chat");
   renderProjectComposer();
-  // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）不显示输入框
+  // composer 只属于对话语境：功能页（账本 / 判断记录 / 审计台 / 定时任务 / 设置）
+  // 不显示输入框。治理台有对话/工作台两个壳:renderGovDialog 会自己把输入框
+  // 放回来,工作台保持隐藏;审计台是纯证据面,命令统一回治理对话面输入。
   const composerWrap = document.querySelector(".composer-wrap");
-  // 治理台有对话/工作台两个壳:renderGovDialog 会自己把输入框放回来,
-  // 工作台保持隐藏。审计台属治理区也保留治理 composer(零模型 console);
-  // reviews/scheduled/ledger/settings 仍是纯功能页,不显示输入框。
-  if (composerWrap) composerWrap.hidden = (mode === "gov" || mode === "reviews"
-    || mode === "scheduled" || mode === "ledger" || mode === "settings"
-    || mode === "market");
+  if (composerWrap) composerWrap.hidden = (mode === "gov" || mode === "audit"
+    || mode === "reviews" || mode === "scheduled" || mode === "ledger"
+    || mode === "settings" || mode === "market");
   const scroller = document.querySelector(".main");
   if (scroll === "top" && scroller) scroller.scrollTop = 0;
   else if (scroll === "bottom" && scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -546,8 +545,8 @@ function renderMode(mode, payload = {}) {
   if (!entry) throw new Error(`unknown view mode: ${mode}`);
   store.mode = mode;
   const result = entry(payload);
-  // 治理区两个视图(治理台/审计台)共用零模型 chrome
-  paintGovChrome(mode === "gov" || mode === "audit");
+  // 治理对话面的零模型 chrome;审计台是纯证据面,不需要命令输入框。
+  paintGovChrome(mode === "gov");
   return result;
 }
 
