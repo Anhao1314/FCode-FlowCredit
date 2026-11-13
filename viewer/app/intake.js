@@ -485,7 +485,9 @@ export function createIntake(deps) {
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.error || `HTTP ${response.status}`);
+        const failure = new Error(error.error || `HTTP ${response.status}`);
+        failure.code = error.code || "";
+        throw failure;
       }
       const run = await response.json();
       intakeSavePrefs(task.spec);
@@ -506,7 +508,12 @@ export function createIntake(deps) {
       if (s) s.autoReport = task.spec.output === "memo";
       d.refreshRuns({ force: true });
     } catch (error) {
-      d.toast("委托提交失败：" + error.message);
+      if (error.code === "PROJECT_NOT_FOUND") {
+        d.clearProjectContext();
+        d.toast("项目目录已失效，请重新选择项目后重试；任务内容已保留");
+      } else {
+        d.toast("委托提交失败：" + error.message);
+      }
       if (button) { button.disabled = false; button.textContent = "开始委托"; }
     }
   }

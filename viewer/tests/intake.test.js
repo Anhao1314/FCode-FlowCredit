@@ -34,7 +34,7 @@ function setup({ health = { live: true }, fetchImpl, tplKey = "full", templates,
   const els = {};
   const calls = { renderMain: [], renderMode: [], renderAttachPanel: 0, openLive: [],
     toast: [], autosize: 0, leaveChat: 0, setComposerRunning: [], refreshRuns: [],
-    closeSettingsPage: [] };
+    closeSettingsPage: [], clearProjectContext: 0 };
   const fetchCalls = [];
   const defaultFetch = async (url, init) => {
     fetchCalls.push({ url, body: init ? JSON.parse(init.body) : null });
@@ -64,6 +64,7 @@ function setup({ health = { live: true }, fetchImpl, tplKey = "full", templates,
     isGeneralTemplate: () => true,
     renderAttachPanel: () => { calls.renderAttachPanel += 1; },
     delegationSpecExtras: () => ({}),
+    clearProjectContext: () => { calls.clearProjectContext += 1; },
     autosize: () => { calls.autosize += 1; },
     hydrateDoodles: () => {},
     renderMode: m => calls.renderMode.push(m),
@@ -233,6 +234,27 @@ test("startIntakeRun:项目模式必须带独立验证命令", async () => {
   await s.intake.startIntakeRun();
   assert.match(s.calls.toast[0], /独立验证命令/);
   assert.equal(s.calls.openLive.length, 0);
+});
+
+test("startIntakeRun:项目目录失效时清绑定并保留任务草稿", async () => {
+  const s = setup({
+    project: "/deleted/project", verification: "pytest -q",
+    fetchImpl: async () => ({
+      ok: false, status: 400,
+      json: async () => ({ code: "PROJECT_NOT_FOUND", error: "project directory is not readable" }),
+    }),
+  });
+  s.intake.intake.active = true;
+  s.intake.intake.readyTask = {
+    objective: "保留这条任务", template: "full", approval: "off", spec: { mode: "open" },
+  };
+  await s.intake.startIntakeRun();
+  assert.equal(s.calls.clearProjectContext, 1);
+  assert.equal(s.calls.openLive.length, 0, "失效项目不得进入运行线程");
+  assert.equal(s.intake.intake.active, true);
+  assert.equal(s.intake.intake.readyTask.objective, "保留这条任务");
+  assert.match(s.calls.toast[0], /重新选择项目.*任务内容已保留/);
+  assert.equal(s.els["intake-start-btn"].disabled, false);
 });
 
 test("偏好持久化:受理成功后写入 fa.intake,下次徽章显示'上次选择'", async () => {

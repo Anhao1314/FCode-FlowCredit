@@ -40,6 +40,12 @@ from console_run_budget import budget_summary as _budget_summary
 from console_runtime import Run, Runtime
 
 
+class ProjectNotFoundError(ValueError):
+    """The selected project disappeared after it was registered or bound."""
+
+    code = "PROJECT_NOT_FOUND"
+
+
 class RunManager:
     def __init__(
         self,
@@ -291,6 +297,14 @@ class RunManager:
                     spec["project"] = self.runtime.validate_project_spec(project)
                 except ValueError as error:
                     raise ValueError(str(error)) from error
+                project_path = spec["project"]["path"]
+                # Registration/binding may be stale by the time a run starts.
+                # Refuse synchronously instead of accepting a 202 whose driver
+                # can only create a zero-round PROJECT_NOT_FOUND error record.
+                if not os.path.isdir(project_path) or not os.access(project_path, os.R_OK):
+                    raise ProjectNotFoundError(
+                        f"project directory is not readable: {project_path}"
+                    )
                 if spec.get("verification") is None:
                     raise ValueError("a project delegation needs an independent verification command")
                 spec.setdefault("reportPath", self.runtime.PROJECT_REPORT_PATH)

@@ -369,6 +369,14 @@ function bindProjectContext(project) {
   if (input) input.placeholder = `在「${project.name || "项目"}」中要完成什么？`;
 }
 
+function clearProjectContext() {
+  attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+  try { localStorage.removeItem("fa.workProject"); } catch { /* storage denied */ }
+  renderProjectComposer();
+  const input = document.getElementById("composer-ta");
+  if (input) input.placeholder = "从项目开始，或直接描述任务…";
+}
+
 function newWorkThread() {
   // Work 的新线程 = 任务舞台，不是聊天：chat.active=false 让 composer
   // 走 sendTask → intake → /api/runs；审批/模型/Fast 仍由 Work chrome 显示。
@@ -1551,6 +1559,7 @@ const {
   isGeneralTemplate: (...a) => isGeneralTemplate(...a),
   renderAttachPanel: (...a) => renderAttachPanel(...a),
   delegationSpecExtras: (...a) => delegationSpecExtras(...a),
+  clearProjectContext,
   autosize, hydrateDoodles, renderMode, renderMain, stageEmptyHtml,
   select, activeSession, openLive, refreshRuns, setComposerRunning, toast,
   getHealth: () => health,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import tempfile
 import time
 import unittest
@@ -113,6 +114,29 @@ class ProjectApiTests(unittest.TestCase):
         self.assertIn(run["id"], [row["id"] for row in rows])
         row = next(item for item in rows if item["id"] == run["id"])
         self.assertEqual(row["projectId"], project["id"])
+
+    def test_deleted_project_is_refused_before_a_run_is_created(self) -> None:
+        target = self._new_dir("deleted-before-run")
+        project = self._create_project("DeletedBeforeRun", target)
+        shutil.rmtree(target)
+
+        status, body = self._post("/api/runs", {
+            "template": "general-research",
+            "objective": "这个目录已经在绑定后删除",
+            "projectId": project["id"],
+            "approval": "off",
+            "model": "mock",
+            "spec": {"mode": "open"},
+        })
+        self.assertEqual(status, 400, body)
+        error = json.loads(body)
+        self.assertEqual(error["code"], "PROJECT_NOT_FOUND")
+        self.assertIn("project directory is not readable", error["error"])
+
+        status, body = request(
+            self.server.url(f"/api/runs?projectId={project['id']}"))
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body), [], "preflight 失败不得留下 0 轮 error 运行")
 
     def test_unknown_or_archived_project_is_refused(self) -> None:
         status, body = self._post("/api/runs", {

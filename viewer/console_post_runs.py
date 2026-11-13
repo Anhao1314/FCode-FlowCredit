@@ -59,7 +59,10 @@ def post_run_create(handler):
         try:
             mgr.validate_delegation_spec(spec, scenario)
         except ValueError as exc:
-            return handler._json({"error": str(exc)}, 400)
+            error = {"error": str(exc)}
+            if getattr(exc, "code", ""):
+                error["code"] = exc.code
+            return handler._json(error, 400)
     # Fast experiment: the run is deliberately unattended, so per-action
     # approvals would just block forever. Gate, budget and receipts still run.
     if isinstance(spec, dict) and spec.get("fast"):

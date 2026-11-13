@@ -72,3 +72,53 @@ test("Work 侧栏：项目创建 → 运行嵌套 → 刷新 → 归档", async 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Work：已删除的项目目录在建 run 前拒绝，清绑定并保留任务", async ({ page, request }) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fcode-stale-project-"));
+  fs.writeFileSync(path.join(dir, "README.md"), "stale\n");
+  let project = null;
+  try {
+    const created = await request.post("/api/projects", {
+      data: { name: "E2E 失效项目", path: dir, verification: "true" },
+    });
+    expect(created.status()).toBe(201);
+    project = await created.json();
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    await page.addInitScript(value => {
+      localStorage.setItem("fa.workProject", JSON.stringify(value));
+    }, {
+      path: project.path, verification: project.verification,
+      projectId: project.id, name: project.name,
+    });
+    const objective = "保留这条被失效项目阻塞的任务";
+    await page.route("**/api/intake", route => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        reply: "已就绪。", thought: "", spec: { mode: "open" }, choices: [],
+        task: { objective, template: "general-research", approval: "off", spec: { mode: "open" } },
+      }),
+    }));
+    await page.goto("/");
+    await page.waitForSelector('body[data-booted="1"]');
+    const rejected = page.waitForResponse(response =>
+      response.url().endsWith("/api/runs") && response.request().method() === "POST");
+    await page.locator("#composer-ta").fill(objective);
+    await page.locator("#composer-ta").press("Enter");
+    expect((await rejected).status()).toBe(400);
+
+    await expect(page.locator("#toast")).toContainText("重新选择项目");
+    await expect(page.locator("#toast")).toContainText("任务内容已保留");
+    await expect(page.locator("#app")).toHaveClass(/intake-mode/);
+    await expect(page.locator(".intake-task")).toContainText(objective);
+    await expect.poll(() => page.evaluate(() =>
+      localStorage.getItem("fa.workProject") || "")).toBe("");
+
+    const runs = await request.get(`/api/runs?projectId=${project.id}`);
+    expect(runs.status()).toBe(200);
+    expect(await runs.json()).toEqual([]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (project) await request.post("/api/projects/archive", { data: { id: project.id } });
+  }
+});
