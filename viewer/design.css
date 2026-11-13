@@ -4114,3 +4114,34 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   background: var(--k-fill-2, var(--active)); color: var(--text-1);
   font-weight: 600; box-shadow: none;
 }
+
+/* ---- 受控 triage：模型提议跟进优先级，不裁决、不改覆盖 ------------------- */
+.gov-triage {
+  margin: 10px 0 2px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); font-size: 12px; line-height: 1.65; color: var(--text-2);
+}
+.gov-triage.is-error { border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.gov-triage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gov-triage-badge {
+  flex: none; padding: 1px 7px; border-radius: 5px;
+  background: var(--accent); color: #fff; font: 600 9.5px var(--font-mono); letter-spacing: .08em;
+}
+.gov-triage-mode { color: var(--text-1); font-weight: 600; }
+.gov-triage-confidence { margin-left: auto; color: var(--text-3); font: 10px var(--font-mono); }
+.gov-triage-summary { margin: 6px 0 2px; color: var(--text-1); }
+.gov-triage-focus-row { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; color: var(--text-3); }
+.gov-triage-focus {
+  padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius-pill);
+  font: 10px var(--font-mono); color: var(--text-2);
+}
+.gov-triage-list { margin: 6px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.gov-triage-list li { display: flex; gap: 7px; align-items: baseline; }
+.gov-triage-list code { flex: none; font-size: 11px; color: var(--text-1); }
+.gov-triage-list span { flex: 1; min-width: 0; }
+.gov-triage-list em { flex: none; font: 10px var(--font-mono); color: var(--text-3); }
+.gov-triage-note { display: block; color: var(--text-3); }
+.gov-triage-boundary { display: block; margin-top: 3px; color: var(--text-3); font-size: 11px; }
+.gov-triage-spawn { margin: 4px 0 0; color: var(--text-2); }
+.gov-triage-spawn code { font-size: 11px; }
+.gov-triage-meta { margin: 6px 0 0; color: var(--text-4); font: 10px var(--font-mono); }

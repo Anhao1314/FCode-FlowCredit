@@ -6,7 +6,7 @@ import {
   govBotSummaryHtml, govBotCardHtml, govBotRosterHtml,
   govBotDispatchHtml, govBotRunHtml, govBotChannelHtml,
   govBotRoutineFormHtml, govBotRoutinesHtml,
-  govBotSettingsFormHtml, govBotSkillsHtml, govBotDetailHtml,
+  govBotSettingsFormHtml, govBotSkillsHtml, govBotDetailHtml, govTriageBlock,
 } from "../core/gov-bots.js";
 
 const bots = [
@@ -295,4 +295,46 @@ test("AI 解读：非裁决标签显式、正文转义、done 运行带入口", 
     run_id: "r9", bot_id: "auditor", target: "t", status: "done", audit_id: "",
   });
   assert.doesNotMatch(noBundle, /data-gov-explain/);
+});
+test("triage 块:影子/生效/失败三态，active 才显示待批准复扫", () => {
+  assert.equal(govTriageBlock({}), "", "没有 triage 字段的旧运行不渲染");
+
+  const pending = govTriageBlock({ triage_status: "pending" });
+  assert.match(pending, /正在生成跟进优先级/);
+
+  const failed = govTriageBlock({ triage_status: "error", triage_error: "provider down" });
+  assert.match(failed, /provider down/);
+  assert.match(failed, /不改变任何证据/);
+
+  const plan = {
+    summary: "先复核审批记忆。",
+    confidence: "high",
+    focus_categories: ["AGI-02"],
+    priorities: [{ finding_id: "F-POC-0001", why: "门控根因", action: "reaudit" }],
+    model: "fake-triage",
+    tokens: 123,
+    cost_microusd: 45,
+  };
+  const shadow = govTriageBlock({ triage_status: "done", triage_mode: "shadow", triage: plan });
+  assert.match(shadow, /影子 · 仅记录/);
+  assert.match(shadow, /F-POC-0001/);
+  assert.match(shadow, /门控根因/);
+  assert.doesNotMatch(shadow, /待批准复扫/);
+
+  const active = govTriageBlock({
+    triage_status: "done", triage_mode: "active", triage_run_id: "bot-child",
+    triage: plan,
+  });
+  assert.match(active, /提议复扫（待批准）/);
+  assert.match(active, /bot-child/);
+  assert.match(active, /批准后才执行/);
+});
+
+test("Bot 设置:审计员有跟进策略档位，复核员没有", () => {
+  const auditor = govBotSettingsFormHtml(bots[0]);
+  assert.match(auditor, /id="gov-bot-triage-mode"/);
+  assert.match(auditor, /value="shadow"/);
+  assert.match(auditor, /value="active"/);
+  const verifier = govBotSettingsFormHtml(bots[1]);
+  assert.doesNotMatch(verifier, /triage-mode/);
 });

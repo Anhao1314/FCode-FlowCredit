@@ -851,6 +851,9 @@ def create_server(
         Handler.gov_bots = GovBotService(
             Handler.audit,
             manager.runs_dir.parent / "governance.sqlite",
+            # triage 与解释层共用同一个 provider 目录纪律（共享默认模型、
+            # mock fail-closed）；triage 的产物只进 bot_runs，不进审计包。
+            provider_factory=manager.gov_explainer_provider,
         )
     except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
         traceback.print_exc()

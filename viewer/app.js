@@ -3365,6 +3365,7 @@ async function saveGovBotSettings() {
   const botId = form.dataset.botId || govBotDetailId;
   const limit = document.getElementById("gov-bot-daily-limit");
   const approval = document.getElementById("gov-bot-routine-approval");
+  const triage = document.getElementById("gov-bot-triage-mode");
   try {
     const response = await fetch(`/api/gov/bots/${encodeURIComponent(botId)}/settings`, {
       method: "POST",
@@ -3372,6 +3373,7 @@ async function saveGovBotSettings() {
       body: JSON.stringify({
         daily_run_limit: limit ? Number(limit.value) : undefined,
         routine_approval: !!(approval && approval.checked),
+        ...(triage ? { triage_mode: triage.value } : {}),
       }),
     });
     const data = await response.json().catch(() => ({}));

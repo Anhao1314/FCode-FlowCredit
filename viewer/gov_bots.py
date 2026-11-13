@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS bot_runs (
     events INTEGER NOT NULL DEFAULT 0,
     regression_json TEXT,
     error TEXT,
+    parent_run_id TEXT,
+    triage_mode TEXT,
+    triage_status TEXT,
+    triage_json TEXT,
+    triage_error TEXT,
+    triage_run_id TEXT,
     started_at TEXT NOT NULL,
     finished_at TEXT
 );
@@ -116,9 +122,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS bot_skills_run ON bot_skills(source_run_id);
 """
 
 _DEFAULT_SETTINGS = {
-    "auditor": {"daily_run_limit": 8, "routine_approval": 0},
-    "verifier": {"daily_run_limit": 12, "routine_approval": 0},
+    "auditor": {"daily_run_limit": 8, "routine_approval": 0, "triage_mode": "off"},
+    "verifier": {"daily_run_limit": 12, "routine_approval": 0, "triage_mode": "off"},
 }
+
+#: triage 档位：off=完整扫描（默认）；shadow=只记录模型计划；active=计划 +
+#: 一条待操作员批准的复扫运行。active 绝不自动执行。
+TRIAGE_MODES = ("off", "shadow", "active")
 
 
 def _now() -> str:
@@ -128,8 +138,10 @@ def _now() -> str:
 class GovBotService:
     """Durable roster + run log for the governance team surface."""
 
-    def __init__(self, audit: Any, db_path: Path | str, *, start_scheduler: bool = True) -> None:
+    def __init__(self, audit: Any, db_path: Path | str, *, start_scheduler: bool = True,
+                 provider_factory: Any = None) -> None:
         self.audit = audit
+        self._provider_factory = provider_factory
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
@@ -140,12 +152,26 @@ class GovBotService:
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
         self._db.commit()
+        # 旧库迁移：bot_runs 的 triage 列 + bot_settings.triage_mode。
+        self._ensure_columns("bot_runs", {
+            "parent_run_id": "TEXT",
+            "triage_mode": "TEXT",
+            "triage_status": "TEXT",
+            "triage_json": "TEXT",
+            "triage_error": "TEXT",
+            "triage_run_id": "TEXT",
+        })
+        self._ensure_columns("bot_settings", {
+            "triage_mode": "TEXT NOT NULL DEFAULT 'off'",
+        })
         with self._lock:
             for bot_id, defaults in _DEFAULT_SETTINGS.items():
                 self._db.execute(
-                    "INSERT OR IGNORE INTO bot_settings (bot_id, daily_run_limit, routine_approval)"
-                    " VALUES (?,?,?)",
-                    (bot_id, defaults["daily_run_limit"], defaults["routine_approval"]),
+                    "INSERT OR IGNORE INTO bot_settings"
+                    " (bot_id, daily_run_limit, routine_approval, triage_mode)"
+                    " VALUES (?,?,?,?)",
+                    (bot_id, defaults["daily_run_limit"],
+                     defaults["routine_approval"], defaults.get("triage_mode", "off")),
                 )
             self._db.commit()
         # A run left in queued/running belongs to a previous server process.
@@ -274,14 +300,17 @@ class GovBotService:
                 "SELECT * FROM bot_settings WHERE bot_id=?", (bot_id,)
             ).fetchone()
         if row is None:
-            defaults = _DEFAULT_SETTINGS.get(bot_id, {"daily_run_limit": 12, "routine_approval": 0})
+            defaults = _DEFAULT_SETTINGS.get(
+                bot_id, {"daily_run_limit": 12, "routine_approval": 0, "triage_mode": "off"})
             return {
                 "bot_id": bot_id,
                 "daily_run_limit": defaults["daily_run_limit"],
                 "routine_approval": bool(defaults["routine_approval"]),
+                "triage_mode": defaults.get("triage_mode", "off"),
             }
         item = dict(row)
         item["routine_approval"] = bool(item.get("routine_approval"))
+        item.setdefault("triage_mode", "off")
         return item
 
     def set_settings(self, bot_id: str, payload: dict) -> dict:
@@ -295,10 +324,14 @@ class GovBotService:
         if not 1 <= limit <= 50:
             raise ValueError("daily_run_limit must be 1..50")
         approval = bool(payload.get("routine_approval", current["routine_approval"]))
+        triage_mode = str(payload.get("triage_mode", current.get("triage_mode") or "off")).strip().lower()
+        if triage_mode not in TRIAGE_MODES:
+            raise ValueError("triage_mode must be off, shadow or active")
         with self._lock:
             self._db.execute(
-                "UPDATE bot_settings SET daily_run_limit=?, routine_approval=? WHERE bot_id=?",
-                (limit, 1 if approval else 0, bot_id),
+                "UPDATE bot_settings SET daily_run_limit=?, routine_approval=?, triage_mode=?"
+                " WHERE bot_id=?",
+                (limit, 1 if approval else 0, triage_mode, bot_id),
             )
             self._db.commit()
         return self.get_settings(bot_id)
@@ -537,7 +570,9 @@ class GovBotService:
     # ------------------------------------------------------------------ start
 
     def start_run(self, bot_id: str, target: str, trigger: str = "manual",
-                  routine_id: str | None = None) -> dict:
+                  routine_id: str | None = None, *,
+                  require_approval: bool = False,
+                  parent_run_id: str | None = None) -> dict:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
@@ -567,14 +602,17 @@ class GovBotService:
                 f"{definition['name']} 今日运行预算已用完 "
                 f"({settings['daily_run_limit']} 次)"
             )
-        needs_approval = bool(settings["routine_approval"]) and trigger == "routine"
+        needs_approval = require_approval or (
+            bool(settings["routine_approval"]) and trigger == "routine")
         status = "pending" if needs_approval else "queued"
         run_id = f"bot-{uuid.uuid4().hex[:12]}"
         with self._lock:
             self._db.execute(
-                "INSERT INTO bot_runs (run_id, bot_id, trigger, target, status, started_at)"
-                " VALUES (?,?,?,?,?,?)",
-                (run_id, definition["id"], trigger, resolved, status, _now()),
+                "INSERT INTO bot_runs"
+                " (run_id, bot_id, trigger, target, status, parent_run_id, started_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (run_id, definition["id"], trigger, resolved, status,
+                 parent_run_id, _now()),
             )
             self._db.commit()
         if routine_id:
@@ -620,6 +658,17 @@ class GovBotService:
 
     # --------------------------------------------------------------- internal
 
+    def _ensure_columns(self, table: str, columns: dict[str, str]) -> None:
+        """旧库就地加列；已存在则跳过（SQLite 无 IF NOT EXISTS for columns）。"""
+        existing = {
+            row["name"] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, ddl in columns.items():
+            if name in existing:
+                continue
+            self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        self._db.commit()
+
     def _execute(self, run_id: str, bot_id: str, target: str) -> None:
         self._update(run_id, status="running")
         try:
@@ -642,19 +691,65 @@ class GovBotService:
             job = self.audit.job_status(job_id) or {}
             status = str(job.get("status") or "")
             if status == "done":
+                audit_id = str(job.get("audit_id") or "")
                 self._finish(
                     run_id,
                     status="done",
-                    audit_id=job.get("audit_id"),
+                    audit_id=audit_id or None,
                     findings=int(job.get("findings") or 0),
                     evidence=int(job.get("evidence") or 0),
                 )
+                # 审计已完成才做 triage：它是完成后的跟进提议，不阻塞审计终态。
+                self._after_audit(run_id, audit_id)
                 return
             if status == "failed":
                 self._finish(run_id, status="failed", error=str(job.get("error") or "audit failed"))
                 return
             time.sleep(0.5)
         self._finish(run_id, status="failed", error="audit timed out after 900s")
+
+    def _after_audit(self, run_id: str, audit_id: str) -> None:
+        """受控 triage：模型只提议优先级；active 只生成待批准复扫。"""
+        run = self.get_run(run_id) or {}
+        # triage 自己发起的复扫不再触发 triage（避免递归）。
+        if run.get("parent_run_id") or not audit_id:
+            return
+        mode = str(self.get_settings("auditor").get("triage_mode") or "off")
+        if mode not in ("shadow", "active"):
+            return
+        self._update(run_id, triage_mode=mode, triage_status="pending")
+        try:
+            from gov_triage import GovTriage
+
+            bundle = self.audit.bundle(audit_id)
+            if isinstance(bundle, tuple):
+                payload, status = bundle
+                raise ValueError(f"bundle unavailable ({status}): {payload}")
+            plan = GovTriage(provider_factory=self._provider_factory).execute(bundle)
+            plan["mode"] = mode
+            self._update(
+                run_id,
+                triage_status="done",
+                triage_json=json.dumps(plan, ensure_ascii=False),
+            )
+        except Exception as error:  # noqa: BLE001 — triage 失败不影响审计事实
+            self._update(
+                run_id,
+                triage_status="error",
+                triage_error=f"{type(error).__name__}: {error}"[:300],
+            )
+            return
+        if mode != "active" or not plan.get("priorities"):
+            return
+        # active 的唯一效果：按建议生成一条“待操作员批准”的完整复扫。
+        try:
+            child = self.start_run(
+                "auditor", str(run.get("target") or ""), trigger="manual",
+                require_approval=True, parent_run_id=run_id,
+            )
+            self._update(run_id, triage_run_id=str(child.get("run_id") or ""))
+        except Exception as error:  # noqa: BLE001 — 预算/参数问题只是不提议
+            self._update(run_id, triage_error=f"reaudit spawn: {error}"[:300])
 
     def _run_verifier(self, run_id: str, audit_dir: str) -> None:
         bundle = self.audit.bundle(audit_dir)
@@ -728,4 +823,11 @@ class GovBotService:
                 item["regression"] = json.loads(raw)
             except ValueError:
                 item["regression"] = {}
+        triage_raw = item.pop("triage_json", None)
+        item["triage"] = {}
+        if triage_raw:
+            try:
+                item["triage"] = json.loads(triage_raw)
+            except ValueError:
+                item["triage"] = {}
         return item

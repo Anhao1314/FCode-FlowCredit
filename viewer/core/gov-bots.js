@@ -272,6 +272,15 @@ export function govBotSettingsFormHtml(bot) {
   const settings = bot.settings || {};
   const limit = Number(settings.daily_run_limit || 12);
   const used = Number(bot.runs_today || 0);
+  const triage = String(settings.triage_mode || "off");
+  const triageSelect = bot.id === "auditor" ? `<label class="gov-bot-setting">
+      <span>跟进策略</span>
+      <select id="gov-bot-triage-mode">
+        <option value="off"${triage === "off" ? " selected" : ""}>完整扫描 · 不做 triage</option>
+        <option value="shadow"${triage === "shadow" ? " selected" : ""}>影子 triage · 只记录优先级</option>
+        <option value="active"${triage === "active" ? " selected" : ""}>受控 triage · 提议待批准复扫</option>
+      </select>
+    </label>` : "";
   return `<form class="gov-bot-settings-form" id="gov-bot-settings-form" data-bot-id="${esc(bot.id)}">
     <label class="gov-bot-setting">
       <span>每日运行上限</span>
@@ -281,6 +290,7 @@ export function govBotSettingsFormHtml(bot) {
       <input id="gov-bot-routine-approval" type="checkbox"${settings.routine_approval ? " checked" : ""}>
       定时运行需操作员批准
     </label>
+    ${triageSelect}
     <button class="gov-wb-button strong" type="submit">保存设置</button>
     <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)}</span>
   </form>`;
@@ -390,8 +400,57 @@ export function govBotRunHtml(bot, run, explanations = {}) {
       </header>
       ${runStatusLine(bot, run)}
       ${runActions(run, { teach: !captured })}
+      ${govTriageBlock(run)}
       ${govExplainBlock(explainByRun[run.run_id])}
     </div>
+  </div>`;
+}
+
+/* 受控 triage：模型只提议跟进优先级，不裁决、不改扫描覆盖。
+   shadow=只记录；active=额外生成一条待操作员批准的完整复扫。 */
+export function govTriageBlock(run) {
+  const status = String(run.triage_status || "");
+  if (!status) return "";
+  const plan = run.triage || {};
+  const mode = String(run.triage_mode || plan.mode || "");
+  if (status === "pending") {
+    return `<div class="gov-triage" data-gov-triage="pending">
+      <span class="gov-triage-badge">TRIAGE</span>
+      <span class="gov-triage-note">正在生成跟进优先级…</span>
+    </div>`;
+  }
+  if (status === "error") {
+    return `<div class="gov-triage is-error" data-gov-triage="error">
+      <span class="gov-triage-badge">TRIAGE</span>
+      <span class="gov-triage-note">${esc(run.triage_error || "triage 不可用")}</span>
+      <span class="gov-triage-boundary">审计已照常完成；triage 失败不改变任何证据。</span>
+    </div>`;
+  }
+  const priorities = plan.priorities || [];
+  const modeLabel = mode === "active" ? "受控 · 提议复扫（待批准）" : "影子 · 仅记录";
+  const items = priorities.map(item => `<li>
+    <code>${esc(item.finding_id)}</code>
+    <span>${esc(item.why)}</span>
+    <em>${esc(item.action)}</em>
+  </li>`).join("");
+  const focus = (plan.focus_categories || []).map(item => `<span class="gov-triage-focus">${esc(item)}</span>`).join("");
+  const spawn = run.triage_run_id
+    ? `<p class="gov-triage-spawn">已生成待批准复扫 <code>${esc(run.triage_run_id)}</code> · 批准后才执行</p>`
+    : (mode === "active" && priorities.length
+      ? '<p class="gov-triage-spawn dim">复扫提议未生成（可能触及今日预算），可手动派活。</p>'
+      : "");
+  return `<div class="gov-triage" data-gov-triage="done">
+    <div class="gov-triage-head"><span class="gov-triage-badge">TRIAGE</span>
+      <span class="gov-triage-mode">${esc(modeLabel)}</span>
+      <span class="gov-triage-confidence">置信 ${esc(plan.confidence || "medium")}</span>
+    </div>
+    ${plan.summary ? `<p class="gov-triage-summary">${esc(plan.summary)}</p>` : ""}
+    ${focus ? `<div class="gov-triage-focus-row">关注类别 ${focus}</div>` : ""}
+    ${priorities.length
+      ? `<ol class="gov-triage-list">${items}</ol>`
+      : '<p class="gov-triage-note">模型没有给出需要优先跟进的项。</p>'}
+    ${spawn}
+    <p class="gov-triage-meta">${esc(plan.model || "")} · ${num(plan.tokens || 0)} tokens · ${num(plan.cost_microusd || 0)} µUSD · 只提议优先级，判据仍来自规则与重放</p>
   </div>`;
 }
 
