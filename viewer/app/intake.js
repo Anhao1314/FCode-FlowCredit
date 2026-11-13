@@ -456,8 +456,8 @@ export function createIntake(deps) {
     if (!intake.active || !intake.readyTask) return;
     const task = intake.readyTask;
     const projectMode = !!d.attach.project.path.trim();
-    const scriptMode = (task.spec && task.spec.mode) === "script";
-    if (String(task.template) === d.getTplKey() && d.isGeneralTemplate() && !projectMode && !scriptMode && !d.attach.sources.length) {
+    const researchMode = (task.spec && task.spec.mode) === "research";
+    if (String(task.template) === d.getTplKey() && d.isGeneralTemplate() && !projectMode && researchMode && !d.attach.sources.length) {
       d.toast("调研委托至少需要 1 个来源 URL：点 + 添加（脚本或本地项目可留空）");
       return;
     }

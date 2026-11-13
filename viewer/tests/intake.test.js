@@ -162,6 +162,38 @@ test("startIntake direct:任务就绪后自动创建运行，不显示聊天线�
   assert.ok(!calls.renderMain.some(entry => /intake-msg/.test(entry.html)), "不渲染聊天气泡");
 });
 
+test("startIntake direct:open choices 后无来源也自动创建一次运行", async () => {
+  let intakeCalls = 0;
+  let runCalls = 0;
+  const fetchImpl = async (url) => {
+    if (String(url) === "/api/intake") {
+      intakeCalls += 1;
+      return { ok: true, json: async () => (intakeCalls === 1 ? {
+        reply: "请选择。", thought: "", spec: { mode: "open" }, task: null,
+        choices: [{ field: "delivery", value: "yes", label: "保留", description: "继续" }],
+      } : {
+        reply: "已就绪。", thought: "", spec: { mode: "open" }, choices: [],
+        task: { objective: "开放编码任务", template: "full", approval: "off", spec: { mode: "open" } },
+      }) };
+    }
+    if (String(url) === "/api/runs") runCalls += 1;
+    return { ok: true, json: async () => ({ id: "run-open-direct", template: "full" }) };
+  };
+  const { intake, calls } = setup({ fetchImpl, tplKey: "full" });
+  intake.startIntake("开放编码任务", null, { direct: true });
+  await new Promise(r => setTimeout(r, 720));
+  assert.equal(intakeCalls, 1);
+  assert.equal(intake.intake.choices.length, 1);
+
+  intake.intakeChoose("delivery", "yes", "保留");
+  intake.intakeChoose("delivery", "yes", "保留");
+  await new Promise(r => setTimeout(r, 800));
+  assert.equal(intakeCalls, 2, "在途的重复选择必须被忽略");
+  assert.equal(runCalls, 1, "choices 后 ready 必须自动建一次运行");
+  assert.equal(calls.openLive.length, 1);
+  assert.equal(intake.intake.active, false);
+});
+
 test("startIntake:带文本 → 快照 + clarifier 请求回填草稿选项", async () => {
   const { intake, calls, fetchCalls } = setup();
   intake.startIntake("核对两期毛利");
@@ -202,7 +234,7 @@ test("intakeChoose/intakeFreeText/intakeBack:选项入链,上一步恢复快照"
 test("startIntakeRun:调研类无来源被拦;有 readyTask 才创建运行并接流", async () => {
   const ok = setup();
   ok.intake.intake.active = true;
-  ok.intake.intake.readyTask = { objective: "调研 X", template: "full", approval: "off", spec: {} };
+  ok.intake.intake.readyTask = { objective: "调研 X", template: "full", approval: "off", spec: { mode: "research" } };
   await ok.intake.startIntakeRun();
   assert.match(ok.calls.toast[0], /至少需要 1 个来源/);
   assert.equal(ok.calls.openLive.length, 0, "守卫拦截后不创建运行");

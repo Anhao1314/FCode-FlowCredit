@@ -91,3 +91,70 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
   await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
   await expect(page.locator("#main")).toContainText("调研 FCode 的审计规则");
 });
+
+test("Work direct：choices 确认后自动开跑，双击也只创建一次运行", async ({ page }) => {
+  const objective = `E2E direct choices ${Date.now()}`;
+  let intakeCalls = 0;
+  let runPosts = 0;
+  page.on("request", request => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/runs") {
+      runPosts += 1;
+    }
+  });
+  await page.route("**/api/intake", async route => {
+    intakeCalls += 1;
+    if (intakeCalls === 1) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          reply: "还需要确认交付方式。", thought: "", spec: { mode: "open" }, task: null,
+          choices: [
+            { field: "delivery", value: "yes", label: "保留", description: "按原目标继续" },
+            { field: "delivery", value: "no", label: "修改", description: "返回修改" },
+          ],
+        }),
+      });
+      return;
+    }
+    // 给双击留出确定性的在途窗口；第二次 click 必须被 thinking 守卫拒绝。
+    await new Promise(resolve => setTimeout(resolve, 180));
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        reply: "已就绪。", thought: "", spec: { mode: "open" }, choices: [],
+        task: { objective, template: "general-research", approval: "off", spec: { mode: "open" } },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator("#composer-ta").fill(objective);
+  await page.locator("#composer-ta").press("Enter");
+  const choice = page.locator(".intake-choice", { hasText: "保留" }).first();
+  await expect(choice).toBeVisible();
+  await choice.dblclick();
+
+  await expect(page.locator("#thread")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-thread-key="user:objective"]')).toContainText(objective);
+  await expect.poll(() => runPosts).toBe(1);
+  expect(intakeCalls).toBe(2, "双击 choices 不得多发一次 /api/intake");
+
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/runs");
+    expect(response.ok()).toBeTruthy();
+    const runs = await response.json();
+    const matches = runs.filter(run => run.objective === objective);
+    expect(matches).toHaveLength(1);
+    return matches[0].status;
+  }, { timeout: 60_000 }).toBe("succeeded");
+  expect(runPosts).toBe(1);
+  expect(intakeCalls).toBe(2);
+
+  await page.reload();
+  await page.waitForSelector('body[data-booted="1"]');
+  expect(runPosts).toBe(1, "刷新不得重放建 run");
+  const response = await page.request.get("/api/runs");
+  const runs = await response.json();
+  expect(runs.filter(run => run.objective === objective)).toHaveLength(1);
+});
