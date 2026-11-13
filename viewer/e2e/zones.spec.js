@@ -24,7 +24,8 @@ test("分区历史:Work 显示对话段,Governance 显示治理历史并深链�
   await page.locator('[data-gov-mode="workbench"]').click();
   await expect(page.locator("#gov-target-input")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".composer-wrap")).toBeHidden();
-  await page.locator('[data-gov-mode="dialog"]').click();
+  // 回对话面走区落地（对话行已清理）：Governance 区按钮落地即对话
+  await page.locator('.zone-btn[data-open="gov"]').click();
   await expect(page.locator("#gov-dialog-stream")).toBeVisible();
   await expect(page.locator(".composer-wrap")).toBeVisible();
 

@@ -385,6 +385,9 @@ def post_schedules_upsert(handler):
     body = handler._read_body()
     try:
         fields = validate_schedule_payload(body)
+        if fields.get("model") is not None:
+            model, effort = mgr.resolve_model(fields["model"], fields.get("effort"))
+            fields["model"], fields["effort"] = model, effort
     except ValueError as exc:
         return handler._json({"error": str(exc)}, 400)
     entry = mgr.schedules.upsert(fields)

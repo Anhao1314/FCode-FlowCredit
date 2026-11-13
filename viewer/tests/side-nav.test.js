@@ -182,23 +182,10 @@ test("治理历史:空列表给引导,不发假行", () => {
   assert.doesNotMatch(html, /data-gov-hist=/);
 });
 
-test("治理历史:团队运行按最近顺序进入侧栏,带身份头像与状态", () => {
-  const html = govHistorySectionHtml([], {
-    runs: [
-      { run_id: "bot-1", bot_id: "auditor", target: "/repo/fixtures/demo-target", status: "done", findings: 3 },
-      { run_id: "bot-2", bot_id: "verifier", target: "demo-2026", status: "pending", chain_intact: null },
-    ],
-    bots: [{ id: "auditor", name: "审计员" }, { id: "verifier", name: "复核员" }],
-  });
-  assert.match(html, /团队运行/);
-  assert.match(html, /data-gov-bot-open="auditor"/);
-  assert.match(html, /class="ai-avatar ai-avatar--ok"/);
-  assert.match(html, /data-ai-state="ok"/);
-  assert.match(html, /审计员 · demo-target/);
-  assert.match(html, /3 发现/);
-  assert.match(html, /data-gov-bot-open="verifier"/);
-  assert.match(html, /待批准/);
-  assert.match(html, /data-gov-run-id="bot-2"/);
+test("治理历史:团队运行段已撤除——那份事实只住在团队频道侧栏里", () => {
+  const html = govHistorySectionHtml([]);
+  assert.doesNotMatch(html, /团队运行/);
+  assert.doesNotMatch(html, /data-gov-bot-open=/);
 });
 
 test("治理历史:审计行带 ruleset 版本,不把版本藏进 title", () => {

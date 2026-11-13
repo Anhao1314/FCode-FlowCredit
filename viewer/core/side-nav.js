@@ -275,45 +275,11 @@ function localDayString(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/* 治理历史 = 团队运行 + 审计记录。审计记录仍按目标聚合（一个 target
-   一行，指向最近一次审计）；团队运行保留最近几条 Bot 事实，点击回到
-   Bot 详情。审计行的版本号来自 bundle.toolchain.ruleset_version。 */
-function govRunAvatarState(status) {
-  if (status === "queued" || status === "running") return "thinking";
-  if (status === "pending") return "pending";
-  if (status === "failed" || status === "rejected") return "bad";
-  if (status === "done") return "ok";
-  if (status === "stopped" || status === "recovery_required") return "warn";
-  return "idle";
-}
-
-function govRunMeta(run) {
-  if (run.status === "pending") return "待批准";
-  if (run.status === "queued" || run.status === "running") return "执行中";
-  if (run.status === "failed") return "失败";
-  if (run.status === "rejected") return "已拒绝";
-  if (run.bot_id === "verifier") {
-    return run.chain_intact === false ? "链断裂" : run.chain_intact === true ? "链完整" : "链未知";
-  }
-  return `${num(run.findings || 0)} 发现`;
-}
-
-function govRunRowHtml(run, bots) {
-  const bot = (bots || []).find(item => item.id === run.bot_id);
-  const name = (bot && bot.name) || run.bot_id || "Bot";
-  const target = targetLabel({ target: run.target });
-  const title = `${run.run_id || ""} · ${run.target || ""} · ${run.trigger || "manual"}`;
-  return '<button class="session chat-row gov-run-row" type="button"'
-    + ' data-gov-bot-open="' + esc(run.bot_id) + '" data-gov-run-id="' + esc(run.run_id) + '"'
-    + ' title="' + esc(title) + '">'
-    + '<span class="gov-run-avatar">' + aiAvatarHtml(govRunAvatarState(run.status), 20, name) + "</span>"
-    + '<span class="slabel">' + esc(name) + " · " + esc(target) + "</span>"
-    + '<span class="smeta">' + esc(govRunMeta(run)) + "</span></button>";
-}
-
-export function govHistorySectionHtml(bundles, options = {}) {
-  const runs = (options.runs || []).slice(0, 6);
-  const bots = options.bots || [];
+/* 治理历史 = 审计记录。审计记录按目标聚合（一个 target 一行，指向最近
+   一次审计）；团队运行在治理团队面的频道侧栏里（gov-run 行已随
+   团队运行段一起撤除——那份事实现在只住在频道流里）。
+   审计行的版本号来自 bundle.toolchain.ruleset_version。 */
+export function govHistorySectionHtml(bundles) {
   const rows = aggregateTargets((bundles || []).slice()).map(row => {
     const match = /(\d{4}-\d{2}-\d{2})/.exec(row.dir)
       || /(\d{4}-\d{2}-\d{2})/.exec(String(row.auditId || ""));
@@ -327,10 +293,6 @@ export function govHistorySectionHtml(bundles, options = {}) {
     groups[row.day === today ? "今天" : row.day === yesterday ? "昨天" : "更早"].push(row);
   }
   let body = "";
-  if (runs.length) {
-    body += '<div class="side-head-label"><span>团队运行</span><span class="grp-count">' + num(runs.length) + "</span></div>";
-    body += runs.map(run => govRunRowHtml(run, bots)).join("");
-  }
   if (rows.length) {
     body += '<div class="side-head-label"><span>审计记录</span><span class="grp-count">' + num(rows.length) + "</span></div>";
   }
@@ -349,7 +311,7 @@ export function govHistorySectionHtml(bundles, options = {}) {
         + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + esc(meta) + "</span></button>";
     }).join("");
   }
-  const total = runs.length + rows.length;
+  const total = rows.length;
   const inner = total
     ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
     : '<div class="section-empty">还没有治理记录——在团队派活，或开始一次审计。</div>';

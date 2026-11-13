@@ -2464,8 +2464,10 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
    shell（app.css .main）提供底色与顶栏。只依赖 app.css 的 token。 */
 
 .at-wrap { display: flex; gap: 18px; padding: 18px 22px; }
-.at-side { width: 280px; flex: none; display: flex; flex-direction: column; gap: 8px; }
-.at-main { flex: 1; min-width: 0; }
+/* 发现账本收进右上 rail：账本宿主住在 rail-body，随 rail 双形态自适应
+ （宽屏停靠收缩主区 / ≤1180px 浮层）。这里只留详情主区的排版。 */
+.at-main { flex: 1; min-width: 0; max-width: var(--reading-w); }
+.rail .at-side { width: 100%; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 
 .at-bitem { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius);
@@ -4096,3 +4098,19 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 }
 
 
+
+/* ---- 治理台三面切换：从主区头部收进侧栏（gov-surface-nav） ---------------- */
+.gov-surface-nav { padding: 2px 0 6px; }
+.gov-surface-nav .gov-surface-switch {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 0; background: none; border-radius: 0;
+}
+.gov-surface-nav .gov-surface-btn {
+  width: 100%; height: 34px; display: flex; align-items: center;
+  padding: 0 10px; border-radius: 10px; font-size: 14px; text-align: left;
+}
+.gov-surface-nav .gov-surface-btn:hover { background: var(--k-fill-1); color: var(--text-1); }
+.gov-surface-nav .gov-surface-btn.active {
+  background: var(--k-fill-2, var(--active)); color: var(--text-1);
+  font-weight: 600; box-shadow: none;
+}

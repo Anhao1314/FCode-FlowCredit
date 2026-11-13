@@ -7,7 +7,7 @@ export function createRunEvidence(deps) {
   const {
     esc, pct, pp, num, shortHash, doodleSvg, lastBudget,
     EVENT_DOT, HUMAN_EVENTS, REVIEW_LABEL, ICON, FAILURE_REASONS, evExpanded,
-    getRailFilter, getRailTab, getToolContracts,
+    getRailFilter, getRailTab, getToolContracts, setRailMode,
   } = deps;
   const MACHINE_EVENTS = new Set([
     "model_started", "plan_validated", "plan_updated", "execution_started",
@@ -89,6 +89,8 @@ export function createRunEvidence(deps) {
 
   function renderRail(trace, check) {
     const body = document.getElementById("rail-body");
+    // 任务详情渲染即恢复 trace 形态（从治理团队面的频道模式离开时）。
+    setRailMode?.("trace");
     if (!trace) { body.innerHTML = railEmptyHtml(); return; }
     const railTab = getRailTab();
     for (const button of document.querySelectorAll("#rail-tabs button")) button.classList.toggle("active", button.dataset.tab === railTab);

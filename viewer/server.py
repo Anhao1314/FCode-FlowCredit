@@ -264,7 +264,7 @@ class Handler(SimpleHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             template_key = (query.get("template") or [""])[0].strip()
             return self._json({
-                "default": (os.environ.get("FCODE_DEFAULT_RUN_MODEL") or "mock").strip() or "mock",
+                "default": mgr.default_model(),
                 "template": template_key or None,
                 "models": mgr.model_catalog_with_budget(template_key or None),
             })
@@ -361,7 +361,7 @@ class Handler(SimpleHTTPRequestHandler):
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)
             return self._json({"memories": mgr.chat.memory.list()})
-        if path == "/api/settings/chat-config":
+        if path in ("/api/settings/model-config", "/api/settings/chat-config"):
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)
             return self._json(mgr.chat.config_snapshot())

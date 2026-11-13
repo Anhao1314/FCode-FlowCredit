@@ -271,6 +271,27 @@ export function createSettings(deps) {
       if (clearKey) { d.clearChatConfigKey(clearKey.dataset.chatcfgClearkey); return; }
       const defaultPick = target.closest("[data-chatcfg-default]");
       if (defaultPick && !defaultPick.disabled) { d.setDefaultChatModel(defaultPick.dataset.chatcfgDefault); return; }
+      const addProvider = target.closest("[data-chatcfg-add]");
+      if (addProvider) { d.addChatConfigProvider(); return; }
+      // 两步内联确认（不用原生 confirm）：第一次点只进入待确认态，
+      // 4 秒不点则还原；真的删除发生在第二次点击。
+      const deleteProvider = target.closest("[data-chatcfg-delete]");
+      if (deleteProvider) {
+        if (deleteProvider.dataset.armed !== "1") {
+          deleteProvider.dataset.armed = "1";
+          deleteProvider.textContent = "确认删除？";
+          setTimeout(() => {
+            if (deleteProvider.isConnected && deleteProvider.dataset.armed === "1") {
+              deleteProvider.dataset.armed = "0";
+              deleteProvider.textContent = "删除端点";
+            }
+          }, 4000);
+          return;
+        }
+        deleteProvider.dataset.armed = "0";
+        d.deleteChatConfigProvider(deleteProvider.dataset.chatcfgDelete);
+        return;
+      }
     });
   }
 

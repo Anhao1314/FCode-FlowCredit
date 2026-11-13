@@ -32,6 +32,13 @@
       <span id="new-label">新对话</span>
       <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
     </button>
+    <!-- 治理区的新对话：同一槽位按区换内容（Kimi 式）。动作 = 清空治理台
+         命令流、开新会话；运行与审计记录是服务端事实，不受影响。 -->
+    <button class="side-new" id="gov-new-dialog" title="治理台新会话：清空对话流（运行与审计记录保留）">
+      <span data-doodle="kimi-plus"></span>
+      <span>新对话</span>
+      <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
+    </button>
     <button class="side-search" id="side-search" type="button" title="搜索与命令（⌘K）">
       <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
     </button>
@@ -66,7 +73,10 @@
       <div id="chat-tasks"></div>
       <!-- 治理区历史（Kimi 式分区历史）：审计记录按日期分组。Work 区
            显示对话/任务段，Governance 区显示审计历史——两套互斥显隐
-           （body[data-zone]）。行点击深链 #/audit/<dir>。 -->
+           （body[data-zone]）。行点击深链 #/audit/<dir>。
+           gov-surface-nav = 治理台三个面（对话/团队/工作台）的切换，
+           从主区头部收进侧栏；点击合同仍是 data-gov-mode。 -->
+      <nav class="gov-surface-nav" id="gov-surface-nav" aria-label="治理台视图"></nav>
       <div id="gov-history"></div>
     </div>
 
@@ -286,8 +296,8 @@
             <p class="set-section-desc">模型只提议动作；权限、预算与执行由主机决定。这里展示当前实际生效的配置。</p>
             <div class="chatcfg" id="chatcfg">
               <div class="chatcfg-head">
-                <b>对话模型</b>
-                <small>配置保存在本机用户配置目录的 <code>chat-config.json</code>（不在静态目录，不进仓库、不进事件链）；优先级：这里 &gt; 环境变量。当前作用于对话；委托运行仍读环境变量。</small>
+                <b>全局模型目录</b>
+                <small>配置保存在本机用户配置目录的 <code>chat-config.json</code>（不在静态目录，不进仓库、不进事件链）；优先级：这里 &gt; 环境变量（<code>FCODE_DEFAULT_RUN_MODEL</code> 仍最高）。对话、Work 委托、治理解释与定时任务共用同一目录与默认值。</small>
               </div>
               <div class="chatcfg-default" id="chatcfg-default"></div>
               <div class="chatcfg-cards" id="chatcfg-cards"></div>

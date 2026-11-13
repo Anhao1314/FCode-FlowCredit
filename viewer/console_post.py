@@ -221,6 +221,7 @@ _STATIC = {
     "/api/projects": post_project_create,
     "/api/projects/update": post_project_update,
     "/api/projects/archive": post_project_archive,
+    "/api/settings/model-config": post_chat_config,
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
     "/api/chat/memory": post_chat_memory,

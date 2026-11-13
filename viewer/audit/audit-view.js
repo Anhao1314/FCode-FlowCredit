@@ -29,13 +29,14 @@ const OUTCOME_MAP = {
 export { DISPOSITION_LABELS } from "../core/gov-cards.js";
 
 // 统一壳的审计 surface 外壳:bundle 列表 + 详情双栏,由 app.js 的
-// renderAudit() 注入 #main 后调用 init()。独立 audit.html 已退役,
-// 这两个 id 只在这里出现一次。
+// 统一壳的审计 surface 外壳:详情为主区,发现账本收进右上角的证据侧栏
+// (rail,双形态:宽屏停靠/窄屏浮层;由 renderAudit 自动展开)。
+// init() 会把账本宿主建进 rail-body——rail 在 #main 之外,页面重绘不销毁。
+// 独立 audit.html 已退役,这个 id 只在这里出现一次。
 export function auditShellHtml() {
   return `<div class="at-wrap">
-    <aside class="at-side" id="at-bundles"><div class="at-none dim">加载中…</div></aside>
     <main class="at-main" id="at-main">
-      <div class="at-none dim">选择左侧一次审计,查看它的发现与证据。</div>
+      <div class="at-none dim">从右上「发现账本」选择一次审计，查看它的发现与证据。</div>
     </main>
   </div>`;
 }
@@ -491,9 +492,17 @@ export async function init({ fetchImpl = fetch, root = document, host = null,
                              onSelect = null } = {}) {
   // 统一壳传 host=#main 元素;host 未给时回退 root(document)。
   const scope = host || root;
-  const side = scope.querySelector("#at-bundles");
   const main = scope.querySelector("#at-main");
-  if (!side || !main) return;
+  if (!main) return;
+  // 账本宿主收进 rail-body（rail 在 #main 之外，renderMain 不销毁它）。
+  // 统一壳测试桩直接供给 #at-bundles；独立用法（无 rail）无感降级。
+  let side = scope.querySelector("#at-bundles");
+  if (!side) {
+    const railBody = document.getElementById("rail-body");
+    if (!railBody) return;
+    railBody.innerHTML = '<aside class="at-side" id="at-bundles"><div class="at-none dim">加载中…</div></aside>';
+    side = document.getElementById("at-bundles");
+  }
   // 并发守卫:快速连点两个 bundle 时,只有最新一次点击允许写 main。
   let requestSeq = 0;
   let payload;
@@ -646,13 +655,15 @@ export function createAuditSurface(deps) {
       .forEach(b => b.classList.remove("at-sel"));
     const detail = document.getElementById("at-main");
     if (detail) {
-      detail.innerHTML = '<div class="at-none dim">选择左侧一次审计,查看它的发现与证据。</div>';
+      detail.innerHTML = '<div class="at-none dim">从右上「发现账本」选择一次审计，查看它的发现与证据。</div>';
     }
   }
 
   async function renderAudit() {
     d.beforeEnter();
     d.setChrome();
+    // 发现账本收进右上 rail：进审计台自动展开（用户可随时 × 收起）。
+    d.openRail?.();
     // deep link 必须在写 hash 之前捕获——writeAuditHash("") 会把 #/audit/<dir> 抹掉
     const preselect = auditHashTarget(location.hash) || "";
     d.renderMain(auditShellHtml(), { mode: "audit" });

@@ -13,7 +13,7 @@ import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/worksp
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
 import {
-  aggregateTargets, filterFindings, govSummaryHtml, govSurfaceSwitchHtml,
+  aggregateTargets, filterFindings, govSummaryHtml,
   findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
 } from "./core/gov-workbench.js";
 import {
@@ -287,6 +287,7 @@ let modules = [];         // /api/modules，域模块（金融研究 / 审计 / 
 const EFFORT_LEVELS = ["low", "medium", "high"];
 const EFFORT_LABEL = { low: "低", medium: "中", high: "高" };
 let modelCatalog = [];  // /api/models
+let sharedModelDefault = "";  // /api/models 的 default 字段（env 优先级已在服务端施加）
 let modelChoice = (() => {
   try { return JSON.parse(localStorage.getItem("fa.model") || "") || {}; } catch { return {}; }
 })();
@@ -449,6 +450,9 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
   }
   main.dataset.view = mode;
   store.mode = mode;
+  // rail 三模式跟随视图：治理团队面=频道，审计台=发现账本，其余=任务详情。
+  setRailMode(mode === "gov" && govSurface === "team" ? "channel"
+    : mode === "audit" ? "ledger" : "trace");
   paintNavActive();
   setStageMode(mode === "empty");
   document.getElementById("app")?.classList.toggle("chat-mode", mode === "chat");
@@ -839,6 +843,7 @@ const {
   getRailFilter: () => railFilter,
   getRailTab: () => railTab,
   getToolContracts: () => toolContracts,
+  setRailMode,
 });
 
 
@@ -2034,9 +2039,11 @@ async function initLive() {
     try {
       const data = await fetch("/api/models", { cache: "no-store" }).then(r => r.ok ? r.json() : null);
       modelCatalog = data && Array.isArray(data.models) ? data.models : [];
+      sharedModelDefault = data && typeof data.default === "string" ? data.default : "";
       adoptDefaultWorkModel(data && data.default);
     } catch {
       modelCatalog = [];
+      sharedModelDefault = "";
     }
   }
   if (!health.live) {
@@ -2633,6 +2640,8 @@ const {
   saveChatConfig: (...a) => saveChatConfig(...a),
   clearChatConfigKey: (...a) => clearChatConfigKey(...a),
   setDefaultChatModel: (...a) => setDefaultChatModel(...a),
+  addChatConfigProvider: (...a) => addChatConfigProvider(...a),
+  deleteChatConfigProvider: (...a) => deleteChatConfigProvider(...a),
   clearPromptHistory: () => { promptHistory.length = 0; historyIndex = -1; },
   fetchImpl: (...args) => fetch(...args),
 });
@@ -2863,6 +2872,18 @@ function pushGovDialog(entry, scroll = false) {
   if (govActive() && govSurface === "dialog") paintGovDialog(scroll);
 }
 
+/* 治理区的新对话（gov 区的主行动，Kimi 式分区按钮）：对话流是本机
+   命令会话，清空不进链；运行、审计记录与排程是服务端事实，不受影响。
+   从团队/工作台面点击时先切回对话面——「新对话」是对话面的唯一侧栏入口。 */
+function newGovDialog() {
+  govDialog.length = 0;
+  const reRendered = showGovSurface("dialog");
+  if (!reRendered) paintGovDialog();
+  const ta = document.getElementById("composer-ta");
+  if (ta) { ta.value = ""; autosize(ta); ta.focus(); }
+  toast("治理台已开新会话");
+}
+
 function govDialogErrorHtml(message) {
   return `<div class="gov-dialog-error">${esc(message)}</div>`;
 }
@@ -2871,6 +2892,8 @@ function govDialogErrorHtml(message) {
 function showGovSurface(surface) {
   const changed = govSurface !== surface;
   govSurface = surface;
+  // 切换器已收进侧栏：同面内不重渲染时也要点亮新面。
+  paintGovSurfaceNav?.();
   const host = surface === "dialog" ? "gov-dialog-stream"
     : surface === "team" ? "gov-team-roster"
     : surface === "bot" ? "gov-bot-detail-host"
@@ -3056,7 +3079,15 @@ function paintGovTeam() {
   summaryHost.innerHTML = govBotSummaryHtml(govTeam.bots);
   const rosterHost = document.getElementById("gov-team-roster");
   const dispatchHost = document.getElementById("gov-team-dispatch");
-  const channelHost = document.getElementById("gov-team-channel");
+  // 频道宿主住在 rail-body（rail 在 #main 之外，renderMain 不会销毁它）。
+  // renderRail 等其它消费者覆盖 rail-body 后宿主消失，这里按需重建。
+  let channelHost = document.getElementById("gov-team-channel");
+  if (!channelHost) {
+    const railBody = document.getElementById("rail-body");
+    if (!railBody) return;
+    railBody.innerHTML = '<div id="gov-team-channel" class="gov-team-channel" aria-live="polite"></div>';
+    channelHost = document.getElementById("gov-team-channel");
+  }
   if (rosterHost) {
     rosterHost.innerHTML = govTeam.loaded
       ? govBotRosterHtml(govTeam.bots)
@@ -3443,11 +3474,27 @@ async function deleteGovSkill(skillId) {
   }
 }
 
+/* rail 三模式：trace（任务详情，现状）、channel（治理团队频道）、
+   ledger（审计发现账本）。gov 团队面与审计台把各自的流收进右上侧栏；
+   离开这些面由 renderMain/renderRail 恢复 trace 形态。只写变化项。 */
+function setRailMode(mode) {
+  const rail = document.querySelector(".rail");
+  if (!rail || rail.dataset.railMode === mode) return;
+  rail.dataset.railMode = mode;
+  const kicker = rail.querySelector(".rail-kicker");
+  if (kicker) kicker.textContent = mode === "channel" ? "团队频道"
+    : mode === "ledger" ? "发现账本" : "任务详情";
+  const tabs = document.getElementById("rail-tabs");
+  if (tabs) tabs.hidden = mode !== "trace";
+}
+
 function renderGovTeam() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
   setFoot("治理台 · 团队频道（审计员 / 复核员）", "");
+  // 团队频道收进右上角的证据侧栏（rail，双形态：宽屏停靠/窄屏浮层）。
+  // 团队面 = 管理面（概要/花名册/派活/排程）；频道流在 rail 里可随时收起。
   renderMain(`<div class="gov-team">
     <header class="gov-dlg-head">
       <div class="gov-wb-intro">
@@ -3455,7 +3502,6 @@ function renderGovTeam() {
         <h1 class="page-title">治理团队</h1>
         <p class="page-meta">常驻角色按固定职责运行；审计与复核证据仍来自离线确定性管线，操作员保留处置权。</p>
       </div>
-      ${govSurfaceSwitchHtml("team")}
     </header>
     <div id="gov-team-summary"></div>
     <section class="gov-team-section">
@@ -3471,11 +3517,9 @@ function renderGovTeam() {
       <div id="gov-routine-list-host"></div>
       <div id="gov-routine-form-host"></div>
     </section>
-    <section class="gov-team-section">
-      <div class="gov-team-section-head"><span>CHANNEL</span><b>团队频道</b></div>
-      <div id="gov-team-channel" class="gov-team-channel" aria-live="polite"></div>
-    </section>
   </div>`, { mode: "gov" });
+  setRailMode("channel");
+  if (!railOpen) setChromeState({ rail: true });
   paintGovTeam();
   const epoch = viewGate.sequence;
   loadGovTeam().then(() => {
@@ -3499,7 +3543,6 @@ function renderGovDialog() {
         <h1 class="page-title">治理台</h1>
         <p class="page-meta">挖洞、判断、链——以命令与响应卡进行。审计由离线确定性管线完成，模型不进环。</p>
       </div>
-      ${govSurfaceSwitchHtml("dialog")}
     </header>
     <div id="gov-dialog-stream" class="gov-dialog-stream" aria-live="polite"></div>
   </div>`, { mode: "gov" });
@@ -3533,7 +3576,6 @@ async function renderGovWorkbench() {
         <p class="page-meta">取证由离线确定性管线完成；处置、修复与复核由操作员决定。模型不进环。</p>
       </div>
       <div class="gov-wb-head-side">
-        ${govSurfaceSwitchHtml("workbench")}
         <form class="gov-new-audit" id="gov-new-audit">
           <label class="gov-target-field">
             <span>审计目标</span>
@@ -3769,6 +3811,7 @@ document.addEventListener("change", event => {
 const {
   adoptDefaultChatModel, loadChatModels, renderChatModelMenu, syncChatConfig,
   renderChatConfig, saveChatConfig, clearChatConfigKey, setDefaultChatModel,
+  addChatConfigProvider, deleteChatConfigProvider,
 } = createChatConfig({
   esc, num, chat, chatModelChoice, saveChatModelChoice, paintModelBadge, toast,
   adoptDefaultWorkModel,
@@ -3791,6 +3834,10 @@ const {
   renderMain, setFoot, toast,
   getViewGateSequence: () => viewGate.sequence,
   getScenarios: () => SCENARIOS,
+  getModelCatalog: () => modelCatalog,
+  getSharedModelDefault: () => sharedModelDefault,
+  effortLevels: () => EFFORT_LEVELS,
+  effortLabel: key => EFFORT_LABEL[key] || key || "",
   fetchImpl: (...args) => fetch(...args),
 });
 
@@ -3830,6 +3877,7 @@ const {
   },
   renderMain,
   getMode: () => store.mode,
+  openRail: () => { if (!railOpen) setChromeState({ rail: true }); },
 });
 
 /* 侧栏渲染与外壳交互已抽成独立模块（viewer/app/sidebar.js）。运行行/项目段
@@ -3838,10 +3886,12 @@ const {
   renderNav, renderSidebarNav, paintNavActive, refreshGovHistory,
   renderPinned, renderQuickStart, markQuickStart, dismissQuickStart,
   paintSections, toggleSection, mountShell: mountSidebarShell,
+  paintGovSurfaceNav,
   renderRuns, renderProjects, addProject, createProject, assignRunProject,
   beginProjectCreate, beginProjectEdit, cancelProjectForm, toggleProject, getProject,
   getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
 } = createSidebar({
+  getGovSurface: () => govSurface,
   renderChats: (...args) => renderChats(...args),
   getRunHistory: () => runHistory,
   getProjects: () => projects,
@@ -4884,6 +4934,7 @@ function bindGlobalActions() {
       return;
     }
     if (event.target.closest("#new-run")) { newChat(); return; }
+    if (event.target.closest("#gov-new-dialog")) { newGovDialog(); return; }
     if (event.target.closest("#send")) {
       if (chat.active && chat.streaming) { stopChat(); return; }
       composerSubmit();
@@ -5505,9 +5556,10 @@ function bindShell() {
     const s = activeSession();
     if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); togglePalette(); return; }
     if (mod && e.key.toLowerCase() === "n") {
-      // 工作模式已收敛退役（uiMode 恒为 chat）:⌘N 只有"新对话"一种语义。
+      // 主行动随区换内容（Kimi 式分区按钮槽）：Work=新聊天线程，
+      // Governance=治理台新会话。分区即语义，不另设第二快捷键。
       e.preventDefault();
-      newChat();
+      if (document.body.dataset.zone === "gov") newGovDialog(); else newChat();
       return;
     }
     if (mod && e.key === ",") { e.preventDefault(); toggleSettingsPage(); return; }

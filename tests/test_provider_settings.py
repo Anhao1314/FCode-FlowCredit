@@ -92,8 +92,25 @@ class SettingsOverlayTests(unittest.TestCase):
         merged = merged_env({"KIMI_API_KEY": "settings-key"}, env={"KIMI_API_KEY": "env-key"})
         self.assertEqual(merged["KIMI_API_KEY"], "env-key")
 
-    def test_unknown_providers_are_ignored(self) -> None:
-        self.assertEqual(settings_as_env({"ollama": {"api_key": "x"}}), {})
+    def test_custom_provider_settings_join_the_shared_catalog(self) -> None:
+        overlay = settings_as_env({"ollama": {
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+        }})
+        self.assertIn("OLLAMA", overlay["FCODE_OPENAI_COMPAT_PROVIDERS"].split(","))
+        self.assertEqual(overlay["OLLAMA_BASE_URL"], "http://127.0.0.1:11434/v1")
+        entry = find(provider_catalog(settings_env=overlay, env={}), "ollama")
+        self.assertTrue(entry["available"], entry["reason"])
+        self.assertEqual(entry["label"], "本机 Ollama")
+        self.assertEqual(entry["price"]["inputMicrousdPerMtok"], 0)
+
+    def test_invalid_custom_provider_keys_are_ignored(self) -> None:
+        self.assertEqual(settings_as_env({"bad-key": {"api_key": "x"}}), {})
         self.assertEqual(settings_as_env(None), {})
 
 
@@ -125,6 +142,16 @@ class DelegationCatalogTests(unittest.TestCase):
         entry = find(provider_catalog(env={}), "kimi")
         self.assertFalse(entry["available"])
         self.assertIn("Host 配置不完整", entry["reason"])
+
+    def test_local_settings_can_construct_the_governance_completion_provider(self) -> None:
+        settings = compat_settings_for("local", env={
+            "FCODE_LOCAL_ENDPOINT": "http://127.0.0.1:11434/v1",
+            "FCODE_LOCAL_MODEL": "qwen3-local",
+        })
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings.base_url, "http://127.0.0.1:11434/v1")
+        self.assertEqual(settings.model, "qwen3-local")
+        self.assertEqual(settings.price.input_microusd_per_mtok, 0)
 
 
 class DisabledProviderTests(unittest.TestCase):
@@ -195,6 +222,56 @@ class BothSurfacesAgreeTests(unittest.TestCase):
         for reason in (chat["reason"], delegation["reason"]):
             self.assertIn("KIMI_PRICE_AS_OF", reason)
 
+    def test_a_custom_endpoint_is_shared_by_chat_and_delegation(self) -> None:
+        service = self.service()
+        snapshot = service.update_config(provider="ollama", values={
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "api_key": "custom-secret",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+            "supports_effort": "1",
+        })
+        chat = find(snapshot["models"], "ollama")
+        delegation = find(provider_catalog(
+            settings_env=settings_as_env(service._config["providers"]), env={},
+        ), "ollama")
+        self.assertTrue(chat["available"], chat["reason"])
+        self.assertTrue(delegation["available"], delegation["reason"])
+        self.assertEqual(chat["model"], delegation["model"])
+        self.assertNotIn("custom-secret", json.dumps(snapshot["config"]))
+        self.assertTrue(snapshot["default"] == "mock")
+
+    def test_deleting_a_custom_provider_needs_no_values_and_falls_back_the_default(self) -> None:
+        """The settings page deletes with {provider, delete_provider} only.
+
+        Requiring ``values`` on the delete path made that call impossible:
+        the page has nothing to save, and the operation never reads fields.
+        Deleting the current default must also fall back to ``mock`` — an
+        operator removing an endpoint cannot leave a dangling default.
+        """
+        service = self.service()
+        service.update_config(provider="ollama", values={
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+        })
+        snapshot = service.update_config(default_model="ollama")
+        self.assertEqual(snapshot["default"], "ollama")
+
+        deleted = service.update_config(provider="ollama", delete_provider=True)
+        self.assertNotIn("ollama", deleted["config"]["providers"])
+        self.assertEqual(deleted["config"]["default_model"], "mock")
+        self.assertEqual(deleted["default"], "mock")
+        self.assertNotIn("ollama", [entry["key"] for entry in deleted["models"]])
+
     def test_the_snapshot_reports_where_the_configuration_came_from(self) -> None:
         service = self.service()
         self.save(service, {})
@@ -203,15 +280,19 @@ class BothSurfacesAgreeTests(unittest.TestCase):
         self.assertGreater(source["fileMtime"], 0)
         self.assertFalse(source["stale"])
 
-    def test_a_newer_file_on_disk_is_reported_as_stale(self) -> None:
-        """The running process holding an older copy is exactly the confusion
-        that made a configured Kimi look unconfigured."""
+    def test_a_newer_file_on_disk_is_reloaded_by_chat(self) -> None:
+        """Every surface observes the same saved default without a restart."""
+        from flowagent.chat_config import CHAT_CONFIG_VERSION, save_chat_config
+
         service = self.service()
         config_path = self.root / "chat-config.json"
-        service.update_config(provider="kimi", values=KIMI_SETTINGS)
-        # Another process writes the file after this one loaded it.
+        service.update_config(default_model="mock")
+        save_chat_config(config_path, {
+            "version": CHAT_CONFIG_VERSION, "providers": {}, "default_model": "kimi",
+        })
         os.utime(config_path, (service.config_source()["fileMtime"] + 30,) * 2)
-        self.assertTrue(service.config_source()["stale"])
+        self.assertEqual(service.default_model(), "kimi")
+        self.assertFalse(service.config_source()["stale"])
 
 
 class DelegationConstructionTests(unittest.TestCase):
@@ -305,6 +386,13 @@ class ConsoleWiringTests(unittest.TestCase):
         manager._settings_env = settings_as_env({"kimi": KIMI_SETTINGS})
         key, effort = manager.resolve_model("kimi", "medium")
         self.assertEqual((key, effort), ("kimi", "medium"))
+
+    def test_default_model_is_shared_and_environment_remains_authoritative(self) -> None:
+        manager = self.manager_module.RunManager(None, "", 0.0, runs_dir=self.runs)
+        manager.chat = type("Chat", (), {"default_model": lambda self: "kimi"})()
+        self.assertEqual(manager.default_model(), "kimi")
+        with mock.patch.dict(os.environ, {"FCODE_DEFAULT_RUN_MODEL": "deepseek"}):
+            self.assertEqual(manager.default_model(), "deepseek")
 
     def test_resolve_model_refuses_an_incomplete_provider_with_its_reason(self) -> None:
         manager = self.manager_module.RunManager(None, "", 0.0, runs_dir=self.runs)

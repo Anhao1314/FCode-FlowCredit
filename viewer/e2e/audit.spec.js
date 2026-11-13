@@ -47,5 +47,5 @@ test("#/audit/<id> 深链直达预选;无效包死链自愈回审计根", async 
   // 死链:不存在的包 → URL 退回审计根,详情回占位
   await page.goto("/#/audit/no-such-bundle-e2e");
   await expect(page).toHaveURL(/#\/audit$/);
-  await expect(page.locator("#at-main")).toContainText("选择左侧一次审计");
+  await expect(page.locator("#at-main")).toContainText("从右上「发现账本」选择一次审计");
 });

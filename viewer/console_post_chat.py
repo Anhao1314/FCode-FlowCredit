@@ -63,13 +63,19 @@ def post_chat_config(handler):
     default_model = body.get("default_model")
     if default_model is not None and not isinstance(default_model, str):
         return handler._json({"error": "default_model must be a string"}, 400)
+    delete_provider = body.get("delete_provider", False)
+    if not isinstance(delete_provider, bool):
+        return handler._json({"error": "delete_provider must be boolean"}, 400)
     values = body.get("values")
     if values is not None and not isinstance(values, dict):
         return handler._json({"error": "values must be an object"}, 400)
     if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > 8192:
         return handler._json({"error": "config payload is too large"}, 400)
     try:
-        snapshot = chat.update_config(provider=provider, values=values, default_model=default_model)
+        snapshot = chat.update_config(
+            provider=provider, values=values, default_model=default_model,
+            delete_provider=delete_provider,
+        )
     except Exception as error:  # noqa: BLE001 — validation errors are 400s
         return handler._json(
             {"error": str(error), "code": getattr(error, "code", "CHAT_CONFIG_INVALID")}, 400,

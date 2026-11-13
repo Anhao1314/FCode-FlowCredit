@@ -486,7 +486,7 @@ test("createAuditSurface:深链指向不存在的包 → 死链自愈,URL 退回
   });
   await surface.renderAudit();
   assert.deepEqual(replaceCalls, ["#/audit"], "自愈必须把 URL 退回审计根");
-  assert.match(detail.innerHTML, /选择左侧一次审计/, "详情回到占位");
+  assert.match(detail.innerHTML, /从右上「发现账本」选择一次审计/, "详情回到占位");
 });
 
 test("createAuditSurface:预选期间用户切走(mode 变化) → 放弃预选也不自愈", async () => {
@@ -519,5 +519,5 @@ test("createAuditSurface:healAuditDeepLink 可独立调用(供 hashchange 使用
   });
   surface.healAuditDeepLink();
   assert.deepEqual(replaceCalls, ["#/audit"]);
-  assert.match(detail.innerHTML, /选择左侧一次审计/);
+  assert.match(detail.innerHTML, /从右上「发现账本」选择一次审计/);
 });

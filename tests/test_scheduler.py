@@ -84,6 +84,7 @@ class SchedulerLoopTest(unittest.TestCase):
         self.assertEqual(len(fired), 1)
         self.assertEqual(fired[0]["status"], "running")
         self.assertEqual(self.fired[0]["objective"], "每天核对口径")
+        self.assertEqual((self.fired[0]["model"], self.fired[0]["effort"]), ("mock", ""))
         saved = self.store.list()[0]
         self.assertEqual(saved["last_run_id"], "run-001")
         self.assertEqual(saved["last_status"], "running")
@@ -124,11 +125,13 @@ class StoreAndValidationTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_upsert_create_then_update(self) -> None:
-        created = self.store.upsert(entry())
+        created = self.store.upsert(entry(model="kimi", effort="high"))
         self.assertEqual(created["objective"], "每天核对口径")
+        self.assertEqual((created["model"], created["effort"]), ("kimi", "high"))
         updated = self.store.upsert({**entry(id=created["id"]), "objective": "改目标", "time": "08:00"})
         self.assertEqual(updated["objective"], "改目标")
         self.assertEqual(updated["time"], "08:00")
+        self.assertEqual((updated["model"], updated["effort"]), ("kimi", "high"))
         self.assertEqual(len(self.store.list()), 1, "upsert 不新增行")
 
     def test_delete_and_toggle(self) -> None:

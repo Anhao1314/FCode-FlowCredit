@@ -134,9 +134,12 @@ def build_provider(
             fail_at_call=scenario.fail_at_call,
         )
     if provider_name == "local":
+        configured_max = str(env.get("FCODE_LOCAL_MAX_COMPLETION_TOKENS", "")).strip()
         return LocalProvider(
-            base_url=endpoint or "http://127.0.0.1:11434/v1",
-            model=model or "fcode-qwen3-4b",
+            base_url=endpoint or env.get("FCODE_LOCAL_ENDPOINT") or "http://127.0.0.1:11434/v1",
+            model=model or env.get("FCODE_LOCAL_MODEL") or "fcode-qwen3-4b",
+            api_key=env.get("FCODE_LOCAL_API_KEY") or "local",
+            max_tokens=int(configured_max) if configured_max.isdigit() and int(configured_max) > 0 else 512,
             timeout=timeout if timeout is not None else 900.0,
             json_mode=json_mode,
             structured=structured,
@@ -187,6 +190,7 @@ def build_provider(
         settings = load_compat_settings(
             prefix,
             env=env,
+            label=env.get(f"{prefix}_LABEL", "").strip() or provider_name,
             defaults=GENERIC_COMPAT_DEFAULTS,
             overrides={"reasoning_effort": reasoning_effort} if reasoning_effort else None,
         )

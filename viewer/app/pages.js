@@ -92,15 +92,57 @@ export function createPages(deps) {
 
   function scheduleRows(entries) {
     if (!entries.length) return '<div class="empty">还没有排程——填好上面的表单保存即可。</div>';
-    return entries.map(t => `<div class="sch-row">
+    return entries.map(t => {
+      const modelText = `模型 ${esc(t.model || "mock")}${t.effort ? ` · ${esc(d.effortLabel?.(t.effort) || t.effort)}` : ""}`;
+      return `<div class="sch-row">
       <div class="sch-main"><b>${esc(t.objective || "（未命名）")}</b>
-      <span class="sch-meta">${esc(t.template || "full")} · ${esc(t.approval || "consequential")} · ${esc(t.next || `${t.frequency} ${t.time || ""}`)}</span></div>
+      <span class="sch-meta">${esc(t.template || "full")} · ${esc(t.approval || "consequential")} · ${modelText} · ${esc(t.next || `${t.frequency} ${t.time || ""}`)}</span></div>
       <span class="sch-badge">${esc(t.enabled
         ? (t.last_status === "running" ? "上次已触发 · 运行中"
           : t.last_status ? `上次 ${esc(String(t.last_status))}` : "已排程")
         : "已暂停")}</span>
       <button class="row-more" data-sch-toggle="${esc(t.id)}" title="${t.enabled ? "暂停" : "恢复"}">${t.enabled ? "⏸" : "▶"}</button>
-      <button class="row-more sch-del" data-sch-del="${esc(t.id)}" title="删除">×</button></div>`).join("");
+      <button class="row-more sch-del" data-sch-del="${esc(t.id)}" title="删除">×</button></div>`;
+    }).join("");
+  }
+
+  /* 排程的模型快照：选项来自共享目录，初始值 = 共享默认（不可用则回落
+     第一个可用项）。保存时显式提交 model/effort——不发字段会落 mock，
+     这是排程永远跑离线的旧病根。目录缺席（回放/测试桩）时退回 mock。 */
+  function scheduleUsableModels() {
+    return (d.getModelCatalog?.() || []).filter(m => m.available);
+  }
+
+  function scheduleCurrentModel() {
+    const usable = scheduleUsableModels();
+    if (!usable.length) return "mock";
+    const preferred = d.getSharedModelDefault?.() || "";
+    return usable.some(m => m.key === preferred) ? preferred : usable[0].key;
+  }
+
+  function scheduleModelOptions() {
+    const usable = scheduleUsableModels();
+    if (!usable.length) return '<option value="mock">离线 Mock</option>';
+    const current = scheduleCurrentModel();
+    return usable.map(m => `<option value="${esc(m.key)}"${m.key === current ? " selected" : ""}>${esc(m.label)}${m.key === current ? "（共享默认）" : ""}</option>`).join("");
+  }
+
+  function scheduleEffortHtml() {
+    const levels = d.effortLevels?.() || [];
+    const options = ['<option value="">模型默认</option>']
+      .concat(levels.map(key => `<option value="${esc(key)}">${esc(d.effortLabel?.(key) || key)}</option>`))
+      .join("");
+    return `<label id="sch-effort-label" hidden>思考强度<select id="sch-effort">${options}</select></label>`;
+  }
+
+  /* 选中支持思考强度的模型时才显示档位；否则不发 effort 字段，
+     由后端 resolve_model 施加"provider 自己的默认"。 */
+  function syncScheduleEffort() {
+    const modelSel = document.getElementById("sch-model");
+    const wrap = document.getElementById("sch-effort-label");
+    if (!modelSel || !wrap) return;
+    const entry = (d.getModelCatalog?.() || []).find(m => m.key === modelSel.value);
+    wrap.hidden = !(entry && entry.supportsEffort);
   }
 
   /* 旧版 localStorage 草稿一次性迁移到服务端；迁移后清掉本机键。 */
@@ -147,10 +189,12 @@ export function createPages(deps) {
       + '<div class="sch-grid">'
       + '<label>模板<select id="sch-template">' + d.getScenarios().map(pair => '<option value="' + pair[0] + '">' + pair[1] + '</option>').join("") + '</select></label>'
       + '<label>审批档位<select id="sch-approval"><option value="consequential">关键审批</option><option value="all">逐步审批</option><option value="off">自动</option></select></label>'
+      + '<label>模型<select id="sch-model">' + scheduleModelOptions() + '</select></label>'
+      + scheduleEffortHtml()
       + '<label>频率<select id="sch-frequency"><option>每天</option><option>工作日</option><option>每周</option></select></label>'
       + '<label>时间<input id="sch-time" type="time" value="09:00"></label>'
       + '</div><div class="sch-actions">'
-      + '<span class="sch-honest">每周 = 与创建日相同的星期几；到点创建的运行可在账本里看到。</span>'
+      + '<span class="sch-honest">每周 = 与创建日相同的星期几；模型在保存时固定，之后改全局默认不影响已保存的排程。</span>'
       + '<button id="sch-save">保存排程</button></div></div>'
       + '<div class="sch-list"><div class="empty">读取排程…</div></div>',
       { mode: "scheduled" });
@@ -172,25 +216,36 @@ export function createPages(deps) {
     if (save) save.addEventListener("click", async () => {
       const objective = document.getElementById("sch-objective").value.trim();
       if (!objective) { d.toast("先描述定时任务的目标"); return; }
+      const modelSel = document.getElementById("sch-model");
       const body = {
         objective,
         template: document.getElementById("sch-template").value,
         approval: document.getElementById("sch-approval").value,
+        model: modelSel ? modelSel.value : "mock",
         frequency: document.getElementById("sch-frequency").value,
         time: document.getElementById("sch-time").value || "09:00",
       };
+      const effortWrap = document.getElementById("sch-effort-label");
+      const effortSel = document.getElementById("sch-effort");
+      if (effortWrap && !effortWrap.hidden && effortSel && effortSel.value) {
+        body.effort = effortSel.value;
+      }
       try {
         const r = await d.fetchImpl("/api/schedules", { ...SCHEDULE_POST, body: JSON.stringify(body) });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           throw new Error(err.error || `HTTP ${r.status}`);
         }
-        d.toast("排程已保存 · 到点自动创建运行");
+        d.toast("排程已保存 · 模型已固定 · 到点自动创建运行");
         renderScheduledPage();
       } catch (e) {
         d.toast("保存失败：" + e.message);
       }
     });
+    const modelSel = document.getElementById("sch-model");
+    if (modelSel && !modelSel.value) modelSel.value = scheduleCurrentModel();
+    if (modelSel) modelSel.addEventListener("change", syncScheduleEffort);
+    syncScheduleEffort();
     for (const btn of document.querySelectorAll("[data-sch-del]")) {
       btn.addEventListener("click", async () => {
         await d.fetchImpl("/api/schedules/delete", { ...SCHEDULE_POST, body: JSON.stringify({ id: btn.dataset.schDel }) });

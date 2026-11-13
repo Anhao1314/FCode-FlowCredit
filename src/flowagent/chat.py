@@ -44,7 +44,7 @@ from .chat_config import (
     MAX_TEXT,
     ChatProviderConfig,
     _env_int,
-    _peek_model,
+    is_custom_provider_key,
     load_chat_config,
     redact_chat_config,
     resolve_chat_provider,
@@ -200,11 +200,9 @@ class ChatService:
         # enter the event chain, traces or logs.
         self._config_path = config_path
         self._config = load_chat_config(config_path)
-        #: When this process read the file. The settings page shows it next to
-        #: the file's mtime, because a key saved by *another* process (or
-        #: before this one started) is invisible here until a restart — the
-        #: confusion that made a configured Kimi look unconfigured.
+        #: The mtime guard makes external saves visible to every surface.
         self._config_loaded_at = time.time()
+        self._config_mtime_ns = self._config_mtime_ns_on_disk()
         # Archiving is a tombstone, not a delete: the event chain and receipts
         # stay verifiable; only the sidebar hides the thread.
         self.store._conn.executescript("""
@@ -313,9 +311,28 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             max_tokens=_env_int("FCODE_CHAT_MAX_TOKENS", DEFAULT_CHAT_LIMITS.max_tokens),
         )
 
+    def _config_mtime_ns_on_disk(self) -> int | None:
+        if not self._config_path:
+            return None
+        try:
+            return self._config_path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _refresh_config(self) -> None:
+        """Reload an externally changed document before any model resolution."""
+        with self._lock:
+            mtime_ns = self._config_mtime_ns_on_disk()
+            if mtime_ns == self._config_mtime_ns:
+                return
+            self._config = load_chat_config(self._config_path)
+            self._config_mtime_ns = mtime_ns
+            self._config_loaded_at = time.time()
+
     def _overrides_for(self, model: str | None) -> dict[str, Any]:
+        self._refresh_config()
         key = (model or "mock").strip().lower()
-        if key not in CONFIGURABLE_PROVIDERS:
+        if key not in CONFIGURABLE_PROVIDERS and not is_custom_provider_key(key):
             return {}
         return (self._config.get("providers") or {}).get(key) or {}
 
@@ -334,10 +351,15 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         }
 
     def default_model(self) -> str:
-        return str(self._config.get("default_model") or "mock")
+        self._refresh_config()
+        return (
+            os.environ.get("FCODE_DEFAULT_RUN_MODEL", "").strip()
+            or str(self._config.get("default_model") or "mock")
+        )
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Redacted settings + model menu, the shape the settings page renders."""
+        """Redacted settings + the shared model menu, for every product surface."""
+        self._refresh_config()
         return {
             "config": redact_chat_config(self._config),
             "models": self.chat_models(),
@@ -346,13 +368,8 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         }
 
     def config_source(self) -> dict[str, Any]:
-        """Where the running process got its provider configuration.
-
-        ``stale`` is the honest part: the file on disk is newer than what this
-        process loaded, so an edit made elsewhere is not in effect yet. Without
-        this the settings page happily showed a key the running server had
-        never read.
-        """
+        """Where the shared provider configuration lives and when it was read."""
+        self._refresh_config()
         loaded_at = float(getattr(self, "_config_loaded_at", 0.0) or 0.0)
         info: dict[str, Any] = {
             "path": str(self._config_path) if self._config_path else "",
@@ -363,42 +380,39 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         if not self._config_path:
             return info
         try:
-            info["fileMtime"] = self._config_path.stat().st_mtime
+            stat = self._config_path.stat()
+            info["fileMtime"] = stat.st_mtime
         except OSError:
             return info
-        info["stale"] = bool(info["fileMtime"] > loaded_at)
+        info["stale"] = bool(stat.st_mtime_ns != self._config_mtime_ns)
         return info
 
     def chat_models(self) -> list[dict[str, Any]]:
-        """The chat model menu: availability judged from overrides + env."""
+        """The exact provider catalog used by Work, governance and schedules."""
+        self._refresh_config()
+        from .providers.catalog import (
+            merged_env,
+            probe_local_endpoint,
+            provider_catalog,
+            settings_as_env,
+        )
+
+        env = merged_env(settings_as_env(self._config.get("providers") or {}))
+        endpoint = env.get("FCODE_LOCAL_ENDPOINT", "").strip() or None
+        entries = provider_catalog(
+            env=env,
+            local_endpoint=endpoint,
+            local_probe=(lambda: probe_local_endpoint(endpoint)) if endpoint else None,
+        )
         models: list[dict[str, Any]] = []
-        labels = {"mock": "离线 Mock", "kimi": "Kimi 云端", "deepseek": "DeepSeek 云端", "local": "本地模型"}
-        for key in CHAT_PROVIDER_KEYS:
-            overrides = self._overrides_for(key)
-            try:
-                config = resolve_chat_provider(key, overrides)
-                models.append({
-                    "key": key,
-                    "label": labels[key],
-                    "model": config.model,
-                    "available": True,
-                    "reason": "",
-                    "remote": config.remote,
-                    "price": {
-                        "inputMicrousdPerMtok": config.input_price_microusd_per_mtok,
-                        "outputMicrousdPerMtok": config.output_price_microusd_per_mtok,
-                    } if config.remote else None,
-                })
-            except AgentError as error:
-                models.append({
-                    "key": key,
-                    "label": labels[key],
-                    "model": _peek_model(key, overrides),
-                    "available": False,
-                    "reason": error.message,
-                    "remote": key != "mock",
-                    "price": None,
-                })
+        for entry in entries:
+            item = dict(entry, remote=entry["key"] != "mock")
+            if not item["available"]:
+                try:
+                    resolve_chat_provider(item["key"], self._overrides_for(item["key"]))
+                except AgentError as error:
+                    item["reason"] = error.message
+            models.append(item)
         return models
 
     def update_config(
@@ -407,6 +421,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         provider: str | None = None,
         values: dict[str, Any] | None = None,
         default_model: str | None = None,
+        delete_provider: bool = False,
     ) -> dict[str, Any]:
         """Validate and persist settings overrides; empty string clears a field.
 
@@ -414,13 +429,20 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         file is the only place the API key is written — never the chain, traces
         or logs — and it lives outside the repository.
         """
-        if provider is not None and provider not in CONFIGURABLE_PROVIDERS:
+        provider = provider.strip().lower() if provider is not None else None
+        custom_provider = is_custom_provider_key(provider)
+        if provider is not None and provider not in CONFIGURABLE_PROVIDERS and not custom_provider:
             raise AgentError(
                 "CHAT_CONFIG_INVALID",
-                f"provider must be one of {', '.join(CONFIGURABLE_PROVIDERS)}",
+                "provider must be a built-in or an ASCII alphanumeric custom key",
             )
+        if delete_provider and provider is None:
+            raise AgentError("CHAT_CONFIG_INVALID", "delete_provider requires provider")
         clean: dict[str, str] = {}
-        if provider is not None:
+        if provider is not None and not delete_provider:
+            # A delete carries no fields to validate; requiring ``values``
+            # here would make the settings page's delete call impossible
+            # without a payload the operation never reads.
             allowed = {
                 "api_key", "model",
                 "input_price_microusd_per_mtok", "output_price_microusd_per_mtok",
@@ -433,8 +455,10 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             # path (a stolen settings write could redirect the stored key).
             # Their base URL stays host/env-configured; only local endpoints
             # are editable from the UI.
-            if provider == "local":
+            if provider == "local" or custom_provider:
                 allowed.add("base_url")
+            if custom_provider:
+                allowed.update({"label", "supports_effort"})
             if not isinstance(values, dict):
                 raise AgentError("CHAT_CONFIG_INVALID", "values must be an object")
             for name, raw in values.items():
@@ -448,6 +472,10 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     raise AgentError("CHAT_CONFIG_INVALID", "api key is too long")
                 if name == "model" and len(text) > 120:
                     raise AgentError("CHAT_CONFIG_INVALID", "model name is too long")
+                if name == "label" and len(text) > 80:
+                    raise AgentError("CHAT_CONFIG_INVALID", "provider label is too long")
+                if name == "supports_effort" and text not in ("0", "1"):
+                    raise AgentError("CHAT_CONFIG_INVALID", "supports_effort must be 0 or 1")
                 if name == "base_url" and not text.startswith(("http://", "https://")):
                     raise AgentError("CHAT_CONFIG_INVALID", "base url must start with http(s)://")
                 if name in ("input_price_microusd_per_mtok", "output_price_microusd_per_mtok"):
@@ -455,8 +483,9 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                         price = int(text)
                     except ValueError:
                         raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be an integer")
-                    if price <= 0:
-                        raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be positive")
+                    if price < 0 or (price == 0 and not custom_provider):
+                        rule = "non-negative" if custom_provider else "positive"
+                        raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be {rule}")
                     clean[name] = str(price)
                     continue
                 if name == "min_interval_seconds":
@@ -479,30 +508,41 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     continue
                 clean[name] = text
         with self._lock:
+            self._refresh_config()
             providers = dict(self._config.get("providers") or {})
             if provider is not None:
-                block = dict(providers.get(provider) or {})
-                for name, value in clean.items():
-                    if value == "":
-                        block.pop(name, None)
-                    else:
-                        block[name] = value
-                if block:
-                    providers[provider] = block
-                else:
+                if delete_provider:
                     providers.pop(provider, None)
+                else:
+                    block = dict(providers.get(provider) or {})
+                    for name, value in clean.items():
+                        if value == "":
+                            block.pop(name, None)
+                        else:
+                            block[name] = value
+                    if block:
+                        providers[provider] = block
+                    else:
+                        providers.pop(provider, None)
             config = {"version": CHAT_CONFIG_VERSION, "providers": providers}
             if default_model is not None:
-                if default_model not in CHAT_PROVIDER_KEYS:
-                    raise AgentError("CHAT_CONFIG_INVALID", f"default model must be one of {', '.join(CHAT_PROVIDER_KEYS)}")
-                config["default_model"] = default_model
+                normalized_default = default_model.strip().lower()
+                known = set(CHAT_PROVIDER_KEYS) | set(providers) | {
+                    item["key"] for item in self.chat_models()
+                }
+                if delete_provider:
+                    known.discard(provider)
+                if normalized_default not in known:
+                    raise AgentError("CHAT_CONFIG_INVALID", "default model must be in the shared catalog")
+                config["default_model"] = normalized_default
+            elif delete_provider and self._config.get("default_model") == provider:
+                config["default_model"] = "mock"
             elif self._config.get("default_model"):
                 config["default_model"] = self._config["default_model"]
             self._config = config
             save_chat_config(self._config_path, config)
-            # Saving is reading: this process now holds the newest copy, so the
-            # freshness line the settings page shows goes quiet by itself.
             self._config_loaded_at = time.time()
+            self._config_mtime_ns = self._config_mtime_ns_on_disk()
         return self.config_snapshot()
 
     def _thread_exists(self, thread_id: str) -> bool:

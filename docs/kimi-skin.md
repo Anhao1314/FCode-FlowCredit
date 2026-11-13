@@ -14,6 +14,7 @@
 | --- | --- |
 | 首页标题、说明、composer 沿中轴排布，装饰元素退到背景 | `#app.stage-mode .moonshot-stage` 居中，轨道场景 `opacity .10` 作水印，composer 收到 700px |
 | 任务页以线程为主体，变更/文件从右侧侧开，不替换线程 | 视图切换收成分段控件；`data-work-inspector` 抽屉只承载变更/文件，关闭回执行线程 |
+| 右侧面板可开合，内容随视图切换 | 证据 rail 三模式：`trace`（任务详情）/`channel`（治理团队频道）/`ledger`（审计发现账本）；治理团队面与审计台自动展开，离开即恢复 trace |
 | 画布更暖、层级更柔 | `--canvas #fbfaf7`、`--panel #f3f1ec`、`--raised #fffefb`、线色转暖 `rgba(38,32,25,…)` |
 | 审批浮窗三行「图标 + 标题 + 一句说明 + 选中勾」 | `renderApprovalMenu()` 去掉裸 key，补图标/勾；上方放不下时自动向下展开 |
 | composer 控件无边框、圆角更大 | `.composer-bar .c-btn` 去边框，发送键 36px |

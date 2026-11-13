@@ -13,6 +13,7 @@
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
 import { pinnedSectionHtml, projectSectionHtml, govHistorySectionHtml, runSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { govSurfaceSwitchHtml } from "../core/gov-workbench.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -42,6 +43,8 @@ export function createSidebar(deps) {
     document.body.dataset.zone = zonePainted;
     const flavor = document.getElementById("side-flavor");
     if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
+    // 治理台三面（对话/团队/工作台）切换收进侧栏：进 gov 区就点亮当前面。
+    if (zonePainted === "gov") paintGovSurfaceNav();
     // 插件市场是功能页不是区：按钮自己点亮，不改变 Work/Governance 分区。
     const marketButton = document.querySelector(".side-market");
     if (marketButton) marketButton.classList.toggle("active", view === "market");
@@ -85,22 +88,14 @@ export function createSidebar(deps) {
       host.innerHTML = '<div class="section-empty">读取治理历史…</div>';
     }
     try {
-      const [bundleData, runData, botData] = await Promise.all([
-        safeJson("/api/audit/bundles", { bundles: [] }),
-        safeJson("/api/gov/runs?limit=6", { runs: [] }),
-        safeJson("/api/gov/bots", { bots: [] }),
-      ]);
+      const bundleData = await safeJson("/api/audit/bundles", { bundles: [] });
       const bundles = bundleData.bundles || [];
-      const runs = runData.runs || [];
-      const bots = botData.bots || [];
       const signature = JSON.stringify([
         bundles.map(item => [item.dir, item.findings, item.unhandled, item.ruleset_version]),
-        runs.map(item => [item.run_id, item.status, item.findings, item.chain_intact, item.audit_id]),
-        bots.map(item => [item.id, item.name]),
       ]);
       if (signature !== govHistSig || host.textContent.includes("读取治理历史")) {
         govHistSig = signature;
-        host.innerHTML = govHistorySectionHtml(bundles, { runs, bots });
+        host.innerHTML = govHistorySectionHtml(bundles);
         paintSections();
       }
     } catch {
@@ -113,6 +108,15 @@ export function createSidebar(deps) {
   function renderSidebarNav() {
     // 功能导航已撤除(nav 宿主删除);这里只剩区切换器的点亮渲染。
     paintZoneSwitch();
+  }
+
+  /* 治理台三面切换（对话/团队/工作台）：从主区头部收进侧栏。
+     点击合同不变（data-gov-mode，由全局委托处理）；active 跟随
+     getGovSurface。非 gov 区时容器由 CSS 隐藏，不需这里清空。 */
+  function paintGovSurfaceNav() {
+    const host = document.getElementById("gov-surface-nav");
+    if (!host) return;
+    host.innerHTML = govSurfaceSwitchHtml(d.getGovSurface?.() || "dialog");
   }
 
   function paintNavActive() {
@@ -587,7 +591,7 @@ export function createSidebar(deps) {
   }
 
   return {
-    renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch,
+    renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch, paintGovSurfaceNav,
     refreshGovHistory: renderGovHistory,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,

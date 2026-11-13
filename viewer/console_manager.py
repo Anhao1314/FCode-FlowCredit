@@ -202,6 +202,25 @@ class RunManager:
             return dict(self._settings_env)
         return settings_provider_env()
 
+    def local_model_endpoint(self) -> str | None:
+        """Resolve local endpoint changes without a process restart."""
+        env = merged_provider_env(self.settings_env())
+        return str(env.get("FCODE_LOCAL_ENDPOINT", "")).strip() or self.local_endpoint
+
+    def default_model(self) -> str:
+        """One default for Work, Chat, governance and new schedule drafts."""
+        explicit = os.environ.get("FCODE_DEFAULT_RUN_MODEL", "").strip()
+        if explicit:
+            return explicit
+        if self.chat is not None:
+            return self.chat.default_model()
+        try:
+            from flowagent.chat_config import load_chat_config
+
+            return str(load_chat_config(CHAT_CONFIG_PATH).get("default_model") or "mock")
+        except Exception:  # noqa: BLE001 — static mode has no provider package
+            return "mock"
+
     def resolve_model(self, model_key: str | None, effort: str | None) -> tuple[str, str]:
         """Fail-closed model resolution for run creation.
 
@@ -214,7 +233,7 @@ class RunManager:
             return "mock", ""
         # The same catalog the menu shows: settings-page values included, so a
         # provider the operator configured in the app resolves here too.
-        catalog = model_catalog(self.local_endpoint, settings_env=self.settings_env())
+        catalog = model_catalog(self.local_model_endpoint(), settings_env=self.settings_env())
         entry = next((m for m in catalog if m["key"] == model_key), None)
         if entry is None:
             raise ValueError(f"未知模型 {model_key!r}")
@@ -395,7 +414,7 @@ class RunManager:
         from flowagent.providers.openai_compat import OpenAICompatProvider
 
         env = merged_provider_env(self.settings_env())
-        key = str(model_key or os.environ.get("FCODE_DEFAULT_RUN_MODEL") or "").strip()
+        key = str(model_key or self.default_model() or "").strip()
         if not key or key == "mock":
             return None
         entry = next((item for item in self.model_catalog_with_budget(None)
@@ -409,7 +428,7 @@ class RunManager:
 
     def model_catalog_with_budget(self, template_key: str | None) -> list[dict]:
         """模型清单 + 该模板下各自真实生效的预算顶（草稿预览的单一事实源）。"""
-        models = model_catalog(self.local_endpoint, settings_env=self.settings_env())
+        models = model_catalog(self.local_model_endpoint(), settings_env=self.settings_env())
         limits = None
         if template_key and self.runtime is not None:
             try:
@@ -476,7 +495,11 @@ class RunManager:
                 self.runtime.get_scenario(template)
             except Exception as error:
                 raise ValueError(f"unknown template {template!r}") from error
-        run = self.create(objective, template, approval, None, source="scheduled")
+        model, effort = self.resolve_model(payload.get("model") or "mock", payload.get("effort"))
+        run = self.create(
+            objective, template, approval, None,
+            model_key=model, effort=effort, source="scheduled",
+        )
         return run.id
 
     def _load_history(self) -> None:
@@ -1065,7 +1088,7 @@ class RunManager:
             run.model,
             scenario=scenario,
             receipts=receipts,
-            endpoint=self.local_endpoint if run.model == "local" else None,
+            endpoint=self.local_model_endpoint() if run.model == "local" else None,
             # 思考强度对任何 supportsEffort 的 provider 生效（创建时已校验）
             reasoning_effort=(run.effort or None) if run.model != "mock" else None,
             # 设置页保存的 provider 值：委托与对话走同一份配置

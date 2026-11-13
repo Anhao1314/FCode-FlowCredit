@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS schedules (
     objective TEXT NOT NULL,
     template TEXT NOT NULL DEFAULT 'full',
     approval TEXT NOT NULL DEFAULT 'consequential',
+    model TEXT NOT NULL DEFAULT 'mock',
+    effort TEXT NOT NULL DEFAULT '',
     frequency TEXT NOT NULL DEFAULT '每天',
     time TEXT NOT NULL DEFAULT '09:00',
     weekday INTEGER,
@@ -66,6 +68,11 @@ class SchedulerStore:
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(schedules)")}
+        if "model" not in columns:
+            self._db.execute("ALTER TABLE schedules ADD COLUMN model TEXT NOT NULL DEFAULT 'mock'")
+        if "effort" not in columns:
+            self._db.execute("ALTER TABLE schedules ADD COLUMN effort TEXT NOT NULL DEFAULT ''")
         self._db.commit()
 
     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
@@ -79,20 +86,23 @@ class SchedulerStore:
                 if frequency == "每周" and weekday is None:
                     weekday = now.weekday()  # 每周默认与创建日相同的星期几
                 self._db.execute(
-                    "INSERT INTO schedules (id, objective, template, approval, frequency,"
-                    " time, weekday, enabled, created) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO schedules (id, objective, template, approval, model, effort, frequency,"
+                    " time, weekday, enabled, created) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (entry_id, entry["objective"], entry.get("template") or "full",
                      entry.get("approval") or "consequential",
+                     entry.get("model") or "mock", entry.get("effort") or "",
                      frequency, entry.get("time") or "09:00",
                      int(weekday) if weekday is not None else None,
                      1 if entry.get("enabled") is None else int(bool(entry["enabled"])), now),
                 )
             else:
                 self._db.execute(
-                    "UPDATE schedules SET objective=?, template=?, approval=?,"
+                    "UPDATE schedules SET objective=?, template=?, approval=?, model=?, effort=?,"
                     " frequency=?, time=? WHERE id=?",
                     (entry["objective"], entry.get("template") or existing["template"],
                      entry.get("approval") or existing["approval"],
+                     entry.get("model") or existing["model"],
+                     entry.get("effort") if entry.get("effort") is not None else existing["effort"],
                      entry.get("frequency") or existing["frequency"],
                      entry.get("time") or existing["time"], entry_id),
                 )
@@ -213,6 +223,8 @@ class Scheduler:
                     "objective": entry["objective"],
                     "template": entry["template"],
                     "approval": entry["approval"],
+                    "model": entry.get("model") or "mock",
+                    "effort": entry.get("effort") or "",
                 }
                 fired_at = now.strftime("%Y-%m-%dT%H:%M:%S")
                 try:
@@ -264,6 +276,8 @@ def validate_schedule_payload(body: dict[str, Any]) -> dict[str, Any]:
         "objective": objective,
         "template": template,
         "approval": approval,
+        "model": str(body.get("model")).strip() if body.get("model") is not None else None,
+        "effort": str(body.get("effort")).strip() if body.get("effort") is not None else None,
         "frequency": frequency,
         "time": time_text,
     }

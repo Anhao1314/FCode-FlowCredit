@@ -202,3 +202,131 @@ test("定时任务:服务端同步——旧草稿迁移/保存 POST/删除 POST"
   assert.ok(posts.some(p2 => p2.url === "/api/schedules/delete" && p2.body.id === target.id));
   assert.equal(serverSchedules.some(x => x.id === target.id), false);
 });
+
+/* Slice B：排程模型快照。目录来自共享 modelCatalog，初始值 = 共享默认；
+   保存显式提交 model（可见 effort 时附带）；列表行显示已固定的模型。
+   依赖缺席时退回 mock——这是回放/桩环境的诚实降级。 */
+
+const CATALOG = [
+  { key: "mock", available: true, label: "offline-mock", model: "mock", supportsEffort: false },
+  { key: "glm", available: true, label: "GLM-5.3-Flash", model: "glm-5.3-flash", supportsEffort: true },
+  { key: "kimi", available: true, label: "Kimi 云端", model: "kimi-k2.6", supportsEffort: false },
+];
+
+function scheduleHarness({ serverSchedules = [], catalog = CATALOG, sharedDefault = "glm" } = {}) {
+  const els = {
+    "tb-title": makeEl(), "tb-chips": makeEl(), "composer-ta": makeEl(),
+    "sch-objective": makeEl({ value: "" }),
+    "sch-template": makeEl({ value: "full" }),
+    "sch-approval": makeEl({ value: "consequential" }),
+    "sch-model": makeEl({ value: "" }),
+    "sch-effort-label": makeEl({ hidden: true }),
+    "sch-effort": makeEl({ value: "" }),
+    "sch-frequency": makeEl({ value: "每天" }),
+    "sch-time": makeEl({ value: "09:00" }),
+    "sch-save": makeEl(),
+  };
+  const schList = makeEl();
+  const renderCalls = [];
+  const posts = [];
+  const toasts = [];
+  let delButtons = [];
+  globalThis.document = {
+    body: makeEl(), documentElement: makeEl(),
+    getElementById: id => els[id] || null,
+    querySelector: sel => (sel === ".sch-list" ? schList : null),
+    querySelectorAll: sel => (sel === "[data-sch-del]" ? delButtons : []),
+    createElement: () => makeEl(),
+  };
+  globalThis.localStorage = makeLocalStorage();
+  const pages = createPages({
+    renderMain: html => renderCalls.push(html),
+    setFoot() {},
+    toast: m => toasts.push(m),
+    getViewGateSequence: () => 1,
+    getScenarios: () => [["full", "完整研究"]],
+    getModelCatalog: () => catalog,
+    getSharedModelDefault: () => sharedDefault,
+    effortLevels: () => ["low", "medium", "high"],
+    effortLabel: key => ({ low: "低", medium: "中", high: "高" }[key] || key || ""),
+    fetchImpl: async (url, init) => {
+      const u = String(url);
+      if (u === "/api/schedules" && (init === undefined || !init.method)) {
+        return { ok: true, json: async () => ({ schedules: serverSchedules }) };
+      }
+      if (u === "/api/schedules" && init && init.method === "POST") {
+        const body = JSON.parse(init.body);
+        posts.push({ url: u, body });
+        serverSchedules.push({ id: "sch-x", next: "每天 09:00", enabled: true, ...body });
+        return { ok: true, json: async () => ({ schedule: body }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    },
+  });
+  return { pages, els, schList, posts, toasts, renderCalls };
+}
+
+test("定时任务:模型选项来自共享目录,初始选中共享默认并标注", async () => {
+  const { pages, els, renderCalls } = scheduleHarness();
+  await pages.renderScheduledPage();
+  const formHtml = renderCalls.at(-1);
+  assert.match(formHtml, /value="glm" selected/, "共享默认被选中");
+  assert.match(formHtml, /GLM-5.3-Flash（共享默认）/);
+  assert.match(formHtml, /value="kimi"/, "目录里其它可用模型都在");
+  assert.equal(els["sch-model"].value, "glm", "select 值显式落共享默认");
+  assert.equal(els["sch-effort-label"].hidden, false, "supportsEffort 模型显示档位");
+  assert.match(formHtml, /id="sch-effort"[\s\S]*?value="high">高/);
+});
+
+test("定时任务:不支持 effort 的模型隐藏档位,保存 body 不带 effort 字段", async () => {
+  const { pages, els, posts } = scheduleHarness({ sharedDefault: "kimi" });
+  await pages.renderScheduledPage();
+  assert.equal(els["sch-effort-label"].hidden, true, "kimi 不支持 effort");
+  els["sch-objective"].value = "每日报表";
+  els["sch-model"].value = "kimi";
+  await els["sch-save"].listeners.click[0]();
+  await new Promise(r => setTimeout(r, 5));
+  const savePost = posts.find(p => p.body.objective === "每日报表");
+  assert.ok(savePost, "保存发起 POST");
+  assert.equal(savePost.body.model, "kimi");
+  assert.ok(!("effort" in savePost.body), "不支持 effort 时字段整体缺席");
+});
+
+test("定时任务:保存 body 携带 model 与 effort 快照", async () => {
+  const { pages, els, posts } = scheduleHarness();
+  await pages.renderScheduledPage();
+  els["sch-objective"].value = "每日盯盘";
+  els["sch-model"].value = "glm";
+  els["sch-effort"].value = "high";
+  await els["sch-save"].listeners.click[0]();
+  await new Promise(r => setTimeout(r, 5));
+  const savePost = posts.find(p => p.body.objective === "每日盯盘");
+  assert.ok(savePost);
+  assert.equal(savePost.body.model, "glm");
+  assert.equal(savePost.body.effort, "high");
+});
+
+test("定时任务:列表行显示已固定的模型,旧条目显示 mock", async () => {
+  const { pages, schList } = scheduleHarness({
+    serverSchedules: [
+      { id: "s1", objective: "旧排程", template: "full", approval: "off", next: "每天 08:00", enabled: true },
+      { id: "s2", objective: "新排程", template: "full", approval: "off", model: "glm", effort: "high", next: "每天 09:00", enabled: true },
+    ],
+  });
+  await pages.renderScheduledPage();
+  const html = schList.innerHTML;
+  assert.match(html, /模型 mock/, "迁移/旧排程如实显示 mock，不假装跟随默认");
+  assert.match(html, /模型 glm · 高/, "新排程显示固定的模型与档位");
+});
+
+test("定时任务:目录缺席时退回 mock 选项(桩/回放降级)", async () => {
+  const { pages, els, posts, renderCalls } = scheduleHarness({ catalog: [], sharedDefault: "" });
+  await pages.renderScheduledPage();
+  assert.match(renderCalls.at(-1), /value="mock">离线 Mock/);
+  assert.equal(els["sch-model"].value, "mock");
+  els["sch-objective"].value = "离线排程";
+  await els["sch-save"].listeners.click[0]();
+  await new Promise(r => setTimeout(r, 5));
+  const savePost = posts.find(p => p.body.objective === "离线排程");
+  assert.equal(savePost.body.model, "mock");
+});

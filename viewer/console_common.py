@@ -140,25 +140,10 @@ _local_probe_cache: dict[str, tuple[float, bool]] = {}
 
 
 def _probe_local_endpoint(endpoint: str) -> bool:
-    """Probe an Ollama-compatible endpoint once, caching the result for 60s."""
-    now = time.monotonic()
-    cached = _local_probe_cache.get(endpoint)
-    if cached is not None and now - cached[0] < LOCAL_PROBE_TTL:
-        return cached[1]
-    root = endpoint.rstrip("/")
-    if root.endswith("/v1"):
-        root = root[: -len("/v1")]
-    ok = False
-    for path in ("/api/tags", "/v1/models"):
-        try:
-            req = urllib.request.Request(root + path, method="GET")
-            with urllib.request.urlopen(req, timeout=LOCAL_PROBE_TIMEOUT) as resp:
-                ok = resp.status == 200
-                break
-        except Exception:  # noqa: BLE001 — any probe failure means "not reachable now"
-            ok = False
-    _local_probe_cache[endpoint] = (now, ok)
-    return ok
+    """Use the same local availability probe as Chat and every other surface."""
+    from flowagent.providers.catalog import probe_local_endpoint
+
+    return probe_local_endpoint(endpoint)
 
 
 def _scaled_budget_for_prices(limits, price, max_completion_tokens: int) -> dict:
@@ -175,10 +160,16 @@ def _scaled_budget_for_prices(limits, price, max_completion_tokens: int) -> dict
         + max_completion_tokens * price.output_microusd_per_mtok
         + 999_999
     ) // 1_000_000
-    affordable_calls = min(
-        limits.max_cost_microusd // per_call_microusd,
-        limits.max_tokens // per_call_tokens,
-    )
+    if per_call_microusd <= 0:
+        # 免费自定义端点（操作员显式定价 0）：成本不构成约束，只剩 token
+        # 顶约束容量。此前这里直接整除会 ZeroDivisionError，把免费端点
+        # 挡在运行与预算预览之外。
+        affordable_calls = limits.max_tokens // per_call_tokens
+    else:
+        affordable_calls = min(
+            limits.max_cost_microusd // per_call_microusd,
+            limits.max_tokens // per_call_tokens,
+        )
     if affordable_calls < 1:
         raise ValueError(
             "预算不足以容纳一次模型调用："

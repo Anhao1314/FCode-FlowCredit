@@ -57,16 +57,15 @@ test("筛选:严重度 + 未处置 + 搜索，按高危到低危排序", () => {
   assert.equal(filterFindings(findings, { query: "no-such" }).length, 0);
 });
 
-test("治理面切换:对话/团队/工作台三枚 tab，当前面 aria-selected", () => {
+test("治理面切换:只列团队/工作台两个次级面（对话由区落地与新对话按钮直达）", () => {
   const dialog = govSurfaceSwitchHtml("dialog");
   assert.match(dialog, /role="tablist"/);
-  assert.match(dialog, /data-gov-mode="dialog" aria-selected="true"/);
   assert.match(dialog, /data-gov-mode="team" aria-selected="false"/);
   assert.match(dialog, /data-gov-mode="workbench" aria-selected="false"/);
-  assert.match(dialog, /对话<\/button>/);
+  assert.doesNotMatch(dialog, /data-gov-mode="dialog"/, "对话行已清理：区落地与新对话按钮直达");
   assert.match(dialog, /团队<\/button>/);
   const workbench = govSurfaceSwitchHtml("workbench");
-  assert.match(workbench, /data-gov-mode="dialog" aria-selected="false"/);
+  assert.doesNotMatch(workbench, /data-gov-mode="dialog"/);
   assert.match(workbench, /data-gov-mode="workbench" aria-selected="true"/);
 });
 
