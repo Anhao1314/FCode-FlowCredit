@@ -7,6 +7,20 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await page.goto("/");
   await page.waitForSelector('body[data-booted="1"]');
   await page.locator('#zone-switch [data-zone="gov"]').click();
+
+  // 对话 /挖洞 与团队共用同一条运行流：作业卡完成后可定位到频道同一张卡
+  await page.locator("#composer-ta").fill("/挖洞 fixtures/demo-target");
+  await page.locator("#composer-ta").press("Enter");
+  const dialogJob = page.locator("#gov-dialog-stream .gov-job");
+  await expect(dialogJob).toContainText("完成", { timeout: 90_000 });
+  await expect(dialogJob.locator(".gov-run-source")).toHaveText("对话");
+  await dialogJob.locator("[data-gov-run-focus]").click();
+  await expect(page.locator("#gov-team-channel")).toBeVisible({ timeout: 15_000 });
+  const manualMessage = page.locator("#gov-team-channel .gov-bot-message")
+    .filter({ has: page.locator(".gov-run-source", { hasText: "对话" }) }).first();
+  await expect(manualMessage).toBeVisible({ timeout: 15_000 });
+  await expect(manualMessage).toContainText("demo-target");
+
   await page.locator('[data-gov-mode="team"]').click();
 
   await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);

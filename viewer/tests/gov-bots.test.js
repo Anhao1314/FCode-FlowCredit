@@ -257,14 +257,49 @@ test("Bot 详情:动画头像、职责、设置、技能、排程与最近运行
 
 test("团队频道按时间正序，并对失败文本转义", () => {
   const html = govBotChannelHtml([
-    { run_id: "new", bot_id: "verifier", target: "b", status: "done", audit_id: "b", chain_intact: true },
-    { run_id: "old", bot_id: "auditor", target: "<img>", status: "failed", error: "<script>x</script>" },
+    { run_id: "new", bot_id: "verifier", target: "b", status: "done", audit_id: "b",
+      chain_intact: true, started_at: "2026-01-02T09:00:00" },
+    { run_id: "old", bot_id: "auditor", target: "<img>", status: "failed",
+      error: "<script>x</script>", started_at: "2026-01-01T09:00:00" },
   ], bots);
   assert.equal(html.includes("<script>"), false);
   assert.equal(html.includes("<img>"), false);
   assert.match(html, /&lt;script&gt;/);
   assert.ok(html.indexOf("&lt;img&gt;") < html.indexOf("@复核员"));
   assert.match(govBotChannelHtml([], bots), /团队频道还是空的/);
+});
+
+test("团队频道:待批准置顶，其余按时间正序", () => {
+  const html = govBotChannelHtml([
+    { run_id: "r-new", bot_id: "auditor", target: "/repo/new", status: "done",
+      audit_id: "a-new", findings: 1, evidence: 1, started_at: "2026-01-02T09:00:00" },
+    { run_id: "r-pending", bot_id: "auditor", target: "/repo/pending", status: "pending",
+      started_at: "2026-01-01T09:00:00" },
+    { run_id: "r-old", bot_id: "auditor", target: "/repo/old", status: "done",
+      audit_id: "a-old", findings: 1, evidence: 1, started_at: "2026-01-01T08:00:00" },
+  ], bots);
+  assert.ok(html.indexOf('data-gov-run-card="r-pending"') < html.indexOf('data-gov-run-card="r-old"'));
+  assert.ok(html.indexOf('data-gov-run-card="r-old"') < html.indexOf('data-gov-run-card="r-new"'));
+});
+
+test("对话手动 run:来源标记、操作员口吻与同卡定位属性", () => {
+  const html = govBotRunHtml(bots[0], {
+    run_id: "gov-abc123", bot_id: "auditor", source: "console", trigger: "manual",
+    target: "/Applications/EvoX.app", status: "done", audit_id: "evox-1",
+    findings: 5, evidence: 5, started_at: "2026-01-02T09:00:00",
+  });
+  assert.match(html, /@操作员 挖洞/);
+  assert.match(html, /gov-run-source">对话/);
+  assert.match(html, /data-gov-run-card="gov-abc123"/);
+  assert.match(html, /审计台 →/);
+  // 团队手动派活仍显示「团队」，与对话入口区分
+  const team = govBotRunHtml(bots[0], {
+    run_id: "bot-1", bot_id: "auditor", source: "team", trigger: "manual",
+    target: "fixtures/demo-target", status: "done", audit_id: "demo-1",
+    findings: 3, evidence: 3, started_at: "2026-01-02T09:00:00",
+  });
+  assert.match(team, /gov-run-source">团队/);
+  assert.doesNotMatch(team, /@操作员/);
 });
 
 test("AI 解读：非裁决标签显式、正文转义、done 运行带入口", () => {

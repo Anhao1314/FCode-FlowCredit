@@ -2791,11 +2791,11 @@ async function pushWorkspaceCard(kind) {
    - 对话（默认）：操作员命令 + 控制台响应卡，像 Work 一样可以打字；
    - 工作台：目标聚合 → 发现表 → 详情抽屉，Phase1 的审计复核面。
 
-   数据 = 服务端事实（bundle 落盘持久 / 作业状态内存态），动作 =
-   确定性操作（POST /api/audit/run 等）。模型不进环——审计证据的
+   数据 = 服务端事实（bundle 落盘持久 / 手动与团队运行都写 bot_runs），
+   动作 = 确定性操作（POST /api/gov/runs 等）。模型不进环——审计证据的
    公信力押在 "no model in the loop" 上。 */
 
-const govJobs = new Map(); // job_id → {job_id, target, status, audit_id, findings, evidence, error}
+const govJobs = new Map(); // run_id → {run_id, target, status, audit_id, findings, evidence, error}
 const govFindings = new Map(); // audit_dir → {findings, target, profile}（处置/修复闭环投影）
 let govPollTimer = null;
 let govBundle = null;
@@ -2974,14 +2974,20 @@ function govJobCardHtml(job) {
   const open = job.status === "done" && job.audit_id
     ? `<button class="gov-wb-button quiet" type="button" data-gov-hist="${esc(job.audit_id)}">查看结果 →</button>`
     : "";
+  // 对话发起的手动 run 与团队共享同一条运行流：完成前后都能跳到频道里的同一张卡。
+  const channel = job.run_id
+    ? `<button class="gov-wb-button quiet" type="button" data-gov-run-focus="${esc(job.run_id)}">频道 →</button>`
+    : "";
+  const source = job.run_id ? '<span class="gov-run-source">对话</span>' : "";
   return `<article class="gov-job is-${esc(job.status || "running")}">
     <div class="gov-job-head">
       <span class="gov-job-dot" aria-hidden="true"></span>
       <b>${esc(job.target || "")}</b>
+      ${source}
       <span class="gov-job-state">${esc(state)}</span>
     </div>
     <p class="gov-job-meta">${esc(stats)}</p>
-    ${open}
+    <div class="gov-job-actions">${open}${channel}</div>
   </article>`;
 }
 
@@ -3215,6 +3221,29 @@ async function startGovBotRun() {
   } catch (error) {
     toast("派活失败：" + error.message);
   }
+}
+
+/* 对话卡的「频道 →」：切到团队面，定位并高亮同一条 run。 */
+async function focusGovRun(runId) {
+  const id = String(runId || "").trim();
+  if (!id) return;
+  showGovSurface("team");
+  try {
+    await loadGovTeam();
+  } catch { /* 频道会显示加载失败的空态，不阻断导航 */ }
+  const deadline = Date.now() + 2500;
+  while (Date.now() < deadline) {
+    const card = [...document.querySelectorAll("[data-gov-run-card]")]
+      .find(el => el.dataset.govRunCard === id);
+    if (card) {
+      card.scrollIntoView({ block: "center", behavior: "smooth" });
+      card.classList.add("is-focus");
+      setTimeout(() => card.classList.remove("is-focus"), 2400);
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 60));
+  }
+  toast("这条运行还没出现在频道，稍后再看");
 }
 
 async function startGovRoutine() {
@@ -3632,19 +3661,54 @@ async function renderGovWorkbench() {
 function scheduleGovPoll() {
   if (govPollTimer) return;
   govPollTimer = setInterval(async () => {
-    const running = [...govJobs.entries()].filter(([, job]) => job.status === "running");
-    if (!running.length) {
+    const active = [...govJobs.entries()].filter(([, job]) =>
+      ["queued", "running"].includes(String(job.status || "")));
+    if (!active.length) {
       clearInterval(govPollTimer);
       govPollTimer = null;
       return;
     }
-    await Promise.all(running.map(async ([id, job]) => {
+    // 对话 /挖洞 现在是一条持久化 run：轮询运行流而不是内存 job。
+    const manual = active.filter(([, job]) => job.run_id);
+    if (manual.length) {
+      try {
+        const r = await fetch("/api/gov/runs?limit=40", { cache: "no-store" });
+        const data = r.ok ? await r.json() : { runs: [] };
+        const byId = new Map((data.runs || []).map(run => [run.run_id, run]));
+        for (const [, job] of manual) {
+          const run = byId.get(job.run_id);
+          if (!run || run.status === job.status) continue;
+          Object.assign(job, {
+            status: run.status,
+            audit_id: run.audit_id,
+            findings: run.findings,
+            evidence: run.evidence,
+            error: run.error,
+            target: run.target,
+            source: run.source,
+            trigger: run.trigger,
+          });
+          if (job.status === "done" && job.audit_id) {
+            refreshGovHistory();
+            govWork.dir = job.audit_id;
+            govWork.finding = "";
+            const seq = ++govLoadSeq;
+            try {
+              const bundle = await fetchGovBundle(job.audit_id);
+              if (seq === govLoadSeq) applyGovBundle(job.audit_id, bundle);
+            } catch { /* 单次拉取失败：保留旧工作台，审计台仍可打开 */ }
+          }
+        }
+      } catch { /* 单次轮询失败保旧态 */ }
+    }
+    // 兼容此前只存在于内存的 audit job 卡（刷新后本就不会出现）。
+    const legacy = active.filter(([, job]) => !job.run_id);
+    await Promise.all(legacy.map(async ([id, job]) => {
       try {
         const r = await fetch("/api/audit/jobs/" + encodeURIComponent(id), { cache: "no-store" });
         const data = r.ok ? await r.json() : null;
         if (data && data.status && data.status !== job.status) {
           Object.assign(job, data);
-          // 作业刚完成 → 自动选中这次新审计，工作台直接展示结果。
           if (job.status === "done" && job.audit_id) {
             refreshGovHistory();
             govWork.dir = job.audit_id;
@@ -3693,17 +3757,24 @@ function startGovAudit(target, options = {}) {
   if (surface === "dialog") pushGovDialog({ kind: "user", text: `/挖洞 ${t}` }, true);
   (async () => {
     try {
-      const r = await fetch("/api/audit/run", {
+      const r = await fetch("/api/gov/runs", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: t }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      govJobs.set(data.job_id, { job_id: data.job_id, target: t, status: "running" });
-      if (surface === "dialog") pushGovDialog({ kind: "job", jobId: data.job_id }, true);
+      const run = data.run || {};
+      const runId = String(run.run_id || "");
+      if (!runId) throw new Error("服务端没有返回运行 id");
+      govJobs.set(runId, {
+        run_id: runId, job_id: runId, source: "console",
+        target: run.target || t, status: run.status || "queued",
+        findings: 0, evidence: 0,
+      });
+      if (surface === "dialog") pushGovDialog({ kind: "job", jobId: runId }, true);
       else paintGovActivity();
       refreshGovHistory();
-      toast("挖洞作业已发起 · 治理台跟踪进度");
+      toast("挖洞已发起 · 团队频道同步这条运行");
       scheduleGovPoll();
     } catch (error) {
       if (surface === "dialog") {
@@ -4672,6 +4743,9 @@ function bindGlobalActions() {
     if (event.target.closest('.zone-btn[data-open="gov"]')) govSurface = "dialog";
     const navOpen = event.target.closest(".nav-item[data-open], .gov-surface-btn[data-open], .zone-btn[data-open], .wcard-jump[data-open], .side-market[data-open]");
     if (navOpen) { renderMode(navOpen.dataset.open); return; }
+    // 对话作业卡 → 团队频道里的同一条 run（同一运行流，不另开详情）。
+    const govRunFocus = event.target.closest("[data-gov-run-focus]");
+    if (govRunFocus) { focusGovRun(govRunFocus.dataset.govRunFocus); return; }
     // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
     const govBundle = event.target.closest("[data-gov-open-bundle]");
     if (govBundle) {

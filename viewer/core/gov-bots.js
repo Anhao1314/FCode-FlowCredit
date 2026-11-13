@@ -292,7 +292,7 @@ export function govBotSettingsFormHtml(bot) {
     </label>
     ${triageSelect}
     <button class="gov-wb-button strong" type="submit">保存设置</button>
-    <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)}</span>
+    <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)} · 对话手动挖洞不计入</span>
   </form>`;
 }
 
@@ -313,8 +313,14 @@ export function govBotSkillsHtml(bot) {
   </div>`).join("")}</div>`;
 }
 
+function runSourceLabel(run) {
+  if (run && run.source === "console") return "对话";
+  return run && run.trigger === "routine" ? "定时" : "团队";
+}
+
 function runRowHtml(bot, run) {
-  const trigger = run.trigger === "routine" ? "定时" : "手动";
+  const trigger = runSourceLabel(run) === "对话" ? "对话"
+    : run.trigger === "routine" ? "定时" : "手动";
   const target = targetLabel(run.target);
   const state = botStatusLabel(run.status);
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
@@ -324,8 +330,7 @@ function runRowHtml(bot, run) {
       <div class="gov-bot-run-title"><b>${esc(target)}</b><span>${esc(trigger)}</span><span class="${botStatusClass(run.status)}">${esc(state)}</span></div>
       <div class="gov-bot-run-meta">${esc(formatTime(run.finished_at || run.started_at))}${
         run.audit_id ? ` · ${esc(run.audit_id)}` : ""
-      }${run.error ? ` · ${esc(run.error)}` : ""}</div>
-    </div>
+      }${run.error ? ` · ${esc(run.error)}` : ""}</div>    </div>
     ${runActions(run, { teach: !captured })}
   </div>`;
 }
@@ -382,19 +387,24 @@ export function govBotDetailHtml(bot, runs = []) {
 
 export function govBotRunHtml(bot, run, explanations = {}) {
   const target = targetLabel(run.target);
-  const verb = run.trigger === "routine"
-    ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
-    : (bot.id === "verifier" ? "验证" : "扫描");
+  const fromConsole = run.source === "console";
+  const verb = fromConsole ? "挖洞"
+    : run.trigger === "routine"
+      ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
+      : (bot.id === "verifier" ? "验证" : "扫描");
+  const who = fromConsole ? "@操作员" : `@${bot.name}`;
+  const sourceLabel = runSourceLabel(run);
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
   const explainByRun = explanations || {};
-  return `<div class="gov-entry user"><span class="gov-echo">@${esc(bot.name)} ${
+  return `<div class="gov-entry user"><span class="gov-echo">${esc(who)} ${
     verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
   }</span></div>
-  <div class="gov-bot-message">
+  <div class="gov-bot-message" data-gov-run-card="${esc(run.run_id)}">
     ${aiAvatarHtml(faceState(run.status), 30, bot.name)}
     <div class="gov-bot-message-body">
       <header class="gov-bot-message-head">
         <b>${esc(bot.name)}</b><span>${esc(bot.role || "")}</span>
+        <span class="gov-run-source">${esc(sourceLabel)}</span>
         <time>${esc(formatTime(run.finished_at || run.started_at))}</time>
         <span class="gov-bot-run-state ${botStatusClass(run.status)}">${esc(botStatusLabel(run.status))}</span>
       </header>
@@ -467,7 +477,13 @@ export function govExplainBlock(explanation) {
 
 export function govBotChannelHtml(runs, bots, explanations = {}) {
   const explainByRun = explanations || {};
-  const list = (runs || []).slice().reverse(); // API is newest-first; channel is chronological
+  // 待批准置顶（新的在前），其余保持时间顺序；待批准是当前需要操作员
+  // 动作的事项，不能埋在历史流底部。
+  const all = (runs || []).slice();
+  const byStart = (a, b) => String(a.started_at || "").localeCompare(String(b.started_at || ""));
+  const pending = all.filter(run => run.status === "pending").sort((a, b) => byStart(b, a));
+  const rest = all.filter(run => run.status !== "pending").sort(byStart);
+  const list = [...pending, ...rest];
   if (!list.length) {
     return `<div class="gov-empty-state"><b>团队频道还是空的</b><span>把第一个目标派给审计员，运行结果会出现在这里。</span></div>`;
   }

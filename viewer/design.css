@@ -3333,7 +3333,11 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   grid-column: 1 / -1; margin: 0; padding-left: 14px;
   font: 11px/1.5 var(--font-mono); color: var(--text-3); overflow-wrap: anywhere;
 }
-.gov-job .gov-wb-button { grid-column: 2; grid-row: 1; margin-left: auto; }
+.gov-job-actions {
+  grid-column: 2; grid-row: 1; display: flex; gap: 6px;
+  align-items: center; justify-content: flex-end; margin-left: auto;
+}
+.gov-job-actions .gov-wb-button { margin-left: 0; }
 
 .gov-empty-state {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -3530,6 +3534,16 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-bot-message-head b { font: 600 12.5px/1.2 var(--font-ui); color: var(--text-1); }
 .gov-bot-message-head > span { font: 10px var(--font-mono); color: var(--text-3); }
 .gov-bot-message-head time { margin-left: auto; font: 10px var(--font-mono); color: var(--text-4); }
+/* 运行来源：对话 / 团队 / 定时。同一运行流，来源必须一眼可辨。 */
+.gov-bot-message-head > .gov-run-source,
+.gov-job-head .gov-run-source {
+  flex: none; padding: 1px 6px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--panel); color: var(--text-3);
+  font: 10px/14px var(--font-mono); letter-spacing: .02em;
+}
+.gov-bot-message.is-focus .gov-bot-message-body {
+  outline: 2px solid var(--accent-line); outline-offset: 6px; border-radius: 10px;
+}
 .gov-bot-run-state { color: var(--text-3) !important; }
 .gov-bot-run-state.live { color: var(--warn) !important; }
 .gov-bot-run-state.warn { color: var(--warn) !important; }

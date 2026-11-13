@@ -489,6 +489,38 @@ class AuditRunTests(unittest.TestCase):
         status, payload = self._post("/api/audit/run", {"target": ""})
         self.assertEqual(status, 400)
 
+    def test_gov_manual_run_persists_and_skips_bot_budget(self) -> None:
+        """对话 /挖洞 写入同一条运行流：source=console，且不计 Bot 预算。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/runs",
+                                     {"target": "fixtures/demo-target"})
+        self.assertEqual(status, 201)
+        run = payload["run"]
+        self.assertEqual(run["source"], "console")
+        self.assertEqual(run["bot_id"], "auditor")
+        run_id = run["run_id"]
+        outcome = None
+        for _ in range(60):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/runs?limit=20", timeout=10) as res:
+                runs = json.loads(res.read())["runs"]
+            outcome = next((item for item in runs if item["run_id"] == run_id), None)
+            if outcome and outcome["status"] not in ("queued", "running"):
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertTrue(outcome["audit_id"])
+        with urllib.request.urlopen(f"{self.base}/api/gov/bots", timeout=10) as res:
+            bots = json.loads(res.read())["bots"]
+        auditor = next(bot for bot in bots if bot["id"] == "auditor")
+        self.assertEqual(auditor["runs_today"], 0, "手动挖洞不占 Bot 预算")
+        self.assertEqual(auditor["last"]["source"], "console")
+
+        status, payload = self._post("/api/gov/runs", {"target": "../outside"})
+        self.assertEqual(status, 400)
+        self.assertIn("escapes", payload.get("error", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

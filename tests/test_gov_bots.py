@@ -101,6 +101,14 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(settled["events"], 12)
         self.assertEqual(settled["regression"], {"known": 1, "new": 2, "fixed": 0, "regressed": 1})
 
+    def test_verifier_prefers_latest_completed_auditor_run(self):
+        """目标留空以运行流为准，不再按目录名猜“最新”。"""
+        audit_run = self.service.start_run("auditor", "fixtures/demo-target")
+        wait_run(self.service, audit_run["run_id"])
+        run = self.service.start_run("verifier", "")
+        self.assertEqual(run["target"], "demo-2026")
+        self.assertEqual(wait_run(self.service, run["run_id"])["status"], "done")
+
     def test_verifier_failure_is_recorded_not_hidden(self):
         run = self.service.start_run("verifier", "broken")
         settled = wait_run(self.service, run["run_id"])
@@ -154,6 +162,40 @@ class GovBotServiceTest(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             self.service.start_run("auditor", "fixtures/demo-target")
         self.assertIn("预算已用完", str(ctx.exception))
+
+    def test_manual_console_run_persists_without_bot_budget(self):
+        """对话 /挖洞 是同一条运行流，但不占 Bot 预算，也不影响团队预算。"""
+        self.service.set_settings("auditor", {"daily_run_limit": 1, "routine_approval": False})
+        team = self.service.start_run("auditor", "fixtures/demo-target")
+        wait_run(self.service, team["run_id"])
+        with self.assertRaises(ValueError):
+            self.service.start_run("auditor", "fixtures/demo-target")
+
+        manual = self.service.start_manual_run("fixtures/demo-target")
+        self.assertEqual(manual["source"], "console")
+        self.assertEqual(manual["trigger"], "manual")
+        settled = wait_run(self.service, manual["run_id"])
+        self.assertEqual(settled["status"], "done")
+        self.assertEqual(settled["audit_id"], "demo-2026")
+        self.assertEqual(settled["findings"], 2)
+        # 手动 run 不进入 _runs_today；团队预算仍保持耗尽状态。
+        self.assertEqual(self.service._runs_today("auditor"), 1)
+        self.assertEqual(self.service.runs("auditor")[0]["source"], "console")
+        # 手动 run 复用创建时已启动的审计作业，不能二次启动。
+        self.assertEqual(len(self.audit.started), 2)
+        with self.assertRaises(ValueError):
+            self.service.start_run("auditor", "fixtures/demo-target")
+
+    def test_manual_console_run_skips_triage(self):
+        self.service.set_settings("auditor", {"triage_mode": "active"})
+        run = self.service.start_manual_run("fixtures/demo-target")
+        settled = wait_run(self.service, run["run_id"])
+        self.assertEqual(settled["status"], "done")
+        self.assertIsNone(settled["triage_status"], "对话手动挖洞不隐式调用模型")
+
+    def test_manual_run_requires_target(self):
+        with self.assertRaises(ValueError):
+            self.service.start_manual_run("")
 
     def test_settings_are_validated(self):
         saved = self.service.set_settings("auditor", {

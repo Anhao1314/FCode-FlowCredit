@@ -26,8 +26,11 @@ test("治理团队:定时运行等待批准，批准后完成", async ({ page })
   await page.locator('[data-gov-mode="team"]').click();
   await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
 
-  const runMessage = page.locator("#gov-team-channel .gov-bot-message").last();
-  await expect(runMessage).toContainText("待批准", { timeout: 45_000 });
+  // 待批准置顶：先定位 pending 卡，再按 run id 跟踪它（批准后会移到时间流）。
+  const pending = page.locator("#gov-team-channel .gov-bot-message", { hasText: "待批准" }).first();
+  await expect(pending).toBeVisible({ timeout: 45_000 });
+  const runId = await pending.getAttribute("data-gov-run-card");
+  const runMessage = page.locator(`#gov-team-channel [data-gov-run-card="${runId}"]`);
   await expect(runMessage.locator("[data-gov-run-approve]")).toBeVisible();
   await expect(runMessage.locator("[data-gov-run-reject]")).toBeVisible();
 

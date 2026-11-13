@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS bot_runs (
     run_id TEXT PRIMARY KEY,
     bot_id TEXT NOT NULL,
     trigger TEXT NOT NULL DEFAULT 'manual',
+    source TEXT NOT NULL DEFAULT 'team',
     target TEXT NOT NULL,
     status TEXT NOT NULL,
     job_id TEXT,
@@ -152,8 +153,9 @@ class GovBotService:
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
         self._db.commit()
-        # 旧库迁移：bot_runs 的 triage 列 + bot_settings.triage_mode。
+        # 旧库迁移：bot_runs 的 triage 列 + source 列 + bot_settings.triage_mode。
         self._ensure_columns("bot_runs", {
+            "source": "TEXT NOT NULL DEFAULT 'team'",
             "parent_run_id": "TEXT",
             "triage_mode": "TEXT",
             "triage_status": "TEXT",
@@ -401,7 +403,7 @@ class GovBotService:
         with self._lock:
             row = self._db.execute(
                 "SELECT COUNT(*) FROM bot_runs WHERE bot_id=? AND substr(started_at,1,10)=?"
-                " AND status != 'rejected'",
+                " AND status != 'rejected' AND source != 'console'",
                 (bot_id, today),
             ).fetchone()
         return int(row[0] if row else 0)
@@ -572,7 +574,8 @@ class GovBotService:
     def start_run(self, bot_id: str, target: str, trigger: str = "manual",
                   routine_id: str | None = None, *,
                   require_approval: bool = False,
-                  parent_run_id: str | None = None) -> dict:
+                  parent_run_id: str | None = None,
+                  source: str = "team") -> dict:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
@@ -580,21 +583,33 @@ class GovBotService:
         if definition["id"] == "auditor" and not resolved:
             raise ValueError("auditor needs a target path")
         if definition["id"] == "verifier" and not resolved:
-            bundles = (self.audit.bundles() or {}).get("bundles") or []
-            if not bundles:
-                raise ValueError("no audit bundle to verify")
+            # “最新审计”以运行流为准：最近一次完成的审计员运行。按日期+目录
+            # 名排序会在同一天多目标时选错（evox.app 会压过更新的 demo-target）。
+            with self._lock:
+                latest_run = self._db.execute(
+                    "SELECT audit_id FROM bot_runs"
+                    " WHERE bot_id='auditor' AND status='done'"
+                    " AND audit_id IS NOT NULL AND audit_id != ''"
+                    " ORDER BY finished_at DESC, rowid DESC LIMIT 1"
+                ).fetchone()
+            if latest_run is not None:
+                resolved = str(latest_run["audit_id"])
+            else:
+                bundles = (self.audit.bundles() or {}).get("bundles") or []
+                if not bundles:
+                    raise ValueError("no audit bundle to verify")
 
-            def audit_day(item: dict) -> str:
-                match = re.search(r"(\d{4}-\d{2}-\d{2})", str(item.get("dir") or ""))
-                return match.group(1) if match else ""
+                def audit_day(item: dict) -> str:
+                    match = re.search(r"(\d{4}-\d{2}-\d{2})", str(item.get("dir") or ""))
+                    return match.group(1) if match else ""
 
-            # Date first; hash suffix breaks ties. Sorting by the full dir
-            # would put `flowcredit-...` ahead of a newer `demo-target-...`.
-            latest = max(
-                bundles,
-                key=lambda item: (audit_day(item), str(item.get("dir") or "")),
-            )
-            resolved = str(latest.get("dir") or "")
+                # Date first; hash suffix breaks ties. Sorting by the full dir
+                # would put `flowcredit-...` ahead of a newer `demo-target-...`.
+                latest = max(
+                    bundles,
+                    key=lambda item: (audit_day(item), str(item.get("dir") or "")),
+                )
+                resolved = str(latest.get("dir") or "")
         trigger = trigger if trigger in ("manual", "routine") else "manual"
         settings = self.get_settings(definition["id"])
         if self._runs_today(definition["id"]) >= settings["daily_run_limit"]:
@@ -606,12 +621,13 @@ class GovBotService:
             bool(settings["routine_approval"]) and trigger == "routine")
         status = "pending" if needs_approval else "queued"
         run_id = f"bot-{uuid.uuid4().hex[:12]}"
+        source = source if source in ("team", "console") else "team"
         with self._lock:
             self._db.execute(
                 "INSERT INTO bot_runs"
-                " (run_id, bot_id, trigger, target, status, parent_run_id, started_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (run_id, definition["id"], trigger, resolved, status,
+                " (run_id, bot_id, trigger, source, target, status, parent_run_id, started_at)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (run_id, definition["id"], trigger, source, resolved, status,
                  parent_run_id, _now()),
             )
             self._db.commit()
@@ -623,6 +639,33 @@ class GovBotService:
             )
         if not needs_approval:
             self._start_thread(run_id, definition["id"], resolved)
+        return self.get_run(run_id) or {}
+
+    def start_manual_run(self, target: str) -> dict:
+        """治理对话的 `/挖洞`：写入同一条运行流，但不占 Bot 预算、不走审批。
+
+        手动挖洞是操作员的即时调查，和常驻 Bot 的预算/审批语义分开：
+        - 持久化进 bot_runs，source=console，刷新/重启后仍在频道里；
+        - 不计入 `_runs_today`，也不会因为每日上限被拒绝；
+        - 立即执行，不产生 pending，也不触发 triage（避免隐式模型调用）。
+        """
+        resolved = str(target or "").strip()
+        if not resolved:
+            raise ValueError("auditor needs a target path")
+        # 先让审计服务做目标校验并启动作业；非法目标在 HTTP 层直接 400，
+        # 不会留下一条注定失败的运行。
+        job_id = self.audit.start_run(resolved)
+        run_id = f"gov-{uuid.uuid4().hex[:12]}"
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO bot_runs"
+                " (run_id, bot_id, trigger, source, target, status, job_id, started_at)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (run_id, "auditor", "manual", "console", resolved,
+                 "queued", job_id, _now()),
+            )
+            self._db.commit()
+        self._start_thread(run_id, "auditor", resolved, job_id=job_id)
         return self.get_run(run_id) or {}
 
     def approve_run(self, run_id: str) -> dict:
@@ -646,10 +689,11 @@ class GovBotService:
         self._finish(run_id, status="rejected", error="operator rejected")
         return self.get_run(run_id) or {}
 
-    def _start_thread(self, run_id: str, bot_id: str, target: str) -> None:
+    def _start_thread(self, run_id: str, bot_id: str, target: str,
+                      *, job_id: str | None = None) -> None:
         thread = threading.Thread(
             target=self._execute,
-            args=(run_id, bot_id, target),
+            args=(run_id, bot_id, target, job_id),
             name=f"gov-bot-{run_id}",
             daemon=True,
         )
@@ -669,11 +713,12 @@ class GovBotService:
             self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
         self._db.commit()
 
-    def _execute(self, run_id: str, bot_id: str, target: str) -> None:
+    def _execute(self, run_id: str, bot_id: str, target: str,
+                 job_id: str | None = None) -> None:
         self._update(run_id, status="running")
         try:
             if bot_id == "auditor":
-                self._run_auditor(run_id, target)
+                self._run_auditor(run_id, target, job_id=job_id)
             elif bot_id == "verifier":
                 self._run_verifier(run_id, target)
             else:
@@ -683,8 +728,9 @@ class GovBotService:
         finally:
             self._threads.pop(run_id, None)
 
-    def _run_auditor(self, run_id: str, target: str) -> None:
-        job_id = self.audit.start_run(target)
+    def _run_auditor(self, run_id: str, target: str,
+                     *, job_id: str | None = None) -> None:
+        job_id = job_id or self.audit.start_run(target)
         self._update(run_id, job_id=job_id)
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
@@ -711,8 +757,9 @@ class GovBotService:
     def _after_audit(self, run_id: str, audit_id: str) -> None:
         """受控 triage：模型只提议优先级；active 只生成待批准复扫。"""
         run = self.get_run(run_id) or {}
-        # triage 自己发起的复扫不再触发 triage（避免递归）。
-        if run.get("parent_run_id") or not audit_id:
+        # triage 自己发起的复扫不再触发 triage（避免递归）；对话手动挖洞
+        # 是即时调查，也不隐式调用模型。
+        if run.get("parent_run_id") or run.get("source") == "console" or not audit_id:
             return
         mode = str(self.get_settings("auditor").get("triage_mode") or "off")
         if mode not in ("shadow", "active"):

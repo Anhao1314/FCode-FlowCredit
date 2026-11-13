@@ -121,6 +121,23 @@ def post_gov_bot_run(handler, bot_id):
     return handler._json({"run": run}, 202)
 
 
+def post_gov_manual_run(handler):
+    """治理对话 `/挖洞`：创建一条持久化的手动 run（source=console）。
+
+    与团队派活共用 bot_runs 运行流，但不占 Bot 预算、不走审批；
+    目标校验在审计服务里同步完成，非法目标直接 400。
+    """
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        run = service.start_manual_run(str(body.get("target") or "").strip())
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"run": run}, 201)
+
+
 def post_gov_bot_settings(handler, bot_id):
     service = getattr(handler, "gov_bots", None)
     if service is None:
@@ -231,6 +248,7 @@ _STATIC = {
     "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
+    "/api/gov/runs": post_gov_manual_run,
     "/api/gov/routines": post_gov_routine,
     "/api/gov/skills": post_gov_skill,
     "/api/plugins/install": post_plugin_install,
