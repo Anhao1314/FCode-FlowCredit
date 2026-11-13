@@ -28,11 +28,12 @@ test("⌘K 命令面板:开合、过滤、键盘导航", async ({ page }) => {
   await page.locator("#palette-input").fill("委托");
   await expect(page.locator("#palette-list .pal-item")).toHaveCount(1);
   await expect(page.locator("#palette-list .pal-item .pal-label")).toHaveText("新委托 · 需求选择");
-  // ArrowDown 高亮后 Enter 执行 → 进入 intake 面
+  // ArrowDown 高亮后 Enter 执行 → 进入 intake 面（通用委托是任务确认，不是聊天）
   await page.locator("#palette-input").press("ArrowDown");
   await page.locator("#palette-input").press("Enter");
   await expect(page.locator("#app")).toHaveClass(/intake-mode/);
-  await expect(page.locator(".intake-title")).toContainText("说清楚");
+  await expect(page.locator(".intake-title")).toContainText("还差一点信息");
+  await expect(page.locator(".intake-msg")).toHaveCount(0);
 });
 
 test("Escape 关闭命令面板", async ({ page }) => {

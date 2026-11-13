@@ -109,8 +109,56 @@ test("startIntake:空文本进入引导消息并渲染 intake 面", () => {
   assert.equal(calls.leaveChat, 1);
   assert.deepEqual(calls.renderMode, ["intake"]);
   intake.renderIntake();
-  assert.match(calls.renderMain.at(-1).html, /说清楚，就开始/, "通用模板的 intake 标题");
+  const html = calls.renderMain.at(-1).html;
+  assert.match(html, /还差一点信息/, "通用模板的 intake 是任务确认");
+  assert.match(html, /先说说你想做什么/, "把 clarifier 的追问放在确认页里");
+  assert.doesNotMatch(html, /intake-msg/, "通用模板不再渲染聊天线程");
   assert.match(intake.intake.messages[0].text, /先说说你想做什么/);
+});
+
+test("renderIntake:通用委托的 readyTask 渲染任务引用与草稿，不渲染对话气泡", () => {
+  const { intake, calls } = setup();
+  intake.intake.active = true;
+  intake.intake.messages = [
+    { role: "user", text: "把 top_k_words 实现掉" },
+    { role: "assistant", text: "已就绪。", choices: [] },
+  ];
+  intake.intake.readyTask = { objective: "把 top_k_words 实现掉", template: "full", approval: "off", spec: { mode: "script" } };
+  intake.renderIntake();
+  const html = calls.renderMain.at(-1).html;
+  assert.match(html, /任务确认/);
+  assert.match(html, /确认后开始/);
+  assert.match(html, /把 top_k_words 实现掉/);
+  assert.match(html, /intake-draft/);
+  assert.doesNotMatch(html, /intake-msg/);
+});
+
+test("startIntake direct:任务就绪后自动创建运行，不显示聊天线程", async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), body: init && init.body ? JSON.parse(init.body) : null });
+    if (String(url).startsWith("/api/intake")) {
+      return { ok: true, json: async () => ({
+        reply: "已就绪。",
+        thought: "",
+        spec: { mode: "script" },
+        choices: [],
+        task: { objective: "写个脚本", template: "full", approval: "off", spec: { mode: "script" } },
+      }) };
+    }
+    return { ok: true, json: async () => ({ id: "run-direct", template: "full" }) };
+  };
+  const { intake, calls } = setup({ fetchImpl, tplKey: "full" });
+  intake.startIntake("写个脚本", null, { direct: true });
+  await new Promise(r => setTimeout(r, 750));
+  const intakeCall = seen.find(entry => entry.url === "/api/intake");
+  const runCall = seen.find(entry => entry.url === "/api/runs");
+  assert.ok(intakeCall, "先走 clarifier");
+  assert.ok(runCall, "就绪后创建运行");
+  assert.deepEqual(calls.openLive[0], { id: "run-direct", objective: "写个脚本", template: "full", model: "kimi-k2.6" });
+  assert.equal(intake.intake.active, false, "直接开跑后离开 intake");
+  assert.ok(calls.renderMain.some(entry => /正在准备任务/.test(entry.html)), "准备态在任务页");
+  assert.ok(!calls.renderMain.some(entry => /intake-msg/.test(entry.html)), "不渲染聊天气泡");
 });
 
 test("startIntake:带文本 → 快照 + clarifier 请求回填草稿选项", async () => {

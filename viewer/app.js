@@ -1837,7 +1837,9 @@ async function sendTask() {
   }
   ta.value = "";
   autosize(ta);
-  startIntake(text);
+  // Work 的任务提交直接开跑（Kimi 式）：clarifier 在后台准备，就绪即创建运行；
+  // 财务问卷仍走原 intake 页（它确实需要多轮问答）。
+  startIntake(text, null, { direct: isGeneralTemplate() });
 }
 
 async function stopRun() {

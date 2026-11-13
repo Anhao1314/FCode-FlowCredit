@@ -4059,3 +4059,40 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .approval-menu .apv-check .i { width: 15px; height: 15px; }
 .approval-menu .tpl-note { margin-top: 6px; padding: 8px 10px 6px; }
 
+/* ---- 通用委托：任务确认，不是聊天线程 -------------------------------------- */
+.intake-work { max-width: 760px; }
+.intake-work .intake-head { margin-bottom: 18px; }
+.intake-work-body { display: flex; flex-direction: column; gap: 14px; }
+.intake-task {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--raised);
+}
+.intake-task > span {
+  color: var(--text-3);
+  font: 600 10px var(--font-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.intake-task p {
+  margin: 8px 0 0;
+  color: var(--text-1);
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.intake-work-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.intake-work-note.thinking { color: var(--text-3); }
+.intake-work .intake-draft {
+  margin-top: 0;
+  border-color: var(--line);
+  background: var(--raised);
+}
+
+
