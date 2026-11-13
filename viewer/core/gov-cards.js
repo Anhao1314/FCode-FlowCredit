@@ -59,6 +59,7 @@ export function findingsCardHtml(dir, findings, opts) {
   return `<div class="wcard govcard gov-findings" data-thread-item="govcard">
     <div class="wcard-head"><span class="wcard-icon" data-doodle="shield-check"></span>
       <b class="wcard-title">发现 · ${esc(dir)}</b>
+      <button class="wcard-jump" type="button" data-gov-run-by-audit="${esc(dir)}" title="在团队频道定位这次运行">频道 →</button>
       <button class="wcard-jump" type="button" data-gov-redig="${esc(dir)}" title="修复后重新挖洞:同目标再审计,回归对比看 fixed">重新挖洞 →</button>
       <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(dir)}" title="在审计台查看证据、oracle 与签名链">查看证据 →</button></div>
     <div class="wcard-meta">${esc(meta)}</div>
@@ -91,6 +92,7 @@ export function chainCardHtml(dir, chain) {
   return `<div class="wcard govcard gov-chain" data-thread-item="govcard">
     <div class="wcard-head"><span class="wcard-icon" data-doodle="link"></span>
       <b class="wcard-title">签名链 · ${esc(dir)}</b>
+      <button class="wcard-jump" type="button" data-gov-run-by-audit="${esc(dir)}" title="在团队频道定位这次运行">频道 →</button>
       <button class="wcard-jump" type="button" data-gov-open-bundle="${esc(dir)}" title="在审计台查看完整链与处置">审计台 →</button></div>
     <div class="gov-state-row"><span class="gov-state ${stateClass}">🔗 ${esc(stateText)}</span>
       <span class="wcard-run-meta">${num(events.length)} 事件 · ${esc(verification)}</span></div>
@@ -123,6 +125,7 @@ export function judgmentsCardHtml(profile) {
   return `<div class="wcard govcard gov-judgments" data-thread-item="govcard">
     <div class="wcard-head"><span class="wcard-icon" data-doodle="clipboard-list"></span>
       <b class="wcard-title">操作员判断</b>
+      <button class="wcard-jump" type="button" data-gov-channel title="在团队频道查看运行流">频道 →</button>
       <button class="wcard-jump" type="button" data-open="reviews" title="打开判断记录页">判断记录 →</button></div>
     <div class="wcard-meta">${esc(four)}</div>
     ${empty}

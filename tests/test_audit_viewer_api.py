@@ -521,6 +521,35 @@ class AuditRunTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("escapes", payload.get("error", ""))
 
+    def test_unified_run_endpoint_creates_team_run(self) -> None:
+        """团队派活复用同一入口：带 bot_id 时写 source=team 运行。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/runs", {
+            "bot_id": "auditor", "target": "fixtures/demo-target", "source": "team",
+        })
+        self.assertEqual(status, 201)
+        run = payload["run"]
+        self.assertEqual(run["source"], "team")
+        self.assertEqual(run["trigger"], "manual")
+        run_id = run["run_id"]
+        outcome = None
+        for _ in range(60):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/runs?limit=20", timeout=10) as res:
+                runs = json.loads(res.read())["runs"]
+            outcome = next((item for item in runs if item["run_id"] == run_id), None)
+            if outcome and outcome["status"] not in ("queued", "running"):
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertTrue(outcome["audit_id"])
+        # console 语义只属于无 bot_id 的手动入口
+        status, payload = self._post("/api/gov/runs", {
+            "bot_id": "auditor", "target": "fixtures/demo-target", "source": "console",
+        })
+        self.assertEqual(status, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

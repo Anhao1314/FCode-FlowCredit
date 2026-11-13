@@ -14,7 +14,13 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   const dialogJob = page.locator("#gov-dialog-stream .gov-job");
   await expect(dialogJob).toContainText("完成", { timeout: 90_000 });
   await expect(dialogJob.locator(".gov-run-source")).toHaveText("对话");
-  await dialogJob.locator("[data-gov-run-focus]").click();
+  await expect(dialogJob.locator("[data-gov-run-focus]")).toBeVisible();
+  // P2:新会话空态展示最近运行，点行可直接定位到频道同一条 run
+  await page.locator("#gov-new-dialog").click();
+  const recent = page.locator("#gov-dialog-stream .gov-recent-row", { hasText: "demo-target" }).first();
+  await expect(recent).toBeVisible({ timeout: 10_000 });
+  await expect(recent.locator(".gov-run-source")).toHaveText("对话");
+  await recent.click();
   await expect(page.locator("#gov-team-channel")).toBeVisible({ timeout: 15_000 });
   const manualMessage = page.locator("#gov-team-channel .gov-bot-message")
     .filter({ has: page.locator(".gov-run-source", { hasText: "对话" }) }).first();

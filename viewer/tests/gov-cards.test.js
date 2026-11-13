@@ -45,6 +45,9 @@ test("处置下拉带 dir/finding 数据属性,深链按钮指向审计台", () 
   assert.match(html, /data-dir="demo-2026-11-08" data-finding="F-POC-0001"/);
   assert.match(html, /data-gov-open-bundle="demo-2026-11-08"/);
   assert.match(html, /查看证据/);
+  // P2:发现卡可回频道定位同一条运行
+  assert.match(html, /data-gov-run-by-audit="demo-2026-11-08"/);
+  assert.match(html, /频道 →/);
 });
 
 test("用户可见文本转义(根因与类别来自 bundle 事实)", () => {
@@ -80,6 +83,7 @@ test("链卡:kernel 完整态 + 事件计数与末尾事件行", () => {
   assert.match(html, /3 · finding_promoted/);
   assert.match(html, /fa146fba01/, "事件哈希截前 10 位");
   assert.match(html, /data-gov-open-bundle="demo-2026"/);
+  assert.match(html, /data-gov-run-by-audit="demo-2026"/, "链卡可回频道定位运行");
 });
 
 test("链卡:断裂带篡改证据,link-only 如实标注弱校验", () => {
@@ -114,6 +118,7 @@ test("判断卡:四类计数并列审计处置,不并计数", () => {
   assert.match(html, /接受风险/);
   assert.match(html, /AGI-07 · F-POC-0001/);
   assert.match(html, /data-open="reviews"/);
+  assert.match(html, /data-gov-channel/, "判断卡可打开统一运行流");
 });
 
 test("判断卡:无任何记录时渲染空态", () => {

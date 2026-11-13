@@ -2796,6 +2796,7 @@ async function pushWorkspaceCard(kind) {
    公信力押在 "no model in the loop" 上。 */
 
 const govJobs = new Map(); // run_id → {run_id, target, status, audit_id, findings, evidence, error}
+const govRecent = { runs: [], loaded: false, seq: 0 }; // 治理台空态的最近运行
 const govFindings = new Map(); // audit_dir → {findings, target, profile}（处置/修复闭环投影）
 let govPollTimer = null;
 let govBundle = null;
@@ -2834,6 +2835,42 @@ function govConsoleEntryHtml(html) {
   return `<div class="gov-entry console">${aiAvatarHtml("idle", 28)}<div class="gov-entry-body">${html}</div></div>`;
 }
 
+function govRunTargetLabel(target) {
+  const value = String(target || "").replace(/[\\/]+$/, "");
+  return value.split(/[\\/]/).filter(Boolean).pop() || value || "目标";
+}
+
+function govRecentRunsHtml() {
+  if (!govRecent.loaded) return "";
+  if (!govRecent.runs.length) {
+    return `<div class="gov-recent">
+      <div class="gov-recent-head"><span>最近运行</span></div>
+      <div class="gov-recent-empty">还没有运行；输入 /挖洞 &lt;target&gt; 开始。</div>
+    </div>`;
+  }
+  const rows = govRecent.runs.slice(0, 3).map(run => {
+    const state = run.status === "done" ? "完成"
+      : run.status === "failed" ? "失败"
+      : run.status === "pending" ? "待批准" : "执行中";
+    const source = run.source === "console" ? "对话"
+      : run.trigger === "routine" ? "定时" : "团队";
+    const when = String(run.finished_at || run.started_at || "").replace("T", " ").slice(11, 16);
+    const target = govRunTargetLabel(run.target);
+    const label = run.bot_id === "verifier" ? `验证 ${target}` : target;
+    return `<button class="gov-recent-row" type="button" data-gov-run-focus="${esc(run.run_id)}">
+      <span class="gov-run-source">${esc(source)}</span>
+      <b>${esc(label)}</b>
+      <span class="gov-recent-state is-${esc(run.status || "")}">${esc(state)}</span>
+      <span class="gov-recent-meta">${num(run.findings || 0)} 发现${when ? " · " + esc(when) : ""}</span>
+    </button>`;
+  }).join("");
+  return `<div class="gov-recent">
+    <div class="gov-recent-head"><span>最近运行</span>
+      <button class="gov-wb-button quiet" type="button" data-gov-mode="team">查看全部 →</button></div>
+    <div class="gov-recent-list">${rows}</div>
+  </div>`;
+}
+
 function govDialogIntroHtml() {
   return govConsoleEntryHtml(`<div class="gov-dialog-intro">
     <b>治理对话</b>
@@ -2843,6 +2880,7 @@ function govDialogIntroHtml() {
       <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
       <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
     </div>
+    ${govRecentRunsHtml()}
   </div>`);
 }
 
@@ -2871,6 +2909,22 @@ function pushGovDialog(entry, scroll = false) {
   if (govActive() && govSurface === "dialog") paintGovDialog(scroll);
 }
 
+/* 治理台空态的最近运行：与频道共用 /api/gov/runs，不另建数据源。 */
+async function loadGovRecent() {
+  const seq = ++govRecent.seq;
+  try {
+    const r = await fetch("/api/gov/runs?limit=6", { cache: "no-store" });
+    const data = r.ok ? await r.json() : { runs: [] };
+    if (seq !== govRecent.seq) return;
+    govRecent.runs = Array.isArray(data.runs) ? data.runs : [];
+  } catch {
+    if (seq !== govRecent.seq) return;
+    govRecent.runs = [];
+  }
+  govRecent.loaded = true;
+  if (govActive() && govSurface === "dialog" && !govDialog.length) paintGovDialog();
+}
+
 /* 治理区的新对话（gov 区的主行动，Kimi 式分区按钮）：对话流是本机
    命令会话，清空不进链；运行、审计记录与排程是服务端事实，不受影响。
    从团队/工作台面点击时先切回对话面——「新对话」是对话面的唯一侧栏入口。 */
@@ -2878,6 +2932,7 @@ function newGovDialog() {
   govDialog.length = 0;
   const reRendered = showGovSurface("dialog");
   if (!reRendered) paintGovDialog();
+  loadGovRecent();
   const ta = document.getElementById("composer-ta");
   if (ta) { ta.value = ""; autosize(ta); ta.focus(); }
   toast("治理台已开新会话");
@@ -3206,10 +3261,10 @@ async function startGovBotRun() {
   if (!bot) { toast("团队还没加载完成"); return; }
   const target = input ? input.value.trim() : "";
   try {
-    const response = await fetch(`/api/gov/bots/${encodeURIComponent(botId)}/run`, {
+    const response = await fetch("/api/gov/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target }),
+      body: JSON.stringify({ bot_id: botId, target, source: "team" }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
@@ -3244,6 +3299,29 @@ async function focusGovRun(runId) {
     await new Promise(resolve => setTimeout(resolve, 60));
   }
   toast("这条运行还没出现在频道，稍后再看");
+}
+
+/* 发现卡 / 链卡的「频道 →」：按 audit id 找到对应运行，再定位同一张卡。 */
+async function focusGovRunByAudit(auditId) {
+  const target = String(auditId || "").trim();
+  if (!target) return;
+  showGovSurface("team");
+  try {
+    await loadGovTeam();
+  } catch { /* 频道会显示加载失败的空态，不阻断导航 */ }
+  let run = (govTeam.runs || []).find(item => item.audit_id === target);
+  if (!run) {
+    try {
+      const r = await fetch("/api/gov/runs?limit=200", { cache: "no-store" });
+      const data = r.ok ? await r.json() : { runs: [] };
+      run = (data.runs || []).find(item => item.audit_id === target);
+    } catch { /* 找不到时给可见提示 */ }
+  }
+  if (!run) {
+    toast("这条审计还没有对应的运行卡");
+    return;
+  }
+  await focusGovRun(run.run_id);
 }
 
 async function startGovRoutine() {
@@ -3580,6 +3658,7 @@ function renderGovDialog() {
   const composerWrap = document.querySelector(".composer-wrap");
   if (composerWrap) composerWrap.hidden = false;
   paintGovDialog();
+  loadGovRecent();
   scheduleGovPoll();
 }
 
@@ -4746,6 +4825,16 @@ function bindGlobalActions() {
     // 对话作业卡 → 团队频道里的同一条 run（同一运行流，不另开详情）。
     const govRunFocus = event.target.closest("[data-gov-run-focus]");
     if (govRunFocus) { focusGovRun(govRunFocus.dataset.govRunFocus); return; }
+    // 发现卡/链卡 → 按 audit id 定位对应运行；判断卡 → 打开统一运行流。
+    const govRunByAudit = event.target.closest("[data-gov-run-by-audit]");
+    if (govRunByAudit) {
+      focusGovRunByAudit(govRunByAudit.dataset.govRunByAudit);
+      return;
+    }
+    if (event.target.closest("[data-gov-channel]")) {
+      showGovSurface("team");
+      return;
+    }
     // G1 治理台:作业卡/记录卡的「查看证据」锚进审计台对应 bundle(深链预选)。
     const govBundle = event.target.closest("[data-gov-open-bundle]");
     if (govBundle) {

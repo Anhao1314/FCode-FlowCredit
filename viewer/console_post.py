@@ -121,18 +121,27 @@ def post_gov_bot_run(handler, bot_id):
     return handler._json({"run": run}, 202)
 
 
-def post_gov_manual_run(handler):
-    """治理对话 `/挖洞`：创建一条持久化的手动 run（source=console）。
+def post_gov_run_create(handler):
+    """统一运行入口：对话 `/挖洞` 与团队派活都走这里。
 
-    与团队派活共用 bot_runs 运行流，但不占 Bot 预算、不走审批；
+    - 不带 bot_id / source=console：手动 run，source=console，不占预算、不走审批；
+    - 带 bot_id：团队 run，source=team，按 Bot 预算与 routine 审批语义执行。
     目标校验在审计服务里同步完成，非法目标直接 400。
     """
     service = getattr(handler, "gov_bots", None)
     if service is None:
         return handler._json({"error": "governance bots are unavailable"}, 503)
     body = handler._read_body()
+    target = str(body.get("target") or "").strip()
+    bot_id = str(body.get("bot_id") or "").strip()
+    source = str(body.get("source") or "").strip()
     try:
-        run = service.start_manual_run(str(body.get("target") or "").strip())
+        if bot_id:
+            if source == "console":
+                raise ValueError("console runs are auditor-only and take no bot_id")
+            run = service.start_run(bot_id, target, source="team")
+        else:
+            run = service.start_manual_run(target)
     except ValueError as error:
         return handler._json({"error": str(error)}, 400)
     return handler._json({"run": run}, 201)
@@ -248,7 +257,7 @@ _STATIC = {
     "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
-    "/api/gov/runs": post_gov_manual_run,
+    "/api/gov/runs": post_gov_run_create,
     "/api/gov/routines": post_gov_routine,
     "/api/gov/skills": post_gov_skill,
     "/api/plugins/install": post_plugin_install,
