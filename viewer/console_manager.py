@@ -122,6 +122,7 @@ class RunManager:
             traceback.print_exc()
             self.projects = None
         self._load_history()
+        self._restore_pending()
         # 定时任务调度器：排程存 runs 目录旁的 scheduler.sqlite；到点经
         # mgr.create 走与手创运行完全相同的流水线（门控/预算/收据/链）。
         # runtime 不可用时排程仍可增删查看，只是到点跳过触发。
@@ -481,9 +482,11 @@ class RunManager:
     def _load_history(self) -> None:
         """Make runs from earlier processes visible again, read-only.
 
-        The index, the trace and the task database all outlive the process, so
-        this rebuilds only the in-memory record: no thread, no observer, no
-        re-ingest, no snapshot. One damaged meta.json is skipped rather than
+        The index, trace and task database all outlive the process. Ordinary
+        history gets only an in-memory record: no thread, no observer, no
+        re-ingest and no snapshot. A run with a durable operator wait is marked
+        recoverable here; ``_restore_pending`` starts its worker after history
+        loading. One damaged meta.json is skipped rather than
         taking the console's boot down with it — a half-written file must not
         hide the rest of the history.
         """
@@ -494,13 +497,22 @@ class RunManager:
                     continue
                 recorded = str(meta.get("status") or "")
                 interrupted = recorded not in FINISHED_STATUS
+                candidate = meta.get("pending")
+                recoverable = bool(
+                    interrupted
+                    and meta.get("taskId")
+                    and isinstance(candidate, dict)
+                    and candidate.get("id")
+                    and (candidate.get("kind") == "question" or candidate.get("tool"))
+                )
+                pending = dict(candidate) if recoverable else None
                 run = Run(
                     id=str(meta["id"]),
                     template=str(meta.get("template") or "?"),
                     objective=str(meta.get("objective") or ""),
                     created=str(meta.get("created") or ""),
                     pace=0.0,
-                    status="stopped" if interrupted else recorded,
+                    status=recorded if recoverable else ("stopped" if interrupted else recorded),
                     rounds=int(meta.get("rounds") or 0),
                     event_count=int(meta.get("events") or 0),
                     trace_path=str(meta.get("tracePath") or ""),
@@ -515,14 +527,29 @@ class RunManager:
                     spec=meta.get("spec"),
                     source=str(meta.get("source") or "manual"),
                     project_id=str(meta.get("projectId") or ""),
-                    error=self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or ""),
-                    finished=True,
+                    pending=pending,
+                    error="" if recoverable else (self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or "")),
+                    finished=not recoverable,
                 )
             except (OSError, ValueError, TypeError):
                 continue
             self.runs[run.id] = run
             self.order.append(run.id)
         self.order.sort(key=lambda rid: self.runs[rid].created, reverse=True)
+
+    def _restore_pending(self) -> None:
+        """Resume only operator waits whose durable identity survived a restart."""
+        if self.runtime is None:
+            return
+        from console_run_driver import RunDriver
+
+        for run in list(self.runs.values()):
+            if run.finished or not run.pending or not run.task_id:
+                continue
+            driver = RunDriver(self, run, recover_pending=dict(run.pending))
+            threading.Thread(
+                target=driver.execute, name=f"recover:{run.id}", daemon=True,
+            ).start()
 
     def _ingest_memory(self, rt: Runtime, run: Run, final: dict) -> None:
         """Every projection of one finished trace, in one place.
@@ -561,6 +588,7 @@ class RunManager:
         meta["model"] = run.model
         meta["effort"] = run.effort
         meta["error"] = run.error
+        meta["pending"] = dict(run.pending) if run.pending else None
         try:
             (self.runs_dir / run.id / "meta.json").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"

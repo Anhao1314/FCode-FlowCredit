@@ -151,6 +151,8 @@ hash_n = sha256(canonical_json({sequence, type, payload, prev_hash, at}))
 4. `Loop.pending_step(task)` 检查是否有已批准但未执行的提案（对账后的情况）。
 5. 继续跑，轮次号取自 `task.model.attempts`，不会重复。
 
+Console 的人工等待还有一层持久索引：审批 `paused + approval_requested` 与提问 `running + tool_started` 的 pending 保存在 run meta。重启后先核对 pending、链尾和已验证 proposal 完全一致，再恢复同一个等待；批准步骤凭 `approval_granted` 只越过自己的重复审批门，提问答案只补写原 `tool_started` 的结果，不重放模型、不重复调用工具 handler。没有 pending 的普通中断仍只标为 stopped。
+
 工具侧还有一个更窄的未知结果窗口：`tool_started` 已提交，但进程可能在 handler 前、handler 副作用后或结果提交前消失。`runtime/recovery.py` 对未闭合调用只做对账与标记，不重发；主机证据区分 `observed`、`not_observed` 与 `unknown`。`runtime/replay.py` 只消费事件字典，比较动作顺序、结果哈希、计划与终态，不接触工具注册表。预算计数仍在 SQLite，恢复前后独立比较。
 
 版本化基准在 `benchmark/` 中复用上述正式链路；`ScriptedProvider` 只给提议，独立 verifier 直接检查文件、命令、事件、收据与 canary。运行方法和统计分母见 [runtime-benchmark](runtime-benchmark.md)，真实 SIGKILL 录屏顺序见 [demo-script](demo-script.md)。

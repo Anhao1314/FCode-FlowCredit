@@ -84,6 +84,16 @@ class ToolRegistry:
         # the sandbox (atomic, content-addressed, append-only).
         normalised = validate_arguments(spec, arguments)
         result = spec.handler(normalised)
+        return self.observe(name, normalised, result)
+
+    def observe(self, name: str, arguments: Mapping[str, Any], result: dict[str, Any]) -> Observation:
+        """Wrap an already-produced result without invoking the handler again.
+
+        This is used only to complete a human tool that started before a
+        process restart. Normal execution always goes through ``execute``.
+        """
+        spec = self.get(name)
+        normalised = validate_arguments(spec, arguments)
         validate_output(spec, result)
         return Observation(
             tool=name,

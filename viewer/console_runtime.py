@@ -415,6 +415,7 @@ class RunControl:
         timeout: float,
         preview=None,
         classify_consequential=None,
+        persist=None,
     ) -> None:
         self.run = run
         self.harness = harness
@@ -433,6 +434,9 @@ class RunControl:
         #: run_command per program (readonly utilities skip the approval);
         #: every other tool falls back to the approval set.
         self.classify_consequential = classify_consequential
+        #: Host persistence hook. Pending is a durable operator wait, not only
+        #: an SSE rendering hint; the manager writes it with the run metadata.
+        self.persist = persist
         self.timeout = max(5.0, float(timeout))
         self._lock = threading.Lock()
         self._commands: deque[dict] = deque()
@@ -581,6 +585,10 @@ class RunControl:
             self._wake.clear()
         self._publish()
 
+        return self._wait_answer()
+
+    def _wait_answer(self) -> dict:
+        """Wait for the currently published question, including after a restart."""
         deadline = time.monotonic() + self.timeout
         stopped = False
         try:
@@ -611,6 +619,26 @@ class RunControl:
             "timed_out": bool((answer or {}).get("timeout")),
             "reason": "the operator did not answer in time",
         }
+
+    def restore_pending(self, pending: dict) -> None:
+        """Rebuild the exact human wait after a process restart.
+
+        No chain event is emitted here: the original approval/tool start is
+        already committed. HTTP threads only resolve this restored slot.
+        """
+        with self._lock:
+            if self._approval is not None:
+                raise ValueError("another operator wait is already active")
+            self._approval = dict(pending)
+            self._decision = None
+            self._wake.clear()
+        self._publish()
+
+    def wait_restored_approval(self, *, round_no: int, task, step: dict):
+        return self._wait_approval(round_no=round_no, task=task, step=step)
+
+    def wait_restored_question(self) -> dict:
+        return self._wait_answer()
 
     def answer(self, question_id: str, text: str) -> bool:
         """Record the operator's answer to the pending question."""
@@ -776,6 +804,10 @@ class RunControl:
         if approval is None:
             return self.ToolControl(task=task, allowed=True)
 
+        return self._wait_approval(round_no=round_no, task=task, step=step)
+
+    def _wait_approval(self, *, round_no: int, task, step: dict):
+        """Resolve a prepared or restored approval without preparing it twice."""
         deadline = time.monotonic() + self.timeout
         try:
             while True:
@@ -823,6 +855,8 @@ class RunControl:
         with self.run.lock:
             self.run.pending = pending
             self.run.bump()
+        if self.persist is not None:
+            self.persist(self.run)
 
     def _reject(self, task, round_no: int, kind: str, reason: str):
         return self.harness.record(

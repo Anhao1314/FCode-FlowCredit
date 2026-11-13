@@ -224,9 +224,11 @@ class Loop:
 
             budget_snapshot = self.harness.budget(task).snapshot()
 
+            preapproved = False
             if pending is not None:
                 # A reconciled round: the proposal is already approved and paid
                 # for. Execute it; do not ask the model again.
+                preapproved = self.harness.store.events(task.id)[-1]["type"] == "approval_granted"
                 steps = [pending]
                 pending = None
                 round_no = task.model.attempts
@@ -373,7 +375,7 @@ class Loop:
                 # concurrently, but every chain/plan/memory commit stays in the
                 # proposal's original order below.
                 for step, decision in zip(steps, decisions):
-                    task, outcome, denial = self._before_tool(task, step, decision, round_no)
+                    task, outcome, denial = self._before_tool(task, step, decision, round_no, preapproved=preapproved)
                     if outcome == "terminal":
                         self.observer.terminal(task, None)
                         return task
@@ -456,7 +458,7 @@ class Loop:
                 continue
 
             for step, decision in zip(steps, decisions):
-                task, outcome, denial = self._before_tool(task, step, decision, round_no)
+                task, outcome, denial = self._before_tool(task, step, decision, round_no, preapproved=preapproved)
                 if outcome == "terminal":
                     self.observer.terminal(task, None)
                     return task
@@ -1201,13 +1203,61 @@ class Loop:
         return steps[: self.harness.max_steps]
 
     def pending_step(self, task: Task) -> dict[str, Any] | None:
-        """Return an approved-but-unexecuted step, if reconciliation left one."""
+        """Return an approved-but-unexecuted step from a recoverable boundary."""
         if task.model.status != "validated" or not task.model.proposal:
             return None
         events = self.harness.store.events(task.id)
-        if not events or events[-1]["type"] != "model_reconciled":
+        if not events:
+            return None
+        if events[-1]["type"] == "approval_granted":
+            if task.status != "running":
+                raise AgentError("RECOVERY_INVALID", "an approved continuation is not running")
+            requested = events[-2] if len(events) > 1 else {}
+            request_payload = (requested.get("payload") or {}).get("detail") or {}
+            if requested.get("type") != "approval_requested":
+                raise AgentError("RECOVERY_INVALID", "approval grant has no matching request")
+            for step in task.model.proposal["steps"]:
+                if (
+                    step["tool"] == request_payload.get("tool")
+                    and (step.get("arguments") or {}) == (request_payload.get("arguments") or {})
+                ):
+                    return step
+            raise AgentError(
+                "RECOVERY_INVALID", "the approved step does not match the validated proposal",
+            )
+        if events[-1]["type"] != "model_reconciled":
             return None
         return task.model.proposal["steps"][0]
+
+    def resume_operator_approval(self, task: Task, gate, step: dict[str, Any]) -> Task:
+        """Continue after a restored approval gate was resolved by its control."""
+        if gate.allowed:
+            return self.run(task.id)
+        memory = self.restore(task)
+        plan = self.rebuild_plan(task, memory)
+        return self._deny(
+            task,
+            Denial(tool=step["tool"], code=gate.code, reason=gate.reason),
+            plan,
+        )
+
+    def resume_operator_question(self, task: Task, observation: Observation) -> Task:
+        """Complete the one already-started ask, then take the next model round."""
+        proposal = task.model.proposal or {}
+        steps = proposal.get("steps") or []
+        if (
+            len(steps) != 1
+            or steps[0].get("tool") != "ask_operator"
+            or (steps[0].get("arguments") or {}) != observation.arguments
+            or observation.result.get("asked") != observation.arguments.get("question")
+        ):
+            raise AgentError(
+                "RECOVERY_INVALID", "the answer does not match the single validated question",
+            )
+        task = self.harness.complete_started_tool(
+            task, observation, round_no=task.model.attempts,
+        )
+        return self.run(task.id)
 
     # --------------------------------------------------------------- terminals
 
@@ -1401,12 +1451,16 @@ class Loop:
         return task
 
     def _before_tool(self, task: Task, step: dict[str, Any], decision: Any,
-                     round_no: int) -> tuple[Task, str, Any]:
+                     round_no: int, *, preapproved: bool = False) -> tuple[Task, str, Any]:
         """Resolve the operator gate before dispatch.
 
         Returns ``(task, outcome, denial)`` where outcome is ``""`` (allowed),
         ``"terminal"`` (the operator stopped the run) or ``"deny"``.
         """
+        if preapproved:
+            # Set only for the exact step reconstructed from approval_granted.
+            # Asking again would create a second approval for the same action.
+            return task, "", None
         if self.control is None:
             return task, "", None
         approval = self.control.before_tool(

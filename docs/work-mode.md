@@ -79,6 +79,16 @@ Projects                                   ＋
 
 传输层只有 `RemoteDisconnected` 与 `partial` 为空的 `IncompleteRead` 会自动重试一次，并把 `transport_retries`（整数）写进 usage、metadata 与签名回执；HTTP 4xx/5xx、超时、半包、非 JSON 一律不重试，仍走 `MODEL_CALL_FAILED` → unknown。
 
+## 人工等待的持久恢复
+
+审批与提问的 pending 会随 run meta 落盘。Console 重启后，只有同时具备 `taskId`、pending id 且能识别为审批或提问的中断运行会启动恢复 worker；普通中断运行仍标为 `stopped`，不会自动重放模型或工具。
+
+- 审批：恢复载荷必须与最新 `approval_requested` 和已验证 proposal 的工具及参数完全一致。批准后仅为这个已由 `approval_granted` 证明的步骤跳过重复门控，原模型轮不重放、工具只执行一次；拒绝或超时走正常 denied 收尾，后续动作仍按原策略审批。
+- 提问：恢复时最新事件必须是完全匹配的 `ask_operator tool_started`。人工作答经 `ToolRegistry.observe()` 校验后补写原工具结果，不再次调用 handler、不再次收费；下一轮模型从链上读取答案。
+- 同一 pending 的重复决策或回答返回 409；meta 与哈希链不匹配时恢复失败，不执行原工具。
+
+定向验证：`python3 -m unittest tests.test_pending_recovery tests.test_ask_operator -v`。前两条测试硬杀并重建真实服务进程，覆盖批准、拒绝、重复决策与一次执行；提问测试以新 SQLite 连接和全新 Harness/Loop 实例覆盖答案续接与单次计费。
+
 ## 迁移与兼容
 
 - 旧 `fa.projects` / `fa.runProjects` **不删除、不再读取**；项目以服务端为准。
@@ -89,13 +99,14 @@ Projects                                   ＋
 ## 非目标（后续阶段）
 
 1. **并行 agent + worktree 全量隔离**：目前 worktree 仅 fast 顶层项目运行；普通运行仍是隔离副本。
-2. **完整 review 队列 / durable approvals**：`attention` 来自 run 状态与内存 pending；重启后 pending 不恢复。
+2. **完整 review 队列**：审批与提问已支持 durable pending；跨运行的人工复核队列仍不在当前范围。
 3. **项目级自动化**：`scheduler.sqlite` 仍不保存 project/spec/model，定时运行默认 mock。
 4. **Work skills / 插件注入**：技能仍属治理区 Bot，插件市场是独立页面。
 
 ## 验证
 
 ```bash
+python3 -m unittest tests.test_pending_recovery tests.test_ask_operator -v
 python3 -m unittest tests.test_projects tests.test_server_projects -v
 node --test viewer/tests/side-nav.test.js viewer/tests/sidebar.test.js
 cd viewer && ./node_modules/.bin/playwright test e2e/work-sidebar.spec.js

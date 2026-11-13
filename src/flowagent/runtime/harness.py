@@ -564,6 +564,33 @@ class Harness:
             self._success_detail(observation, round_no),
         ), observation
 
+    def complete_started_tool(
+        self, task: Task, observation: Observation, *, round_no: int = 0,
+    ) -> Task:
+        """Complete a tool whose start was committed before a process restart.
+
+        The start was already charged and validated. Only a matching running
+        task and the latest identical ``tool_started`` event may use this path;
+        no handler, budget charge or second start is repeated.
+        """
+        events = self.store.events(task.id)
+        started = events[-1] if events else {}
+        payload = (started.get("payload") or {}).get("detail") or {}
+        if (
+            task.status != "running"
+            or task.model.status != "validated"
+            or started.get("type") != "tool_started"
+            or payload.get("tool") != observation.tool
+            or (payload.get("arguments") or {}) != (observation.arguments or {})
+        ):
+            raise AgentError(
+                "INVALID_TOOL_RECOVERY",
+                "the observation does not match the latest committed tool start",
+            )
+        return self._commit(
+            task, task, "tool_succeeded", self._success_detail(observation, round_no),
+        )
+
     @staticmethod
     def _success_detail(observation: Observation, round_no: int) -> dict[str, Any]:
         return {

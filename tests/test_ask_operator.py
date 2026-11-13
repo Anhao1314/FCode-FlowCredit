@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 VIEWER = ROOT / "viewer"
 sys.path.insert(0, str(VIEWER))
 
+from console_run_driver import RunDriver  # noqa: E402
 from flowagent.core.contracts import PLAN_VERSION  # noqa: E402
 from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
@@ -207,6 +208,119 @@ class RunAsksOperatorTests(unittest.TestCase):
         self.assertEqual(len(provider.contexts), 2)
         self.assertNotIn("用周三", json.dumps(provider.contexts[0], ensure_ascii=False))
         self.assertIn("用周三", json.dumps(provider.contexts[1], ensure_ascii=False))
+
+    def test_restart_restores_the_same_question_without_restarting_its_tool(self) -> None:
+        run, control, harness, loop, world, provider = self.build()
+        published = []
+        control.persist = lambda current: published.append(
+            dict(current.pending) if current.pending else None
+        )
+
+        class ProcessCrash(BaseException):
+            pass
+
+        class CrashingWake:
+            def clear(self):
+                pass
+
+            def set(self):
+                pass
+
+            def wait(self, _timeout):
+                raise ProcessCrash()
+
+        control._wake = CrashingWake()
+        with self.assertRaises(ProcessCrash):
+            loop.run("task-ask")
+        pending = next(item for item in published if item and item.get("kind") == "question")
+        crashed = harness.store.load("task-ask")
+        self.assertEqual(crashed.status, "running")
+        self.assertEqual(harness.store.events(crashed.id)[-1]["type"], "tool_started")
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(harness.budget(crashed).snapshot()["reads_used"], 1)
+
+        # New store, harness, provider, control and loop over the same durable db.
+        store2 = TaskStore(world.sandbox.root.parent / "task.sqlite")
+        self.addCleanup(store2.close)
+        world2 = GENERAL_DOMAIN.create_world(
+            spec={"mode": "script", "scriptPath": "note.md"},
+            sandbox=sandbox(world.sandbox.root.parent),
+            command_runner=CommandRunner(sandbox(world.sandbox.root.parent)),
+        )
+        provider2 = AskingProvider()
+        provider2.calls = 1  # the next proposal is the original plan's second round
+        harness2 = Harness(
+            store=store2,
+            registry=ToolRegistry(world2.build_tools()),
+            provider=provider2,
+            world=world2,
+            limits=get_scenario("general-research").limits,
+            receipts=ReceiptStore(store2),
+            verifier=lambda observation: world2.verify_observation(observation),
+        )
+        run2 = self.runtime_module.Run(
+            id="run-ask-restarted", template="general-research", objective=crashed.objective,
+            created="2026-10-26T00:00:00+00:00", pace=0.0, status="running",
+            approval="off", task_id=crashed.id,
+        )
+        control2 = self.runtime_module.RunControl(
+            run2, harness2, self.console_runtime, ("write_file",), 5.0,
+        )
+        run2.controller = control2
+        world2.ask_operator = control2.ask
+        loop2 = Loop(
+            harness2,
+            planner=GENERAL_DOMAIN.make_planner(world2),
+            max_rounds=2,
+            result_tools=(),
+            control=control2,
+        )
+        driver = RunDriver.__new__(RunDriver)
+        driver.recover_pending = pending
+        driver.control = control2
+        driver.store = store2
+        driver.harness = harness2
+        driver.loop = loop2
+        statuses = []
+        worker = threading.Thread(
+            target=lambda: statuses.append(driver._execute_recovered_task(store2.load(crashed.id))),
+            daemon=True,
+        )
+        worker.start()
+        deadline = time.time() + 5
+        while time.time() < deadline and not control2.pending():
+            time.sleep(0.02)
+        restored = control2.pending()
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored["id"], pending["id"])
+        self.assertTrue(control2.answer(pending["id"], "用周三"))
+        worker.join(timeout=10)
+        self.assertFalse(worker.is_alive(), "restored question did not finish")
+        self.assertEqual(statuses, ["failed"])
+        self.assertEqual(store2.load(crashed.id).failure["code"], "ROUND_LIMIT")
+        self.assertEqual(provider2.calls, 2)
+
+        events = store2.events(crashed.id)
+        self.assertEqual(len([e for e in events if e["type"] == "model_started"]), 2)
+        self.assertEqual(len([
+            e for e in events
+            if e["type"] == "tool_started"
+            and e["payload"]["detail"]["tool"] == "ask_operator"
+        ]), 1, "重启不得再次开始或收费同一个提问")
+        self.assertEqual(len([
+            e for e in events
+            if e["type"] == "tool_started"
+            and e["payload"]["detail"]["tool"] == "write_file"
+        ]), 1, "恢复后的下一轮必须继续执行写文件")
+        observation = next(
+            e for e in events
+            if e["type"] == "tool_succeeded"
+            and e["payload"]["detail"]["tool"] == "ask_operator"
+        )
+        self.assertEqual(observation["payload"]["detail"]["result"]["answer"], "用周三")
+        # One read for the original ask, one for the next write; no second ask charge.
+        self.assertEqual(harness2.budget(store2.load(crashed.id)).snapshot()["reads_used"], 2)
+        self.assertIn("用周三", json.dumps(provider2.contexts[0], ensure_ascii=False))
 
     def test_answering_the_wrong_question_is_refused(self) -> None:
         run, control, harness, loop, world, provider = self.build()

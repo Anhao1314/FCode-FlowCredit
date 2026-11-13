@@ -22,6 +22,9 @@ from flowagent.providers.prompt import GENERAL_FAST_INSTRUCTION
 
 
 class RunDriver:
+    # Some recovery tests construct through __new__ to isolate _prepare_task.
+    recover_pending = None
+
     def __init__(
         self,
         manager,
@@ -30,6 +33,7 @@ class RunDriver:
         resume_limits=None,
         extra_rounds: int = 6,
         recover_unknown: bool = False,
+        recover_pending=None,
     ) -> None:
         self.manager = manager
         self.run = run
@@ -40,6 +44,9 @@ class RunDriver:
         #: the operator's limits (and trace seeding) but must NOT go through
         #: ``harness.resume`` — that entry only accepts ``failed`` tasks.
         self.recover_unknown = recover_unknown
+        #: A durable approval/question restored after a process restart. The
+        #: original chain has the authority; no model call is repeated here.
+        self.recover_pending = dict(recover_pending) if recover_pending else None
         #: Opt-in fast experiment: batch actions per model round, native tool
         #: calling, operator envelope without price-scaled call shrink.
         self.fast = bool((getattr(run, "spec", None) or {}).get("fast")) \
@@ -55,7 +62,7 @@ class RunDriver:
         try:
             self._assemble()
             task = self._prepare_task()
-            status = self._execute_task(task)
+            status = self._execute_recovered_task(task) if self.recover_pending else self._execute_task(task)
             if status == "paused" and getattr(self.loop, "suspended_payload", None):
                 # LangGraph 引擎在审批处挂起：run 线程到此结束，会话交给
                 # manager；操作员决策后经 resume_from_decision 续跑。
@@ -214,6 +221,7 @@ class RunDriver:
             self.run, self.harness, rt, approval_tools, self.manager.approval_timeout,
             preview=self._approval_preview if self.sandbox is not None else None,
             classify_consequential=self._classify_consequential,
+            persist=self.manager._write_meta,
         )
         self.run.controller = self.control
         if self.general:
@@ -487,7 +495,15 @@ class RunDriver:
 
     def _prepare_task(self):
         restore_state = False
-        if self.recover_unknown:
+        if self.recover_pending:
+            task = self.store.load(self.run.task_id)
+            self.max_rounds = (
+                max(60 if self.fast else 24, self.scenario.max_rounds)
+                if (self.run.spec or {}).get("project")
+                else self.scenario.max_rounds
+            )
+            restore_state = True
+        elif self.recover_unknown:
             # Unknown model outcome: the operator explicitly accepted the risk.
             # A matching receipt reconciles in place; otherwise a fresh round is
             # priced. Either way the loop must start from the durable event log,
@@ -555,6 +571,19 @@ class RunDriver:
         return task
 
     def _new_loop(self):
+        if self.recover_pending:
+            # A restored wait continues from the event-sourced kernel state.
+            # The in-memory graph checkpoint did not survive the old process.
+            from flowagent.runtime.loop import Loop
+
+            return Loop(
+                self.harness,
+                planner=self.planner,
+                max_rounds=self.max_rounds,
+                observer=self.observer,
+                control=self.control,
+                result_tools=self.module.result_tools,
+            )
         from flowagent.runtime.engine import build_loop
 
         return build_loop(
@@ -565,6 +594,62 @@ class RunDriver:
             control=self.control,
             result_tools=self.module.result_tools,
         )
+
+    def _execute_recovered_task(self, task) -> str:
+        """Resolve one restored human wait, then continue from the chain."""
+        pending = dict(self.recover_pending or {})
+        self.control.restore_pending(pending)
+        if pending.get("kind") == "question":
+            events = self.store.events(task.id)
+            started = events[-1] if events else {}
+            started_payload = (started.get("payload") or {}).get("detail") or {}
+            if task.status != "running" or started.get("type") != "tool_started" or started_payload.get("tool") != "ask_operator":
+                raise ValueError("restored question does not match the committed tool start")
+            step = next(
+                (item for item in task.model.proposal["steps"]
+                 if item["tool"] == "ask_operator" and item.get("arguments") == started_payload.get("arguments")),
+                None,
+            )
+            if step is None or started_payload.get("arguments", {}).get("question") != pending.get("question"):
+                raise ValueError("restored question does not match the validated proposal")
+            reply = self.control.wait_restored_question()
+            result = {
+                "asked": pending["question"],
+                "answered": bool(reply.get("answered")),
+            }
+            if reply.get("answered"):
+                result["answer"] = str(reply.get("answer") or "")[:600]
+            else:
+                result["timed_out"] = bool(reply.get("timed_out"))
+                result["reason"] = str(reply.get("reason") or "the operator did not answer")
+            observation = self.harness.registry.observe(step["tool"], step.get("arguments") or {}, result)
+            return self.loop.resume_operator_question(task, observation).status
+
+        events = self.store.events(task.id)
+        requested = events[-1] if events else {}
+        request_payload = (requested.get("payload") or {}).get("detail") or {}
+        if task.status != "paused" or requested.get("type") != "approval_requested":
+            raise ValueError("restored approval does not match the committed pause")
+        tool_matches = request_payload.get("tool") == pending.get("tool")
+        arguments_match = request_payload.get("arguments") == pending.get("arguments")
+        if not tool_matches or not arguments_match:
+            raise ValueError(
+                "restored approval payload differs from the chain "
+                f"(tool={tool_matches}, arguments={arguments_match}, event_keys={sorted(request_payload)})"
+            )
+        step = next(
+            (item for item in task.model.proposal["steps"]
+             if item["tool"] == pending.get("tool") and item.get("arguments") == pending.get("arguments")),
+            None,
+        )
+        if step is None:
+            raise ValueError("restored approval is absent from the validated proposal")
+        gate = self.control.wait_restored_approval(
+            round_no=int(pending.get("round") or request_payload.get("round") or 0),
+            task=task,
+            step=step,
+        )
+        return self.loop.resume_operator_approval(gate.task, gate, step).status
 
     def _execute_task(self, task) -> str:
         try:
