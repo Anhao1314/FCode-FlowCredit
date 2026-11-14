@@ -142,6 +142,16 @@ export function govBotDispatchHtml(bots, selected = "auditor") {
       <input id="gov-bot-target" type="text" autocomplete="off" spellcheck="false"
         placeholder="${esc(placeholder)}" aria-label="运行目标">
     </label>
+    <label class="gov-bot-dispatch-field grow">
+      <span>目标描述</span>
+      <input id="gov-bot-target-md" type="text" autocomplete="off" spellcheck="false"
+        placeholder="target.md（可选，如 fixtures/evox/target.md）" aria-label="目标描述文件">
+    </label>
+    <label class="gov-bot-dispatch-field grow">
+      <span>OSV 快照</span>
+      <input id="gov-bot-osv-snapshot" type="text" autocomplete="off" spellcheck="false"
+        placeholder="work/audit/osv.json（可选）" aria-label="OSV 快照">
+    </label>
     <button class="gov-wb-button strong" type="submit">派活</button>
   </form>`;
 }

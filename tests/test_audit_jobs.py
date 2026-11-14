@@ -85,6 +85,21 @@ class AuditJobContainmentTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             start_audit_run(self.repo, "../../etc")
 
+    def test_target_descriptor_and_osv_must_stay_in_repo(self) -> None:
+        outside = Path(self._tmp.name) / "target.md"
+        outside.write_text("# outside\n", encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            start_audit_run(self.repo, "src", target_md=str(outside))
+        self.assertIn("escapes", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            start_audit_run(self.repo, "src", target_md="missing.md")
+        with self.assertRaises(ValueError) as ctx:
+            start_audit_run(self.repo, "src", osv_snapshot=str(outside))
+        self.assertIn("escapes", str(ctx.exception))
+        (self.repo / "target.md").write_text("# inside\n", encoding="utf-8")
+        job = start_audit_run(self.repo, "src", target_md="target.md")
+        self.assertTrue(job.startswith("audit-"))
+
     def test_audit_roots_parses_pathsep_list(self) -> None:
         a = Path(self._tmp.name) / "a"
         b = Path(self._tmp.name) / "b"

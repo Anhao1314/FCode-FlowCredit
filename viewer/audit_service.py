@@ -320,13 +320,16 @@ class AuditService:
 
     # ------------------------------------------------------------------- jobs
 
-    def start_run(self, target: str, adapter: str | None = None) -> str:
+    def start_run(self, target: str, adapter: str | None = None, *,
+                  target_md: str | None = None,
+                  osv_snapshot: str | None = None) -> str:
         """Start one offline audit job; the only audit-launch entry point."""
         if self.repo is None:
             raise ValueError("no repo; audit unavailable")
         from audit_jobs import start_audit_run
 
-        return start_audit_run(self.repo, target, adapter)
+        return start_audit_run(self.repo, target, adapter,
+                               target_md=target_md, osv_snapshot=osv_snapshot)
 
     def job_status(self, job_id: str) -> dict | None:
         from audit_jobs import job_status

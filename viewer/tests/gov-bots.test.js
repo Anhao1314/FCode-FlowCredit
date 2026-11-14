@@ -77,6 +77,9 @@ test("派活表单:角色选项、审计员默认目标提示、复核员可留�
   assert.match(auditor, /<option value="auditor" selected>审计员/);
   assert.match(auditor, /<option value="verifier">复核员/);
   assert.match(auditor, /目标路径/);
+  assert.match(auditor, /id="gov-bot-target-md"/, "可选目标描述文件");
+  assert.match(auditor, /id="gov-bot-osv-snapshot"/, "可选 OSV 快照");
+  assert.match(auditor, /fixtures\/evox\/target\.md/);
   const verifier = govBotDispatchHtml(bots, "verifier");
   assert.match(verifier, /<option value="verifier" selected>复核员/);
   assert.match(verifier, /审计 id（留空 = 最新一次）/);

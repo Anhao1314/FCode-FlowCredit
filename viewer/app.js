@@ -12,6 +12,7 @@ import { composerMode } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
+import { parseGovAuditArgs } from "./core/gov-args.js";
 import {
   aggregateTargets, filterFindings, govSummaryHtml,
   findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
@@ -2683,7 +2684,7 @@ const SLASH_COMMANDS = [
   { cmd: "/账本", desc: "对话内打开工作区账本卡", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/状态", desc: "对话内查看进行中的运行", run: () => pushWorkspaceCard("status") },
   { cmd: "/定时", desc: "对话内查看定时任务", run: () => pushWorkspaceCard("scheduled") },
-  { cmd: "/挖洞", desc: "治理台:对目标发起 REA 挖洞（/挖洞 <target>）", run: arg => startGovAudit(arg) },
+  { cmd: "/挖洞", desc: "治理台:对目标发起 REA 挖洞（/挖洞 <target> [--target-md <path>] [--osv-snapshot <json>]）", run: arg => startGovAudit(arg) },
   { cmd: "/audit", desc: "治理台:对目标发起 REA 挖洞（/audit <target>）", run: arg => startGovAudit(arg) },
   { cmd: "/判断", desc: "治理台:操作员判断与审计处置汇总卡", run: () => showGovJudgments() },
   { cmd: "/链", desc: "治理台:验证一次审计的签名链（/链 <audit_id>）", run: arg => showGovChain(arg) },
@@ -2880,6 +2881,7 @@ function govDialogIntroHtml() {
       <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
       <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
     </div>
+    <p class="gov-dialog-hint">高级：/挖洞 &lt;target&gt; --target-md &lt;descriptor&gt; --osv-snapshot &lt;json&gt;</p>
     ${govRecentRunsHtml()}
   </div>`);
 }
@@ -3260,15 +3262,25 @@ async function startGovBotRun() {
   const bot = govTeam.bots.find(item => item.id === botId);
   if (!bot) { toast("团队还没加载完成"); return; }
   const target = input ? input.value.trim() : "";
+  const targetMd = document.getElementById("gov-bot-target-md")?.value.trim() || "";
+  const osvSnapshot = document.getElementById("gov-bot-osv-snapshot")?.value.trim() || "";
   try {
     const response = await fetch("/api/gov/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bot_id: botId, target, source: "team" }),
+      body: JSON.stringify({
+        bot_id: botId, target, source: "team",
+        ...(targetMd ? { target_md: targetMd } : {}),
+        ...(osvSnapshot ? { osv_snapshot: osvSnapshot } : {}),
+      }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     if (input) input.value = "";
+    const mdInput = document.getElementById("gov-bot-target-md");
+    if (mdInput) mdInput.value = "";
+    const osvInput = document.getElementById("gov-bot-osv-snapshot");
+    if (osvInput) osvInput.value = "";
     toast(`${bot.name} 已接活`);
     await loadGovTeam();
     refreshGovHistory();
@@ -3812,9 +3824,12 @@ function scheduleGovPoll() {
 }
 
 /* options.surface: 工作台表单/重挖显式传 workbench；命令与 Work 入口
-   默认进对话，让操作员看到作业卡与后续响应。 */
+   默认进对话，让操作员看到作业卡与后续响应。
+   可选 flag：--target-md <path> / --osv-snapshot <path>，由服务端限制在仓库内。 */
 function startGovAudit(target, options = {}) {
-  const t = String(target || "").trim();
+  const parsed = parseGovAuditArgs(target);
+  const t = parsed.target;
+  const raw = String(target || "").trim();
   const surface = options.surface === "workbench" ? "workbench" : "dialog";
   if (!t) {
     showGovSurface(surface);
@@ -3833,12 +3848,16 @@ function startGovAudit(target, options = {}) {
     return;
   }
   showGovSurface(surface);
-  if (surface === "dialog") pushGovDialog({ kind: "user", text: `/挖洞 ${t}` }, true);
+  if (surface === "dialog") pushGovDialog({ kind: "user", text: `/挖洞 ${raw}` }, true);
   (async () => {
     try {
       const r = await fetch("/api/gov/runs", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target: t }),
+        body: JSON.stringify({
+          target: t,
+          ...(parsed.targetMd ? { target_md: parsed.targetMd } : {}),
+          ...(parsed.osvSnapshot ? { osv_snapshot: parsed.osvSnapshot } : {}),
+        }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);

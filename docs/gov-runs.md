@@ -25,9 +25,20 @@
 - `POST /api/gov/runs`：统一创建入口。
   - `{target}` → 手动运行（source=console）；
   - `{bot_id, target, source:"team"}` → 团队运行（预算/审批语义不变）；
+  - 可选 `target_md` / `osv_snapshot`：仓库内的描述文件与 OSV 快照，服务端校验
+    路径不得逃出仓库；非法路径返回 400。
   - 目标校验同步完成，非法目标返回 400，不留下失败运行。
 - `GET /api/gov/runs?limit=`：运行流（含手动/团队/定时），新的在前。
 - `POST /api/gov/bots/<id>/run`：旧入口保留兼容，行为与统一入口的团队分支一致。
+
+## 深度审计参数
+
+- `target_md`：已安装制品的 `target.md`（授权、范围、Declared features）。带上它以后，
+  已声明的 entitlement 不再算越权；例如 EvoX 的麦克风/日历/Apple Events。
+- `osv_snapshot`：离线 OSV JSON（`{"vulns":[...]}`）。flowaudit 只匹配 Go module
+  依赖；模块级命中可能包含未实际链接的包，需要操作员复核。
+- 对话用法：`/挖洞 /Applications/EvoX.app --target-md fixtures/evox/target.md --osv-snapshot work/audit/evox-osv.json`
+- 团队派活表单同样提供两个可选输入。
 
 ## UI
 

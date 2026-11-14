@@ -135,13 +135,17 @@ def post_gov_run_create(handler):
     target = str(body.get("target") or "").strip()
     bot_id = str(body.get("bot_id") or "").strip()
     source = str(body.get("source") or "").strip()
+    target_md = str(body.get("target_md") or "").strip() or None
+    osv_snapshot = str(body.get("osv_snapshot") or "").strip() or None
     try:
         if bot_id:
             if source == "console":
                 raise ValueError("console runs are auditor-only and take no bot_id")
-            run = service.start_run(bot_id, target, source="team")
+            run = service.start_run(bot_id, target, source="team",
+                                    target_md=target_md, osv_snapshot=osv_snapshot)
         else:
-            run = service.start_manual_run(target)
+            run = service.start_manual_run(target, target_md=target_md,
+                                           osv_snapshot=osv_snapshot)
     except ValueError as error:
         return handler._json({"error": str(error)}, 400)
     return handler._json({"run": run}, 201)

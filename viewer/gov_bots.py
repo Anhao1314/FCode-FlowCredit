@@ -575,7 +575,9 @@ class GovBotService:
                   routine_id: str | None = None, *,
                   require_approval: bool = False,
                   parent_run_id: str | None = None,
-                  source: str = "team") -> dict:
+                  source: str = "team",
+                  target_md: str | None = None,
+                  osv_snapshot: str | None = None) -> dict:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
@@ -638,10 +640,12 @@ class GovBotService:
                 routine_id, _now(), run_id, status,
             )
         if not needs_approval:
-            self._start_thread(run_id, definition["id"], resolved)
+            self._start_thread(run_id, definition["id"], resolved,
+                               target_md=target_md, osv_snapshot=osv_snapshot)
         return self.get_run(run_id) or {}
 
-    def start_manual_run(self, target: str) -> dict:
+    def start_manual_run(self, target: str, *, target_md: str | None = None,
+                         osv_snapshot: str | None = None) -> dict:
         """治理对话的 `/挖洞`：写入同一条运行流，但不占 Bot 预算、不走审批。
 
         手动挖洞是操作员的即时调查，和常驻 Bot 的预算/审批语义分开：
@@ -654,7 +658,8 @@ class GovBotService:
             raise ValueError("auditor needs a target path")
         # 先让审计服务做目标校验并启动作业；非法目标在 HTTP 层直接 400，
         # 不会留下一条注定失败的运行。
-        job_id = self.audit.start_run(resolved)
+        job_id = self.audit.start_run(resolved, target_md=target_md,
+                                      osv_snapshot=osv_snapshot)
         run_id = f"gov-{uuid.uuid4().hex[:12]}"
         with self._lock:
             self._db.execute(
@@ -665,7 +670,8 @@ class GovBotService:
                  "queued", job_id, _now()),
             )
             self._db.commit()
-        self._start_thread(run_id, "auditor", resolved, job_id=job_id)
+        self._start_thread(run_id, "auditor", resolved, job_id=job_id,
+                           target_md=target_md, osv_snapshot=osv_snapshot)
         return self.get_run(run_id) or {}
 
     def approve_run(self, run_id: str) -> dict:
@@ -690,10 +696,12 @@ class GovBotService:
         return self.get_run(run_id) or {}
 
     def _start_thread(self, run_id: str, bot_id: str, target: str,
-                      *, job_id: str | None = None) -> None:
+                      *, job_id: str | None = None,
+                      target_md: str | None = None,
+                      osv_snapshot: str | None = None) -> None:
         thread = threading.Thread(
             target=self._execute,
-            args=(run_id, bot_id, target, job_id),
+            args=(run_id, bot_id, target, job_id, target_md, osv_snapshot),
             name=f"gov-bot-{run_id}",
             daemon=True,
         )
@@ -714,11 +722,14 @@ class GovBotService:
         self._db.commit()
 
     def _execute(self, run_id: str, bot_id: str, target: str,
-                 job_id: str | None = None) -> None:
+                 job_id: str | None = None,
+                 target_md: str | None = None,
+                 osv_snapshot: str | None = None) -> None:
         self._update(run_id, status="running")
         try:
             if bot_id == "auditor":
-                self._run_auditor(run_id, target, job_id=job_id)
+                self._run_auditor(run_id, target, job_id=job_id,
+                                  target_md=target_md, osv_snapshot=osv_snapshot)
             elif bot_id == "verifier":
                 self._run_verifier(run_id, target)
             else:
@@ -729,8 +740,11 @@ class GovBotService:
             self._threads.pop(run_id, None)
 
     def _run_auditor(self, run_id: str, target: str,
-                     *, job_id: str | None = None) -> None:
-        job_id = job_id or self.audit.start_run(target)
+                     *, job_id: str | None = None,
+                     target_md: str | None = None,
+                     osv_snapshot: str | None = None) -> None:
+        job_id = job_id or self.audit.start_run(
+            target, target_md=target_md, osv_snapshot=osv_snapshot)
         self._update(run_id, job_id=job_id)
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:

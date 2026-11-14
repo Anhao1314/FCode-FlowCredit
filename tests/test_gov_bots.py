@@ -24,8 +24,8 @@ class FakeAudit:
         ]
         self.started: list[tuple[str, str | None]] = []
 
-    def start_run(self, target, adapter=None):
-        self.started.append((target, adapter))
+    def start_run(self, target, adapter=None, *, target_md=None, osv_snapshot=None):
+        self.started.append((target, adapter, target_md, osv_snapshot))
         return "job-1"
 
     def job_status(self, job_id):
@@ -85,7 +85,7 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(settled["audit_id"], "demo-2026")
         self.assertEqual(settled["findings"], 2)
         self.assertEqual(settled["evidence"], 2)
-        self.assertEqual(self.audit.started, [("fixtures/demo-target", None)])
+        self.assertEqual(self.audit.started, [("fixtures/demo-target", None, None, None)])
         snapshot = self.service.snapshot()
         auditor = snapshot["bots"][0]
         self.assertEqual(auditor["status"], "idle")
@@ -171,9 +171,15 @@ class GovBotServiceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.start_run("auditor", "fixtures/demo-target")
 
-        manual = self.service.start_manual_run("fixtures/demo-target")
+        manual = self.service.start_manual_run(
+            "fixtures/demo-target",
+            target_md="fixtures/evox/target.md",
+            osv_snapshot="work/audit/osv.json",
+        )
         self.assertEqual(manual["source"], "console")
         self.assertEqual(manual["trigger"], "manual")
+        self.assertEqual(self.audit.started[-1][2:], (
+            "fixtures/evox/target.md", "work/audit/osv.json"))
         settled = wait_run(self.service, manual["run_id"])
         self.assertEqual(settled["status"], "done")
         self.assertEqual(settled["audit_id"], "demo-2026")

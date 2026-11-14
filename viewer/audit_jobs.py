@@ -50,25 +50,47 @@ def resolve_adapter(resolved: Path, repo: Path, explicit: str | None = None) -> 
     return "repo" if _within(resolved, repo) else "rea"
 
 
-def start_audit_run(repo: Path, target: str, adapter: str | None = None) -> str:
+def _repo_file(repo: Path, value: str | None, label: str) -> Path | None:
+    """解析审计附带文件（target.md / OSV 快照）；只允许仓库内路径。"""
+    if not value:
+        return None
+    raw = Path(value).expanduser()
+    resolved = (repo / raw).resolve() if not raw.is_absolute() else raw.resolve()
+    if not _within(resolved, repo):
+        raise ValueError(f"{label} escapes the repository")
+    if not resolved.is_file():
+        raise ValueError(f"{label} not found: {value}")
+    return resolved
+
+
+def start_audit_run(repo: Path, target: str, adapter: str | None = None,
+                    *, target_md: str | None = None,
+                    osv_snapshot: str | None = None) -> str:
     repo = Path(repo).resolve()
     resolved = (repo / target).resolve()
     if not any(_within(resolved, root) for root in _audit_roots(repo)):
         raise ValueError("target escapes the repository and FCODE_AUDIT_ROOTS")
     if not resolved.exists():
         raise ValueError(f"target not found: {target}")
+    descriptor = _repo_file(repo, target_md, "target descriptor")
+    snapshot = _repo_file(repo, osv_snapshot, "OSV snapshot")
     resolved_adapter = resolve_adapter(resolved, repo, adapter)
     job_id = f"audit-{uuid.uuid4().hex[:8]}"
     with _LOCK:
         _JOBS[job_id] = {"job_id": job_id, "status": "running", "target": str(resolved)}
 
     env = {**os.environ, "PYTHONPATH": str(repo / "src")}
+    command = [sys.executable, "-m", "flowaudit.cli", "audit", str(resolved),
+               "--adapter", resolved_adapter]
+    if descriptor is not None:
+        command.extend(["--target-md", str(descriptor)])
+    if snapshot is not None:
+        command.extend(["--osv-snapshot", str(snapshot)])
 
     def work() -> None:
         try:
             completed = subprocess.run(
-                [sys.executable, "-m", "flowaudit.cli", "audit", str(resolved),
-                 "--adapter", resolved_adapter],
+                command,
                 cwd=str(repo), env=env, capture_output=True, text=True, timeout=900,
             )
             if completed.returncode != 0:

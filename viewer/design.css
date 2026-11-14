@@ -3370,6 +3370,10 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-dialog-intro b { font: 650 15px/1.4 var(--font-ui); color: var(--text-1); }
 .gov-dialog-intro p { margin-top: 5px; color: var(--text-2); font-size: 12.5px; line-height: 1.6; }
 .gov-dialog-intro .gov-start { margin-top: 12px; }
+.gov-dialog-hint {
+  margin-top: 8px; font: 11px/1.5 var(--font-mono); color: var(--text-4);
+  overflow-wrap: anywhere;
+}
 .gov-recent { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .gov-recent-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
