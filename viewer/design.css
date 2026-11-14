@@ -3315,6 +3315,18 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
   border: 1px dashed var(--line-strong); border-radius: 8px;
 }
 .gov-fix-box summary { cursor: pointer; font: 600 11.5px var(--font-ui); color: var(--text-2); }
+.gov-fix-delegate { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; }
+.gov-fix-verify { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gov-fix-verify span {
+  font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.gov-fix-verification {
+  height: 30px; padding: 0 8px; border: 1px solid var(--line-strong);
+  border-radius: 7px; background: var(--canvas); color: var(--text-1);
+  font: 11px var(--font-mono); outline: none;
+}
+.gov-fix-or { margin: 8px 0 0; font-size: 11px; color: var(--text-3); }
 .gov-fix-patch {
   width: 100%; min-height: 110px; margin-top: 8px; padding: 8px;
   border: 1px solid var(--line-strong); border-radius: 7px;

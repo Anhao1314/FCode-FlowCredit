@@ -189,7 +189,16 @@ export function findingDetailHtml(dir, finding, opts = {}) {
   const refs = (finding.poc_refs || []).map(ref => `<code>${esc(ref)}</code>`).join(" ");
   const fixBox = opts.repairable === false ? "" : `<details class="gov-fix-box"
       data-dir="${esc(dir)}" data-finding="${esc(fid)}">
-      <summary>修复补丁 <span class="dim">（人工/外部 agent 产出，先在隔离副本验证）</span></summary>
+      <summary>修复补丁 <span class="dim">（Work agent 生成，或粘贴外部补丁）</span></summary>
+      <div class="gov-fix-delegate">
+        <label class="gov-fix-verify">
+          <span>验证命令</span>
+          <input class="gov-fix-verification" type="text" spellcheck="false"
+            placeholder="pytest -q / node verify.js" aria-label="修复验证命令">
+        </label>
+        <button class="gov-wb-button quiet" type="button" data-gov-fix-delegate>派 Work 修复</button>
+      </div>
+      <div class="gov-fix-or">或粘贴由外部 agent 产出的 unified diff：</div>
       <textarea class="gov-fix-patch" rows="6" spellcheck="false"
         placeholder="diff --git a/file b/file&#10;--- a/file&#10;+++ b/file&#10;@@ ..."></textarea>
       <div class="gov-fix-actions">

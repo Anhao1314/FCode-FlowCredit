@@ -1,8 +1,25 @@
 # Fixer 受控修复通道（P3）
 
-Fixer 的第一版是**补丁闸门**，不是自动写代码的模型：补丁由操作员或外部 agent（Work /
-Codex / Claude）产出，FCode 负责在隔离副本里验证、等人批准、写回原目录，并自动发起
-一次复扫。**Fixer 不会把 finding 标成“已修复”**；只有新的审计结果能改变结论。
+Fixer 有两条入口，但只有一条写路径：
+
+1. **Work agent 生成补丁**：治理派一个 Work 修复 run，项目是审计目标的隔离副本；
+   Work 产出 `changes.patch` 后，Fixer 自动导入并在自己的隔离 worktree 里再验证一次。
+2. **粘贴外部补丁**：操作员或 Codex/Claude 等外部 agent 产出 unified diff，直接交给
+   Fixer 验证。
+
+无论哪种，**批准前原目录不动**，**Fixer 不会把 finding 标成“已修复”**；只有新的审计
+结果能改变结论。
+
+## Work 修复的验证命令
+
+Work 的 project verification 走宿主机命令白名单，不是任意 shell：
+
+- 允许的程序：`cat`、`diff`、`find`、`git`、`grep`、`ls`、`node`、`pytest`、`python`、
+  `python3`、`unittest`、`wc`；
+- 拒绝 inline/module 代码（如 `python3 -c ...`），要求执行工作区里的脚本文件；
+- 对 `git` 的子命令/flag 有独立白名单（例如 `git diff --check` 会被拒绝）。
+
+所以填 `pytest -q`、`python3 verify.py`、`node verify.js` 这类命令；不要填 `npm test`。
 
 ## 边界
 

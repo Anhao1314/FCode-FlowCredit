@@ -883,10 +883,46 @@ def create_server(
         from gov_fixes import GovFixService
 
         bots = getattr(Handler, "gov_bots", None)
+
+        def _delegate_fix(objective, project_path, verification, model_key):
+            run = manager.create_fix_run(
+                objective, project_path, verification, model_key=model_key)
+            return {"run_id": run.id}
+
+        def _work_fix_lookup(run_id):
+            run = manager.get(str(run_id or ""))
+            if run is None:
+                return {"finished": True, "status": "missing",
+                        "error": "Work run not found"}
+            run_dir = manager.runs_dir / run.id
+            source = ""
+            project_path = run_dir / "project.json"
+            try:
+                if project_path.is_file():
+                    source = str(json.loads(
+                        project_path.read_text(encoding="utf-8")
+                    ).get("source") or "")
+            except (OSError, ValueError):
+                source = ""
+            patch_path = run_dir / "changes.patch"
+            try:
+                patch = patch_path.read_text(encoding="utf-8") if patch_path.is_file() else ""
+            except OSError:
+                patch = ""
+            return {
+                "finished": bool(run.finished),
+                "status": str(getattr(run, "status", "") or ""),
+                "patch": patch,
+                "source": source,
+                "error": str(getattr(run, "error", "") or ""),
+            }
+
         Handler.gov_fixes = GovFixService(
             Handler.audit,
             (bots.start_manual_run if bots is not None else None),
             root=(Handler.audit.root.parent / "fixes") if Handler.audit.root else None,
+            delegate=_delegate_fix,
+            work_lookup=_work_fix_lookup,
         )
     except Exception:  # noqa: BLE001 — audit/team remain usable without fixes
         traceback.print_exc()

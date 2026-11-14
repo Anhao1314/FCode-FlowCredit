@@ -3405,13 +3405,24 @@ async function govSwarmAction(swarmId, action) {
 
 function govFixResultHtml(fix) {
   const files = (fix.files || []).map(file => `<code>${esc(file)}</code>`).join(" ");
+  const work = fix.work_run_id
+    ? `<button class="gov-wb-button quiet" type="button" data-run-open="${esc(fix.work_run_id)}">打开 Work 运行 →</button>`
+    : "";
+  if (fix.status === "delegated") {
+    const state = fix.work_status ? ` · ${esc(fix.work_status)}` : "";
+    return `<p>Work 修复运行 <code>${esc(fix.work_run_id || "")}</code>${state}，正在隔离副本生成补丁…</p>
+      <p class="dim">完成后这里会自动出现验证结果与批准入口；原目录尚未改动。</p>${work}`;
+  }
+  if (fix.status === "delegation_failed") {
+    return `<div class="gov-dialog-error">${esc(fix.error || "Work 修复失败")}</div>${work}`;
+  }
   if (fix.status === "proposed") {
     return `<p>补丁已在隔离副本验证 · ${files || "无文件"}</p>
       <div class="gov-fix-actions">
         <button class="gov-wb-button strong" type="button" data-gov-fix-approve="${esc(fix.id)}">批准并应用</button>
         <button class="gov-wb-button quiet" type="button" data-gov-fix-reject="${esc(fix.id)}">拒绝</button>
       </div>
-      <p class="dim">批准后才写回原目录，并自动发起一次复扫；Fixer 不会把 finding 标成已修复。</p>`;
+      <p class="dim">批准后才写回原目录，并自动发起一次复扫；Fixer 不会把 finding 标成已修复。</p>${work}`;
   }
   if (fix.status === "applied") {
     const rerun = fix.reaudit_run_id
@@ -3423,6 +3434,67 @@ function govFixResultHtml(fix) {
   }
   if (fix.status === "rejected") return `<p>补丁已拒绝，原目录未改动 · ${files || "无文件"}</p>`;
   return `<p>${esc(fix.status || "未知状态")}</p>`;
+}
+
+function pollGovFix(box, fixId) {
+  const result = box?.querySelector(".gov-fix-result");
+  if (!result) return;
+  let tries = 0;
+  const timer = setInterval(async () => {
+    if (!document.body.contains(box) || tries++ > 60) {
+      clearInterval(timer);
+      return;
+    }
+    try {
+      const response = await fetch("/api/gov/fixes?limit=20", { cache: "no-store" });
+      const data = response.ok ? await response.json() : { fixes: [] };
+      const fix = (data.fixes || []).find(item => item.id === fixId);
+      if (!fix) return;
+      result.innerHTML = govFixResultHtml(fix);
+      if (fix.status !== "delegated") {
+        clearInterval(timer);
+        toast(fix.status === "proposed" ? "Work 补丁已生成，等待批准"
+          : fix.status === "delegation_failed" ? "Work 修复失败"
+          : "修复状态已更新");
+      }
+    } catch { /* 单次轮询失败保旧态 */ }
+  }, 3000);
+  box.dataset.govFixTimer = "1";
+}
+
+async function startGovFixDelegate(button) {
+  const box = button.closest(".gov-fix-box");
+  const result = box?.querySelector(".gov-fix-result");
+  const dir = box?.dataset.dir || "";
+  const findingId = box?.dataset.finding || "";
+  const input = box?.querySelector(".gov-fix-verification");
+  const verification = input?.value.trim() || "";
+  if (!verification) {
+    toast("先填写修复后的验证命令");
+    input?.focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/gov/fixes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audit_id: dir, finding_id: findingId, verification,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const fix = data.fix || {};
+    if (result) result.innerHTML = govFixResultHtml(fix);
+    toast("已派 Work 修复 · 在隔离副本生成补丁");
+    if (fix.status === "delegated") pollGovFix(box, fix.id);
+  } catch (error) {
+    if (result) result.innerHTML = `<div class="gov-dialog-error">${esc(error.message)}</div>`;
+    toast("派 Work 修复失败：" + error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function submitGovFix(button) {
@@ -5138,6 +5210,8 @@ function bindGlobalActions() {
       return;
     }
     // Fixer 写路径：补丁先隔离验证，批准后才应用并复扫。
+    const fixDelegate = event.target.closest("[data-gov-fix-delegate]");
+    if (fixDelegate) { startGovFixDelegate(fixDelegate); return; }
     const fixSubmit = event.target.closest("[data-gov-fix-submit]");
     if (fixSubmit) { submitGovFix(fixSubmit); return; }
     const fixApprove = event.target.closest("[data-gov-fix-approve]");

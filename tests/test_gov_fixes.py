@@ -120,6 +120,82 @@ class GovFixServiceTest(unittest.TestCase):
         rows = self.service.list()
         self.assertEqual([item["id"] for item in rows], [fix["id"]])
 
+    def test_delegate_waits_for_work_patch_then_enters_approval(self):
+        calls = []
+        state = {"finished": False, "patch": "", "source": "", "error": ""}
+
+        def delegate(objective, project_path, verification, model_key):
+            calls.append((objective, project_path, verification, model_key))
+            return {"run_id": "work-1"}
+
+        def lookup(run_id):
+            return {"finished": state["finished"], "status": "running",
+                    "patch": state["patch"], "source": state["source"],
+                    "error": state["error"]}
+
+        service = GovFixService(
+            self.audit, lambda target: (self.reaudited.append(target) or
+                                       {"run_id": "gov-reaudit"}),
+            root=self.audit.root.parent / "fixes",
+            delegate=delegate, work_lookup=lookup,
+        )
+        fix = service.delegate_fix("audit-1", "F-1", "pytest -q")
+        self.assertEqual(fix["status"], "delegated")
+        self.assertEqual(fix["work_run_id"], "work-1")
+        self.assertEqual(calls[0][1], str(self.target.resolve()))
+        self.assertEqual(calls[0][2], "pytest -q")
+        self.assertIn("F-1", calls[0][0])
+        self.assertIn(str(self.target.resolve()), calls[0][0])
+
+        still = service.get(fix["id"])
+        self.assertEqual(still["status"], "delegated")
+        self.assertEqual(still["work_status"], "running")
+
+        state.update(finished=True, patch=PATCH, source=str(self.target.resolve()))
+        proposed = service.get(fix["id"])
+        self.assertEqual(proposed["status"], "proposed")
+        self.assertEqual(proposed["files"], ["a.txt"])
+        self.assertEqual((self.target / "a.txt").read_text(), "old\n",
+                         "Work 产出也不能绕过批准")
+        approved = service.approve(fix["id"])
+        self.assertEqual(approved["status"], "applied")
+        self.assertEqual((self.target / "a.txt").read_text(), "new\n")
+
+    def test_delegation_failure_is_visible(self):
+        def delegate(objective, project_path, verification, model_key):
+            return {"run_id": "work-1"}
+
+        def lookup(run_id):
+            return {"finished": True, "status": "failed", "patch": "",
+                    "source": str(self.target), "error": "model failed"}
+
+        service = GovFixService(
+            self.audit, None, root=self.audit.root.parent / "fixes",
+            delegate=delegate, work_lookup=lookup,
+        )
+        fix = service.delegate_fix("audit-1", "F-1", "pytest -q")
+        failed = service.get(fix["id"])
+        self.assertEqual(failed["status"], "delegation_failed")
+        self.assertIn("model failed", failed["error"])
+
+    def test_delegation_rejects_source_mismatch(self):
+        def delegate(objective, project_path, verification, model_key):
+            return {"run_id": "work-1"}
+
+        def lookup(run_id):
+            return {"finished": True, "status": "succeeded", "patch": PATCH,
+                    "source": str(self.repo), "error": ""}
+
+        service = GovFixService(
+            self.audit, None, root=self.audit.root.parent / "fixes",
+            delegate=delegate, work_lookup=lookup,
+        )
+        fix = service.delegate_fix("audit-1", "F-1", "pytest -q")
+        mismatched = service.get(fix["id"])
+        self.assertEqual(mismatched["status"], "delegation_failed")
+        self.assertIn("does not match", mismatched["error"])
+        self.assertEqual((self.target / "a.txt").read_text(), "old\n")
+
 
 if __name__ == "__main__":
     unittest.main()

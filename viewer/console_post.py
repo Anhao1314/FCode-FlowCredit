@@ -204,11 +204,19 @@ def post_gov_fix_create(handler):
     audit_id = str(body.get("audit_id") or "").strip()
     finding_id = str(body.get("finding_id") or "").strip()
     patch = body.get("patch")
-    if not audit_id or not finding_id or not isinstance(patch, str):
-        return handler._json(
-            {"error": "audit_id, finding_id and patch are required"}, 400)
+    verification = str(body.get("verification") or "").strip()
+    model_key = str(body.get("model") or "").strip()
+    if not audit_id or not finding_id:
+        return handler._json({"error": "audit_id and finding_id are required"}, 400)
     try:
-        fix = service.create(audit_id, finding_id, patch)
+        if isinstance(patch, str) and patch.strip():
+            fix = service.create(audit_id, finding_id, patch)
+        elif verification:
+            fix = service.delegate_fix(
+                audit_id, finding_id, verification, model_key=model_key)
+        else:
+            return handler._json(
+                {"error": "patch or verification command is required"}, 400)
     except ValueError as error:
         return handler._json({"error": str(error)}, 400)
     return handler._json({"fix": fix}, 201)

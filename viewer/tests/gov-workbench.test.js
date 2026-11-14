@@ -158,6 +158,8 @@ test("详情:证据引用 + 五档处置 + 修复按钮 + 关闭", () => {
   assert.match(html, /data-gov-repair="F-2" data-dir="d"/);
   assert.match(html, /data-gov-open-bundle="d"/);
   assert.match(html, /data-gov-fix-submit/);
+  assert.match(html, /data-gov-fix-delegate/);
+  assert.match(html, /gov-fix-verification/);
   assert.match(html, /gov-fix-patch/);
   // artifact 目标不可修
   const artifact = findingDetailHtml("d", finding, { repairable: false });

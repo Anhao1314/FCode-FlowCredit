@@ -70,16 +70,20 @@ def parse_patch_paths(patch: str) -> list[str]:
 
 class GovFixService:
     def __init__(self, audit: Any, reaudit: Callable[[str], dict] | None,
-                 root: Path | str | None = None) -> None:
+                 root: Path | str | None = None, *,
+                 delegate: Callable[[str, str, str, str], Any] | None = None,
+                 work_lookup: Callable[[str], dict] | None = None) -> None:
         self.audit = audit
         self.reaudit = reaudit
+        self.delegate = delegate
+        self.work_lookup = work_lookup
         base = getattr(audit, "root", None)
         self.root = Path(root or (Path(base).parent / "fixes")).resolve() if base else None
         self._lock = threading.RLock()
 
-    # ------------------------------------------------------------------ create
+    # ------------------------------------------------------------------ context
 
-    def create(self, audit_id: str, finding_id: str, patch: str) -> dict:
+    def _context(self, audit_id: str, finding_id: str) -> tuple[dict, Path, dict]:
         if self.root is None:
             raise ValueError("fix storage is unavailable")
         bundle = self.audit.bundle(audit_id)
@@ -101,7 +105,110 @@ class GovFixService:
             raise ValueError("fix target escapes the repository")
         if not target_path.is_dir():
             raise ValueError("fix target is not a directory")
+        return bundle, target_path, finding
 
+    # ------------------------------------------------------------------ create
+
+    def create(self, audit_id: str, finding_id: str, patch: str) -> dict:
+        bundle, target_path, _finding = self._context(audit_id, finding_id)
+        fix_id = f"fix-{uuid.uuid4().hex[:12]}"
+        fix_dir = self.root / fix_id
+        fix_dir.mkdir(parents=True, exist_ok=False)
+        try:
+            files, digest, text = self._stage_patch(fix_dir, target_path, patch)
+            record = {
+                "id": fix_id,
+                "audit_id": str(bundle.get("audit_id") or audit_id),
+                "finding_id": finding_id,
+                "target": str(target_path),
+                "status": "proposed",
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "patch_sha256": digest,
+                "files": files,
+                "patch_preview": text[:4000],
+            }
+            self._write(fix_dir, record)
+            return record
+        except Exception:
+            shutil.rmtree(fix_dir, ignore_errors=True)
+            raise
+
+    def delegate_fix(self, audit_id: str, finding_id: str, verification: str,
+                     model_key: str = "") -> dict:
+        """Ask the Work runtime to produce a patch in an isolated project copy."""
+        if self.delegate is None:
+            raise ValueError("Work fixer is unavailable")
+        bundle, target_path, finding = self._context(audit_id, finding_id)
+        verification = str(verification or "").strip()
+        if not verification:
+            raise ValueError("fixer needs a verification command")
+        objective = self._objective(bundle, target_path, finding)
+        result = self.delegate(objective, str(target_path), verification,
+                               str(model_key or ""))
+        work_run_id = str(
+            result.get("run_id") if isinstance(result, dict) else result or ""
+        ).strip()
+        if not work_run_id:
+            raise ValueError("Work did not return a run id")
+        fix_id = f"fix-{uuid.uuid4().hex[:12]}"
+        fix_dir = self.root / fix_id
+        fix_dir.mkdir(parents=True, exist_ok=False)
+        record = {
+            "id": fix_id,
+            "audit_id": str(bundle.get("audit_id") or audit_id),
+            "finding_id": finding_id,
+            "target": str(target_path),
+            "status": "delegated",
+            "work_run_id": work_run_id,
+            "verification": verification,
+            "objective_preview": objective[:600],
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "patch_sha256": "",
+            "files": [],
+            "patch_preview": "",
+        }
+        self._write(fix_dir, record)
+        return record
+
+    def _refresh(self, fix: dict) -> dict:
+        """Pull a finished Work run's patch into the fixer's isolated stage."""
+        if fix.get("status") != "delegated" or self.work_lookup is None:
+            return fix
+        info = self.work_lookup(str(fix.get("work_run_id") or "")) or {}
+        if not info.get("finished"):
+            fix["work_status"] = str(info.get("status") or "running")
+            self._write(self.root / fix["id"], fix)
+            return fix
+        patch = str(info.get("patch") or "")
+        error = str(info.get("error") or "").strip()
+        if error or not patch.strip():
+            fix["status"] = "delegation_failed"
+            fix["error"] = error or "Work run finished without a non-empty changes.patch"
+            self._write(self.root / fix["id"], fix)
+            return fix
+        source = str(info.get("source") or "").strip()
+        if source and Path(source).expanduser().resolve() != Path(fix["target"]).resolve():
+            fix["status"] = "delegation_failed"
+            fix["error"] = "Work run source does not match the fix target"
+            self._write(self.root / fix["id"], fix)
+            return fix
+        try:
+            files, digest, text = self._stage_patch(
+                self.root / fix["id"], Path(fix["target"]), patch)
+        except Exception as failure:  # noqa: BLE001 — failed import is visible, not fatal
+            fix["status"] = "delegation_failed"
+            fix["error"] = f"{type(failure).__name__}: {failure}"[:300]
+            self._write(self.root / fix["id"], fix)
+            return fix
+        fix["status"] = "proposed"
+        fix["files"] = files
+        fix["patch_sha256"] = digest
+        fix["patch_preview"] = text[:4000]
+        self._write(self.root / fix["id"], fix)
+        return fix
+
+    def _stage_patch(self, fix_dir: Path, target_path: Path,
+                     patch: str) -> tuple[list[str], str, str]:
         text = str(patch or "").strip()
         if not text:
             raise ValueError("patch is required")
@@ -116,36 +223,47 @@ class GovFixService:
             resolved = (target_path / relative).resolve()
             if not _within(resolved, target_path):
                 raise ValueError(f"patch path escapes the target: {relative!r}")
-
-        fix_id = f"fix-{uuid.uuid4().hex[:12]}"
-        fix_dir = self.root / fix_id
         worktree = fix_dir / "worktree"
-        fix_dir.mkdir(parents=True, exist_ok=False)
-        try:
+        if not worktree.exists():
             self._copy_target(target_path, worktree)
-            patch_path = fix_dir / "changes.patch"
-            patch_path.write_text(text + ("\n" if not text.endswith("\n") else ""),
-                                  encoding="utf-8")
-            check = self._apply(worktree, patch_path, check=True)
-            if check.returncode != 0:
-                detail = (check.stderr or check.stdout or "").strip().splitlines()
-                raise ValueError(f"patch does not apply: {(detail[-1] if detail else 'check failed')[:300]}")
-            record = {
-                "id": fix_id,
-                "audit_id": str(bundle.get("audit_id") or audit_id),
-                "finding_id": finding_id,
-                "target": str(target_path),
-                "status": "proposed",
-                "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "patch_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                "files": paths,
-                "patch_preview": text[:4000],
-            }
-            self._write(fix_dir, record)
-            return record
-        except Exception:
-            shutil.rmtree(fix_dir, ignore_errors=True)
-            raise
+        patch_path = fix_dir / "changes.patch"
+        patch_path.write_text(text + ("\n" if not text.endswith("\n") else ""),
+                              encoding="utf-8")
+        check = self._apply(worktree, patch_path, check=True)
+        if check.returncode != 0:
+            detail = (check.stderr or check.stdout or "").strip().splitlines()
+            shutil.rmtree(worktree, ignore_errors=True)
+            patch_path.unlink(missing_ok=True)
+            raise ValueError(
+                f"patch does not apply: {(detail[-1] if detail else 'check failed')[:300]}")
+        return paths, hashlib.sha256(text.encode("utf-8")).hexdigest(), text
+
+    def _objective(self, bundle: dict, target_path: Path, finding: dict) -> str:
+        severity = str(finding.get("severity") or "")
+        head = (
+            f"修复审计发现 {finding.get('finding_id')}（"
+            f"{finding.get('category') or '?'} · "
+            f"{finding.get('root_cause_group') or '?'} · {severity}）\n"
+            f"审计目标：{target_path}\n"
+            "你的工作区是审计目标的隔离副本；只改这个副本，不要修改原目录。"
+        )
+        tail = ("要求：定位并修复根因（不掩盖症状）；优先最小改动，保持现有行为，"
+                "跑通验证命令后写清改了什么。")
+        note = self._evidence_note(bundle, finding)
+        budget = 600 - len(head) - len(tail) - 2 - len("证据摘要：")
+        evidence = f"证据摘要：{note[:budget]}" if note and budget > 20 else ""
+        return "\n".join(part for part in (head, evidence, tail) if part)[:600]
+
+    def _evidence_note(self, bundle: dict, finding: dict) -> str:
+        note = str(finding.get("root_cause_note") or "").strip()
+        if not note:
+            refs = finding.get("poc_refs") or []
+            if refs and hasattr(self.audit, "evidence"):
+                record = self.audit.evidence(
+                    str(bundle.get("audit_id") or ""), str(refs[0]))
+                if isinstance(record, dict):
+                    note = str(record.get("notes") or record.get("expectation") or "")
+        return " ".join(note.split())[:600]
 
     # ------------------------------------------------------------------ decisions
 
@@ -209,19 +327,22 @@ class GovFixService:
         if not path.is_file():
             return None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            fix = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        if fix.get("status") == "delegated":
+            return self._refresh(fix)
+        return fix
 
     def list(self, limit: int = 20) -> list[dict]:
         if self.root is None or not self.root.is_dir():
             return []
         rows: list[dict] = []
         for path in sorted(self.root.glob("*/fix.json"), reverse=True):
-            try:
-                rows.append(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
+            fix = self.get(path.parent.name)
+            if fix is None:
                 continue
+            rows.append(fix)
             if len(rows) >= max(1, min(int(limit), 50)):
                 break
         return rows

@@ -844,6 +844,54 @@ class RunManager:
         thread.start()
         return run
 
+    def create_fix_run(
+        self,
+        objective: str,
+        project_path: str,
+        verification: str,
+        model_key: str = "",
+        effort: str = "",
+    ) -> Run:
+        """Create a Work repair run in an isolated project copy.
+
+        Governance uses this as the Fixer's patch producer: the run writes only
+        inside its imported project sandbox and publishes changes.patch; the
+        target directory is not touched until the operator applies the patch.
+        """
+        if self.runtime is None:
+            raise ValueError("live mode is unavailable")
+        text = str(verification or "").strip()
+        if not text:
+            raise ValueError("fixer needs a verification command")
+        try:
+            parts = shlex.split(text)
+        except ValueError as error:
+            raise ValueError(f"verification command is invalid: {error}") from error
+        if not parts:
+            raise ValueError("fixer needs a verification command")
+        path = Path(project_path).expanduser()
+        if not path.is_absolute() or not path.is_dir():
+            raise ValueError("fixer project path must be an absolute directory")
+        spec = {
+            "mode": "open",
+            "project": {"path": str(path.resolve())},
+            "verification": {
+                "name": f"修复验证：{' '.join(parts)}"[:200],
+                "command": parts[0],
+                "args": parts[1:],
+                "expectExitCode": 0,
+                "timeoutSeconds": 120,
+            },
+            "reportPath": self.runtime.PROJECT_REPORT_PATH,
+        }
+        scenario = self.runtime.get_scenario("general-research")
+        self.validate_delegation_spec(spec, scenario)
+        key, resolved_effort = self.resolve_model(model_key or None, effort or None)
+        return self.create(
+            objective, "general-research", "consequential", spec,
+            model_key=key, effort=resolved_effort, source="governance-fix",
+        )
+
     # ----------------------------------------------------- LangGraph 审批恢复
 
     def graph_approval_pending(self, run: Run) -> bool:
