@@ -337,6 +337,7 @@ export function govBotSkillsHtml(bot) {
 
 function runSourceLabel(run) {
   if (run && run.source === "console") return "对话";
+  if (run && run.source === "swarm") return "蜂群";
   return run && run.trigger === "routine" ? "定时" : "团队";
 }
 

@@ -64,6 +64,40 @@ class FakeTriageProvider:
         }), {"model": self.model, "usage_total_tokens": 12, "cost_microusd": 7}
 
 
+class BlockingAudit(FakeAudit):
+    """每个目标一个独立 job，测试蜂群并发时由测试显式放行。"""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs = {}
+        self._count = 0
+
+    def start_run(self, target, adapter=None, *, target_md=None, osv_snapshot=None):
+        self._count += 1
+        job_id = f"job-{self._count}"
+        self.jobs[job_id] = {"status": "running"}
+        self.started.append((target, adapter, target_md, osv_snapshot))
+        return job_id
+
+    def finish(self, job_id: str, status: str = "done") -> None:
+        self.jobs[job_id] = {
+            "status": status,
+            "audit_id": f"audit-{job_id}" if status == "done" else None,
+            "findings": 1 if status == "done" else 0,
+            "evidence": 1 if status == "done" else 0,
+            "error": "boom" if status == "failed" else None,
+        }
+
+
+def wait_until(predicate, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition did not settle")
+
+
 def wait_run(service: GovBotService, run_id: str, timeout: float = 3.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -319,6 +353,95 @@ class GovBotServiceTest(unittest.TestCase):
         recovered = restarted.get_run(run["run_id"])
         self.assertEqual(recovered["status"], "failed")
         self.assertIn("server restarted", recovered["error"])
+
+
+class GovSwarmTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.audit = BlockingAudit()
+        self.service = GovBotService(
+            self.audit, Path(self.tmp.name) / "governance.sqlite", start_scheduler=False,
+        )
+
+    def tearDown(self):
+        for job_id, job in list(self.audit.jobs.items()):
+            if job.get("status") == "running":
+                self.audit.finish(job_id)
+        for thread in list(self.service._threads.values()):
+            thread.join(timeout=2)
+        self.service.shutdown()
+        self.service._db.close()
+        self.tmp.cleanup()
+
+    def test_swarm_respects_concurrency_and_finishes(self):
+        swarm = self.service.create_swarm(
+            ["a", "b", "c"], max_concurrency=2,
+            target_md="fixtures/evox/target.md", osv_snapshot="work/audit/osv.json",
+        )
+        wait_until(lambda: len(self.audit.jobs) == 2)
+        current = self.service.get_swarm(swarm["id"])
+        self.assertEqual(current["counts"]["running"], 2)
+        self.assertEqual(current["counts"]["queued"], 1)
+        self.assertEqual(self.audit.started[0][2:],
+                         ("fixtures/evox/target.md", "work/audit/osv.json"))
+
+        self.audit.finish("job-1")
+        wait_until(lambda: self.service.get_run(current["runs"][0]["run_id"])["status"] == "done")
+        self.service._pump_swarms()
+        wait_until(lambda: len(self.audit.jobs) == 3)
+        self.audit.finish("job-2")
+        self.audit.finish("job-3")
+        for run in self.service.get_swarm(swarm["id"])["runs"]:
+            wait_run(self.service, run["run_id"])
+        self.service._pump_swarms()
+        wait_until(lambda: self.service.get_swarm(swarm["id"])["status"] == "done")
+        final = self.service.get_swarm(swarm["id"])
+        self.assertEqual(final["counts"]["done"], 3)
+        self.assertEqual(final["counts"]["running"], 0)
+
+    def test_swarm_cancel_stops_queue_but_lets_running_finish(self):
+        swarm = self.service.create_swarm(["a", "b", "c"], max_concurrency=1)
+        wait_until(lambda: len(self.audit.jobs) == 1)
+        cancelled = self.service.cancel_swarm(swarm["id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled["counts"]["rejected"], 2)
+        self.assertEqual(cancelled["counts"]["running"], 1)
+        self.audit.finish("job-1")
+        wait_until(lambda: self.service.get_run(cancelled["runs"][0]["run_id"])["status"] == "done")
+        self.service._pump_swarms()
+        self.assertEqual(len(self.audit.jobs), 1, "cancel 后不再启动排队目标")
+        self.assertEqual(self.service.get_swarm(swarm["id"])["status"], "cancelled")
+
+    def test_swarm_retry_requeues_failed_targets(self):
+        swarm = self.service.create_swarm(["a", "b"], max_concurrency=2)
+        wait_until(lambda: len(self.audit.jobs) == 2)
+        self.audit.finish("job-1", "failed")
+        self.audit.finish("job-2", "failed")
+        for run in self.service.get_swarm(swarm["id"])["runs"]:
+            wait_run(self.service, run["run_id"])
+        self.service._pump_swarms()
+        self.assertEqual(self.service.get_swarm(swarm["id"])["status"], "failed")
+
+        retried = self.service.retry_swarm(swarm["id"])
+        self.assertEqual(retried["status"], "running")
+        self.assertEqual(retried["counts"]["running"], 2, "retry 立即按并发启动")
+        wait_until(lambda: len(self.audit.jobs) == 4)
+        self.audit.finish("job-3")
+        self.audit.finish("job-4")
+        for run in self.service.get_swarm(swarm["id"])["runs"]:
+            wait_run(self.service, run["run_id"])
+        self.service._pump_swarms()
+        wait_until(lambda: self.service.get_swarm(swarm["id"])["status"] == "done")
+
+    def test_swarm_validates_targets_and_budget(self):
+        with self.assertRaises(ValueError):
+            self.service.create_swarm([])
+        with self.assertRaises(ValueError):
+            self.service.create_swarm([f"target-{i}" for i in range(21)])
+        self.service.set_settings("auditor", {"daily_run_limit": 1})
+        with self.assertRaises(ValueError) as ctx:
+            self.service.create_swarm(["a", "b"])
+        self.assertIn("剩余预算", str(ctx.exception))
 
 
 if __name__ == "__main__":

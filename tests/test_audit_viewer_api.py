@@ -550,6 +550,32 @@ class AuditRunTests(unittest.TestCase):
         })
         self.assertEqual(status, 400)
 
+    def test_swarm_endpoint_fans_out_and_lists_runs(self) -> None:
+        """目标级 fan-out：HTTP 创建蜂群，子 run 独立落账并完成。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/swarms", {
+            "targets": ["fixtures/demo-target", "fixtures/demo-target/mini_agent"],
+            "max_concurrency": 2,
+        })
+        self.assertEqual(status, 201)
+        swarm = payload["swarm"]
+        self.assertEqual(swarm["counts"]["total"], 2)
+        self.assertEqual(len(swarm["runs"]), 2)
+        self.assertTrue(all(run["source"] == "swarm" for run in swarm["runs"]))
+        swarm_id = swarm["id"]
+        outcome = None
+        for _ in range(90):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/swarms?limit=5", timeout=10) as res:
+                swarms = json.loads(res.read())["swarms"]
+            outcome = next((item for item in swarms if item["id"] == swarm_id), None)
+            if outcome and outcome["status"] != "running":
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertEqual(outcome["counts"]["done"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

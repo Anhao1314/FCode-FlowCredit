@@ -151,6 +151,50 @@ def post_gov_run_create(handler):
     return handler._json({"run": run}, 201)
 
 
+def post_gov_swarm_create(handler):
+    """目标级 fan-out：一个蜂群把多个目标排入队列，宿主按并发调度。"""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    targets = body.get("targets")
+    if not isinstance(targets, list):
+        return handler._json({"error": "targets must be an array"}, 400)
+    try:
+        swarm = service.create_swarm(
+            targets,
+            name=str(body.get("name") or ""),
+            max_concurrency=body.get("max_concurrency", 2),
+            target_md=str(body.get("target_md") or "").strip() or None,
+            osv_snapshot=str(body.get("osv_snapshot") or "").strip() or None,
+        )
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"swarm": swarm}, 201)
+
+
+def post_gov_swarm_cancel(handler, swarm_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        swarm = service.cancel_swarm(swarm_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"swarm": swarm})
+
+
+def post_gov_swarm_retry(handler, swarm_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        swarm = service.retry_swarm(swarm_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"swarm": swarm})
+
+
 def post_gov_bot_settings(handler, bot_id):
     service = getattr(handler, "gov_bots", None)
     if service is None:
@@ -262,6 +306,7 @@ _STATIC = {
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
     "/api/gov/runs": post_gov_run_create,
+    "/api/gov/swarms": post_gov_swarm_create,
     "/api/gov/routines": post_gov_routine,
     "/api/gov/skills": post_gov_skill,
     "/api/plugins/install": post_plugin_install,
@@ -391,6 +436,13 @@ def dispatch_post(handler, path: str):
     if match is not None:
         run_id, route = match
         return route(handler, run_id)
+    match = _suffix(path, "/api/gov/swarms/", {
+        "/cancel": post_gov_swarm_cancel,
+        "/retry": post_gov_swarm_retry,
+    })
+    if match is not None:
+        swarm_id, route = match
+        return route(handler, swarm_id)
     match = _suffix(path, "/api/gov/routines/", {
         "/toggle": post_gov_routine_toggle,
         "/delete": post_gov_routine_delete,

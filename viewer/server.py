@@ -467,6 +467,16 @@ class Handler(SimpleHTTPRequestHandler):
                 "runs": bots.runs(bot_id, limit),
                 "explanations": bots.explanations_map(),
             })
+        if path == "/api/gov/swarms":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"swarms": bots.swarms(limit)})
         # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
         if path == "/api/audit/bundles":
             return self._json(self.audit.bundles())

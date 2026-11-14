@@ -3495,6 +3495,80 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 .gov-bot-dispatch-field input { font-family: var(--font-mono); }
 .gov-bot-dispatch-field select { min-width: 180px; }
 .gov-bot-dispatch-field input::placeholder { color: var(--text-4); }
+/* 目标级 fan-out：一个蜂群 = 多个目标 run，宿主按并发调度。 */
+.gov-swarm-form {
+  display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap;
+  padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--raised);
+}
+.gov-swarm-field { display: flex; flex-direction: column; gap: 5px; flex: none; }
+.gov-swarm-field.grow { flex: 1 1 420px; min-width: 260px; }
+.gov-swarm-field > span {
+  font: 600 9.5px/1 var(--font-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.gov-swarm-field textarea,
+.gov-swarm-field select,
+.gov-swarm-field input {
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--canvas); color: var(--text-1); outline: none;
+}
+.gov-swarm-field textarea {
+  min-height: 72px; padding: 8px 10px; resize: vertical;
+  font: 12px/1.5 var(--font-mono);
+}
+.gov-swarm-field select { height: 34px; padding: 0 10px; min-width: 90px; }
+.gov-swarm-field input {
+  height: 34px; padding: 0 10px; font: 12px var(--font-mono);
+}
+.gov-swarm-field textarea::placeholder,
+.gov-swarm-field input::placeholder { color: var(--text-4); }
+.gov-swarm-hint { margin: 6px 2px 12px; font: 11px/1.5 var(--font-ui); color: var(--text-3); }
+.gov-swarm-list { display: flex; flex-direction: column; gap: 10px; }
+.gov-swarm-card {
+  padding: 12px; border: 1px solid var(--line-soft); border-radius: 12px;
+  background: var(--raised);
+}
+.gov-swarm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gov-swarm-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gov-swarm-title b { font: 600 13px var(--font-ui); color: var(--text-1); }
+.gov-swarm-state { font: 10px var(--font-mono); color: var(--text-3); }
+.gov-swarm-state.is-running { color: var(--warn); }
+.gov-swarm-state.is-done { color: var(--ok); }
+.gov-swarm-state.is-partial { color: var(--warn); }
+.gov-swarm-state.is-failed { color: var(--bad); }
+.gov-swarm-actions { display: flex; gap: 6px; flex: none; }
+.gov-swarm-progress {
+  height: 4px; margin: 9px 0 6px; border-radius: 2px;
+  background: var(--line-soft); overflow: hidden;
+}
+.gov-swarm-progress span { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.gov-swarm-meta { margin-bottom: 8px; font: 10px var(--font-mono); color: var(--text-3); }
+.gov-swarm-runs { display: flex; flex-direction: column; gap: 4px; }
+.gov-swarm-run {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 5px 7px; border: 1px solid var(--line-soft); border-radius: 7px;
+}
+.gov-swarm-run b {
+  flex: 1; min-width: 0; font: 550 11.5px var(--font-ui); color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gov-swarm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); flex: none; }
+.gov-swarm-run.is-running .gov-swarm-dot { background: var(--warn); animation: kimiPulse 1.6s ease-in-out infinite; }
+.gov-swarm-run.is-done .gov-swarm-dot { background: var(--ok); }
+.gov-swarm-run.is-failed .gov-swarm-dot { background: var(--bad); }
+.gov-swarm-run.is-rejected .gov-swarm-dot { background: var(--text-4); }
+.gov-swarm-run-state { font: 10px var(--font-mono); color: var(--text-3); white-space: nowrap; }
+.gov-swarm-run-meta {
+  max-width: 38ch; font: 10px var(--font-mono); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gov-swarm-link {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: 11px var(--font-ui); color: var(--text-2);
+}
+.gov-swarm-link:hover { color: var(--text-1); }
+.gov-swarm-empty { font-size: 12px; color: var(--text-3); }
 
 /* Routine：一条排程 = Bot 身份 + 目标 + 下次触发 + 启停。 */
 .gov-routine-list { display: flex; flex-direction: column; gap: 6px; }

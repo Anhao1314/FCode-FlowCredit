@@ -164,7 +164,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**1,210 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、387 项前端测试、34 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**1,215 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、391 项前端测试、35 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -203,6 +203,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [治理解释层](docs/gov-explainer.md) | 模型解释确定性证据（非裁决）的边界与 API |
 | [审计员 triage](docs/gov-triage.md) | 模型只提议跟进优先级；影子/受控两档，复扫需批准 |
 | [治理运行流](docs/gov-runs.md) | 对话/团队/定时共用一条运行流：来源、预算与审批语义 |
+| [目标级蜂群](docs/gov-swarm.md) | 多目标 fan-out：宿主并发调度、取消/重试与运行图 |
 | [桌面设计](docs/desktop-design.md) | Work 控制台的结构与交互 |
 | [重构评估](docs/refactor-evaluation.md) | 技术债、模块边界与演进记录 |
 

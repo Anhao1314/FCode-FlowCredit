@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS bot_runs (
     regression_json TEXT,
     error TEXT,
     parent_run_id TEXT,
+    swarm_id TEXT,
     triage_mode TEXT,
     triage_status TEXT,
     triage_json TEXT,
@@ -131,6 +132,17 @@ CREATE TABLE IF NOT EXISTS bot_explanations (
     created TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS bot_skills_run ON bot_skills(source_run_id);
+CREATE TABLE IF NOT EXISTS bot_swarms (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    bot_id TEXT NOT NULL DEFAULT 'auditor',
+    status TEXT NOT NULL DEFAULT 'running',
+    max_concurrency INTEGER NOT NULL DEFAULT 2,
+    target_md TEXT,
+    osv_snapshot TEXT,
+    created TEXT NOT NULL,
+    finished_at TEXT
+);
 """
 
 _DEFAULT_SETTINGS = {
@@ -159,6 +171,7 @@ class GovBotService:
         self._threads: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
         self._scheduler: threading.Thread | None = None
+        self._swarm_thread: threading.Thread | None = None
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(path), check_same_thread=False)
@@ -169,6 +182,7 @@ class GovBotService:
         self._ensure_columns("bot_runs", {
             "source": "TEXT NOT NULL DEFAULT 'team'",
             "parent_run_id": "TEXT",
+            "swarm_id": "TEXT",
             "triage_mode": "TEXT",
             "triage_status": "TEXT",
             "triage_json": "TEXT",
@@ -552,6 +566,11 @@ class GovBotService:
             target=self._schedule_loop, name="gov-bot-scheduler", daemon=True,
         )
         self._scheduler.start()
+        if self._swarm_thread is None or not self._swarm_thread.is_alive():
+            self._swarm_thread = threading.Thread(
+                target=self._swarm_loop, name="gov-swarm-scheduler", daemon=True,
+            )
+            self._swarm_thread.start()
 
     def _schedule_loop(self) -> None:
         while not self._stop.wait(20.0):
@@ -582,6 +601,198 @@ class GovBotService:
                 (fired_at, run_id, run_id, status, routine_id),
             )
             self._db.commit()
+
+    # ----------------------------------------------------------------- swarms
+    # 目标级 fan-out：一个蜂群把多个目标排成队列，宿主按并发上限启动
+    # 审计子 run。子 run 仍写 bot_runs（source=swarm），因此预算、频道、
+    # 审计台、回归都复用现有事实；蜂群只负责调度，不产生新的裁决。
+
+    def _swarm_payload(self, row: sqlite3.Row,
+                       children: list[sqlite3.Row] | None = None) -> dict:
+        item = dict(row)
+        if children is None:
+            with self._lock:
+                children = self._db.execute(
+                    "SELECT * FROM bot_runs WHERE swarm_id=? ORDER BY rowid",
+                    (item["id"],),
+                ).fetchall()
+        runs = [self._row(child) for child in children]
+        counts = {key: 0 for key in
+                  ("total", "queued", "running", "done", "failed", "rejected")}
+        counts["total"] = len(runs)
+        for run in runs:
+            status = str(run.get("status") or "")
+            if status in counts:
+                counts[status] += 1
+        counts["finished"] = counts["done"] + counts["failed"] + counts["rejected"]
+        item["counts"] = counts
+        item["runs"] = runs
+        return item
+
+    def get_swarm(self, swarm_id: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM bot_swarms WHERE id=?", (swarm_id,)
+            ).fetchone()
+        return self._swarm_payload(row) if row else None
+
+    def swarms(self, limit: int = 20) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM bot_swarms ORDER BY created DESC, rowid DESC LIMIT ?",
+                (max(1, min(int(limit), 50)),),
+            ).fetchall()
+        return [self._swarm_payload(row) for row in rows]
+
+    def create_swarm(self, targets: Any, *, name: str = "",
+                     max_concurrency: int = 2, target_md: str | None = None,
+                     osv_snapshot: str | None = None) -> dict:
+        raw = targets.splitlines() if isinstance(targets, str) else list(targets or [])
+        unique: list[str] = []
+        for value in raw:
+            target = str(value or "").strip()
+            if target and target not in unique:
+                unique.append(target)
+        if not unique:
+            raise ValueError("swarm needs at least one target")
+        if len(unique) > 20:
+            raise ValueError("swarm supports at most 20 targets")
+        try:
+            concurrency = int(max_concurrency)
+        except (TypeError, ValueError) as error:
+            raise ValueError("max_concurrency must be 1..4") from error
+        if not 1 <= concurrency <= 4:
+            raise ValueError("max_concurrency must be 1..4")
+        settings = self.get_settings("auditor")
+        remaining = int(settings["daily_run_limit"]) - self._runs_today("auditor")
+        if len(unique) > remaining:
+            raise ValueError(
+                f"审计员今日剩余预算 {remaining} 次，不足 {len(unique)} 个目标"
+            )
+        swarm_id = f"sw-{uuid.uuid4().hex[:12]}"
+        label = str(name or "").strip()[:80] or f"蜂群 · {len(unique)} 个目标"
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO bot_swarms"
+                " (id, name, bot_id, status, max_concurrency, target_md,"
+                "  osv_snapshot, created) VALUES (?,?,?,?,?,?,?,?)",
+                (swarm_id, label, "auditor", "running", concurrency,
+                 target_md or None, osv_snapshot or None, _now()),
+            )
+            for target in unique:
+                self._db.execute(
+                    "INSERT INTO bot_runs"
+                    " (run_id, bot_id, trigger, source, target, status,"
+                    "  swarm_id, started_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (f"bot-{uuid.uuid4().hex[:12]}", "auditor", "manual",
+                     "swarm", target, "queued", swarm_id, _now()),
+                )
+            self._db.commit()
+        self._pump_swarms()
+        return self.get_swarm(swarm_id) or {}
+
+    def cancel_swarm(self, swarm_id: str) -> dict:
+        swarm = self.get_swarm(swarm_id)
+        if swarm is None:
+            raise ValueError("swarm not found")
+        if swarm.get("status") not in ("running", "queued"):
+            raise ValueError("swarm is not running")
+        with self._lock:
+            self._db.execute(
+                "UPDATE bot_swarms SET status='cancelled', finished_at=? WHERE id=?",
+                (_now(), swarm_id),
+            )
+            self._db.execute(
+                "UPDATE bot_runs SET status='rejected', error=?, finished_at=?"
+                " WHERE swarm_id=? AND status='queued'",
+                ("swarm cancelled", _now(), swarm_id),
+            )
+            self._db.commit()
+        return self.get_swarm(swarm_id) or {}
+
+    def retry_swarm(self, swarm_id: str) -> dict:
+        swarm = self.get_swarm(swarm_id)
+        if swarm is None:
+            raise ValueError("swarm not found")
+        retryable = [run for run in swarm.get("runs") or []
+                     if run.get("status") in ("failed", "rejected")]
+        if not retryable:
+            raise ValueError("swarm has no failed targets to retry")
+        with self._lock:
+            self._db.execute(
+                "UPDATE bot_runs SET status='queued', error=NULL, finished_at=NULL,"
+                " started_at=? WHERE swarm_id=? AND status IN ('failed','rejected')",
+                (_now(), swarm_id),
+            )
+            self._db.execute(
+                "UPDATE bot_swarms SET status='running', finished_at=NULL WHERE id=?",
+                (swarm_id,),
+            )
+            self._db.commit()
+        self._pump_swarms()
+        return self.get_swarm(swarm_id) or {}
+
+    def _pump_swarms(self) -> None:
+        """启动 queued 子 run；蜂群只调度，不改变子 run 的判定。"""
+        with self._lock:
+            swarms = self._db.execute(
+                "SELECT * FROM bot_swarms WHERE status='running'"
+            ).fetchall()
+        for swarm in swarms:
+            to_start: list[sqlite3.Row] = []
+            with self._lock:
+                children = self._db.execute(
+                    "SELECT * FROM bot_runs WHERE swarm_id=? ORDER BY rowid",
+                    (swarm["id"],),
+                ).fetchall()
+                running = sum(1 for row in children if row["status"] == "running")
+                queued = [row for row in children if row["status"] == "queued"]
+                if not queued and running == 0:
+                    statuses = [str(row["status"]) for row in children]
+                    done_count = sum(1 for status in statuses if status == "done")
+                    if not statuses:
+                        final = "failed"
+                    elif done_count == len(statuses):
+                        final = "done"
+                    elif done_count == 0:
+                        final = "failed"
+                    else:
+                        final = "partial"
+                    self._db.execute(
+                        "UPDATE bot_swarms SET status=?, finished_at=? WHERE id=?",
+                        (final, _now(), swarm["id"]),
+                    )
+                    self._db.commit()
+                    continue
+                slots = max(0, int(swarm["max_concurrency"]) - running)
+                for child in queued[:slots]:
+                    cur = self._db.execute(
+                        "UPDATE bot_runs SET status='running'"
+                        " WHERE run_id=? AND status='queued'",
+                        (child["run_id"],),
+                    )
+                    if cur.rowcount > 0:
+                        to_start.append(child)
+                self._db.commit()
+            for child in to_start:
+                try:
+                    self._start_thread(
+                        child["run_id"], "auditor", child["target"],
+                        target_md=swarm["target_md"],
+                        osv_snapshot=swarm["osv_snapshot"],
+                    )
+                except Exception as error:  # noqa: BLE001 — one child must not stop the swarm
+                    self._finish(
+                        child["run_id"], status="failed",
+                        error=f"swarm start failed: {error}",
+                    )
+
+    def _swarm_loop(self) -> None:
+        while not self._stop.wait(0.5):
+            try:
+                self._pump_swarms()
+            except Exception:  # noqa: BLE001 — pump loop never exits
+                continue
 
     def _latest_audit_dir(self, purpose: str = "verify") -> str:
         """最近一次完成的审计员运行；没有运行记录时退回 bundle 列表。"""
@@ -639,7 +850,7 @@ class GovBotService:
             bool(settings["routine_approval"]) and trigger == "routine")
         status = "pending" if needs_approval else "queued"
         run_id = f"bot-{uuid.uuid4().hex[:12]}"
-        source = source if source in ("team", "console") else "team"
+        source = source if source in ("team", "console", "swarm") else "team"
         with self._lock:
             self._db.execute(
                 "INSERT INTO bot_runs"

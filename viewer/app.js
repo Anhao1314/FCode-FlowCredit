@@ -13,6 +13,7 @@ import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/worksp
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
 import { parseGovAuditArgs } from "./core/gov-args.js";
+import { govSwarmFormHtml, govSwarmListHtml } from "./core/gov-swarm.js";
 import {
   aggregateTargets, filterFindings, govSummaryHtml,
   findingsToolbarHtml, findingsTableHtml, findingDetailHtml,
@@ -2808,7 +2809,7 @@ const govWork = {
   dir: "", severity: "all", unhandled: false, query: "", finding: "", inspector: "",
 };
 const govTeam = {
-  bots: [], runs: [], explanations: {}, loaded: false,
+  bots: [], runs: [], explanations: {}, swarms: [], loaded: false,
 };
 let govTeamSeq = 0;
 let govTeamTimer = null;
@@ -2854,6 +2855,7 @@ function govRecentRunsHtml() {
       : run.status === "failed" ? "失败"
       : run.status === "pending" ? "待批准" : "执行中";
     const source = run.source === "console" ? "对话"
+      : run.source === "swarm" ? "蜂群"
       : run.trigger === "routine" ? "定时" : "团队";
     const when = String(run.finished_at || run.started_at || "").replace("T", " ").slice(11, 16);
     const target = govRunTargetLabel(run.target);
@@ -3186,22 +3188,35 @@ function paintGovTeam() {
       routineFormHost.dataset.govSig = signature;
     }
   }
+  const swarmFormHost = document.getElementById("gov-swarm-form-host");
+  if (swarmFormHost && !swarmFormHost.innerHTML.trim()) {
+    swarmFormHost.innerHTML = govSwarmFormHtml();
+  }
+  const swarmListHost = document.getElementById("gov-swarm-list-host");
+  if (swarmListHost) {
+    swarmListHost.innerHTML = govTeam.loaded
+      ? govSwarmListHtml(govTeam.swarms)
+      : `<div class="gov-loading dim">正在读取蜂群…</div>`;
+  }
   hydrateDoodles(summaryHost);
 }
 
 async function loadGovTeam() {
   const seq = ++govTeamSeq;
   try {
-    const [botsResponse, runsResponse] = await Promise.all([
+    const [botsResponse, runsResponse, swarmsResponse] = await Promise.all([
       fetch("/api/gov/bots", { cache: "no-store" }),
       fetch("/api/gov/runs?limit=40", { cache: "no-store" }),
+      fetch("/api/gov/swarms?limit=10", { cache: "no-store" }),
     ]);
     const botsData = botsResponse.ok ? await botsResponse.json() : { bots: [] };
     const runsData = runsResponse.ok ? await runsResponse.json() : { runs: [] };
+    const swarmsData = swarmsResponse.ok ? await swarmsResponse.json() : { swarms: [] };
     if (seq !== govTeamSeq) return;
     govTeam.bots = Array.isArray(botsData.bots) ? botsData.bots : [];
     govTeam.runs = Array.isArray(runsData.runs) ? runsData.runs : [];
     govTeam.explanations = runsData.explanations || {};
+    govTeam.swarms = Array.isArray(swarmsData.swarms) ? swarmsData.swarms : [];
     govTeam.loaded = true;
     if (!govTeam.bots.some(bot => bot.id === govBotSelected) && govTeam.bots[0]) {
       govBotSelected = govTeam.bots[0].id;
@@ -3209,7 +3224,7 @@ async function loadGovTeam() {
     if (!govTeam.bots.some(bot => bot.id === govRoutineSelected) && govTeam.bots[0]) {
       govRoutineSelected = govTeam.bots[0].id;
     }
-    const signature = JSON.stringify([govTeam.bots, govTeam.runs, govTeam.explanations]);
+    const signature = JSON.stringify([govTeam.bots, govTeam.runs, govTeam.explanations, govTeam.swarms]);
     if (govActive() && govSurface === "team" && signature !== govTeamSig) {
       govTeamSig = signature;
       paintGovTeam();
@@ -3334,6 +3349,58 @@ async function focusGovRunByAudit(auditId) {
     return;
   }
   await focusGovRun(run.run_id);
+}
+
+async function startGovSwarm() {
+  const textarea = document.getElementById("gov-swarm-targets");
+  const select = document.getElementById("gov-swarm-concurrency");
+  const targetMd = document.getElementById("gov-swarm-target-md")?.value.trim() || "";
+  const osvSnapshot = document.getElementById("gov-swarm-osv-snapshot")?.value.trim() || "";
+  const targets = String(textarea?.value || "")
+    .split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  if (!targets.length) {
+    toast("每行填一个目标，再发起蜂群");
+    textarea?.focus();
+    return;
+  }
+  try {
+    const response = await fetch("/api/gov/swarms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targets,
+        max_concurrency: Number(select?.value || 2),
+        ...(targetMd ? { target_md: targetMd } : {}),
+        ...(osvSnapshot ? { osv_snapshot: osvSnapshot } : {}),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (textarea) textarea.value = "";
+    const mdInput = document.getElementById("gov-swarm-target-md");
+    if (mdInput) mdInput.value = "";
+    const osvInput = document.getElementById("gov-swarm-osv-snapshot");
+    if (osvInput) osvInput.value = "";
+    toast(`蜂群已发起 · ${targets.length} 个目标`);
+    await loadGovTeam();
+    refreshGovHistory();
+  } catch (error) {
+    toast("蜂群发起失败：" + error.message);
+  }
+}
+
+async function govSwarmAction(swarmId, action) {
+  try {
+    const response = await fetch(
+      `/api/gov/swarms/${encodeURIComponent(swarmId)}/${action}`,
+      { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    toast(action === "cancel" ? "已停止蜂群排队" : "失败目标已重新排队");
+    await loadGovTeam();
+  } catch (error) {
+    toast("蜂群操作失败：" + error.message);
+  }
 }
 
 async function startGovRoutine() {
@@ -3612,7 +3679,7 @@ function renderGovTeam() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
-  setFoot("治理台 · 团队频道（审计员 / 复核员）", "");
+  setFoot("治理台 · 团队频道（审计员 / 复核员 / 分析员）", "");
   // 团队频道收进右上角的证据侧栏（rail，双形态：宽屏停靠/窄屏浮层）。
   // 团队面 = 管理面（概要/花名册/派活/排程）；频道流在 rail 里可随时收起。
   renderMain(`<div class="gov-team">
@@ -3631,6 +3698,11 @@ function renderGovTeam() {
     <section class="gov-team-section">
       <div class="gov-team-section-head"><span>DISPATCH</span><b>派活</b></div>
       <div id="gov-team-dispatch"></div>
+    </section>
+    <section class="gov-team-section">
+      <div class="gov-team-section-head"><span>SWARM</span><b>目标蜂群</b></div>
+      <div id="gov-swarm-form-host"></div>
+      <div id="gov-swarm-list-host"></div>
     </section>
     <section class="gov-team-section">
       <div class="gov-team-section-head"><span>ROUTINES</span><b>定时排程</b></div>
@@ -3942,6 +4014,11 @@ document.addEventListener("submit", event => {
   if (event.target.closest("#gov-routine-form")) {
     event.preventDefault();
     startGovRoutine();
+    return;
+  }
+  if (event.target.closest("#gov-swarm-form")) {
+    event.preventDefault();
+    startGovSwarm();
     return;
   }
   if (event.target.closest("#gov-bot-settings-form")) {
@@ -4900,6 +4977,16 @@ function bindGlobalActions() {
     const govRunReject = event.target.closest("[data-gov-run-reject]");
     if (govRunReject) {
       decideGovRun(govRunReject.dataset.govRunReject, false);
+      return;
+    }
+    const swarmCancel = event.target.closest("[data-gov-swarm-cancel]");
+    if (swarmCancel) {
+      govSwarmAction(swarmCancel.dataset.govSwarmCancel, "cancel");
+      return;
+    }
+    const swarmRetry = event.target.closest("[data-gov-swarm-retry]");
+    if (swarmRetry) {
+      govSwarmAction(swarmRetry.dataset.govSwarmRetry, "retry");
       return;
     }
     const govSkillRun = event.target.closest("[data-gov-skill-run]");
