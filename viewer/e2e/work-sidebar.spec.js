@@ -14,7 +14,7 @@ test("Work 侧栏：项目创建 → 运行嵌套 → 刷新 → 归档", async 
     await page.goto("/");
     await page.waitForSelector('body[data-booted="1"]');
     await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
-    await expect(page.locator("#chat-projects")).toContainText("Projects");
+    await expect(page.locator("#chat-projects")).toContainText("项目");
 
     await page.locator("[data-proj-add]").click();
     const form = page.locator("[data-proj-form]");

@@ -179,7 +179,7 @@ export function projectSectionHtml(projects, options) {
     || (opts.adding || opts.editing
       ? ""
       : '<div class="proj-empty">还没有项目</div>'));
-  return sectionHeadHtml("Projects", { key: "projects", action: add }, list.length)
+  return sectionHeadHtml("项目", { key: "projects", action: add }, list.length)
     + revealHtml('<nav class="nav" data-proj-nav>' + body + "</nav>");
 }
 

@@ -7,6 +7,8 @@ test("Work opening scene keeps the composer contract and creator message", () =>
   assert.match(html, /Build your/);
   assert.match(html, /own work\./);
   assert.match(html, /id="stage-dock"/);
+  assert.match(html, /class="stage-suggestions"/);
+  assert.match(html, /data-stage-prompt="审计这个目录/);
   assert.doesNotMatch(html, /stage-prompts|stage-chips|class="stage-foot"/);
 });
 

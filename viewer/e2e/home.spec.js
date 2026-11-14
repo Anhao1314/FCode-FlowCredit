@@ -7,13 +7,23 @@ test("Work 落地渲染:任务舞台 + 模型徽章 + 侧栏导航", async ({ pa
   await page.waitForSelector('body[data-booted="1"]');
   await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
   await expect(page.locator(".moonshot-title")).toContainText("Build your");
-  await expect(page.locator("#chat-projects")).toContainText("Projects");
+  await expect(page.locator("#chat-projects")).toContainText("项目");
   // 模型徽章来自 paintModelBadge(新 composer-panel 模块):全新档案的
   // 默认模型可能落在云端条目或离线 mock,断言"有可读徽章"而非具体值
   await expect(page.locator("#model-label")).toHaveText(/kimi|deepseek|offline-mock|未连接/);
   // 功能导航已撤除:两区对话面由 Work/Governance 区切换器直达
   await expect(page.locator('#zone-switch [data-zone="work"]')).toBeVisible();
   await expect(page.locator('#zone-switch [data-zone="gov"]')).toBeVisible();
+});
+
+test("首页快捷建议只填入 composer,不自动提交", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  const chip = page.locator("[data-stage-prompt]").first();
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(page.locator("#composer-ta")).toHaveValue(/审计这个目录/);
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
 });
 
 test("⌘K 命令面板:开合、过滤、键盘导航", async ({ page }) => {

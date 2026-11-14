@@ -39,7 +39,9 @@ body {
 .mode-opt:hover { color: var(--text-1); background: rgba(0, 0, 0, .04); }
 .mode-opt.active { background: #FFFFFF; border-color: rgba(0, 0, 0, .13); color: var(--text-1); }
 
-.stage-mark { display: inline-flex; align-items: flex-start; gap: 10px; }
+/* 仅用于非 moonshot 的内联字标；moonshot 标题必须是块级两行，
+   否则两行 span 会并排成一行被舞台裁切（标题只剩 "Build your own wo"）。 */
+.stage-mark:not(.moonshot-title) { display: inline-flex; align-items: flex-start; gap: 10px; }
 /* .stage-badge 黑底款已删：moonshot.css:21 的透明描边款是定稿（本文件加载序在先，从未生效）。 */
 
 /* ================================================================ 主区 */
@@ -1049,3 +1051,227 @@ body[data-zone="work"] #gov-surface-nav { display: none; }
    Governance=新对话（治理台新会话）。⌘N 跟随当前区。 */
 body[data-zone="gov"] #new-run { display: none; }
 body[data-zone="work"] #gov-new-dialog { display: none; }
+
+
+/* ================================================================ Kimi parity pass（2026-11）
+   本机 Kimi Work 的实测语言：中性白面、同色侧栏、安静行式导航、居中的
+   轻字标、以 composer 为主角、内容区无边框留白、卡片 16px 圆角。
+   本节最后加载，只覆盖呈现，不改任何交互或状态语义。 */
+
+/* ---- 侧栏：新对话从“白卡”收成安静行 ------------------------------------- */
+.side-new,
+html.desktop-app .side-new {
+  width: 100%; height: 36px; margin: 0 0 8px; padding: 0 8px;
+  border: 0; border-radius: 10px; background: transparent;
+  color: var(--text-1); font-size: 14px; font-weight: 500;
+  box-shadow: none;
+}
+.side-new:hover,
+html.desktop-app .side-new:hover {
+  background: var(--k-fill-2); border-color: transparent; box-shadow: none;
+}
+.side-new svg, .side-new .d-icon, .side-new .s-icon { color: var(--text-2); }
+.side-new:hover .s-icon, .side-new:hover .d-icon { transform: none; }
+.side-new .nav-shortcut { margin-left: auto; color: var(--text-4); font-size: 11px; }
+.side-search {
+  margin: 0 0 8px; border: 0; border-radius: 10px;
+  background: var(--k-fill-1);
+}
+.side-search:hover { background: var(--k-fill-2); }
+.side-search:focus-within { background: var(--k-fill-2); }
+
+/* ---- 首页舞台：居中轻字标，去掉与标题争抢的轨道插图 ---------------------- */
+.moonshot-stage .moonshot-stage-copy { position: relative; z-index: 2; width: 100%; }
+.moonshot-kicker {
+  justify-content: center; gap: 7px; margin-bottom: 18px;
+  font: 500 10.5px/16px var(--font-mono); letter-spacing: .12em;
+  color: var(--text-4);
+}
+.moonshot-pixel {
+  width: 5px; height: 5px; margin-right: 8px;
+  box-shadow: 7px 0 0 var(--line-strong);
+}
+.moonshot-kicker .stage-badge {
+  margin-left: 2px; padding: 0 5px; border: 0; border-radius: 4px;
+  background: var(--k-fill-2); color: var(--text-3);
+  font: 500 10px/16px var(--font-mono); letter-spacing: .08em;
+}
+.moonshot-title {
+  display: block;
+  font: 500 clamp(38px, 4.3vw, 56px)/1.1 var(--font-ui);
+  letter-spacing: -.055em;
+}
+.moonshot-title-line { margin-right: auto; margin-left: auto; }
+.moonshot-cursor { width: .42em; height: .7em; margin-left: .1em; opacity: .88; }
+.moonshot-stage .stage-note {
+  max-width: 480px; margin: 16px auto 0;
+  color: var(--text-3); font-size: 14px; line-height: 22px;
+}
+.moonshot-stage .stage-dock { width: min(800px, 100%); margin: 28px auto 0; }
+.stage-suggestions {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  width: 100%; margin: 14px auto 0;
+}
+.stage-suggestion {
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--raised); color: var(--text-2);
+  font: 13px/20px var(--font-ui); cursor: pointer;
+  transition: background-color var(--t) ease, color var(--t) ease, border-color var(--t) ease;
+}
+.stage-suggestion:hover {
+  background: var(--panel); color: var(--text-1); border-color: var(--line-strong);
+}
+
+/* ---- composer：浮起的主件，输入 16px，控件更轻 --------------------------- */
+.composer-wrap {
+  padding: 14px 28px 22px; border-top: 0; background: var(--canvas);
+}
+.composer { max-width: 820px; }
+.composer-box {
+  border: 1px solid var(--line); border-radius: 20px;
+  background: var(--raised); box-shadow: var(--shadow-stage);
+}
+.composer-box:focus-within {
+  border-color: rgba(0, 0, 0, .18);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .025), var(--shadow-stage);
+}
+.composer-ta, html.desktop-app .composer-ta {
+  min-height: 60px; padding: 17px 18px 4px;
+  font-size: 16px; line-height: 24px;
+}
+.composer-bar, html.desktop-app .composer-bar { padding: 6px 10px 10px; gap: 6px; }
+.composer-bar .c-btn {
+  height: 32px; padding: 0 10px; border-radius: 16px;
+  font-size: 13px; color: var(--text-2);
+}
+.composer-bar .c-btn:hover { background: var(--k-fill-2); color: var(--text-1); }
+.composer .c-icon, .composer .send { width: 34px; height: 34px; }
+.composer .send { background: #111; }
+.composer .send:hover { background: #2a2a2a; }
+.composer .send:disabled { background: var(--panel); }
+
+/* ---- 任务线程：标题不画分割线，状态与工具调用退成安静的阅读行 ------------ */
+#main[data-view="run"] { max-width: 800px; padding: 22px 28px 48px; }
+.session-head { margin: 0 0 20px; padding: 0 0 12px; border-bottom: 0; }
+.session-kicker {
+  font: 500 11px/16px var(--font-ui); letter-spacing: 0;
+  text-transform: none; color: var(--text-3);
+}
+.session-title { font-size: 21px; line-height: 30px; font-weight: 600; letter-spacing: -.02em; }
+.session-meta { margin-top: 6px; font-size: 11px; }
+.work-view-tabs {
+  padding: 3px; border: 0; border-radius: 10px;
+  background: var(--k-fill-2); box-shadow: none;
+}
+.work-view-tab {
+  padding: 5px 12px; border-radius: 8px;
+  font-size: 13px; line-height: 18px; color: var(--text-3);
+}
+.work-view-tab.active {
+  background: var(--raised); color: var(--text-1);
+  font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+.task-thread { gap: 1px; margin-top: 14px; }
+.th-user { margin: 2px 0 10px; padding: 2px 10px 0; }
+.th-who { font: 500 11px/16px var(--font-ui); letter-spacing: 0; color: var(--text-3); }
+.th-chip {
+  padding: 0 7px; background: var(--k-fill-1); color: var(--text-3);
+  font-size: 11px; line-height: 18px;
+}
+.th-user-text { font-size: 15px; line-height: 1.72; }
+.th-status {
+  padding: 6px 10px; gap: 2px; border: 0; border-radius: 8px;
+  background: transparent;
+}
+.th-status:hover { background: var(--k-fill-1); }
+.th-status-label { font-size: 13px; font-weight: 500; }
+.th-status-facts { font-size: 11px; color: var(--text-4); }
+.th-tool-head { min-height: 34px; padding: 4px 10px; }
+.th-tool-head:hover { background: var(--k-fill-1); }
+.th-tool-name { max-width: 38%; font-size: 12.5px; color: var(--text-2); }
+.th-tool-summary { font-size: 12.5px; color: var(--text-3); }
+.th-tool-code { padding: 0; background: transparent; }
+.th-tool-body { padding: 0 10px 10px 33px; }
+.th-answer { padding: 14px 10px 8px; }
+.card.result {
+  margin-top: 18px; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.result .card-head { padding: 4px 10px 6px; }
+.result-answer { padding: 0 10px 12px; font-size: 15px; line-height: 1.75; }
+.result .metrics { padding: 0 10px 12px; }
+.result .metric { background: var(--k-fill-1); }
+.result-foot { padding: 12px 10px; border-top: 1px solid var(--line-soft); }
+
+/* ---- 治理面：与 Work 共用一套卡片/分段语言 ------------------------------- */
+.gov-surface-switch { padding: 3px; border-radius: 10px; background: var(--k-fill-2); }
+.gov-surface-btn { height: 28px; border-radius: 8px; font-size: 12.5px; }
+.gov-surface-btn.active { font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.gov-surface-nav .gov-surface-btn { height: 34px; border-radius: 10px; }
+.gov-wb-header { border-bottom: 0; padding-bottom: 10px; }
+.gov-wb-intro .page-title { font-size: 22px; letter-spacing: -.025em; }
+.gov-wb-intro .page-meta { font-size: 13px; color: var(--text-3); }
+.gov-target-field span,
+.gov-bot-dispatch-field > span,
+.gov-swarm-field > span {
+  font: 500 11px/16px var(--font-ui); letter-spacing: 0;
+  text-transform: none; color: var(--text-3);
+}
+.gov-bot-card, .gov-bot-dispatch, .gov-swarm-form,
+.gov-swarm-card, .gov-routine-row {
+  border-color: var(--line-soft); border-radius: 16px; background: var(--raised);
+}
+.gov-bot-card, .gov-swarm-card { padding: 16px; }
+.gov-bot-dispatch, .gov-swarm-form { padding: 14px; }
+.gov-bot-charter { font-size: 12.5px; line-height: 1.65; color: var(--text-2); }
+.gov-bot-current { border-radius: 9px; background: var(--k-fill-1); }
+.gov-swarm-run {
+  padding: 5px 8px; border: 0; border-radius: 8px;
+  background: var(--k-fill-1);
+}
+.gov-triage { border: 0; border-radius: 12px; background: var(--k-fill-1); }
+.gov-fix-box { border-color: var(--line-soft); border-radius: 12px; }
+
+/* 光标从粗黑块收成细竖线：保留打字节律，不抢字标。 */
+.moonshot-cursor {
+  width: 2px; height: .62em; margin-left: .08em;
+  background: var(--text-2); opacity: .55; vertical-align: .02em;
+}
+/* 计划是过程摘要，不是证据卡：与工具行同一档安静表面。 */
+.th-plan {
+  padding: 10px 12px; border: 0; border-radius: 12px;
+  background: var(--k-fill-1);
+}
+.th-plan-row.done .th-plan-text { text-decoration: none; color: var(--text-3); }
+
+/* 标题用一次轻柔上浮代替逐字裁切：Kimi 的开屏是静态的，
+   逐字动画在进入页面后的 1.3s 里会显示成“缺字/排版坏了”。 */
+.moonshot-title-line {
+  clip-path: none;
+  animation: stageLineIn .5s var(--ease) both;
+}
+.moonshot-title-line + .moonshot-title-line { animation-delay: .08s; }
+@keyframes stageLineIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+/* 运行标题显示完整目标，最多两行；侧栏仍用短标签。 */
+.session-title {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+/* 舞台与 dock 同宽：Kimi Work 的 composer 是首屏主角，760 的旧上限会让
+   输入框比标题窄一档。 */
+#app.stage-mode .moonshot-stage { width: min(800px, 100%); }
+/* 开屏不挂底部状态条：模型已在 composer 里，键盘提示留在「搜索与命令」。 */
+#app.stage-mode .statusline { display: none; }
+@media (max-width: 900px) {
+  .composer-wrap { padding: 10px 14px 14px; }
+  #main[data-view="run"] { padding: 16px 18px 42px; }
+}
+@media (max-width: 640px) {
+  .moonshot-stage .stage-dock { margin-top: 22px; }
+  .stage-suggestions { gap: 6px; }
+  .stage-suggestion { height: 30px; padding: 0 10px; font-size: 12.5px; }
+}

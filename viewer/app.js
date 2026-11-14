@@ -514,7 +514,7 @@ function setWorkChrome() {
   const title = document.getElementById("tb-title");
   if (title) title.textContent = "工作";
   const chips = document.getElementById("tb-chips");
-  if (chips) chips.innerHTML = '<span class="chip">项目 · 运行</span>';
+  if (chips) chips.innerHTML = "";
   const badge = document.getElementById("chain-badge");
   if (badge) {
     badge.className = "chain-pill";
@@ -1116,10 +1116,10 @@ function sessionHeadHtml(trace, title, note = "") {
     : (childRuns.length
       ? `<button class="meta-button" type="button" data-led-row-jump="${esc(childRuns[0].id)}" title="${childRuns.length} 个子代理运行 · 点击打开">子代理 ×${childRuns.length}</button>`
       : "");
-  const name = (currentRun() && currentRun().name) || shortObjective(task.objective || "") || "未命名委托";
+  const name = (currentRun() && currentRun().name) || task.objective || "未命名委托";
   return `<header class="session-head">
     <p class="session-kicker">${esc(title || task.id || "运行")}</p>
-    <h1 class="session-title">${esc(name)}</h1>
+    <h1 class="session-title" title="${esc(name)}">${esc(name)}</h1>
     <div class="session-meta">
       <span>${meta}</span>
       ${lineageChip}
@@ -3674,7 +3674,7 @@ function openGovBotDetail(botId) {
 function renderGovBotDetail() {
   stopGovTeamPoll();
   document.getElementById("tb-title").textContent = "治理台";
-  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  document.getElementById("tb-chips").innerHTML = "";
   setFoot(`治理台 · Bot 详情（${govBotDetailId}）`, "");
   renderMain(`<div class="gov-bot-detail-page" id="gov-bot-detail-host"></div>`, { mode: "gov" });
   paintGovBotDetail();
@@ -3826,7 +3826,7 @@ function setRailMode(mode) {
 function renderGovTeam() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
-  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  document.getElementById("tb-chips").innerHTML = "";
   setFoot("治理台 · 团队频道（审计员 / 复核员 / 分析员）", "");
   // 团队频道收进右上角的证据侧栏（rail，双形态：宽屏停靠/窄屏浮层）。
   // 团队面 = 管理面（概要/花名册/派活/排程）；频道流在 rail 里可随时收起。
@@ -3874,7 +3874,7 @@ function renderGovDialog() {
   stopGovTeamPoll();
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
-  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  document.getElementById("tb-chips").innerHTML = "";
   setFoot("治理台 · 对话式零模型控制台（/挖洞 · /判断 · /链）", "");
   renderMain(`<div class="gov-dlg">
     <header class="gov-dlg-head">
@@ -3904,7 +3904,7 @@ async function renderGovWorkbench() {
   stopGovTeamPoll();
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
-  document.getElementById("tb-chips").innerHTML = `<span class="chip">治理</span>`;
+  document.getElementById("tb-chips").innerHTML = "";
   setFoot("治理台 · 离线审计 / 证据 / 操作员处置", "");
   // 活动区是命令响应（链/判断），属于一次性输出；重新进入工作台时不
   // 把上一次的链卡当作当前事实继续展示。新作业仍会从 govJobs 重绘。
@@ -5362,6 +5362,16 @@ function bindGlobalActions() {
       return;
     }
     if (event.target.closest("#new-run")) { newChat(); return; }
+    const stageSuggestion = event.target.closest("[data-stage-prompt]");
+    if (stageSuggestion) {
+      const field = document.getElementById("composer-ta");
+      if (field) {
+        field.value = stageSuggestion.dataset.stagePrompt || "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.focus();
+      }
+      return;
+    }
     if (event.target.closest("#gov-new-dialog")) { newGovDialog(); return; }
     if (event.target.closest("#send")) {
       if (chat.active && chat.streaming) { stopChat(); return; }
