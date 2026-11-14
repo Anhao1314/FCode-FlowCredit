@@ -20,6 +20,18 @@
 - 复核员目标留空 = **最近一次完成的审计员运行**（以运行流为准，不再按目录名
   猜同一天的“最新”）。
 
+## 角色
+
+| 角色 | 目标 | 权限 | 产物 |
+| --- | --- | --- | --- |
+| 审计员 | 仓库内源码或放行的制品 | `audit.run` · `bundle.read` | findings + 证据 + 审计链 |
+| 复核员 | 审计 id（留空 = 最近一次） | `chain.read` · `regression.read` · `bundle.read` | 链完整性 + 回归 buckets |
+| 分析员 | 审计 id（留空 = 最近一次） | `bundle.read` · `triage.propose` | 优先级提议（`triage_json`），不产生 finding |
+
+分析员是只读身份：使用同一套 `GovTriage`，`mode=manual`，只提议不裁决；不创建
+技能、不拥有排程、不生成复扫。模型不可用时运行失败并显示 `triage_error`，
+审计证据不受影响。
+
 ## 接口
 
 - `POST /api/gov/runs`：统一创建入口。

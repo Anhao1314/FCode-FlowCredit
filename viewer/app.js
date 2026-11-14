@@ -3247,7 +3247,7 @@ function syncGovBotDispatch() {
   govBotSelected = select.value;
   const bot = govTeam.bots.find(item => item.id === govBotSelected);
   if (input) {
-    input.placeholder = bot && bot.id === "verifier"
+    input.placeholder = bot && (bot.id === "verifier" || bot.id === "analyst")
       ? "审计 id（留空 = 最新一次）"
       : "目标路径，如 fixtures/demo-target";
   }

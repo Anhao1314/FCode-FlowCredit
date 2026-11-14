@@ -105,7 +105,9 @@ export function govBotCardHtml(bot) {
     <p class="gov-bot-charter">${esc(bot.charter || "")}</p>
     <div class="gov-bot-current">${currentHtml}</div>
     <footer class="gov-bot-card-foot">
-      <span>${num(counts.runs || 0)} 次运行 · ${num(counts.findings || 0)} 发现${
+      <span>${bot.id === "analyst"
+        ? `${num(counts.runs || 0)} 次分析`
+        : `${num(counts.runs || 0)} 次运行 · ${num(counts.findings || 0)} 发现`}${
         counts.routines ? ` · ${num(counts.routines)} 个排程` : ""
       }${counts.pending ? ` · ${num(counts.pending)} 待批准` : ""}</span>
       <button class="gov-wb-button quiet" type="button" data-gov-bot-pick="${esc(bot.id)}">派活 →</button>
@@ -129,7 +131,7 @@ export function govBotDispatchHtml(bots, selected = "auditor") {
     `<option value="${esc(bot.id)}"${bot.id === active ? " selected" : ""}>${esc(bot.name)} · ${esc(bot.role || "")}</option>`
   ).join("");
   const bot = botOf(list, active);
-  const placeholder = bot && bot.id === "verifier"
+  const placeholder = bot && (bot.id === "verifier" || bot.id === "analyst")
     ? "审计 id（留空 = 最新一次）"
     : "目标路径，如 fixtures/demo-target";
   return `<form class="gov-bot-dispatch" id="gov-bot-dispatch">
@@ -157,7 +159,7 @@ export function govBotDispatchHtml(bots, selected = "auditor") {
 }
 
 export function govBotRoutineFormHtml(bots, selected = "auditor") {
-  const list = bots || [];
+  const list = (bots || []).filter(bot => bot.id !== "analyst");
   const active = list.some(bot => bot.id === selected) ? selected : (list[0] && list[0].id) || "auditor";
   const options = list.map(bot =>
     `<option value="${esc(bot.id)}"${bot.id === active ? " selected" : ""}>${esc(bot.name)}</option>`
@@ -234,6 +236,14 @@ function runStatusLine(bot, run) {
   if (run.status === "queued" || run.status === "running") {
     return `<div class="gov-bot-progress"><span class="gov-job-dot" aria-hidden="true"></span>正在执行 ${esc(targetLabel(run.target))}…</div>`;
   }
+  if (bot.id === "analyst") {
+    const priorities = (run.triage && run.triage.priorities) || [];
+    return `<div class="gov-bot-result-line">
+      <span>${num(priorities.length)} 条优先级</span>
+      <span>·</span>
+      <span>只提议，不裁决</span>
+    </div>`;
+  }
   if (bot.id === "verifier") {
     const chain = run.chain_intact === true
       ? `<span class="gov-state ok">链完整</span>`
@@ -271,10 +281,9 @@ function runActions(run, opts = {}) {
   const teach = opts.teach === false ? ""
     : `<button class="gov-wb-button quiet" type="button" data-gov-skill-run="${esc(run.run_id)}"
       title="从这次已完成的运行生成可复用技能">教一次</button>`;
-  const explain = run.audit_id
-    ? `<button class="gov-wb-button quiet" type="button" data-gov-explain="${esc(run.run_id)}"
-      title="基于审计包生成模型解读（非裁决，不进审计包）">AI 解读</button>`
-    : "";
+  const explain = opts.explain === false || !run.audit_id ? ""
+    : `<button class="gov-wb-button quiet" type="button" data-gov-explain="${esc(run.run_id)}"
+      title="基于审计包生成模型解读（非裁决，不进审计包）">AI 解读</button>`;
   return `<div class="gov-bot-run-actions">${links}${teach}${explain}</div>`;
 }
 
@@ -291,18 +300,21 @@ export function govBotSettingsFormHtml(bot) {
         <option value="active"${triage === "active" ? " selected" : ""}>受控 triage · 提议待批准复扫</option>
       </select>
     </label>` : "";
+  const routineApproval = bot.id === "analyst" ? "" : `<label class="gov-bot-check">
+      <input id="gov-bot-routine-approval" type="checkbox"${settings.routine_approval ? " checked" : ""}>
+      定时运行需操作员批准
+    </label>`;
+  const budgetNote = bot.id === "auditor" ? " · 对话手动挖洞不计入"
+    : bot.id === "analyst" ? " · 分析调用计入上限" : "";
   return `<form class="gov-bot-settings-form" id="gov-bot-settings-form" data-bot-id="${esc(bot.id)}">
     <label class="gov-bot-setting">
       <span>每日运行上限</span>
       <input id="gov-bot-daily-limit" type="number" min="1" max="50" value="${num(limit)}">
     </label>
-    <label class="gov-bot-check">
-      <input id="gov-bot-routine-approval" type="checkbox"${settings.routine_approval ? " checked" : ""}>
-      定时运行需操作员批准
-    </label>
+    ${routineApproval}
     ${triageSelect}
     <button class="gov-wb-button strong" type="submit">保存设置</button>
-    <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)} · 对话手动挖洞不计入</span>
+    <span class="gov-bot-budget">今日已用 ${num(used)} / ${num(limit)}${esc(budgetNote)}</span>
   </form>`;
 }
 
@@ -329,7 +341,8 @@ function runSourceLabel(run) {
 }
 
 function runRowHtml(bot, run) {
-  const trigger = runSourceLabel(run) === "对话" ? "对话"
+  const trigger = bot.id === "analyst" ? "分析"
+    : runSourceLabel(run) === "对话" ? "对话"
     : run.trigger === "routine" ? "定时" : "手动";
   const target = targetLabel(run.target);
   const state = botStatusLabel(run.status);
@@ -370,7 +383,9 @@ export function govBotDetailHtml(bot, runs = []) {
           <div><dt>工具</dt><dd>${esc((bot.tools || []).join(" · "))}</dd></div>
           <div><dt>模型策略</dt><dd>${esc(bot.model_policy || "deterministic")}</dd></div>
           <div><dt>今日预算</dt><dd>${num(bot.runs_today || 0)} / ${num(settings.daily_run_limit || 0)}</dd></div>
-          <div><dt>累计运行</dt><dd>${num(counts.runs || 0)} 次 · ${num(counts.findings || 0)} 发现</dd></div>
+          <div><dt>累计运行</dt><dd>${bot.id === "analyst"
+            ? `${num(counts.runs || 0)} 次分析`
+            : `${num(counts.runs || 0)} 次 · ${num(counts.findings || 0)} 发现`}</dd></div>
         </dl>
       </section>
       <section class="gov-bot-panel">
@@ -378,14 +393,14 @@ export function govBotDetailHtml(bot, runs = []) {
         ${govBotSettingsFormHtml(bot)}
       </section>
     </div>
-    <section class="gov-bot-panel">
+    ${bot.id === "analyst" ? "" : `<section class="gov-bot-panel">
       <h3>技能</h3>
       ${govBotSkillsHtml(bot)}
     </section>
     <section class="gov-bot-panel">
       <h3>排程</h3>
       ${govBotRoutinesHtml([bot])}
-    </section>
+    </section>`}
     <section class="gov-bot-panel">
       <h3>最近运行</h3>
       ${(runs || []).length
@@ -399,6 +414,7 @@ export function govBotRunHtml(bot, run, explanations = {}) {
   const target = targetLabel(run.target);
   const fromConsole = run.source === "console";
   const verb = fromConsole ? "挖洞"
+    : bot.id === "analyst" ? "分析"
     : run.trigger === "routine"
       ? (bot.id === "verifier" ? "定时验证" : "定时扫描")
       : (bot.id === "verifier" ? "验证" : "扫描");
@@ -406,8 +422,10 @@ export function govBotRunHtml(bot, run, explanations = {}) {
   const sourceLabel = runSourceLabel(run);
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
   const explainByRun = explanations || {};
+  const targetText = bot.id === "verifier" || bot.id === "analyst"
+    ? (run.audit_id || target) : target;
   return `<div class="gov-entry user"><span class="gov-echo">${esc(who)} ${
-    verb + " " + esc(bot.id === "verifier" ? (run.audit_id || target) : target)
+    verb + " " + esc(targetText)
   }</span></div>
   <div class="gov-bot-message" data-gov-run-card="${esc(run.run_id)}">
     ${aiAvatarHtml(faceState(run.status), 30, bot.name)}
@@ -419,7 +437,7 @@ export function govBotRunHtml(bot, run, explanations = {}) {
         <span class="gov-bot-run-state ${botStatusClass(run.status)}">${esc(botStatusLabel(run.status))}</span>
       </header>
       ${runStatusLine(bot, run)}
-      ${runActions(run, { teach: !captured })}
+      ${runActions(run, { teach: !captured && bot.id !== "analyst", explain: bot.id !== "analyst" })}
       ${govTriageBlock(run)}
       ${govExplainBlock(explainByRun[run.run_id])}
     </div>
@@ -447,7 +465,9 @@ export function govTriageBlock(run) {
     </div>`;
   }
   const priorities = plan.priorities || [];
-  const modeLabel = mode === "active" ? "受控 · 提议复扫（待批准）" : "影子 · 仅记录";
+  const modeLabel = mode === "active" ? "受控 · 提议复扫（待批准）"
+    : mode === "manual" ? "只提议 · 不裁决"
+    : "影子 · 仅记录";
   const items = priorities.map(item => `<li>
     <code>${esc(item.finding_id)}</code>
     <span>${esc(item.why)}</span>

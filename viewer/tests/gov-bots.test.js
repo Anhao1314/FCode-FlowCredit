@@ -24,6 +24,13 @@ const bots = [
     current: null,
     last: { run_id: "r0", target: "demo-target-2026", status: "done" },
   },
+  {
+    id: "analyst", name: "分析员", role: "Triage Analyst", initial: "析",
+    charter: "读取已完成审计，给出优先级；只提议，不裁决。", status: "idle",
+    counts: { runs: 2, findings: 0, chain_failures: 0 },
+    current: null,
+    last: { run_id: "a0", target: "demo-2026", audit_id: "demo-2026", status: "done" },
+  },
 ];
 
 test("Bot 状态文案与语气", () => {
@@ -38,9 +45,9 @@ test("Bot 状态文案与语气", () => {
 
 test("团队摘要:角色数、执行中、待批准、运行数与 Phase C 标注", () => {
   const html = govBotSummaryHtml(bots);
-  assert.match(html, /<b>2<\/b> 个常驻角色/);
+  assert.match(html, /<b>3<\/b> 个常驻角色/);
   assert.match(html, /<b>1<\/b> 执行中/);
-  assert.match(html, /<b>4<\/b> 次运行/);
+  assert.match(html, /<b>6<\/b> 次运行/);
   assert.match(html, /<b>0<\/b> 个排程/);
   assert.match(html, /Phase C/);
   assert.match(html, /确定性管线/);
@@ -76,6 +83,7 @@ test("派活表单:角色选项、审计员默认目标提示、复核员可留�
   const auditor = govBotDispatchHtml(bots, "auditor");
   assert.match(auditor, /<option value="auditor" selected>审计员/);
   assert.match(auditor, /<option value="verifier">复核员/);
+  assert.match(auditor, /<option value="analyst">分析员/);
   assert.match(auditor, /目标路径/);
   assert.match(auditor, /id="gov-bot-target-md"/, "可选目标描述文件");
   assert.match(auditor, /id="gov-bot-osv-snapshot"/, "可选 OSV 快照");
@@ -83,6 +91,9 @@ test("派活表单:角色选项、审计员默认目标提示、复核员可留�
   const verifier = govBotDispatchHtml(bots, "verifier");
   assert.match(verifier, /<option value="verifier" selected>复核员/);
   assert.match(verifier, /审计 id（留空 = 最新一次）/);
+  const analyst = govBotDispatchHtml(bots, "analyst");
+  assert.match(analyst, /<option value="analyst" selected>分析员/);
+  assert.match(analyst, /审计 id（留空 = 最新一次）/);
 });
 
 test("运行消息:审计员完成态带发现数、工作台与审计台出口", () => {
@@ -256,6 +267,36 @@ test("Bot 详情:动画头像、职责、设置、技能、排程与最近运行
   assert.match(html, /每天 09:00/);
   assert.match(html, /data-gov-run-approve="rp"/);
   assert.match(html, /data-gov-bot-back/);
+});
+
+test("分析员:只读优先级，不显示教一次与 AI 解读", () => {
+  const html = govBotRunHtml(bots[2], {
+    run_id: "a1", bot_id: "analyst", target: "demo-2026", audit_id: "demo-2026",
+    status: "done", findings: 0, evidence: 0, triage_mode: "manual",
+    triage: {
+      mode: "manual", confidence: "high",
+      priorities: [{ finding_id: "F-1", action: "reaudit", why: "先看审批记忆" }],
+    },
+    started_at: "2026-11-14T09:00:00",
+  });
+  assert.match(html, /@分析员 分析 demo-2026/);
+  assert.match(html, /1 条优先级/);
+  assert.match(html, /只提议，不裁决/);
+  assert.match(html, /data-gov-open-bundle="demo-2026"/);
+  assert.doesNotMatch(html, /data-gov-skill-run/, "分析员不产生技能");
+  assert.doesNotMatch(html, /data-gov-explain/, "分析员不再套一层模型解读");
+});
+
+test("分析员设置与排程:无 triage/审批开关，不出现在排程 Bot 选项里", () => {
+  const settings = govBotSettingsFormHtml(bots[2]);
+  assert.doesNotMatch(settings, /gov-bot-triage-mode/);
+  assert.doesNotMatch(settings, /gov-bot-routine-approval/);
+  assert.match(settings, /分析调用计入上限/);
+  const routine = govBotRoutineFormHtml(bots, "auditor");
+  assert.doesNotMatch(routine, /value="analyst"/);
+  const detail = govBotDetailHtml(bots[2], []);
+  assert.doesNotMatch(detail, /<h3>技能<\/h3>/);
+  assert.doesNotMatch(detail, /<h3>排程<\/h3>/);
 });
 
 test("团队频道按时间正序，并对失败文本转义", () => {

@@ -29,10 +29,10 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
 
   await page.locator('[data-gov-mode="team"]').click();
 
-  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
   await expect(page.locator("#gov-team-summary")).toContainText("常驻角色");
   await expect(page.locator("#gov-team-summary")).toContainText("Phase C");
-  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state]')).toHaveCount(2);
+  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state]')).toHaveCount(3);
   // 头像不是静态图案：眨眼/呼吸持续在跑（与对话区同一张实时脸）
   await expect.poll(async () => page.locator('#gov-team-roster .ai-avatar').first()
     .locator('.ai-eye').first().evaluate(el => getComputedStyle(el).animationName)).toBe("ai-avatar-blink");
@@ -64,7 +64,7 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await page.locator("#gov-bot-settings-form button[type=submit]").click();
   await expect(page.locator("#gov-bot-daily-limit")).toHaveValue("5", { timeout: 10_000 });
   await page.locator("[data-gov-bot-back]").click();
-  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
 
   // 复核员：留空目标 = 最新一次 bundle
   await page.locator("#gov-bot-select").selectOption("verifier");

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import time
@@ -48,6 +49,21 @@ class FakeAudit:
         return {"known": [1], "new": [1, 2], "fixed": [], "regressed": [1]}
 
 
+class FakeTriageProvider:
+    model = "fake-triage"
+
+    def complete(self, system, user, *, max_tokens=None, reasoning_effort=None,
+                 json_mode=None):
+        return json.dumps({
+            "summary": "先看审批记忆",
+            "confidence": "high",
+            "focus_categories": ["AGI-02"],
+            "priorities": [{
+                "finding_id": "F-1", "action": "reaudit", "why": "证据直接指向门控",
+            }],
+        }), {"model": self.model, "usage_total_tokens": 12, "cost_microusd": 7}
+
+
 def wait_run(service: GovBotService, run_id: str, timeout: float = 3.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -72,9 +88,10 @@ class GovBotServiceTest(unittest.TestCase):
         self.service.shutdown()
         self.tmp.cleanup()
 
-    def test_snapshot_lists_two_idle_bots(self):
+    def test_snapshot_lists_three_idle_bots(self):
         snapshot = self.service.snapshot()
-        self.assertEqual([bot["id"] for bot in snapshot["bots"]], ["auditor", "verifier"])
+        self.assertEqual([bot["id"] for bot in snapshot["bots"]],
+                         ["auditor", "verifier", "analyst"])
         self.assertTrue(all(bot["status"] == "idle" for bot in snapshot["bots"]))
         self.assertTrue(all(bot["last"] is None for bot in snapshot["bots"]))
 
@@ -108,6 +125,33 @@ class GovBotServiceTest(unittest.TestCase):
         run = self.service.start_run("verifier", "")
         self.assertEqual(run["target"], "demo-2026")
         self.assertEqual(wait_run(self.service, run["run_id"])["status"], "done")
+
+    def test_analyst_runs_read_only_triage(self):
+        self.service._provider_factory = lambda key: FakeTriageProvider()
+        run = self.service.start_run("analyst", "demo-2026")
+        settled = wait_run(self.service, run["run_id"])
+        self.assertEqual(settled["status"], "done")
+        self.assertEqual(settled["audit_id"], "demo-2026")
+        self.assertEqual(settled["findings"], 0, "分析员不产生 finding")
+        self.assertEqual(settled["triage"]["mode"], "manual")
+        self.assertEqual(settled["triage"]["priorities"][0]["finding_id"], "F-1")
+        self.assertEqual(settled["triage"]["tokens"], 12)
+        # 分析员只读：没有 chains/regression 事实，也不写 bundle
+        self.assertFalse(settled["regression"])
+
+    def test_analyst_failure_is_visible_without_touching_evidence(self):
+        run = self.service.start_run("analyst", "demo-2026")
+        settled = wait_run(self.service, run["run_id"])
+        self.assertEqual(settled["status"], "failed")
+        self.assertEqual(settled["triage_status"], "error")
+        self.assertIn("ProviderUnavailable", settled["triage_error"])
+
+    def test_analyst_cannot_own_routines(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.service.create_routine("analyst", {
+                "target": "demo-2026", "frequency": "每天", "time": "09:00",
+            })
+        self.assertIn("manual-only", str(ctx.exception))
 
     def test_verifier_failure_is_recorded_not_hidden(self):
         run = self.service.start_run("verifier", "broken")

@@ -8,7 +8,7 @@ test("治理团队:创建排程、暂停、删除", async ({ page }) => {
   await page.waitForSelector('body[data-booted="1"]');
   await page.locator('#zone-switch [data-zone="gov"]').click();
   await page.locator('[data-gov-mode="team"]').click();
-  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
   await expect(page.locator("#gov-routine-form")).toBeVisible();
 
   await page.locator("#gov-routine-bot").selectOption("auditor");

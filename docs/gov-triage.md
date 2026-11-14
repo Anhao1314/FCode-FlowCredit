@@ -25,6 +25,10 @@
 active 的复扫运行由现有审批机制接管（待批准 → 批准/拒绝），triage 自己发起的
 复扫不会再触发 triage，避免递归。
 
+同一套 `GovTriage` 也用于「分析员」Bot 的手动运行：目标是一次已完成的审计，
+`mode=manual`，只写 `bot_runs.triage_json`，不产生 finding、不生成复扫；
+分析员不拥有排程，模型不可用时运行失败并显示 `triage_error`。
+
 ## 产物与 UI
 
 - `bot_runs`：`triage_mode / triage_status(pending|done|error) / triage_json /

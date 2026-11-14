@@ -24,7 +24,7 @@ test("治理团队:定时运行等待批准，批准后完成", async ({ page })
   await page.waitForSelector('body[data-booted="1"]');
   await page.locator('#zone-switch [data-zone="gov"]').click();
   await page.locator('[data-gov-mode="team"]').click();
-  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(2);
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
 
   // 待批准置顶：先定位 pending 卡，再按 run id 跟踪它（批准后会移到时间流）。
   const pending = page.locator("#gov-team-channel .gov-bot-message", { hasText: "待批准" }).first();

@@ -52,6 +52,17 @@ BOT_DEFS = [
         "explain_policy": "model-explainer",
         "mode": "on-demand",
     },
+    {
+        "id": "analyst",
+        "name": "分析员",
+        "role": "Triage Analyst",
+        "initial": "析",
+        "charter": "读取已完成的确定性审计，给出跟进优先级；只提议，不裁决、不改证据。",
+        "tools": ["bundle.read", "triage.propose"],
+        "model_policy": "propose-only",
+        "explain_policy": "",
+        "mode": "on-demand",
+    },
 ]
 _BY_ID = {bot["id"]: bot for bot in BOT_DEFS}
 
@@ -125,6 +136,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS bot_skills_run ON bot_skills(source_run_id);
 _DEFAULT_SETTINGS = {
     "auditor": {"daily_run_limit": 8, "routine_approval": 0, "triage_mode": "off"},
     "verifier": {"daily_run_limit": 12, "routine_approval": 0, "triage_mode": "off"},
+    "analyst": {"daily_run_limit": 12, "routine_approval": 0, "triage_mode": "off"},
 }
 
 #: triage 档位：off=完整扫描（默认）；shadow=只记录模型计划；active=计划 +
@@ -451,6 +463,8 @@ class GovBotService:
         definition = _BY_ID.get(str(bot_id or ""))
         if definition is None:
             raise ValueError(f"unknown bot: {bot_id!r}")
+        if definition["id"] == "analyst":
+            raise ValueError("analyst is manual-only; routines are for auditor/verifier")
         target = str(payload.get("target") or "").strip()
         if definition["id"] == "auditor" and not target:
             raise ValueError("auditor routine needs a target path")
@@ -569,6 +583,33 @@ class GovBotService:
             )
             self._db.commit()
 
+    def _latest_audit_dir(self, purpose: str = "verify") -> str:
+        """最近一次完成的审计员运行；没有运行记录时退回 bundle 列表。"""
+        with self._lock:
+            latest_run = self._db.execute(
+                "SELECT audit_id FROM bot_runs"
+                " WHERE bot_id='auditor' AND status='done'"
+                " AND audit_id IS NOT NULL AND audit_id != ''"
+                " ORDER BY finished_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        if latest_run is not None:
+            return str(latest_run["audit_id"])
+        bundles = (self.audit.bundles() or {}).get("bundles") or []
+        if not bundles:
+            raise ValueError(f"no completed audit to {purpose}")
+
+        def audit_day(item: dict) -> str:
+            match = re.search(r"(\d{4}-\d{2}-\d{2})", str(item.get("dir") or ""))
+            return match.group(1) if match else ""
+
+        # Date first; hash suffix breaks ties. Sorting by the full dir
+        # would put `flowcredit-...` ahead of a newer `demo-target-...`.
+        latest = max(
+            bundles,
+            key=lambda item: (audit_day(item), str(item.get("dir") or "")),
+        )
+        return str(latest.get("dir") or "")
+
     # ------------------------------------------------------------------ start
 
     def start_run(self, bot_id: str, target: str, trigger: str = "manual",
@@ -584,34 +625,9 @@ class GovBotService:
         resolved = str(target or "").strip()
         if definition["id"] == "auditor" and not resolved:
             raise ValueError("auditor needs a target path")
-        if definition["id"] == "verifier" and not resolved:
-            # “最新审计”以运行流为准：最近一次完成的审计员运行。按日期+目录
-            # 名排序会在同一天多目标时选错（evox.app 会压过更新的 demo-target）。
-            with self._lock:
-                latest_run = self._db.execute(
-                    "SELECT audit_id FROM bot_runs"
-                    " WHERE bot_id='auditor' AND status='done'"
-                    " AND audit_id IS NOT NULL AND audit_id != ''"
-                    " ORDER BY finished_at DESC, rowid DESC LIMIT 1"
-                ).fetchone()
-            if latest_run is not None:
-                resolved = str(latest_run["audit_id"])
-            else:
-                bundles = (self.audit.bundles() or {}).get("bundles") or []
-                if not bundles:
-                    raise ValueError("no audit bundle to verify")
-
-                def audit_day(item: dict) -> str:
-                    match = re.search(r"(\d{4}-\d{2}-\d{2})", str(item.get("dir") or ""))
-                    return match.group(1) if match else ""
-
-                # Date first; hash suffix breaks ties. Sorting by the full dir
-                # would put `flowcredit-...` ahead of a newer `demo-target-...`.
-                latest = max(
-                    bundles,
-                    key=lambda item: (audit_day(item), str(item.get("dir") or "")),
-                )
-                resolved = str(latest.get("dir") or "")
+        if definition["id"] in ("verifier", "analyst") and not resolved:
+            resolved = self._latest_audit_dir(
+                "verify" if definition["id"] == "verifier" else "analyze")
         trigger = trigger if trigger in ("manual", "routine") else "manual"
         settings = self.get_settings(definition["id"])
         if self._runs_today(definition["id"]) >= settings["daily_run_limit"]:
@@ -732,6 +748,8 @@ class GovBotService:
                                   target_md=target_md, osv_snapshot=osv_snapshot)
             elif bot_id == "verifier":
                 self._run_verifier(run_id, target)
+            elif bot_id == "analyst":
+                self._run_analyst(run_id, target)
             else:
                 self._finish(run_id, status="failed", error=f"unsupported bot {bot_id}")
         except Exception as error:  # noqa: BLE001 — one run must not kill the server
@@ -839,6 +857,33 @@ class GovBotService:
             chain_intact=bool(chain.get("chain_intact")),
             events=int(chain.get("count") or len(chain.get("events") or [])),
             regression_json=json.dumps(counts, ensure_ascii=False),
+        )
+
+    def _run_analyst(self, run_id: str, audit_dir: str) -> None:
+        """只读分析：对已完成审计给出优先级，不产生 finding、不改 bundle。"""
+        try:
+            from gov_triage import GovTriage
+
+            bundle = self.audit.bundle(audit_dir)
+            if isinstance(bundle, tuple):
+                payload, status = bundle
+                raise ValueError(f"bundle unavailable ({status}): {payload}")
+            plan = GovTriage(provider_factory=self._provider_factory).execute(bundle)
+            plan["mode"] = "manual"
+        except Exception as error:  # noqa: BLE001 — 分析失败要可见，但不改证据
+            self._update(
+                run_id,
+                triage_status="error",
+                triage_error=f"{type(error).__name__}: {error}"[:300],
+            )
+            raise
+        self._finish(
+            run_id,
+            status="done",
+            audit_id=str(bundle.get("audit_id") or audit_dir),
+            triage_mode="manual",
+            triage_status="done",
+            triage_json=json.dumps(plan, ensure_ascii=False),
         )
 
     def _update(self, run_id: str, **fields: Any) -> None:
