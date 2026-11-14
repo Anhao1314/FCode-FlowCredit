@@ -477,6 +477,16 @@ class Handler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError):
                 return self._json({"error": "limit must be an integer"}, 400)
             return self._json({"swarms": bots.swarms(limit)})
+        if path == "/api/gov/fixes":
+            fixes = getattr(self, "gov_fixes", None)
+            if fixes is None:
+                return self._json({"error": "fixer is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"fixes": fixes.list(limit)})
         # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
         if path == "/api/audit/bundles":
             return self._json(self.audit.bundles())
@@ -866,6 +876,19 @@ def create_server(
             provider_factory=manager.gov_explainer_provider,
         )
     except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
+        traceback.print_exc()
+    # Fixer write path: validate in an isolated copy, apply only on approval,
+    # then start a fresh manual audit so the finding is re-decided by evidence.
+    try:
+        from gov_fixes import GovFixService
+
+        bots = getattr(Handler, "gov_bots", None)
+        Handler.gov_fixes = GovFixService(
+            Handler.audit,
+            (bots.start_manual_run if bots is not None else None),
+            root=(Handler.audit.root.parent / "fixes") if Handler.audit.root else None,
+        )
+    except Exception:  # noqa: BLE001 — audit/team remain usable without fixes
         traceback.print_exc()
         Handler.gov_bots = None
     # 解释层：模型解释确定性证据，不做裁决。bundle 读取走审计服务（同一 jail），

@@ -2869,7 +2869,7 @@ function govRecentRunsHtml() {
   }).join("");
   return `<div class="gov-recent">
     <div class="gov-recent-head"><span>最近运行</span>
-      <button class="gov-wb-button quiet" type="button" data-gov-mode="team">查看全部 →</button></div>
+      <button class="gov-wb-button quiet" type="button" data-gov-channel>查看全部 →</button></div>
     <div class="gov-recent-list">${rows}</div>
   </div>`;
 }
@@ -3400,6 +3400,82 @@ async function govSwarmAction(swarmId, action) {
     await loadGovTeam();
   } catch (error) {
     toast("蜂群操作失败：" + error.message);
+  }
+}
+
+function govFixResultHtml(fix) {
+  const files = (fix.files || []).map(file => `<code>${esc(file)}</code>`).join(" ");
+  if (fix.status === "proposed") {
+    return `<p>补丁已在隔离副本验证 · ${files || "无文件"}</p>
+      <div class="gov-fix-actions">
+        <button class="gov-wb-button strong" type="button" data-gov-fix-approve="${esc(fix.id)}">批准并应用</button>
+        <button class="gov-wb-button quiet" type="button" data-gov-fix-reject="${esc(fix.id)}">拒绝</button>
+      </div>
+      <p class="dim">批准后才写回原目录，并自动发起一次复扫；Fixer 不会把 finding 标成已修复。</p>`;
+  }
+  if (fix.status === "applied") {
+    const rerun = fix.reaudit_run_id
+      ? `<button class="gov-wb-button quiet" type="button" data-gov-run-focus="${esc(fix.reaudit_run_id)}">查看复扫运行 →</button>`
+      : "";
+    const error = fix.reaudit_error
+      ? `<p class="gov-dialog-error">${esc(fix.reaudit_error)}</p>` : "";
+    return `<p>补丁已应用 · ${files || "无文件"}</p>${rerun}${error}`;
+  }
+  if (fix.status === "rejected") return `<p>补丁已拒绝，原目录未改动 · ${files || "无文件"}</p>`;
+  return `<p>${esc(fix.status || "未知状态")}</p>`;
+}
+
+async function submitGovFix(button) {
+  const box = button.closest(".gov-fix-box");
+  const result = box?.querySelector(".gov-fix-result");
+  const dir = box?.dataset.dir || "";
+  const findingId = box?.dataset.finding || "";
+  const patch = box?.querySelector(".gov-fix-patch")?.value || "";
+  if (!patch.trim()) { toast("先粘贴修复补丁"); return; }
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/gov/fixes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audit_id: dir, finding_id: findingId, patch,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (result) result.innerHTML = govFixResultHtml(data.fix || {});
+    toast("补丁已在隔离副本验证");
+  } catch (error) {
+    if (result) result.innerHTML = `<div class="gov-dialog-error">${esc(error.message)}</div>`;
+    toast("补丁验证失败：" + error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function decideGovFix(button, approve) {
+  const fixId = button.dataset.govFixApprove || button.dataset.govFixReject || "";
+  const result = button.closest(".gov-fix-box")?.querySelector(".gov-fix-result");
+  if (!fixId) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(
+      `/api/gov/fixes/${encodeURIComponent(fixId)}/${approve ? "approve" : "reject"}`,
+      { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (result) result.innerHTML = govFixResultHtml(data.fix || {});
+    if (approve) {
+      toast("补丁已应用 · 已发起复扫");
+      refreshGovHistory();
+    } else {
+      toast("补丁已拒绝");
+    }
+  } catch (error) {
+    if (result) result.innerHTML = `<div class="gov-dialog-error">${esc(error.message)}</div>`;
+    toast("修复操作失败：" + error.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -5061,6 +5137,13 @@ function bindGlobalActions() {
       }
       return;
     }
+    // Fixer 写路径：补丁先隔离验证，批准后才应用并复扫。
+    const fixSubmit = event.target.closest("[data-gov-fix-submit]");
+    if (fixSubmit) { submitGovFix(fixSubmit); return; }
+    const fixApprove = event.target.closest("[data-gov-fix-approve]");
+    if (fixApprove) { decideGovFix(fixApprove, true); return; }
+    const fixReject = event.target.closest("[data-gov-fix-reject]");
+    if (fixReject) { decideGovFix(fixReject, false); return; }
     // S1 修洞闭环:发现 → Work 委托(目标带发现上下文,验证目标由操作员在确认页补)
     const govRepair = event.target.closest("[data-gov-repair]");
     if (govRepair) {

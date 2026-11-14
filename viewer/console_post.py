@@ -195,6 +195,49 @@ def post_gov_swarm_retry(handler, swarm_id):
     return handler._json({"swarm": swarm})
 
 
+def post_gov_fix_create(handler):
+    """Fixer：在隔离副本验证补丁，不写原目录；批准后才应用并复扫。"""
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    body = handler._read_body()
+    audit_id = str(body.get("audit_id") or "").strip()
+    finding_id = str(body.get("finding_id") or "").strip()
+    patch = body.get("patch")
+    if not audit_id or not finding_id or not isinstance(patch, str):
+        return handler._json(
+            {"error": "audit_id, finding_id and patch are required"}, 400)
+    try:
+        fix = service.create(audit_id, finding_id, patch)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"fix": fix}, 201)
+
+
+def post_gov_fix_approve(handler, fix_id):
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    try:
+        fix = service.approve(fix_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    except RuntimeError as error:
+        return handler._json({"error": str(error)}, 500)
+    return handler._json({"fix": fix})
+
+
+def post_gov_fix_reject(handler, fix_id):
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    try:
+        fix = service.reject(fix_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"fix": fix})
+
+
 def post_gov_bot_settings(handler, bot_id):
     service = getattr(handler, "gov_bots", None)
     if service is None:
@@ -307,6 +350,7 @@ _STATIC = {
     "/api/audit/run": post_audit_run,
     "/api/gov/runs": post_gov_run_create,
     "/api/gov/swarms": post_gov_swarm_create,
+    "/api/gov/fixes": post_gov_fix_create,
     "/api/gov/routines": post_gov_routine,
     "/api/gov/skills": post_gov_skill,
     "/api/plugins/install": post_plugin_install,
@@ -443,6 +487,13 @@ def dispatch_post(handler, path: str):
     if match is not None:
         swarm_id, route = match
         return route(handler, swarm_id)
+    match = _suffix(path, "/api/gov/fixes/", {
+        "/approve": post_gov_fix_approve,
+        "/reject": post_gov_fix_reject,
+    })
+    if match is not None:
+        fix_id, route = match
+        return route(handler, fix_id)
     match = _suffix(path, "/api/gov/routines/", {
         "/toggle": post_gov_routine_toggle,
         "/delete": post_gov_routine_delete,

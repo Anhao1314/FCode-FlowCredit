@@ -3309,6 +3309,25 @@ button.led-lineage:hover { border-color: var(--accent); color: var(--text-1); }
 }
 .gov-detail-card .gov-disp { width: 100%; }
 .gov-detail-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
+/* Fixer：补丁先隔离验证，批准后才写回原目录。 */
+.gov-fix-box {
+  margin-top: 12px; padding: 8px 10px;
+  border: 1px dashed var(--line-strong); border-radius: 8px;
+}
+.gov-fix-box summary { cursor: pointer; font: 600 11.5px var(--font-ui); color: var(--text-2); }
+.gov-fix-patch {
+  width: 100%; min-height: 110px; margin-top: 8px; padding: 8px;
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  background: var(--canvas); color: var(--text-1);
+  font: 11px/1.5 var(--font-mono); resize: vertical; outline: none;
+}
+.gov-fix-result { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--text-2); }
+.gov-fix-result p { margin: 4px 0; }
+.gov-fix-result code {
+  padding: 0 4px; border-radius: 4px; background: var(--panel);
+  font: 10.5px var(--font-mono); color: var(--text-2);
+}
+.gov-fix-actions { display: flex; gap: 6px; margin-top: 6px; }
 
 /* 活动区：审计作业与链验证。没有内容时整段不占位。 */
 .gov-wb-activity { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }

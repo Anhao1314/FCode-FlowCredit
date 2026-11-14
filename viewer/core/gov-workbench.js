@@ -187,6 +187,16 @@ export function findingDetailHtml(dir, finding, opts = {}) {
     .map(value => `<option value="${esc(value)}"${(finding.operator_disposition || "") === value ? " selected" : ""}>${esc(DISPOSITION_LABELS[value] || value)}</option>`)
     .join("");
   const refs = (finding.poc_refs || []).map(ref => `<code>${esc(ref)}</code>`).join(" ");
+  const fixBox = opts.repairable === false ? "" : `<details class="gov-fix-box"
+      data-dir="${esc(dir)}" data-finding="${esc(fid)}">
+      <summary>修复补丁 <span class="dim">（人工/外部 agent 产出，先在隔离副本验证）</span></summary>
+      <textarea class="gov-fix-patch" rows="6" spellcheck="false"
+        placeholder="diff --git a/file b/file&#10;--- a/file&#10;+++ b/file&#10;@@ ..."></textarea>
+      <div class="gov-fix-actions">
+        <button class="gov-wb-button strong" type="button" data-gov-fix-submit>验证补丁</button>
+      </div>
+      <div class="gov-fix-result" aria-live="polite"></div>
+    </details>`;
   return `<aside class="gov-detail-card" aria-label="发现详情">
     <header class="gov-detail-head">
       <div>${severityBadge(finding.severity)} <code>${esc(fid)}</code></div>
@@ -203,6 +213,7 @@ export function findingDetailHtml(dir, finding, opts = {}) {
       <span class="gov-detail-label">操作员处置</span>
       <select class="gov-disp" data-dir="${esc(dir)}" data-finding="${esc(fid)}">${options}</select>
     </div>
+    ${fixBox}
     <div class="gov-detail-actions">
       ${opts.repairable === false ? "" : `<button class="gov-wb-button strong" type="button" data-gov-repair="${esc(fid)}" data-dir="${esc(dir)}">派 agent 修复</button>`}
       <button class="gov-wb-button quiet" type="button" data-gov-open-bundle="${esc(dir)}">在审计台查看证据 →</button>
