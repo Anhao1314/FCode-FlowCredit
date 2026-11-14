@@ -452,7 +452,7 @@ export function createComposerPanel(deps) {
       const current = m.available && m.key === modelChoice.key;
       return `<button class="tpl-item model-item${current ? " active" : ""}${m.available ? "" : " disabled"}" data-model-pick="${esc(m.key)}"${m.available ? "" : " disabled"}>
         <span class="t"><span>${esc(m.label)}</span><span class="m">${esc(m.model)}</span>${current ? '<span class="model-current-dot" aria-label="当前模型"></span>' : ""}</span>
-        <span class="d">${m.available ? (m.key === "mock" ? "离线确定性 mock · 演示与回归" : m.supportsEffort ? "云端模型 · 支持思考强度" : "本地推理") : esc(m.reason)}</span>
+        <span class="d">${m.available ? (m.key === "mock" ? "离线确定性 mock · 演示与回归" : m.supportsEffort ? "云端模型 · 支持思考强度" : m.price ? "云端模型" : "本地推理") : esc(m.reason)}</span>
       </button>`;
     }).join("");
     // 思考强度块对"当前选中的模型"生效——菜单数据源是服务端枚举的
