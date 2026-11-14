@@ -1934,9 +1934,9 @@ async function assignRunProjectApi(runId, projectId) {
 
 function setTemplate(key) {
   tplKey = key;
-  const template = templates.find(t => t.key === key);
-  const ta = document.getElementById("composer-ta");
-  if (template && ta && !ta.value) ta.placeholder = template.objective;
+  // 占位语只由舞台/项目上下文决定。此前这里会把模板 objective 写进
+  // placeholder，异步模板加载晚到时会把项目提示覆盖掉（E2E 归档用例
+  // 抓到的真实竞态），Kimi 的 composer 也不会随模板改提示。
   if (attach.open) renderAttachPanel();
   refreshAttachData();
 }
@@ -3675,7 +3675,7 @@ function renderGovBotDetail() {
   stopGovTeamPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = "";
-  setFoot(`治理台 · Bot 详情（${govBotDetailId}）`, "");
+  setFoot("治理台 · 详情", "");
   renderMain(`<div class="gov-bot-detail-page" id="gov-bot-detail-host"></div>`, { mode: "gov" });
   paintGovBotDetail();
   const epoch = viewGate.sequence;
@@ -3827,7 +3827,7 @@ function renderGovTeam() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = "";
-  setFoot("治理台 · 团队频道（审计员 / 复核员 / 分析员）", "");
+  setFoot("治理台 · 团队", "");
   // 团队频道收进右上角的证据侧栏（rail，双形态：宽屏停靠/窄屏浮层）。
   // 团队面 = 管理面（概要/花名册/派活/排程）；频道流在 rail 里可随时收起。
   renderMain(`<div class="gov-team">
@@ -3875,7 +3875,7 @@ function renderGovDialog() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = "";
-  setFoot("治理台 · 对话式零模型控制台（/挖洞 · /判断 · /链）", "");
+  setFoot("治理台 · 控制台", "");
   renderMain(`<div class="gov-dlg">
     <header class="gov-dlg-head">
       <div class="gov-wb-intro">
@@ -3905,7 +3905,7 @@ async function renderGovWorkbench() {
   stopGovBotDetailPoll();
   document.getElementById("tb-title").textContent = "治理台";
   document.getElementById("tb-chips").innerHTML = "";
-  setFoot("治理台 · 离线审计 / 证据 / 操作员处置", "");
+  setFoot("治理台 · 工作台", "");
   // 活动区是命令响应（链/判断），属于一次性输出；重新进入工作台时不
   // 把上一次的链卡当作当前事实继续展示。新作业仍会从 govJobs 重绘。
   govWork.inspector = "";

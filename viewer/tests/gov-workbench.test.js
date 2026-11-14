@@ -57,22 +57,23 @@ test("筛选:严重度 + 未处置 + 搜索，按高危到低危排序", () => {
   assert.equal(filterFindings(findings, { query: "no-such" }).length, 0);
 });
 
-test("治理面切换:团队/工作台/审计台三个入口（对话由区落地与新对话按钮直达）", () => {
+test("治理面切换:治理台/团队/工作台/审计台四个入口，当前面始终点亮", () => {
   const dialog = govSurfaceSwitchHtml("dialog");
   assert.match(dialog, /role="tablist"/);
+  assert.match(dialog, /data-gov-mode="dialog" aria-selected="true"/);
   assert.match(dialog, /data-gov-mode="team" aria-selected="false"/);
   assert.match(dialog, /data-gov-mode="workbench" aria-selected="false"/);
   assert.match(dialog, /data-open="audit" aria-selected="false"/);
   assert.match(dialog, /审计台<\/button>/);
-  assert.doesNotMatch(dialog, /data-gov-mode="dialog"/, "对话行已清理：区落地与新对话按钮直达");
+  assert.match(dialog, /治理台<\/button>/);
   assert.match(dialog, /团队<\/button>/);
   const workbench = govSurfaceSwitchHtml("workbench");
-  assert.doesNotMatch(workbench, /data-gov-mode="dialog"/);
+  assert.match(workbench, /data-gov-mode="dialog" aria-selected="false"/);
   assert.match(workbench, /data-gov-mode="workbench" aria-selected="true"/);
   const audit = govSurfaceSwitchHtml("audit");
   assert.match(audit, /data-open="audit" aria-selected="true"/, "审计台视图点亮自己的入口");
-  assert.doesNotMatch(audit, /data-gov-mode="(team|workbench)" aria-selected="true"/,
-    "审计台是独立视图，不能同时点亮团队/工作台");
+  assert.doesNotMatch(audit, /data-gov-mode="(dialog|team|workbench)" aria-selected="true"/,
+    "审计台是独立视图，不能同时点亮其它面");
 });
 
 test("摘要:身份/审计 id/计数/未处置/session 与四个动作", () => {

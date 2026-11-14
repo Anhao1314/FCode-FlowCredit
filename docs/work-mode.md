@@ -26,27 +26,28 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 ## 侧栏信息架构
 
 ```text
-Projects                                   ＋
-  ▾ FlowCredit   [1 进行中] [1 待处理]  3
+项目                                       ＋
+  ▾ FlowCredit   ● 待处理 · 2         3
       ● 修 pricing 取整            2 分钟前
       ✓ 调研公开来源                1 小时前
   ▸ 另一个项目
   （没有项目时显示「还没有项目」）
 
+任务                                       ＋
+  今天 / 昨天 / 更早
+  ✓ 没有 projectId 的运行（有项目时才只列未归属）
+
 对话
   历史 chat 线程
 
-未归属运行（仅当存在项目时）
-  没有 projectId 的历史 run
-
-治理历史（Governance 区）
+治理区（Governance） 治理台 / 团队 / 工作台 / 审计台 → 审计记录
 ```
 
-- **项目行**：名称、路径 tooltip、运行数、进行中/待处理徽标；点击展开/收起，并把 composer 绑定到该项目。
+- **项目行**：名称、路径 tooltip、运行数，右侧小圆点表示进行中（绿）或待处理（琥珀）；点击展开/收起，并把 composer 绑定到该项目。
 - **项目动作**：悬停出现「＋ 新运行」「⋯ 项目设置」；设置里可改名称/验证命令、归档。
 - **运行嵌套**：项目展开后直接显示该项目的 run 行（状态点、标题、时间），点击进运行视图，不离开 Work。
-- **新建项目**：Projects 标题的「＋」在侧栏内展开表单（名称/绝对路径/验证命令），不跳转主区。
-- **未归属运行**：没有 `projectId` 的历史 run 保留在平坦列表；已有项目的 run 不重复出现在这里。
+- **新建项目**：项目标题的「＋」在侧栏内展开表单（名称/绝对路径/验证命令），不跳转主区。
+- **任务**：没有 `projectId` 的历史 run 保留在平坦列表；已有项目的 run 不重复出现在这里。任务行只留状态点、标题与时间，模板/轮次/成本在主区线程里看。
 - **空态**：没有项目时侧栏只显示一行「还没有项目」；主区仍是任务舞台，可直接描述任务（未归属运行）。
 
 运行归属的两种事实强度：
@@ -58,7 +59,7 @@ Projects                                   ＋
 
 ## 主区
 
-- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`，提交走 `sendTask → 后台 clarifier → /api/runs`，不是聊天。舞台按 Kimi 2.8 的中轴排布：标题、说明、composer 居中，轨道场景退为背景水印。
+- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`，提交走 `sendTask → 后台 clarifier → /api/runs`，不是聊天。舞台按 Kimi Work 的中轴排布：标题、说明、composer、快捷建议居中，不再叠轨道插图。
 - **提交即开跑（Kimi 式）**：通用委托不再进入独立的「需求确认」页。`sendTask` 先把任务交给后台 clarifier 准备执行方式/预算，返回 readyTask 后立即创建运行并进入任务线程；准备期间只显示任务卡与「正在准备任务」。返回 choices 时先留在任务页，选择后再次 ready 即自动开跑；在途的重复选择被忽略，双击只创建一次运行，刷新不会重放建 run。research 缺来源或项目缺验证命令时停在任务页，保留 `+` 面板补充；open/script 无需 URL。财务模板仍走原问卷。
 - 选中项目后，composer 占位符变成「在『项目名』中要完成什么？」，提交时带 `spec.project_id`。
 - 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
@@ -92,7 +93,7 @@ Projects                                   ＋
 ## 迁移与兼容
 
 - 旧 `fa.projects` / `fa.runProjects` **不删除、不再读取**；项目以服务端为准。
-- 旧 run 没有 `projectId`：保留在「未归属运行」，可通过运行菜单的事后归属移动。
+- 旧 run 没有 `projectId`：保留在「任务」，可通过运行菜单的事后归属移动。
 - Chat 线程模型未改：run 仍不拥有 chat thread；Work 项目是 run 的容器，不是对话容器。
 - finance/SFT prompt 路径与冻结哈希不受影响。
 

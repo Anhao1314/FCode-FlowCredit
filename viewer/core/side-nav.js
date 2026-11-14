@@ -5,17 +5,17 @@
    退役（uiMode 恒为 chat），pane-work 成了不可达的幽灵 DOM；2026-11 适配
    重建把两套名单合并为单一结构：
 
-       header(折叠钮+logo) → 新对话(⌘N) + 搜索与命令(⌘K) →
-       区切换器(Work/Governance) → Pinned → Projects → 对话 → 任务 →
-       footer(quickstart + 模型状态)
+       header(折叠钮+logo) → 区切换器(Work/Governance) →
+       新对话(⌘N) + 搜索与命令(⌘K) → 插件市场/Pinned →
+       Projects → 任务 → 对话 → footer(quickstart + 模型状态)
 
-   功能导航已撤除（2026-11-08）：治理台不再占侧栏条目，由 Governance
-   区切换器直达；审计台入口收进治理区侧栏的「团队/工作台/审计台」组，
-   判断记录/账本/定时走对话卡锚点与深路由。
+   Governance 区在插件市场之后渲染「治理台/团队/工作台/审计台」导航，
+   再按日期列审计记录；Work 区把任务放在对话历史之前，避免长对话列表
+   把任务区推到折叠线以下（2026-11-14 侧栏对齐）。
 
-   硬事实沿用（同一份 shell 样式表）：nav-item 高 36/内边距 8/圆角 12、
-   悬停 F1、选中 F2；分组标题 12px/18px/Tertiary；滚动区 24px 渐变遮罩；
-   footer padding 8、margin 0 -8px -8px。
+   硬事实沿用（同一份 shell 样式表）：导航行高 36/内边距 8/圆角 8、
+   悬停 F1、选中 F2；分组标题 14px/20px/常规字重；日期标签 11px；
+   滚动区 24px 渐变遮罩；footer padding 8、margin 0 -8px -8px。
 
    这里只放“生成 HTML 的纯函数”，状态机与事件接线仍在 app.js。 */
 
@@ -147,10 +147,10 @@ export function projectSectionHtml(projects, options) {
     const open = expanded.has(prj.id) || opts.filter === prj.id;
     const active = opts.filter === prj.id ? " is-active" : "";
     const badges = (running
-      ? '<span class="proj-badge is-live" title="进行中">' + running + "</span>"
+      ? '<span class="proj-dot is-live" title="' + running + ' 个运行中"></span>'
       : "")
       + (attention
-        ? '<span class="proj-badge is-attention" title="待处理">' + attention + "</span>"
+        ? '<span class="proj-dot is-attention" title="' + attention + ' 项待处理"></span>'
         : "");
     const nested = open
       ? '<div class="proj-runs">' + (mine.length
@@ -171,7 +171,7 @@ export function projectSectionHtml(projects, options) {
       + '<button type="button" data-proj-edit="' + esc(prj.id) + '" title="项目设置">⋯</button>'
       + "</span></div>" + nested + "</div>";
   }).join("");
-  const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目">＋</button>';
+  const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目"><span data-doodle="plus" aria-hidden="true"></span></button>';
   const form = (opts.adding || opts.editing)
     ? projectFormHtml(opts.editing)
     : "";
@@ -184,7 +184,7 @@ export function projectSectionHtml(projects, options) {
 }
 
 export function runSectionHtml(title, count) {
-  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务">＋</button>';
+  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务"><span data-doodle="plus" aria-hidden="true"></span></button>';
   return sectionHeadHtml(title || "任务", { key: "tasks", action: add }, count || 0)
     .replace('class="side-count"', 'class="side-count" data-task-count');
 }
@@ -294,13 +294,10 @@ export function govHistorySectionHtml(bundles) {
     groups[row.day === today ? "今天" : row.day === yesterday ? "昨天" : "更早"].push(row);
   }
   let body = "";
-  if (rows.length) {
-    body += '<div class="side-head-label"><span>审计记录</span><span class="grp-count">' + num(rows.length) + "</span></div>";
-  }
   for (const name of ["今天", "昨天", "更早"]) {
     const items = groups[name];
     if (!items.length) continue;
-    body += '<div class="side-head-label"><span>' + name + '</span><span class="grp-count">' + num(items.length) + "</span></div>";
+    body += '<div class="side-head-label"><span>' + name + "</span></div>";
     body += items.map(row => {
       const high = Number((row.severity || {}).high || 0);
       const version = row.rulesetVersion ? ` · v${row.rulesetVersion}` : "";
@@ -316,7 +313,7 @@ export function govHistorySectionHtml(bundles) {
   const inner = total
     ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
     : '<div class="section-empty">还没有治理记录——在团队派活，或开始一次审计。</div>';
-  return sectionHeadHtml("治理历史", { key: "govhist" }, total) + inner;
+  return sectionHeadHtml("审计记录", { key: "govhist" }, total) + inner;
 }
 
 /* 对话分组标题（kimi.com 的 history 段）。 */
@@ -326,7 +323,7 @@ export function chatSectionHtml(count) {
 
 /* 任务分组标题（Kimi Work 的 Tasks 段）：标题可折叠 + “＋”直接新建任务。 */
 export function taskSectionHtml(count) {
-  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务">＋</button>';
+  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务"><span data-doodle="plus" aria-hidden="true"></span></button>';
   return sectionHeadHtml("任务", { key: "tasks", action: add }, count || 0)
     .replace('class="side-count"', 'class="side-count" data-task-count');
 }

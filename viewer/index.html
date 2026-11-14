@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="design.css?v=90">
 <link rel="stylesheet" href="desktop.css?v=9">
 <link rel="stylesheet" href="chat.css?v=11">
-<link rel="stylesheet" href="thread.css?v=10">
+<link rel="stylesheet" href="thread.css?v=14">
 </head>
 <body>
 <div class="shell app rail-hidden" id="app">
@@ -26,6 +26,12 @@
       <span class="side-flavor" id="side-flavor" aria-hidden="true">WORK</span>
       <span class="grow"></span>
     </div>
+
+    <!-- S2.1 区切换器：Work / Governance 的身份 UI，放在侧栏最上方（Kimi 的
+         Work/Chat 分段同型）。指示当前视图所属区 + 一键着陆该区主面
+         （不过滤导航——E2E 契约：任意视图 4 项都可达）。
+         inner 由 side-nav.js 的 zoneSwitchHtml 生成，active 跟随视图。 -->
+    <div class="zone-switch seg" id="zone-switch" role="group" aria-label="Work and Governance"></div>
 
     <button class="side-new" id="new-run" title="新对话">
       <span data-doodle="kimi-plus"></span>
@@ -43,22 +49,16 @@
       <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
     </button>
 
-    <!-- S2.1 区切换器：工作/治理的身份 UI（中文+英文，无「区」字）。指示当前视图所属区 +
-         一键着陆该区主面（不过滤导航——E2E 契约：任意视图 4 项都可达）。
-         inner 由 side-nav.js 的 zoneSwitchHtml 生成，active 跟随视图。 -->
-    <div class="zone-switch seg" id="zone-switch" role="group" aria-label="Work and Governance"></div>
-
     <!-- 插件市场：内置能力 + 审查过的 MCP 插件。目录在服务端；安装只写本机
          mcp.json，桥接后台重连。这是操作员动作，不是模型可写入口。 -->
     <button class="side-market" type="button" data-open="market" title="插件市场">
       <span data-doodle="cube"></span><span>插件市场</span>
-      <span class="side-count">插件</span>
     </button>
 
     <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
-         结构：区切换器（Work/Governance，两区对话的直接入口）→ 置顶 →
-         Projects → 对话 → 任务。功能导航已清空撤除——治理台不再占侧栏
-         条目,由 Governance 区切换器直达;预留槽位整体清理,不留占位。
+         结构：区切换器 → 置顶 → 项目 → 任务 → 对话。
+         Work 的主导航是“项目/任务”，对话历史放在最后，避免几十条
+         “写 hello.txt”把任务区推到折叠线以下。
          pane-work 幽灵面板已删除——工作模式收敛退役后它不可达。
          折叠区只包"行"（.side-block-inner = Kimi 的 .sidebar-reveal-content），
          段标题留在外面——第一版把标题一起包了进去，折叠后标题被裁掉，
@@ -68,13 +68,13 @@
       <div class="side-scroll-top-mask"></div>
       <div id="chat-pinned"></div>
       <div id="chat-projects"></div>
+      <div id="chat-tasks"></div>
       <div id="chat-chats"></div>
       <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
-      <div id="chat-tasks"></div>
       <!-- 治理区历史（Kimi 式分区历史）：审计记录按日期分组。Work 区
            显示对话/任务段，Governance 区显示审计历史——两套互斥显隐
            （body[data-zone]）。行点击深链 #/audit/<dir>。
-           gov-surface-nav = 治理区三个面（团队/工作台/审计台）的切换，
+           gov-surface-nav = 治理区四个面（治理台/团队/工作台/审计台）的切换，
            从主区头部收进侧栏；审计台走 data-open，其余走 data-gov-mode。 -->
       <nav class="gov-surface-nav" id="gov-surface-nav" aria-label="治理台视图"></nav>
       <div id="gov-history"></div>
@@ -418,6 +418,6 @@
 <script src="report.js?v=56"></script>
 <script src="icons-doodle.js?v=54"></script>
   <script src="brand/seal-icons.js"></script>
-<script src="app.js?v=135" type="module"></script>
+<script src="app.js?v=140" type="module"></script>
 </body>
 </html>

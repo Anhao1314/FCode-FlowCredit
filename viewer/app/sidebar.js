@@ -4,7 +4,7 @@
 
    范围：
    - 段落折叠（fa.sections）
-   - 区切换器点亮（功能导航已撤除——治理台由 Governance 区直达）
+   - 区切换器与治理导航点亮（治理台/团队/工作台/审计台）
    - 置顶段（对话）、首次使用卡（当前收敛为空壳）
    - 三类外壳接线：拖拽调宽 / 滚动遮罩淡入 / 长标题跑马灯
 
@@ -43,7 +43,7 @@ export function createSidebar(deps) {
     document.body.dataset.zone = zonePainted;
     const flavor = document.getElementById("side-flavor");
     if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
-    // 治理台三面（对话/团队/工作台）切换收进侧栏：进 gov 区就点亮当前面。
+    // 治理台四面（治理台/团队/工作台/审计台）切换收进侧栏：进 gov 区就点亮当前面。
     if (zonePainted === "gov") paintGovSurfaceNav();
     // 插件市场是功能页不是区：按钮自己点亮，不改变 Work/Governance 分区。
     const marketButton = document.querySelector(".side-market");
@@ -85,7 +85,7 @@ export function createSidebar(deps) {
     const first = !govHistPainted;
     govHistPainted = true;
     if (first || !host.innerHTML.trim()) {
-      host.innerHTML = '<div class="section-empty">读取治理历史…</div>';
+      host.innerHTML = '<div class="section-empty">读取审计记录…</div>';
     }
     try {
       const bundleData = await safeJson("/api/audit/bundles", { bundles: [] });
@@ -93,13 +93,13 @@ export function createSidebar(deps) {
       const signature = JSON.stringify([
         bundles.map(item => [item.dir, item.findings, item.unhandled, item.ruleset_version]),
       ]);
-      if (signature !== govHistSig || host.textContent.includes("读取治理历史")) {
+      if (signature !== govHistSig || host.textContent.includes("读取审计记录")) {
         govHistSig = signature;
         host.innerHTML = govHistorySectionHtml(bundles);
         paintSections();
       }
     } catch {
-      if (first) host.innerHTML = '<div class="section-empty">治理历史读取失败</div>';
+      if (first) host.innerHTML = '<div class="section-empty">审计记录读取失败</div>';
     } finally {
       govHistBusy = false;
     }
@@ -117,8 +117,11 @@ export function createSidebar(deps) {
     const host = document.getElementById("gov-surface-nav");
     if (!host) return;
     const view = document.getElementById("main")?.dataset.view || "";
-    const active = view === "audit" ? "audit" : (d.getGovSurface?.() || "dialog");
+    const surface = d.getGovSurface?.() || "dialog";
+    // Bot 详情属于团队面，保持团队行点亮；审计台是独立 view。
+    const active = view === "audit" ? "audit" : (surface === "bot" ? "team" : surface);
     host.innerHTML = govSurfaceSwitchHtml(active);
+    d.hydrateDoodles?.(host);
   }
 
   function paintNavActive() {
@@ -455,7 +458,7 @@ export function createSidebar(deps) {
     if (projects.length) runs = runs.filter(run => !run.projectId);
     // 置顶的运行由「置顶」分组渲染，主列表不再重复
     runs = runs.filter(run => !run.pinned);
-    const title = projects.length ? "未归属运行" : "任务";
+    const title = "任务";
 
     if (!runs.length) {
       const emptyHtml = query
@@ -478,7 +481,7 @@ export function createSidebar(deps) {
       for (const run of runs) groups[runGroupOf(run.created)].items.push(run);
       for (const group of groups) {
         if (!group.items.length) continue;
-        html += `<div class="side-head-label"><span>${group.label}</span><span class="grp-count">${group.items.length}</span></div>`;
+        html += `<div class="side-head-label"><span>${group.label}</span></div>`;
         const visible = group.label === "更早" && !olderOpen ? group.items.slice(0, 5) : group.items;
         html += visible.map(runRowHtml).join("");
         if (group.label === "更早" && group.items.length > 5) {

@@ -1275,3 +1275,182 @@ html.desktop-app .side-new:hover {
   .stage-suggestions { gap: 6px; }
   .stage-suggestion { height: 30px; padding: 0 10px; font-size: 12.5px; }
 }
+
+/* ================================================================ 侧栏 · Kimi Work 结构对齐（2026-11-14）
+   实测对照（Kimi 1200×800 Work）：zones 在最上，下面是主行动与导航行；
+   分组标题 14/20 常规字重，行 30–36 高，无卡片描边，右侧只在悬停时
+   出现“更多”。本节同时覆盖 Work 的项目/对话/任务与 Governance 的
+   团队/工作台/审计台+审计记录，保持一套行高与留白。 */
+
+/* ---- 区切换器：最上方，通栏，活动块白底 ---- */
+.zone-switch { margin: 0 0 8px; }
+.zone-switch .zone-btn { gap: 6px; }
+.zone-switch .zone-btn .s-icon { width: 15px; height: 15px; }
+.zone-switch .zone-btn.active { font-weight: 500; }
+
+/* ---- 主行动 + 搜索：安静行，不画卡片 ---- */
+.side-new, html.desktop-app .side-new {
+  height: 36px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  font-size: 14px; font-weight: 400; color: var(--text-1);
+}
+.side-new .d-icon, .side-new .s-icon { width: 17px; height: 17px; color: var(--text-3); }
+.side-new:hover .s-icon, .side-new:hover .d-icon { transform: none; color: var(--text-1); }
+.side-new .nav-shortcut {
+  height: auto; padding: 0; border-radius: 0; background: transparent;
+  color: var(--text-4); font: 400 11.5px/20px var(--font-ui); letter-spacing: 0;
+}
+.side-new:hover .nav-shortcut { background: transparent; color: var(--text-3); }
+.side-search {
+  height: 32px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--text-3); font-size: 13.5px;
+}
+.side-search:hover { background: var(--k-fill-1); color: var(--text-1); }
+.side-search:focus-within { background: var(--k-fill-1); }
+.side-search svg, .side-search .d-icon { width: 16px; height: 16px; color: var(--text-3); }
+.side-search input { font-size: 13.5px; }
+.side-search kbd {
+  margin-left: auto; color: var(--text-4); font: 400 11px var(--font-ui);
+  background: transparent; border: 0; padding: 0;
+}
+
+/* ---- 插件市场：并入导航行序列，不再显示重复的「插件」角标 ---- */
+.side-market {
+  width: 100%; height: 36px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  border-radius: 8px; color: var(--text-1); font-size: 14px;
+}
+.side-market .d-icon { width: 17px; height: 17px; color: var(--text-3); }
+.side-market:hover { background: var(--k-fill-1); color: var(--text-1); }
+.side-market.active { background: var(--k-fill-2); }
+.side-market .side-count { display: none; }
+
+/* ---- 分组标题：14px 常规灰字，行高 30；数量退到 11px ---- */
+.side-section {
+  height: 30px; margin: 12px 0 2px; padding: 0 6px; gap: 6px;
+  font-size: 14px; line-height: 20px; font-weight: 400; color: var(--text-3);
+}
+.side-section span:first-child { font-size: 14px; font-weight: 400; }
+.section-title-button {
+  height: 30px; gap: 4px;
+  font: 400 14px/20px var(--font-ui); color: var(--text-3);
+}
+.section-title-button:hover { color: var(--text-1); }
+.section-title-button .chev { font-size: 9px; color: var(--text-4); }
+.side-section .side-count {
+  font: 400 11px/18px var(--font-ui); color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+.section-action {
+  width: 24px; height: 24px; border-radius: 6px;
+  color: var(--text-3); opacity: .62;
+}
+.section-action:hover { opacity: 1; background: var(--k-fill-1); }
+.section-action .d-icon { width: 14px; height: 14px; }
+
+/* ---- 日期分组：11px 弱标签，无底色、无计数 ---- */
+.side-head-label {
+  position: static; height: 24px; margin: 6px 6px 0; padding: 0 4px;
+  display: flex; align-items: center; gap: 6px;
+  background: transparent; color: var(--text-4);
+  font: 400 11px/16px var(--font-ui); letter-spacing: 0;
+}
+.side-head-label .grp-count { display: none; }
+
+/* ---- 项目行：32 高、常规字重；运行/待处理只用小圆点 ---- */
+.proj-block { margin: 0; }
+.proj-row {
+  height: 32px; padding: 0 6px; gap: 6px; border-radius: 8px;
+}
+.proj-row:hover, .proj-row-shell:hover .proj-row { background: var(--k-fill-1); }
+.proj-block.is-active .proj-row { background: var(--k-fill-2); }
+.proj-caret { width: 10px; margin-left: 0; color: var(--text-4); font-size: 9px; }
+.proj-row .slabel { font-size: 14px; font-weight: 400; }
+.proj-row .smeta { font: 400 11px var(--font-ui); color: var(--text-4); }
+.proj-dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--text-4);
+}
+.proj-dot.is-live { background: var(--ok); }
+.proj-dot.is-attention { background: var(--warn); }
+.proj-row-actions { padding-right: 0; gap: 0; }
+.proj-row-actions button {
+  width: 22px; height: 22px; border-radius: 6px;
+  color: var(--text-3); font-size: 12px;
+}
+.proj-runs { margin-left: 7px; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+.proj-runs .run-row { min-height: 30px; padding: 0 4px; }
+.proj-empty { padding: 4px 10px 6px; font-size: 12.5px; color: var(--text-4); }
+
+/* ---- 任务行：一行 30 高；模板/轮次/成本从侧栏退场，详情留在主区 ---- */
+.run-row { min-height: 30px; padding: 0 8px; border-radius: 8px; }
+.run-row .r-top { min-height: 30px; gap: 7px; }
+.run-row .r-top .slabel { font-size: 13.5px; font-weight: 400; }
+.run-row .r-top .smeta { font: 400 11px var(--font-ui); color: var(--text-4); }
+.run-row .r-sub { display: none; }
+.run-row:hover, .run-row.active { background: var(--k-fill-1); }
+.run-row.active { background: var(--k-fill-2); }
+.run-row:hover .row-more, .run-row:focus-within .row-more { opacity: .8; }
+.run-row .row-more { top: 5px; right: 5px; width: 20px; height: 20px; }
+.run-row .smark { width: 12px; height: 12px; }
+
+/* ---- 对话行和审计行：同一行高，右侧动作悬停才出现 ---- */
+.chat-row {
+  height: 30px; min-height: 30px; padding: 0 30px 0 8px;
+  border-radius: 8px; font-size: 13.5px; color: var(--text-2);
+}
+.chat-row:hover { background: var(--k-fill-1); color: var(--text-1); }
+.chat-row.active { background: var(--k-fill-2); color: var(--text-1); }
+#gov-history .gov-target-row {
+  padding-right: 8px; font-size: 13px;
+}
+#gov-history .gov-target-row .smeta {
+  font: 400 10.5px var(--font-ui); color: var(--text-4); max-width: 132px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.section-empty { padding: 6px 10px; font: 400 12.5px/18px var(--font-ui); color: var(--text-4); }
+.side-more { font-size: 12px; color: var(--text-4); }
+
+/* ---- 治理导航：与 Work 行同高，图标 + 标签 + 活动浅灰块 ---- */
+.gov-surface-nav { padding: 0; margin: 0 0 2px; }
+.gov-surface-nav .gov-surface-switch { gap: 1px; }
+.gov-surface-nav .gov-surface-btn {
+  height: 36px; padding: 0 8px; gap: 8px; justify-content: flex-start;
+  border-radius: 8px; color: var(--text-2);
+  font: 400 14px/20px var(--font-ui);
+}
+.gov-surface-nav .gov-surface-btn .d-icon,
+.gov-surface-nav .gov-surface-btn .s-icon {
+  width: 17px; height: 17px; color: var(--text-3);
+}
+.gov-surface-nav .gov-surface-btn:hover { background: var(--k-fill-1); color: var(--text-1); }
+.gov-surface-nav .gov-surface-btn.active {
+  background: var(--k-fill-2); color: var(--text-1); font-weight: 500;
+}
+.gov-surface-nav .gov-surface-btn.active .d-icon,
+.gov-surface-nav .gov-surface-btn.active .s-icon { color: var(--text-1); }
+
+/* ---- 页脚：一行紧凑用户行 ---- */
+.side-foot { padding: 6px 8px 8px; margin: 0 -8px -8px; }
+.side-user { height: 36px; padding: 4px 8px; border-radius: 8px; font-size: 13.5px; }
+.side-user:hover, .side-user[aria-expanded="true"] { background: var(--k-fill-1); }
+.side-user .side-gear { width: 20px; height: 20px; }
+.side-foot .foot-meta { font-size: 11px; }
+/* 列表滚到页脚时用 24px 渐隐收口（Kimi 的 sidebar-footer:before）。 */
+.side-foot::before {
+  content: ""; position: absolute; bottom: 100%; left: 0; right: 0;
+  height: 24px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--canvas));
+}
+/* 分组右侧的「＋」平时收起，悬停/聚焦才出现（Kimi 的 section action）。 */
+.side-section .section-action { opacity: 0; transition: opacity 120ms var(--ease); }
+.side-section:hover .section-action,
+.side-section:focus-within .section-action { opacity: .62; }
+.side-section .section-action:hover { opacity: 1; }
+@media (hover: none) {
+  .side-section .section-action { opacity: .62; }
+}
+/* 无前导图标的行（对话/审计记录）与导航文字列对齐：Kimi 的列表文字
+   从导航图标右侧开始，不贴侧栏边。 */
+.chat-row { padding-left: 24px; }
+#gov-history .gov-target-row { padding-left: 24px; }
+.section-empty { padding-left: 24px; }

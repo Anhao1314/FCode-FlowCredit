@@ -34,7 +34,7 @@ test("分区历史:Work 显示对话段,Governance 显示治理历史并深链�
   const row = page.locator("#gov-history [data-gov-hist]")
     .filter({ hasNotText: "0 发现" }).first();
   await expect(row).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator("#gov-history")).toContainText("治理历史");
+  await expect(page.locator("#gov-history")).toContainText("审计记录");
   await row.click();
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
   await expect(page.locator("#gov-summary .gov-target-head")).toBeVisible({ timeout: 10_000 });

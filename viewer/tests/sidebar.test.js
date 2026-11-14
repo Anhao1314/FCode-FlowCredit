@@ -225,7 +225,7 @@ test("renderRuns:项目运行嵌在项目下，平坦列表只留未归属", () 
   ];
   sidebar.renderRuns();
   assert.doesNotMatch(tasks.innerHTML, /r1/, "项目运行不再重复进平坦列表");
-  assert.match(tasks.innerHTML, /未归属运行/);
+  assert.match(tasks.innerHTML, /任务/);
 
   state.runs = [
     { id: "r2", status: "succeeded", created: now, template: "general", rounds: 1,

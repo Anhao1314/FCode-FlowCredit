@@ -152,13 +152,13 @@ test("治理历史:按今天/昨天/更早分组,行带发现数与审计 id", (
     { dir: `demo-${localDay(-1)}-bbbbbb`, audit_id: "demo-y", target: "/repo/fixtures/demo-target", findings: 2 },
     { dir: `old-${localDay(-9)}-cccccc`, audit_id: "old-x", target: "/tmp/Old.app", findings: 0 },
   ]);
-  assert.match(html, /<span>今天<\/span><span class="grp-count">1<\/span>/);
-  assert.match(html, /<span>昨天<\/span><span class="grp-count">1<\/span>/);
-  assert.match(html, /<span>更早<\/span><span class="grp-count">1<\/span>/);
+  assert.match(html, /<span>今天<\/span>/);
+  assert.match(html, /<span>昨天<\/span>/);
+  assert.match(html, /<span>更早<\/span>/);
   assert.match(html, /data-gov-hist="evox\.app-\d{4}-\d{2}-\d{2}-aaaaaa"[^>]*title="evox.app-today"/);
   assert.match(html, /<span class="slabel">EvoX.app<\/span><span class="smeta">5 发现<\/span>/);
   assert.match(html, /demo-target/);
-  assert.match(html, /治理历史/);
+  assert.match(html, /审计记录/);
   assert.match(html, /data-gov-hist-nav/);
 });
 
