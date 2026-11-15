@@ -15,6 +15,7 @@ from typing import Any
 
 from ..core.contracts import AgentError, Task
 from .harness import Harness
+from .parallel import PARALLEL_READ_TOOLS
 
 __all__ = ["find_unfinished_tool", "reconcile_unknown_tool"]
 
@@ -45,11 +46,36 @@ def find_unfinished_tool(events: list[dict[str, Any]]) -> dict[str, Any] | None:
                     "EVENT_ORDER_INVALID",
                     f"{kind} at event {event['sequence']} has no matching tool_started",
                 )
+            legacy_failure = kind == "tool_failed" and not detail.get("tool")
+            if len(open_calls) > 1:
+                # Parallel read batches have starts [a, b] and outcomes in
+                # proposal order [a, b], so match the earliest identical start
+                # (FIFO). A mixed batch still fails closed: an open write could
+                # have produced a side effect and needs one-call recovery.
+                if not all(
+                    str(call["detail"].get("tool") or "") in PARALLEL_READ_TOOLS
+                    for call in open_calls
+                ):
+                    raise AgentError(
+                        "EVENT_ORDER_INVALID",
+                        "multiple tool calls have no durable outcome",
+                    )
+                match = next(
+                    (index for index, call in enumerate(open_calls)
+                     if not legacy_failure and _identity(call["detail"]) == _identity(detail)),
+                    None,
+                )
+                if match is None:
+                    raise AgentError(
+                        "EVENT_ORDER_INVALID",
+                        f"{kind} at event {event['sequence']} does not match an open read",
+                    )
+                open_calls.pop(match)
+                continue
             start = open_calls[-1]
             # Older logs recorded only an error code on tool_failed. That event
             # still closes the immediately preceding call; new logs carry the
             # full identity and are checked strictly.
-            legacy_failure = kind == "tool_failed" and not detail.get("tool")
             if not legacy_failure and _identity(start["detail"]) != _identity(detail):
                 raise AgentError(
                     "EVENT_ORDER_INVALID",
@@ -57,6 +83,22 @@ def find_unfinished_tool(events: list[dict[str, Any]]) -> dict[str, Any] | None:
                 )
             open_calls.pop()
     if len(open_calls) > 1:
+        # A fast read batch deliberately has several starts in flight. They are
+        # local, side-effect-free reads, so recovery can represent the whole
+        # group honestly instead of declaring the log corrupt. Any mixed batch
+        # (or any write/network call) still fails closed.
+        tools = [str(call["detail"].get("tool") or "") for call in open_calls]
+        if all(tool in PARALLEL_READ_TOOLS for tool in tools):
+            last = open_calls[-1]["detail"]
+            return {
+                "sequence": open_calls[-1]["sequence"],
+                "detail": {
+                    "tool": "parallel_read_batch",
+                    "round": last.get("round"),
+                    "batch": True,
+                    "calls": [call["detail"] for call in open_calls],
+                },
+            }
         raise AgentError("EVENT_ORDER_INVALID", "multiple tool calls have no durable outcome")
     return open_calls[0] if open_calls else None
 
@@ -93,6 +135,7 @@ def reconcile_unknown_tool(
         "sequence": unknown_events[-1]["sequence"],
         "detail": unknown_events[-1]["payload"].get("detail") or {},
     }
+    batch_calls = source["detail"].get("calls") if source["detail"].get("batch") else None
     detail = {
         "source_event_sequence": source["sequence"],
         "tool": source["detail"].get("tool"),
@@ -103,6 +146,8 @@ def reconcile_unknown_tool(
         "retry_dispatched": False,
         "requires_operator_review": side_effect != "not_observed",
     }
+    if batch_calls:
+        detail["tools"] = [str(call.get("tool") or "") for call in batch_calls]
     task = harness.record(task, "recovery_reconciled", detail)
     if task.status not in ("failed", "denied", "succeeded"):
         task = harness.finalize(

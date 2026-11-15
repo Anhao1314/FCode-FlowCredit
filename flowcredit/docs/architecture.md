@@ -5,6 +5,26 @@
 > 下一版框架（Policy / Voice 分层、领域模块、评测与学习闭环）见
 > [`framework.md`](framework.md)。本文描述当前已落地的运行时。
 
+## 审计域与制品证据
+
+`flowaudit/` 是叠在同一个内核上的审计产品域，不是运行时的一部分：
+`flowagent ← flowaudit` 单向依赖，反向由 AST 测试强制。它提供 AGI 分类法、
+规则即数据、PoC 受限重放、宿主 oracle、审计包与 `verify-bundle`。
+
+没有源码的交付物走 `flowaudit/targets/rea.py`：REA 只产生 Evidence 和
+allow-list facts，宿主 `codesign` 读取 entitlements/签名，判定仍由
+`flowaudit/poc/replay.py` 的宿主 oracle 完成。原始 Evidence、facts 与
+PoC 记录都按 SHA-256 固定在审计包里。
+
+```bash
+python audit.py audit fixtures/demo-target
+python audit.py audit /Applications/EvoX.app --adapter rea --declared-features "microphone"
+python viewer/server.py --repo . --port 8642   # / → 侧栏「审计台」(#/audit)
+```
+
+详见 [architecture-map](architecture-map.md)、[audit-methodology](audit-methodology.md)
+与 [integration-rea](integration-rea.md)。
+
 ## 分层与依赖方向
 
 ```
@@ -131,6 +151,8 @@ hash_n = sha256(canonical_json({sequence, type, payload, prev_hash, at}))
 4. `Loop.pending_step(task)` 检查是否有已批准但未执行的提案（对账后的情况）。
 5. 继续跑，轮次号取自 `task.model.attempts`，不会重复。
 
+Console 的人工等待还有一层持久索引：审批 `paused + approval_requested` 与提问 `running + tool_started` 的 pending 保存在 run meta。重启后先核对 pending、链尾和已验证 proposal 完全一致，再恢复同一个等待；批准步骤凭 `approval_granted` 只越过自己的重复审批门，提问答案只补写原 `tool_started` 的结果，不重放模型、不重复调用工具 handler。没有 pending 的普通中断仍只标为 stopped。
+
 工具侧还有一个更窄的未知结果窗口：`tool_started` 已提交，但进程可能在 handler 前、handler 副作用后或结果提交前消失。`runtime/recovery.py` 对未闭合调用只做对账与标记，不重发；主机证据区分 `observed`、`not_observed` 与 `unknown`。`runtime/replay.py` 只消费事件字典，比较动作顺序、结果哈希、计划与终态，不接触工具注册表。预算计数仍在 SQLite，恢复前后独立比较。
 
 版本化基准在 `benchmark/` 中复用上述正式链路；`ScriptedProvider` 只给提议，独立 verifier 直接检查文件、命令、事件、收据与 canary。运行方法和统计分母见 [runtime-benchmark](runtime-benchmark.md)，真实 SIGKILL 录屏顺序见 [demo-script](demo-script.md)。
@@ -158,7 +180,7 @@ hash_n = sha256(canonical_json({sequence, type, payload, prev_hash, at}))
 | `runtime/permissions.py` | 三道门控 | 拒绝有稳定错误码 |
 | `runtime/budget.py` | 四维预算 | 发送前扣，不退 |
 | `runtime/harness.py` | 单轮机制 + 独立重算 | 成功只能由 verify 产生 |
-| `runtime/loop.py` | 多轮 + 恢复 | 轮次不重复；支持 packet 模式与 fast path |
+| `runtime/loop.py` | 多轮 + 恢复 | 轮次不重复；fast 本地只读批量并发派发，事件/计划按原序提交 |
 | `runtime/recovery.py` | 工具未知结果对账 | 不重发；区分副作用证据；重复恢复拒绝 |
 | `runtime/replay.py` | 只读状态投影 | 不接触 registry；比较动作、收据、计划与终态 |
 | `benchmark/` | 版本化任务与独立验证 | 复用正式 Runtime；指标保留分子分母与任务边界 |

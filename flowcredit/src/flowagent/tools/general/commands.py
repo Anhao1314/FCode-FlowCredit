@@ -70,6 +70,11 @@ _KILL_GRACE_SECONDS = 3.0
 #: shell, and a proposal written in shell grammar is not a legal proposal.
 _SHELL_META = (";", "&&", "||", "|", "<", ">", "`", "$(", "\n", "\r")
 
+#: 正则工具例外：grep 的模式参数里 `|` 是 ERE 交替，不是 shell 管道——
+#: run_command 用 execve 传参、没有 shell，`|` 是字面字节，交给 grep 解释
+#: 正是模型的本意（真实踩过：`grep -E "A|B"` 被判 shell 语法终结了整次运行）。
+_SHELL_META_BY_PROGRAM = {"grep": tuple(meta for meta in _SHELL_META if meta != "|")}
+
 #: git subcommands the host allows. Everything else — network (push/pull/
 #: fetch), history rewrite (reset/rebase/filter-branch), config — is out.
 _GIT_SUBCOMMANDS = {
@@ -135,6 +140,14 @@ class CommandRule:
 
 #: The host's default registry. Extendable (never replaceable) via
 #: ``commands.json`` next to ``mcp.json``: same shape, host-reviewed.
+#:
+#: The verification surface is deliberately wider than the original
+#: Python/Node pair: a real project should be able to declare its own test
+#: command (``npm test``, ``cargo test``, ``go test ./...``, ``make test``,
+#: ``uv run pytest`` …). These are still argv-only commands with no shell;
+#: every one is ``readonly=False``, so the approval gate still sees it as
+#: consequential. ``commands.json`` remains the escape hatch for anything
+#: project-specific that is not listed here.
 DEFAULT_COMMANDS: tuple[CommandRule, ...] = (
     CommandRule("python", readonly=False, arg_policy="script"),
     CommandRule("python3", readonly=False, arg_policy="script"),
@@ -148,6 +161,39 @@ DEFAULT_COMMANDS: tuple[CommandRule, ...] = (
     CommandRule("diff", readonly=True, arg_policy="paths"),
     CommandRule("pytest", readonly=False, arg_policy="free"),
     CommandRule("unittest", readonly=False, arg_policy="free"),
+    # JavaScript / TypeScript
+    CommandRule("npm", readonly=False, arg_policy="free"),
+    CommandRule("pnpm", readonly=False, arg_policy="free"),
+    CommandRule("yarn", readonly=False, arg_policy="free"),
+    CommandRule("npx", readonly=False, arg_policy="free"),
+    CommandRule("bun", readonly=False, arg_policy="free"),
+    CommandRule("deno", readonly=False, arg_policy="free"),
+    # Python tooling
+    CommandRule("uv", readonly=False, arg_policy="free"),
+    CommandRule("poetry", readonly=False, arg_policy="free"),
+    CommandRule("pip", readonly=False, arg_policy="free"),
+    CommandRule("pip3", readonly=False, arg_policy="free"),
+    CommandRule("ruff", readonly=False, arg_policy="free"),
+    CommandRule("mypy", readonly=False, arg_policy="free"),
+    CommandRule("tox", readonly=False, arg_policy="free"),
+    CommandRule("nox", readonly=False, arg_policy="free"),
+    # Rust / Go / C / C++
+    CommandRule("cargo", readonly=False, arg_policy="free"),
+    CommandRule("go", readonly=False, arg_policy="free"),
+    CommandRule("make", readonly=False, arg_policy="free"),
+    CommandRule("cmake", readonly=False, arg_policy="free"),
+    CommandRule("ctest", readonly=False, arg_policy="free"),
+    CommandRule("ninja", readonly=False, arg_policy="free"),
+    # JVM / .NET / Ruby / PHP / Swift
+    CommandRule("mvn", readonly=False, arg_policy="free"),
+    CommandRule("gradle", readonly=False, arg_policy="free"),
+    CommandRule("dotnet", readonly=False, arg_policy="free"),
+    CommandRule("bundle", readonly=False, arg_policy="free"),
+    CommandRule("rake", readonly=False, arg_policy="free"),
+    CommandRule("ruby", readonly=False, arg_policy="free"),
+    CommandRule("composer", readonly=False, arg_policy="free"),
+    CommandRule("php", readonly=False, arg_policy="free"),
+    CommandRule("swift", readonly=False, arg_policy="free"),
 )
 
 
@@ -213,7 +259,7 @@ class CommandPolicy:
         for arg in args:
             if not isinstance(arg, str) or not arg:
                 raise AgentError("COMMAND_DENIED", "every argument must be a non-empty string")
-            for meta in _SHELL_META:
+            for meta in _SHELL_META_BY_PROGRAM.get(program, _SHELL_META):
                 if meta in arg:
                     raise AgentError(
                         "COMMAND_SHELL_SYNTAX",

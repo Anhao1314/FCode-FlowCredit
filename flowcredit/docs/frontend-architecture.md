@@ -131,15 +131,14 @@ function renderMode(mode, payload = {}) { ... }
 ### 历史的运行：一条读取路径
 
 运行索引、轨迹和 task 数据库都落在磁盘上，所以重启之后运行记录会回来：
-`RunManager._load_history()` 只重建内存里的那条记录（无线程、无观察者、不再
-ingest、不假造 snapshot），排序按 `created` 倒序。两个诚实性细节值得记住：
+`RunManager._load_history()` 重建内存记录，排序按 `created` 倒序；普通历史不启动
+线程、不重新 ingest、不假造 snapshot。三个人工等待与诚实性细节值得记住：
 
 - meta.json 里记着 `model` / `effort`（列表接口不需要，但恢复出来的运行要在
   原 provider 上继续，静默退回 mock 就是撒谎）；
-- 进程死在半途的运行，meta 里写着 `running`。恢复时按 `stopped` + 一句说明
-  处理（`FINISHED_STATUS` 之外的都算中断）：说它"运行中"是在承诺没人做的
-  工作，说它"失败"又违反内核的未知结果语义——轨迹停在进程消失那一刻，记录
-  就这么说。
+- 没有 pending 的中断运行按 `stopped` + 一句说明处理：不承诺仍在工作，也不把
+  未知结果伪报成失败；带审批或提问 pending 的运行是例外，启动独立恢复 worker，
+  在原 task 链上等待同一个人工决策，然后继续执行；
 - 一个损坏的 meta.json 只跳过自己，不拖垮启动：半写的文件不该藏起其余历史。
 
 **轨迹一律走 `GET /api/runs/{id}/trace`，不走 `runs/<id>/trace.json` 这个静态

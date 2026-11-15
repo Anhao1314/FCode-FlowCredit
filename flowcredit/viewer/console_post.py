@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from console_post_chat import (
     post_chat_confirm,
+    post_chat_tool_decision,
     post_chat_edit,
     post_chat_regenerate,
     post_chat_send,
     post_intake,
     post_chat_config,
+    post_chat_memory,
+    post_chat_memory_delete,
 )
 from console_post_runs import (
+    post_project_archive,
+    post_project_create,
+    post_project_update,
     post_run_answer,
     post_run_budget,
     post_run_create,
@@ -18,43 +24,421 @@ from console_post_runs import (
     post_run_message,
     post_run_meta,
     post_run_plan,
+    post_run_project,
     post_run_queue,
+    post_run_recover,
     post_run_resume,
     post_run_review,
     post_run_steer,
     post_run_stop,
+    post_schedules_upsert,
+    post_schedules_delete,
+    post_schedules_toggle,
 )
-from audit_jobs import start_audit_run
+
+
+def post_gov_run_explain(handler, run_id: str):
+    """治理解释层：基于已完成运行的确定性审计包生成模型解读（非裁决）。
+
+    fail-closed：gov/explainer 不可用、运行未完成、provider 不支持
+    都直接拒绝——解释层缺位时，治理功能一个不少。"""
+    explainer = getattr(handler, "gov_explainer", None)
+    if explainer is None or getattr(handler, "gov_bots", None) is None:
+        return handler._json({"error": "governance is unavailable"}, 503)
+    body = handler._read_body()
+    question = body.get("question")
+    model = body.get("model")
+    try:
+        record = explainer.explain(
+            run_id,
+            question=str(question) if isinstance(question, str) else "",
+            model_key=model if isinstance(model, str) else None,
+        )
+    except ValueError as error:
+        message = str(error)
+        code = 503 if "provider" in message or "模型不支持" in message else 400
+        return handler._json({"error": message}, code)
+    return handler._json(record)
 
 
 def post_audit_run(handler):
-    """`/audit <target>` 斜杠命令的落点:离线审计管线跑成后台作业。"""
-    repo = type(handler).repo
-    if repo is None:
+    """`/挖洞 <target>` 与 `/audit <target>` 的落点:离线审计管线跑成后台作业。
+    adapter 可显式指定；缺省按目标位置解析（仓库内=repo,放行根内=rea）。"""
+    audit = getattr(handler, "audit", None)
+    if audit is None or audit.repo is None:
         return handler._json({"error": "no repo; audit unavailable"}, 503)
     body = handler._read_body()
     target = str(body.get("target") or "").strip()
     if not target:
         return handler._json({"error": "target is required"}, 400)
+    adapter = str(body.get("adapter") or "").strip() or None
     try:
-        job_id = start_audit_run(repo, target)
+        job_id = audit.start_run(target, adapter)
     except ValueError as error:
         return handler._json({"error": str(error)}, 400)
     return handler._json({"job_id": job_id, "status": "running"})
 
 
+def post_plugin_install(handler):
+    """Install one curated MCP plugin by writing the host-reviewed mcp.json."""
+    market = getattr(handler, "plugins", None)
+    if market is None:
+        return handler._json({"error": "plugin market is unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        entry = market.install(str(body.get("id") or ""))
+    except Exception as error:  # noqa: BLE001 — market errors are user-facing
+        code = 404 if "unknown plugin" in str(error) else 400
+        return handler._json({"error": str(error)}, code)
+    handler.manager.reload_mcp()
+    return handler._json({"plugin": entry}, 202)
+
+
+def post_plugin_uninstall(handler):
+    market = getattr(handler, "plugins", None)
+    if market is None:
+        return handler._json({"error": "plugin market is unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        entry = market.uninstall(str(body.get("id") or ""))
+    except Exception as error:  # noqa: BLE001 — market errors are user-facing
+        code = 404 if "unknown plugin" in str(error) else 400
+        return handler._json({"error": str(error)}, code)
+    handler.manager.reload_mcp()
+    return handler._json({"plugin": entry}, 202)
+
+
+def post_gov_bot_run(handler, bot_id):
+    """Dispatch one manual run to a governance bot (auditor / verifier)."""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        run = service.start_run(bot_id, str(body.get("target") or "").strip())
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"run": run}, 202)
+
+
+def post_gov_run_create(handler):
+    """统一运行入口：对话 `/挖洞` 与团队派活都走这里。
+
+    - 不带 bot_id / source=console：手动 run，source=console，不占预算、不走审批；
+    - 带 bot_id：团队 run，source=team，按 Bot 预算与 routine 审批语义执行。
+    目标校验在审计服务里同步完成，非法目标直接 400。
+    """
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    target = str(body.get("target") or "").strip()
+    bot_id = str(body.get("bot_id") or "").strip()
+    source = str(body.get("source") or "").strip()
+    target_md = str(body.get("target_md") or "").strip() or None
+    osv_snapshot = str(body.get("osv_snapshot") or "").strip() or None
+    try:
+        if bot_id:
+            if source == "console":
+                raise ValueError("console runs are auditor-only and take no bot_id")
+            run = service.start_run(bot_id, target, source="team",
+                                    target_md=target_md, osv_snapshot=osv_snapshot)
+        else:
+            run = service.start_manual_run(target, target_md=target_md,
+                                           osv_snapshot=osv_snapshot)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"run": run}, 201)
+
+
+def post_gov_swarm_create(handler):
+    """目标级 fan-out：一个蜂群把多个目标排入队列，宿主按并发调度。"""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    targets = body.get("targets")
+    if not isinstance(targets, list):
+        return handler._json({"error": "targets must be an array"}, 400)
+    try:
+        swarm = service.create_swarm(
+            targets,
+            name=str(body.get("name") or ""),
+            max_concurrency=body.get("max_concurrency", 2),
+            target_md=str(body.get("target_md") or "").strip() or None,
+            osv_snapshot=str(body.get("osv_snapshot") or "").strip() or None,
+        )
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"swarm": swarm}, 201)
+
+
+def post_gov_swarm_cancel(handler, swarm_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        swarm = service.cancel_swarm(swarm_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"swarm": swarm})
+
+
+def post_gov_swarm_retry(handler, swarm_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        swarm = service.retry_swarm(swarm_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"swarm": swarm})
+
+
+def post_gov_fix_create(handler):
+    """Fixer：在隔离副本验证补丁，不写原目录；批准后才应用并复扫。"""
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    body = handler._read_body()
+    audit_id = str(body.get("audit_id") or "").strip()
+    finding_id = str(body.get("finding_id") or "").strip()
+    patch = body.get("patch")
+    verification = str(body.get("verification") or "").strip()
+    model_key = str(body.get("model") or "").strip()
+    if not audit_id or not finding_id:
+        return handler._json({"error": "audit_id and finding_id are required"}, 400)
+    try:
+        if isinstance(patch, str) and patch.strip():
+            fix = service.create(audit_id, finding_id, patch)
+        elif verification:
+            fix = service.delegate_fix(
+                audit_id, finding_id, verification, model_key=model_key)
+        else:
+            return handler._json(
+                {"error": "patch or verification command is required"}, 400)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"fix": fix}, 201)
+
+
+def post_gov_fix_approve(handler, fix_id):
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    try:
+        fix = service.approve(fix_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    except RuntimeError as error:
+        return handler._json({"error": str(error)}, 500)
+    return handler._json({"fix": fix})
+
+
+def post_gov_fix_reject(handler, fix_id):
+    service = getattr(handler, "gov_fixes", None)
+    if service is None:
+        return handler._json({"error": "fixer is unavailable"}, 503)
+    try:
+        fix = service.reject(fix_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"fix": fix})
+
+
+def post_gov_bot_settings(handler, bot_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        settings = service.set_settings(bot_id, body)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"settings": settings})
+
+
+def post_gov_run_approve(handler, run_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        run = service.approve_run(run_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"run": run})
+
+
+def post_gov_run_reject(handler, run_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        run = service.reject_run(run_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 409)
+    return handler._json({"run": run})
+
+
+def post_gov_skill(handler):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        skill = service.create_skill(
+            str(body.get("run_id") or ""), str(body.get("name") or ""),
+        )
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"skill": skill}, 201)
+
+
+def post_gov_skill_delete(handler, skill_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        service.delete_skill(skill_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"deleted": skill_id})
+
+
+def post_gov_routine(handler):
+    """Create a standing routine for one bot (cron-like manual form)."""
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        routine = service.create_routine(str(body.get("bot_id") or ""), body)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"routine": routine}, 201)
+
+
+def post_gov_routine_toggle(handler, routine_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    body = handler._read_body()
+    try:
+        routine = service.set_routine_enabled(routine_id, bool(body.get("enabled")))
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"routine": routine})
+
+
+def post_gov_routine_delete(handler, routine_id):
+    service = getattr(handler, "gov_bots", None)
+    if service is None:
+        return handler._json({"error": "governance bots are unavailable"}, 503)
+    try:
+        service.delete_routine(routine_id)
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 404)
+    return handler._json({"deleted": routine_id})
+
+
 _STATIC = {
     "/api/intake": post_intake,
+    "/api/projects": post_project_create,
+    "/api/projects/update": post_project_update,
+    "/api/projects/archive": post_project_archive,
+    "/api/settings/model-config": post_chat_config,
     "/api/settings/chat-config": post_chat_config,
     "/api/chat/send": post_chat_send,
+    "/api/chat/memory": post_chat_memory,
+    "/api/schedules": post_schedules_upsert,
+    "/api/schedules/delete": post_schedules_delete,
+    "/api/schedules/toggle": post_schedules_toggle,
+    "/api/chat/memory/delete": post_chat_memory_delete,
     "/api/runs": post_run_create,
     "/api/audit/run": post_audit_run,
+    "/api/gov/runs": post_gov_run_create,
+    "/api/gov/swarms": post_gov_swarm_create,
+    "/api/gov/fixes": post_gov_fix_create,
+    "/api/gov/routines": post_gov_routine,
+    "/api/gov/skills": post_gov_skill,
+    "/api/plugins/install": post_plugin_install,
+    "/api/plugins/uninstall": post_plugin_uninstall,
 }
 _CHAT_ROUTES = {
     "/confirm": post_chat_confirm,
+    "/tool-decision": post_chat_tool_decision,
     "/edit": post_chat_edit,
     "/regenerate": post_chat_regenerate,
 }
+def post_run_apply_patch(handler, run_id):
+    """把运行产出的 changes.patch 应用到原项目目录（operator 显式动作）。
+
+    治理边界：
+    - 只对终态运行；项目源目录必须是服务端记录的 project.json.source，
+      不接受客户端传路径；
+    - `git apply --check` 先做冲突检测——原目录在运行期间改过就拒绝，
+      绝不用旧补丁覆盖新改动；check 通过才 apply（git apply 本身原子，
+      全成或全不动）；
+    - 回执写 runs/<id>/apply.json（补丁 sha256 + 文件清单 + 时间），
+      应用过的证据留在运行目录，不依赖会话内存。
+    """
+    import hashlib
+    import json as _json
+    import subprocess
+    import time as _time
+    from pathlib import Path as _Path
+
+    mgr = type(handler).manager
+    run = mgr.get(str(run_id or ""))
+    if run is None:
+        return handler._json({"error": "no such run"}, 404)
+    if not getattr(run, "finished", False):
+        return handler._json({"error": "run is still in progress; wait for its terminal state"}, 409)
+    run_dir = _Path(mgr.runs_dir) / run.id
+    patch_path = run_dir / "changes.patch"
+    project_path = run_dir / "project.json"
+    if not patch_path.is_file():
+        return handler._json({"error": "this run has no changes.patch (no project was imported)"}, 404)
+    try:
+        project = _json.loads(project_path.read_text(encoding="utf-8")) if project_path.is_file() else {}
+    except (OSError, ValueError):
+        return handler._json({"error": "project delivery record is unreadable"}, 500)
+    source = str(project.get("source") or "").strip()
+    if not source or not _Path(source).is_dir():
+        return handler._json({"error": f"project source is unavailable: {source or '(none)'}"}, 400)
+    patch = patch_path.read_text(encoding="utf-8")
+    if not patch.strip():
+        return handler._json({"error": "the patch is empty — nothing to apply"}, 400)
+
+    def _apply(*args: str):
+        return subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", *args, "-"],
+            input=patch, cwd=source, capture_output=True, text=True, timeout=120,
+        )
+
+    check = _apply("--check")
+    if check.returncode != 0:
+        lines = (check.stderr or check.stdout or "").strip().splitlines()
+        detail = lines[-1] if lines else "patch does not apply"
+        return handler._json({"error": f"patch does not apply cleanly: {detail[:300]}"}, 409)
+    applied = _apply()
+    if applied.returncode != 0:
+        lines = (applied.stderr or "").strip().splitlines()
+        detail = lines[-1] if lines else "git apply failed"
+        return handler._json({"error": f"git apply failed: {detail[:300]}"}, 500)
+    receipt = {
+        "applied_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "source": source,
+        "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
+        "files": project.get("filesChanged") or [],
+    }
+    (run_dir / "apply.json").write_text(
+        _json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    return handler._json({"applied": True, "source": source, "receipt": "apply.json",
+                          "files": receipt["files"]})
+
+
 _RUN_ROUTES = {
     "/review": post_run_review,
     "/stop": post_run_stop,
@@ -66,7 +450,10 @@ _RUN_ROUTES = {
     "/plan": post_run_plan,
     "/budget": post_run_budget,
     "/resume": post_run_resume,
+    "/recover": post_run_recover,
+    "/apply-patch": post_run_apply_patch,
     "/meta": post_run_meta,
+    "/project": post_run_project,
 }
 
 
@@ -86,6 +473,46 @@ def dispatch_post(handler, path: str):
     route = _STATIC.get(path)
     if route is not None:
         return route(handler)
+    match = _suffix(path, "/api/gov/bots/", {
+        "/run": post_gov_bot_run,
+        "/settings": post_gov_bot_settings,
+    })
+    if match is not None:
+        bot_id, route = match
+        return route(handler, bot_id)
+    match = _suffix(path, "/api/gov/runs/", {
+        "/approve": post_gov_run_approve,
+        "/reject": post_gov_run_reject,
+        "/explain": post_gov_run_explain,
+    })
+    if match is not None:
+        run_id, route = match
+        return route(handler, run_id)
+    match = _suffix(path, "/api/gov/swarms/", {
+        "/cancel": post_gov_swarm_cancel,
+        "/retry": post_gov_swarm_retry,
+    })
+    if match is not None:
+        swarm_id, route = match
+        return route(handler, swarm_id)
+    match = _suffix(path, "/api/gov/fixes/", {
+        "/approve": post_gov_fix_approve,
+        "/reject": post_gov_fix_reject,
+    })
+    if match is not None:
+        fix_id, route = match
+        return route(handler, fix_id)
+    match = _suffix(path, "/api/gov/routines/", {
+        "/toggle": post_gov_routine_toggle,
+        "/delete": post_gov_routine_delete,
+    })
+    if match is not None:
+        routine_id, route = match
+        return route(handler, routine_id)
+    match = _suffix(path, "/api/gov/skills/", {"/delete": post_gov_skill_delete})
+    if match is not None:
+        skill_id, route = match
+        return route(handler, skill_id)
     match = _suffix(path, "/api/chat/threads/", _CHAT_ROUTES)
     if match is not None:
         thread_id, route = match

@@ -16,6 +16,15 @@
     }
   },
   "per_session_cap_microusd": 50000,
+  "experiments": {
+    "jev_visual_shadow": {
+      "enabled": true,
+      "authorized_by": "operator",
+      "scope": "motion visual advisory; no runtime verdict or terminal change",
+      "max_calls": 10,
+      "note": "Operator-requested open exploration; not a general Jev license"
+    }
+  },
   "rules": [
     "每次在线调用前先对账:累计花费 + 本次预留 ≤ 钱包上限,否则 ONLINE_BUDGET_EXCEEDED",
     "花费实时记入 work/audit/online-spend.json;该文件与审计包一样属于证据",

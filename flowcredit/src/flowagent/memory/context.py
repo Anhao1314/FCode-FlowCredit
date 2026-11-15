@@ -69,6 +69,40 @@ def _clip(value: str) -> str:
             + value[-DEFAULT_SUMMARY_TAIL:])
 
 
+#: Cache-friendly ordering for non-frozen general contexts. The provider sees
+#: stable contract/tool fields first, append-only observations next, and
+#: per-round bookkeeping last. Finance contexts never take this path.
+_CACHE_CONTEXT_ORDER = (
+    "prompt_profile",
+    "instruction",
+    "tools",
+    "objective",
+    "conversation",
+    "prior_cases",
+    "observations",
+    "observation_index",
+    "plan",
+    "state",
+    "operator_messages",
+    "rejected_proposals",
+    "budget",
+    "round",
+    "intent",
+)
+
+
+def _cache_ordered_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Reorder a general context without changing its JSON content."""
+    ordered: dict[str, Any] = {}
+    for key in _CACHE_CONTEXT_ORDER:
+        if key in context:
+            ordered[key] = context[key]
+    for key, value in context.items():
+        if key not in ordered:
+            ordered[key] = value
+    return ordered
+
+
 def _compact(value: Any, depth: int) -> Any:
     """P0-1 的结构化压缩:深度内保留一层键值/列表首项,超出折叠为键名/计数。"""
     if value is None or isinstance(value, (int, float, bool)):
@@ -355,6 +389,81 @@ class WorkingMemory:
             "summary": self._summarise(record),
         }
 
+    # ------------------------------------------------------- policy-head views
+
+    def observation_stats(self) -> dict[str, Any]:
+        """Read-only observation-budget snapshot for the policy head."""
+        self._prepare_rows()
+        return {
+            "records": len(self.records),
+            "observation_chars": self._pinned_chars + self._np_chars,
+            "budget_chars": self.observation_budget,
+            "folded_through": self.folded_through,
+            "pinned": len(self._pinned_rows),
+            "non_pinned": len(self._np_rows),
+        }
+
+    def budget_pressure(self) -> float:
+        """Fraction of the observation budget currently in use."""
+        stats = self.observation_stats()
+        return stats["observation_chars"] / max(1, int(stats["budget_chars"]))
+
+    def policy_rows(self, limit: int = 40) -> list[dict[str, Any]]:
+        """Compact observation rows for the memory policy head.
+
+        These carry the same compressed view the main prompt already shows —
+        never raw tool output. The id is the same 12-char prefix the index rows
+        use, so a decision maps back without a second identifier space.
+        """
+        if limit <= 0 or not self.records:
+            return []
+        self._prepare_rows()
+        rows: list[dict[str, Any]] = []
+        for record in self.records[-limit:]:
+            rows.append({
+                "id": record.result_hash[:12],
+                "round": record.round,
+                "tool": record.tool,
+                "arguments_head": _arguments_head(record.arguments),
+                "summary_head": canonical_json(
+                    self._summarise(record))[:240],
+            })
+        return rows
+
+    def heuristic_intents(self) -> dict[str, str]:
+        """What the deterministic fold would do with each observation *now*.
+
+        ``pinned`` = full row, ``inline`` = summary row, ``folded`` = index
+        row. This mirrors :meth:`build`'s boundary arithmetic without mutating
+        the compaction cursors, so shadow comparison is read-only and calling
+        it can never change a prompt.
+        """
+        self._prepare_rows()
+        intents: dict[str, str] = {}
+        if self._pinned_chars > self.observation_budget:
+            # build() fail-opens here: every record stays inline.
+            for entry in self._prepared:
+                intents[entry["index_row"]["result_hash"]] = (
+                    "pinned" if entry["pinned"] else "inline")
+            return intents
+        folded = 0
+        if self._np_rows:
+            budget_left = self.observation_budget - self._pinned_chars
+            used = self._np_chars
+            if used > budget_left:
+                threshold = used - budget_left
+                folded = bisect.bisect_left(self._np_prefix, threshold) + 1
+                folded = min(folded, len(self._np_rows))
+        np_index = 0
+        for entry in self._prepared:
+            obs_id = entry["index_row"]["result_hash"]
+            if entry["pinned"]:
+                intents[obs_id] = "pinned"
+            else:
+                intents[obs_id] = "folded" if np_index < folded else "inline"
+                np_index += 1
+        return intents
+
     def build(
         self,
         round_no: int,
@@ -487,6 +596,12 @@ class WorkingMemory:
                 }
                 for hit in self.prior_cases[:3]
             ]
+        if self.prompt_profile:
+            # Non-frozen general profiles render with insertion order so the
+            # provider sees stable contract/tool fields before per-round
+            # bookkeeping. Finance contexts keep legacy insertion and canonical
+            # sorted rendering to protect the SFT golden hash.
+            return _cache_ordered_context(context)
         return context
 
     def _prepare_rows(self) -> None:

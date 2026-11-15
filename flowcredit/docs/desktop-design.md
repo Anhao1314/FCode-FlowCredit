@@ -28,24 +28,24 @@
 
 ## 2. 映射到 FCode 桌面端
 
-实现集中在 `flowcredit/viewer/desktop.css`，全部规则挂在 `html.desktop-app` 下，
-浏览器视图不受影响。
+2026-11-14 侧栏复核后，`.side-new`、分组标题、用户行与 composer 的生效值
+以 `viewer/thread.css` 末尾的侧栏对齐层为准；下表是当前值。
 
 | FCode 位置 | 桌面值 | 对应 Kimi |
 | --- | --- | --- |
 | `--sidebar-w` | 240 | 侧栏 240 |
 | `--reading-w` | 768 | 输入框/内容列 768 |
 | `--fs-3` / `--fs-2` | 14 / 13 | UI 正文 14 |
-| `.side-new` | 224 × 41，r12 | New chat 41/r12 |
-| `.side-nav .nav-item` | 高 36，padding 0 8，标签 x=40 | 导航行 36/37 |
-| `.side-section` | x=16 | Chats 分组 |
-| `.side-user` | 224 × 44，r12，8px 内边距 | 用户区 44/r12 |
+| `.side-new` | 36 高，透明安静行，r8 | New task 行 36 |
+| `.side-nav .nav-item` | 高 36，padding 0 8，图标 17，标签 x=33 | 导航行 36 |
+| `.side-section` | 高 30，14/20，x=14 | Chats / 项目 / 任务 |
+| `.side-user` | 36 高，r8，8px 内边距 | 用户区 36/r8 |
 | `.topbar` | 52；首页隐藏 | 对话顶栏 52 |
-| `.composer` | 768，r24 | 输入框 768 |
-| `.composer-ta` | 16/24，60px 编辑区 | 编辑区 48 + 12 上边距 |
-| `.composer-bar` | 9 + 36 + 9 | 操作行 36 |
-| `.c-btn` / `.c-icon` / `.send` | 36 高，胶囊 r20/圆形 | 模型/插件按钮 |
-| `.stage-dock` / `.stage-chips` | 768 | 首页输入框与 chips |
+| `.composer` | 800，r20 | 输入框 800/r20 |
+| `.composer-ta` | 16/24，60px 编辑区 | 编辑区 48 + 17 上边距 |
+| `.composer-bar` | 6 + 32 + 10 | 操作行 32 |
+| `.c-btn` / `.c-icon` / `.send` | 32 / 34 / 34，r16/圆形 | 模型/插件按钮 |
+| `.stage-dock` / `.stage-chips` | 800 | 首页输入框与快捷建议 |
 
 首页的顶部工具条在桌面模式下隐藏（`#app.stage-mode .topbar`），与 Kimi 的新对话
 视图一致；进入运行、委托确认或设置页时恢复。
@@ -57,14 +57,14 @@
 字标 + 居中输入框 + 模板 chips，没有顶部工具栏。与 Kimi 的首页结构相同：
 侧栏导航在左，输入框略高于视口中线，chips 在下方。
 
-![desktop home](desktop-home.png)
+![desktop home](../viewer/docs/desktop-home.png)
 
 ### 运行页
 
 52px 顶栏显示当前委托标题与链验证状态；内容列 768，工具卡是 FCode 自己的
 结构化证据视图；输入框吸底，右侧证据浮层宽 320。
 
-![desktop run](desktop-run.png)
+![desktop run](../viewer/docs/desktop-run.png)
 
 ### 委托确认、设置、报告
 

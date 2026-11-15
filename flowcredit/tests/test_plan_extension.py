@@ -41,6 +41,7 @@ from flowagent.runtime.budget import BudgetLimits  # noqa: E402
 from flowagent.runtime.control import RoundControl, ToolControl  # noqa: E402
 from flowagent.runtime.harness import Harness  # noqa: E402
 from flowagent.runtime.loop import Loop  # noqa: E402
+from flowagent.runtime.graph_loop import GraphLoop, _HAS_LANGGRAPH  # noqa: E402
 from flowagent.runtime.plan_extension import (  # noqa: E402
     MAX_PLAN_TODOS,
     validate_additions,
@@ -196,12 +197,19 @@ class Stack:
             grant=scenario.grant,
         )
 
-    def run(self, rounds, *, max_rounds: int = 12, control=None, task_id: str = "task-plan"):
+    def run(self, rounds, *, max_rounds: int = 12, control=None,
+            task_id: str = "task-plan", fast: bool = False, engine: str = "native"):
         provider = PlannedProvider(rounds)
         harness = self.harness(provider)
+        if fast:
+            # The fast/batch profile: plan extensions are a model-managed
+            # checklist and leftover advice may be settled after a result.
+            harness.max_steps = 4
+            harness.plan_tool = True
         task = self.task(harness, task_id)
         recorder = TraceRecorder(harness.store, provider_name=provider.name, model_name=provider.model)
-        loop = Loop(
+        loop_cls = GraphLoop if engine == "langgraph" else Loop
+        loop = loop_cls(
             harness,
             planner=GENERAL_DOMAIN.make_planner(self.world),
             max_rounds=max_rounds,
@@ -417,11 +425,16 @@ class HostValidationTests(unittest.TestCase):
         self.assertEqual(verdict.rejected[0]["code"], "TOOL_NOT_REGISTERED")
 
     def test_a_schema_invalid_argument_set_is_refused(self) -> None:
-        """F. A step whose arguments cannot be formed is not a step yet."""
+        """F. Plan-time arguments are settlement hints, not the execution payload.
+
+        A "write the report" todo cannot know `content` at planning time; the
+        dispatch-time gate re-validates the real arguments, so nothing bypasses
+        the schema — the plan just stops demanding the unknowable.
+        """
         verdict = self._judge([addition("p1", "edit_file", {"path": "stats.py"})])
-        self.assertFalse(verdict.ok)
-        self.assertEqual(verdict.rejected[0]["code"], "TOOL_ARGUMENTS_INVALID")
-        self.assertIn("old_text", verdict.rejected[0]["message"])
+        self.assertTrue(verdict.ok)
+        self.assertEqual(verdict.accepted[0].arguments, {"path": "stats.py"})
+        self.assertTrue(verdict.accepted[0].required)
 
     def test_a_tool_outside_the_task_scope_is_refused(self) -> None:
         """H."""
@@ -480,16 +493,17 @@ class HostValidationTests(unittest.TestCase):
         self.assertFalse(verdict.ok)
         self.assertEqual(verdict.rejected[0]["code"], "PLAN_EXTENSION_DISABLED")
 
-    def test_one_bad_entry_refuses_the_whole_extension(self) -> None:
-        """All-or-nothing: a half-applied plan is not auditable."""
+    def test_one_bad_entry_does_not_sink_valid_siblings(self) -> None:
+        """Partial acceptance: plan_steered records what entered, control_rejected
+        records the refusal with its reason — both lists verbatim on the chain."""
         verdict = self._judge([
             addition("p1", "read_file", {"path": "stats.py"}),
             addition("p2", "write_document", {"doc_id": "d"}),
         ])
-        self.assertFalse(verdict.ok)
-        self.assertEqual(verdict.accepted, [])
+        self.assertEqual([todo.id for todo in verdict.accepted], ["p1"])
         self.assertEqual(len(verdict.rejected), 1)
         self.assertEqual(verdict.rejected[0]["id"], "p2")
+        self.assertTrue(verdict.reason)
 
     def test_judging_changes_nothing_by_itself(self) -> None:
         """I, R. Validation is a read: no plan mutation, no budget, no execution."""
@@ -635,8 +649,9 @@ class LoopIntegrationTests(unittest.TestCase):
         reopened.close()
         self.stack = Stack(self._tmp.name, make_ws=False)  # keep tearDown happy
 
-    def test_a_rejected_extension_is_not_in_the_replayed_plan(self) -> None:
-        """D. A refusal cannot come back as accepted work."""
+    def test_a_rejected_entry_stays_out_of_the_replayed_plan(self) -> None:
+        """D. A refusal cannot come back as accepted work — but its valid
+        siblings still enter, and replay reconstructs exactly that plan."""
         rounds = [
             (step("ls_workspace", {}), [
                 addition("p_ok", "ls_workspace"),
@@ -647,10 +662,12 @@ class LoopIntegrationTests(unittest.TestCase):
         provider, harness, _, loop, final = self.stack.run(rounds, max_rounds=6)
         self.assertEqual(final.status, "succeeded")
         ids = [t["id"] for t in final.plan_state["todos"]]
-        self.assertNotIn("p_ok", ids)
+        self.assertIn("p_ok", ids)
         self.assertNotIn("p_bad", ids)
         opened = [e for e in harness.store.events(final.id) if e["type"] == "plan_steered"]
-        self.assertEqual(opened, [])
+        self.assertEqual([t for e in opened for t in e["payload"]["detail"]["added"]], ["p_ok"])
+        refused = [e for e in harness.store.events(final.id) if e["type"] == "control_rejected"]
+        self.assertEqual(refused[0]["payload"]["detail"]["rejected"][0]["id"], "p_bad")
         # Replay agrees.
         memory = loop.restore(harness.store.load(final.id))
         replayed = loop.rebuild_plan(harness.store.load(final.id), memory)
@@ -792,6 +809,96 @@ class LoopIntegrationTests(unittest.TestCase):
                       and e["payload"]["detail"]["tool"] == "run_command"]
             self.assertEqual(len(starts), 1, "an unknown result was dispatched twice")
             stack.close()
+
+
+class FastAdvisorySettlementTests(unittest.TestCase):
+    """Fast/batch profile: leftover model advice must not strand a delivered result.
+
+    The strict single-step contract (previous class) stays: no result, no
+    success. This class only pins the fast-profile fallback — the plan there is
+    a model-managed checklist, and a verified artifact outranks advice the model
+    no longer intends to act on. The dropped steps are abandoned on the chain,
+    never marked done.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_delivered_result_settles_leftover_advice(self) -> None:
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+                addition("p_scene1", "edit_file", {
+                    "path": "index.html", "old_text": "<!-- SECTION: scene -->",
+                }),
+                addition("p_scene2", "edit_file", {
+                    "path": "index.html", "old_text": "<g id=\"wheel\"></g>",
+                }),
+            ]),
+            (step("write_file", {"path": "SUMMARY.md", "content": "# done\n"}), []),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True)
+        self.assertEqual(final.status, "succeeded", final.failure)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["out"], "done")
+        self.assertEqual(states["p_never"], "abandoned")
+        self.assertEqual(states["p_scene1"], "abandoned")
+        self.assertEqual(states["p_scene2"], "abandoned")
+        events = harness.store.events(final.id)
+        settled = [e for e in events if e["type"] == "plan_steered"
+                   and e["payload"]["detail"].get("action") == "settle_advisory"]
+        self.assertEqual(len(settled), 1)
+        self.assertEqual(settled[0]["payload"]["detail"]["by"], "host")
+        self.assertEqual(
+            settled[0]["payload"]["detail"]["dropped"],
+            ["p_never", "p_scene1", "p_scene2"],
+        )
+        self.assertEqual(final.result["verification"], "file-state-recomputed")
+        verify_trace(recorder.build(harness.store.load(final.id)))
+        stack.close()
+
+    def test_no_result_keeps_advice_open(self) -> None:
+        """The fallback needs a verified answer; advice alone never succeeds."""
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+            ]),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True)
+        self.assertEqual(final.status, "failed")
+        self.assertEqual(final.failure["code"], "INSUFFICIENT_EVIDENCE")
+        self.assertIsNone(final.result)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["p_never"], "pending")
+        actions = [e["payload"]["detail"].get("action") for e in harness.store.events(final.id)
+                   if e["type"] == "plan_steered"]
+        self.assertNotIn("settle_advisory", actions)
+        stack.close()
+
+    @unittest.skipUnless(_HAS_LANGGRAPH, "langgraph is not installed")
+    def test_graph_engine_matches_native_settlement(self) -> None:
+        stack = Stack(self._tmp.name)
+        rounds = [
+            (step("ls_workspace", {}), [
+                addition("p_never", "read_file", {"path": "stats.py"}),
+            ]),
+            (step("write_file", {"path": "SUMMARY.md", "content": "# done\n"}), []),
+        ]
+        provider, harness, recorder, loop, final = stack.run(
+            rounds, max_rounds=3, fast=True, engine="langgraph")
+        self.assertEqual(final.status, "succeeded", final.failure)
+        states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
+        self.assertEqual(states["p_never"], "abandoned")
+        self.assertEqual(final.result["verification"], "file-state-recomputed")
+        verify_trace(recorder.build(harness.store.load(final.id)))
+        stack.close()
 
 
 class BlueprintCompatibilityTests(unittest.TestCase):

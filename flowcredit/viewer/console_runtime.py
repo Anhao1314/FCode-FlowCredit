@@ -214,7 +214,7 @@ class Runtime:
         # lead the picker even though the reference workload is declared first
         # in the scenario table. The sort is stable within each group.
         keys = sorted(
-            self.AVAILABLE,
+            (key for key in self.AVAILABLE if not self.SCENARIOS[key].internal),
             key=lambda key: 0 if self.SCENARIOS[key].module == "general-work" else 1,
         )
         out = []
@@ -266,6 +266,12 @@ class Run:
     queue: list | None = None
     cost: dict | None = None
     spec: dict | None = None
+    #: 运行来源:manual(操作者/对话发起) | scheduled(定时任务调度器) |
+    #: subagent(父运行的 spawn 扇出)。账本可见性的事实字段。
+    source: str = "manual"
+    #: Work 项目归属。新 run 在建时写入 binding.spec.project_id（trace 可见）；
+    #: 事后用「移动到项目」只改 meta.json（与 pin/rename 同级）。
+    project_id: str = ""
     controller: Any = None
     lock: threading.RLock = field(default_factory=threading.RLock)
     cond: threading.Condition = field(init=False)
@@ -277,6 +283,26 @@ class Run:
         """Caller must hold the lock."""
         self.version += 1
         self.cond.notify_all()
+
+    @property
+    def attention(self) -> str:
+        """One compact "needs a human" reason for the Work board.
+
+        The list payload deliberately omits the full pending object (it can
+        carry a command preview), but the board still has to know that a run
+        is waiting. This is the minimum fact that routes an operator to it.
+        """
+        if self.pending:
+            return "approval"
+        if self.status == "recovery_required":
+            return "recovery"
+        if self.status == "failed":
+            return "failed"
+        if self.status == "denied":
+            return "denied"
+        if self.status == "error":
+            return "error"
+        return ""
 
     def to_json(self, *, detail: bool = False) -> dict:
         out = {
@@ -295,6 +321,9 @@ class Run:
             "taskId": self.task_id,
             "cost": self.cost,
             "spec": self.spec,
+            "source": self.source,
+            "projectId": self.project_id,
+            "attention": self.attention,
         }
         if detail:
             out["error"] = self.error
@@ -386,6 +415,7 @@ class RunControl:
         timeout: float,
         preview=None,
         classify_consequential=None,
+        persist=None,
     ) -> None:
         self.run = run
         self.harness = harness
@@ -404,6 +434,9 @@ class RunControl:
         #: run_command per program (readonly utilities skip the approval);
         #: every other tool falls back to the approval set.
         self.classify_consequential = classify_consequential
+        #: Host persistence hook. Pending is a durable operator wait, not only
+        #: an SSE rendering hint; the manager writes it with the run metadata.
+        self.persist = persist
         self.timeout = max(5.0, float(timeout))
         self._lock = threading.Lock()
         self._commands: deque[dict] = deque()
@@ -446,8 +479,18 @@ class RunControl:
         """
         return self.mutate_message(message_id, "steer")
 
-    def mutate_message(self, message_id: str, op: str, new_text: str | None = None) -> dict:
-        """Edit / remove / reorder / steer a queued operator message by id."""
+    def mutate_message(
+        self,
+        message_id: str,
+        op: str,
+        new_text: str | None = None,
+        to_index: int | None = None,
+    ) -> dict:
+        """Edit / remove / reorder / steer a queued operator message by id.
+
+        ``to_index`` is a zero-based position among the *remaining* messages
+        for ``moveTo``; ``len(remaining)`` means append to the queue tail.
+        """
         with self._lock:
             idx = next(
                 (
@@ -475,6 +518,41 @@ class RunControl:
                         self._commands[prev],
                         self._commands[idx],
                     )
+            elif op == "moveDown":
+                nxt = next(
+                    (
+                        j
+                        for j in range(idx + 1, len(self._commands))
+                        if self._commands[j].get("kind") == "message"
+                    ),
+                    None,
+                )
+                if nxt is not None:
+                    self._commands[idx], self._commands[nxt] = (
+                        self._commands[nxt],
+                        self._commands[idx],
+                    )
+            elif op == "moveTo":
+                if to_index is None:
+                    return {"ok": False, "error": "toIndex is required for moveTo"}
+                try:
+                    target = max(0, int(to_index))
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "toIndex must be an integer"}
+                command = self._commands[idx]
+                del self._commands[idx]
+                message_positions = [
+                    j
+                    for j, queued in enumerate(self._commands)
+                    if queued.get("kind") == "message"
+                ]
+                if not message_positions:
+                    insert_at = 0
+                elif target >= len(message_positions):
+                    insert_at = message_positions[-1] + 1
+                else:
+                    insert_at = message_positions[target]
+                self._commands.insert(insert_at, command)
             elif op == "edit":
                 text = str(new_text or "").strip()
                 if not text:
@@ -486,7 +564,7 @@ class RunControl:
                 command["steered"] = True
                 self._commands.appendleft(command)
             else:
-                return {"ok": False, "error": "op must be edit, remove, moveUp or steer"}
+                return {"ok": False, "error": "op must be edit, remove, moveUp, moveDown, moveTo or steer"}
         self._publish_queue()
         return {"ok": True, "queue": self.queue_snapshot()}
 
@@ -515,7 +593,7 @@ class RunControl:
     # comes back as that tool's observation. The console owns the human
     # channel, the kernel owns the accounting.
 
-    def ask(self, *, question: str, why: str = "") -> dict:
+    def ask(self, *, question: str, why: str = "", options: list[str] | None = None) -> dict:
         """Publish one question, wait for the operator, return the answer.
 
         The audit trail is the tool call itself, not a side event: the harness
@@ -525,6 +603,11 @@ class RunControl:
         sequencing (the loop holds a task snapshot) — and it would be less
         honest, because the tool call *is* the unit an auditor reads.
 
+        ``options`` are display hints from the same tool call. They are copied
+        into the pending payload so the console can render one-click choices;
+        answering still goes through :meth:`answer` as one plain string, so a
+        click cannot become a second answer shape.
+
         A timeout is reported as a timeout — the model is told it is on its own
         rather than handed an invented answer. A stop request ends the question
         the same way it ends an approval.
@@ -532,6 +615,13 @@ class RunControl:
         text = str(question or "").strip()[:400]
         if not text:
             raise AgentError("ASK_QUESTION_EMPTY", "question must not be empty")
+        suggestions: list[str] = []
+        for raw in options or []:
+            value = str(raw or "").strip()[:60]
+            if value and value not in suggestions:
+                suggestions.append(value)
+            if len(suggestions) >= 4:
+                break
         with self._lock:
             if self._approval is not None:
                 # One human decision at a time: the gate and the question share
@@ -545,6 +635,7 @@ class RunControl:
                 "round": round_no,
                 "question": text,
                 "why": str(why or "")[:200],
+                "options": suggestions,
                 "expiresIn": int(self.timeout),
                 "requestedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
@@ -552,6 +643,10 @@ class RunControl:
             self._wake.clear()
         self._publish()
 
+        return self._wait_answer()
+
+    def _wait_answer(self) -> dict:
+        """Wait for the currently published question, including after a restart."""
         deadline = time.monotonic() + self.timeout
         stopped = False
         try:
@@ -582,6 +677,26 @@ class RunControl:
             "timed_out": bool((answer or {}).get("timeout")),
             "reason": "the operator did not answer in time",
         }
+
+    def restore_pending(self, pending: dict) -> None:
+        """Rebuild the exact human wait after a process restart.
+
+        No chain event is emitted here: the original approval/tool start is
+        already committed. HTTP threads only resolve this restored slot.
+        """
+        with self._lock:
+            if self._approval is not None:
+                raise ValueError("another operator wait is already active")
+            self._approval = dict(pending)
+            self._decision = None
+            self._wake.clear()
+        self._publish()
+
+    def wait_restored_approval(self, *, round_no: int, task, step: dict):
+        return self._wait_approval(round_no=round_no, task=task, step=step)
+
+    def wait_restored_question(self) -> dict:
+        return self._wait_answer()
 
     def answer(self, question_id: str, text: str) -> bool:
         """Record the operator's answer to the pending question."""
@@ -627,7 +742,8 @@ class RunControl:
             self._publish_queue()
         return self.RoundControl(task=task, plan=plan)
 
-    def before_tool(self, *, round_no: int, task, step: dict, decision):
+    def approval_required(self, *, round_no: int, task, step: dict) -> bool:
+        """before_tool 的判定段（无副作用）：这次调用是否需要操作员决策。"""
         mode = self.run.approval
         tool = step["tool"]
         required = mode == "all" or (mode == "consequential" and tool in self.approval_tools)
@@ -639,18 +755,29 @@ class RunControl:
                     required = False
             except Exception:  # noqa: BLE001 — 分类失败按需要审批处理
                 required = True
-        if not required:
-            return self.ToolControl(task=task, allowed=True)
+        return required
+
+    def prepare_approval(self, *, round_no: int, task, step: dict):
+        """before_tool 的挂起段（无等待）：提交 approval_requested + paused，
+        发布 pending，返回 interrupt() 的载荷。
+
+        remembered 的调用在此记录 approval_granted 并返回 None（直接放行）；
+        无需审批同样返回 None。事件 payload 与 before_tool 逐字节一致——
+        before_tool 现在就是 prepare→wait→apply 的同步组合。"""
+        tool = step["tool"]
+        if not self.approval_required(round_no=round_no, task=task, step=step):
+            return task, None
         if tool in self._remembered:
             task = self.harness.record(
                 task,
                 "approval_granted",
                 {"round": round_no, "tool": tool, "by": "operator-rule", "scope": "run"},
             )
-            return self.ToolControl(task=task, allowed=True)
+            return task, None
 
         if task.status == "planned":
             task = self.harness.transition(task, "running", "execution_started", {})
+        mode = self.run.approval
         approval = {
             "id": f"apv-{round_no}-{uuid.uuid4().hex[:6]}",
             "round": round_no,
@@ -673,44 +800,32 @@ class RunControl:
             self._decision = None
             self._wake.clear()
         self._publish()
+        return task, approval
 
-        deadline = time.monotonic() + self.timeout
-        try:
-            while True:
-                if self.run.stop_requested:
-                    with self._lock:
-                        self._approval = None
-                    self._publish()
-                    task = self.harness.record(
-                        task,
-                        "approval_aborted",
-                        {"round": round_no, "tool": tool, "by": "operator", "code": "STOPPED_BY_OPERATOR"},
-                    )
-                    task = self.harness.transition(
-                        task, "running", "execution_resumed", {"round": round_no}
-                    )
-                    raise StopRequested()
-                if self._wake.wait(0.1):
-                    break
-                if time.monotonic() >= deadline:
-                    with self._lock:
-                        self._decision = {"allow": False, "timeout": True}
-                    break
-        except BaseException:
+    def apply_approval_response(self, *, round_no: int, task, step: dict, response: dict):
+        """before_tool 的收尾段：提交 granted（回 running）/ denied / aborted。
+
+        返回 ``(task, allowed, flag)``；``flag`` 为
+        ``{"stop": True}``（操作员停止）/ ``{"code", "reason"}``（拒绝）/ None（放行）。"""
+        tool = step["tool"]
+        with self._lock:
+            result = dict(response) if response else {"allow": False, "timeout": True}
+            self._approval = None
+        self._publish()
+        if result.get("stop"):
             with self._lock:
                 self._approval = None
             self._publish()
-            if task.status == "paused":
-                task = self.harness.transition(
-                    task, "running", "execution_resumed", {"round": round_no, "reason": "controller interrupted"}
-                )
-            raise
-
-        with self._lock:
-            result = self._decision or {"allow": False, "timeout": True}
-            self._approval = None
-        self._publish()
-        if result["allow"]:
+            task = self.harness.record(
+                task,
+                "approval_aborted",
+                {"round": round_no, "tool": tool, "by": "operator", "code": "STOPPED_BY_OPERATOR"},
+            )
+            task = self.harness.transition(
+                task, "running", "execution_resumed", {"round": round_no}
+            )
+            return task, False, {"stop": True}
+        if result.get("allow"):
             task = self.harness.transition(
                 task,
                 "running",
@@ -725,7 +840,7 @@ class RunControl:
             if result.get("remember"):
                 with self._lock:
                     self._remembered.add(tool)
-            return self.ToolControl(task=task, allowed=True)
+            return task, True, None
 
         code = "APPROVAL_TIMEOUT" if result.get("timeout") else "OPERATOR_DENIED"
         reason = (
@@ -738,7 +853,58 @@ class RunControl:
             "approval_denied",
             {"round": round_no, "tool": tool, "by": "operator", "code": code},
         )
-        return self.ToolControl(task=task, allowed=False, code=code, reason=reason)
+        return task, False, {"code": code, "reason": reason}
+
+    def before_tool(self, *, round_no: int, task, step: dict, decision):
+        if not self.approval_required(round_no=round_no, task=task, step=step):
+            return self.ToolControl(task=task, allowed=True)
+        task, approval = self.prepare_approval(round_no=round_no, task=task, step=step)
+        if approval is None:
+            return self.ToolControl(task=task, allowed=True)
+
+        return self._wait_approval(round_no=round_no, task=task, step=step)
+
+    def _wait_approval(self, *, round_no: int, task, step: dict):
+        """Resolve a prepared or restored approval without preparing it twice."""
+        deadline = time.monotonic() + self.timeout
+        try:
+            while True:
+                if self.run.stop_requested:
+                    task, _allowed, flag = self.apply_approval_response(
+                        round_no=round_no, task=task, step=step,
+                        response={"stop": True},
+                    )
+                    raise StopRequested()
+                if self._wake.wait(0.1):
+                    with self._lock:
+                        result = self._decision or {"allow": False, "timeout": True}
+                    break
+                if time.monotonic() >= deadline:
+                    with self._lock:
+                        self._decision = {"allow": False, "timeout": True}
+                    with self._lock:
+                        result = self._decision or {"allow": False, "timeout": True}
+                    break
+        except BaseException:
+            with self._lock:
+                self._approval = None
+            self._publish()
+            if task.status == "paused":
+                task = self.harness.transition(
+                    task, "running", "execution_resumed", {"round": round_no, "reason": "controller interrupted"}
+                )
+            raise
+
+        task, allowed, flag = self.apply_approval_response(
+            round_no=round_no, task=task, step=step, response=result,
+        )
+        if flag is not None and flag.get("stop"):
+            raise StopRequested()
+        if allowed:
+            return self.ToolControl(task=task, allowed=True)
+        return self.ToolControl(
+            task=task, allowed=False, code=flag["code"], reason=flag["reason"],
+        )
 
     # ------------------------------------------------------------------ private
 
@@ -747,6 +913,8 @@ class RunControl:
         with self.run.lock:
             self.run.pending = pending
             self.run.bump()
+        if self.persist is not None:
+            self.persist(self.run)
 
     def _reject(self, task, round_no: int, kind: str, reason: str):
         return self.harness.record(

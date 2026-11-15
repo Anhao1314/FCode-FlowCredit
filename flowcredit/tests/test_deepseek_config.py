@@ -15,6 +15,7 @@ from flowagent.providers.deepseek_config import (  # noqa: E402
     DEEPSEEK_MAX_TOKENS_ENV,
     DEEPSEEK_OUTPUT_PRICE_ENV,
     DEEPSEEK_PRICE_AS_OF_ENV,
+    DEEPSEEK_REASONING_EFFORT_ENV,
     DEEPSEEK_TIMEOUT_ENV,
     load_deepseek_settings,
 )
@@ -61,6 +62,18 @@ class DeepSeekConfigTests(unittest.TestCase):
         self.assertEqual(settings.model, "deepseek-chat")
         self.assertEqual(settings.price.input_microusd_per_mtok, 1)
         self.assertEqual(settings.price.output_microusd_per_mtok, 2)
+
+    def test_reasoning_effort_is_opt_in_and_validated(self) -> None:
+        default = load_deepseek_settings(env=_env())
+        self.assertIsNone(default.reasoning_effort, "未设置时 wire 形状保持不变")
+        tuned = load_deepseek_settings(
+            env=_env(**{DEEPSEEK_REASONING_EFFORT_ENV: "low"}),
+        )
+        self.assertEqual(tuned.reasoning_effort, "low")
+        self.assertEqual(tuned.provider().client.reasoning_effort, "low")
+        self.assertEqual(tuned.policy().client.reasoning_effort, "low")
+        with self.assertRaises(ValueError):
+            load_deepseek_settings(env=_env(**{DEEPSEEK_REASONING_EFFORT_ENV: "extreme"}))
 
     def test_missing_key_fails_before_request(self) -> None:
         env = _env()

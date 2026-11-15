@@ -6,3 +6,15 @@ __pycache__/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Playwright E2E 产物
+viewer/test-results/
+viewer/playwright-report/
+viewer/node_modules/
+.mock-model-state.json
+
+# 本机 MCP 插件配置（host-reviewed，不入库）
+mcp.json
+
+# 运行产物不入库（trace/meta/workspace 属本机产品；runs 目录另含内嵌 git 仓）
+viewer/runs/

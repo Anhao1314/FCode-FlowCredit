@@ -104,6 +104,26 @@ class _Response:
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
 
+    def __iter__(self):
+        # Streaming providers (deepseek preset) iterate SSE lines instead of
+        # reading one buffered document; translate the same payload.
+        message = (self.payload.get("choices") or [{}])[0].get("message") or {}
+        delta: dict = {}
+        if isinstance(message.get("content"), str) and message["content"]:
+            delta["content"] = message["content"]
+        for call in message.get("tool_calls") or []:
+            delta.setdefault("tool_calls", []).append(call)
+        events = [{
+            "id": str(self.payload.get("id") or ""),
+            "choices": [{"delta": delta, "finish_reason": "stop"}],
+        }, {
+            "choices": [],
+            "usage": dict(self.payload.get("usage") or {}),
+        }]
+        for event in events:
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+        yield b"data: [DONE]\n\n"
+
 
 def _capturing_urlopen(seen: list[dict], content: str = REPLY):
     """A urlopen stand-in that records the system message it was handed."""
@@ -151,14 +171,14 @@ class RendererTests(unittest.TestCase):
         for expected in ("additions", "run_command", "read_file", "report_blocked"):
             self.assertIn(expected, system)
 
-    def test_general_v3_is_structured_consistent_and_single_owned(self) -> None:
+    def test_general_v8_is_structured_consistent_and_single_owned(self) -> None:
         from dataclasses import replace
 
         from flowagent.domains import DOMAINS, get_domain
         from flowagent.domains.general import GENERAL_INSTRUCTION
         from flowagent.providers.prompt import GENERAL_DOMAIN_INSTRUCTION
 
-        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v3")
+        self.assertEqual(GENERAL_PROMPT_VERSION, "fcode.prompt/general-v11")
         self.assertIs(GENERAL_INSTRUCTION, GENERAL_DOMAIN_INSTRUCTION)
         for heading in ("【输出协议】", "【工作方式】", "【拒绝与恢复】", "【证据与验收】"):
             self.assertIn(heading, GENERAL_SYSTEM_PROMPT)
@@ -194,9 +214,37 @@ class RendererTests(unittest.TestCase):
         self.assertIs(DEFAULT_PROMPT_PROFILE, FINANCE_PROMPT_PROFILE)
         self.assertTrue(FINANCE_PROMPT_PROFILE.frozen)
         self.assertFalse(GENERAL_PROMPT_PROFILE.frozen)
-        self.assertEqual(set(PROMPT_PROFILES), {"finance", "general"})
+        self.assertEqual(set(PROMPT_PROFILES),
+                         {"finance", "general", "general-fast", "general-fast-native",
+                          "motion-render", "capability-motion"})
         self.assertIs(prompt_profile_for({}), FINANCE_PROMPT_PROFILE)
         self.assertIs(prompt_profile_for({"prompt_profile": "general"}), GENERAL_PROMPT_PROFILE)
+        # Fast is opt-in and only it lifts the parser's one-action bound.
+        self.assertEqual(GENERAL_PROMPT_PROFILE.max_steps, 1)
+        self.assertEqual(PROMPT_PROFILES["general-fast"].max_steps, 4)
+        motion = PROMPT_PROFILES["motion-render"]
+        self.assertTrue(motion.native_tools)
+        self.assertTrue(motion.plan_tool)
+        self.assertEqual(motion.max_steps, 4)
+        self.assertIn("纯 CSS @keyframes", motion.system)
+        capability = PROMPT_PROFILES["capability-motion"]
+        self.assertTrue(capability.native_tools)
+        self.assertFalse(capability.plan_tool)
+        self.assertEqual(capability.max_steps, 1)
+        self.assertIn("3000", capability.system)
+
+    def test_batch_parsing_is_opt_in(self) -> None:
+        from flowagent.providers.prompt import parse_proposal_text
+
+        two = ('{"version": "%s", "steps": ['
+               '{"id": "a", "tool": "read_file", "arguments": {"path": "a"}},'
+               '{"id": "b", "tool": "read_file", "arguments": {"path": "b"}}]}') % PLAN_VERSION
+        with self.assertRaises(ValueError):
+            parse_proposal_text(two)
+        parsed = parse_proposal_text(two, max_steps=4)
+        self.assertEqual([step["id"] for step in parsed["steps"]], ["a", "b"])
+        with self.assertRaises(ValueError):
+            parse_proposal_text(two, max_steps=0)
 
     def test_an_unknown_profile_fails_loudly_instead_of_misrouting(self) -> None:
         """G. Never silently Finance, never silently General."""

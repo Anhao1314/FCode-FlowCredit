@@ -31,10 +31,23 @@ bundle 引用、参与者。
 本情景发现 ∩ 上情景发现 = known      (已知,未修复)
 本情景发现 − 上情景发现 = new        (新缺陷)
 上情景发现 − 本情景发现 = fixed      (已修复)
-上情景 fixed,本情景又出现 = regressed(修复被回退——最危险的信号)
+曾修复、上情景缺席、本情景又出现 = regressed(修复被回退——最危险的信号)
 ```
 
-**查询**:`episodes_for(target_hash)` 时间线;`recall(query)` 全文检索
+**时间线键 = target identity(路径),不是 manifest_sha256**。修复必然改
+清单哈希,而"修复后重挖"正是回归判断唯一有价值的时刻;按内容哈希建索引
+会让 prior 永远为空。清单哈希继续作为内容版本号留在 episode 里。
+
+**发现匹配 = 两层指纹**:
+
+1. 实例指纹 = `sha256(category + root_cause_group + 证据文件路径集合)`
+   (截 16 位)。行号会漂移、片段会被改写,路径集合在"同一处缺陷"上稳定;
+   同规则同根因但不同文件的两条发现不会互相吞并。
+2. 旧情景没有指纹时回退 `(category, root_cause_group)` 粗键——升级后的
+   第一次审计仍认得出 known。
+
+**查询**:`episodes_for_identity(target_identity)` 时间线;
+`episodes_for_target(target_hash)` 查同一内容版本;`recall(query)` 全文检索
 (CaseIndex.search 现成)。
 
 ## 二、语义记忆(fact)——带引证的目标知识

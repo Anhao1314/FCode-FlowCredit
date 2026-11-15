@@ -83,6 +83,9 @@ class GeneralWorld:
         command_runner: CommandRunner | None = None,
         command_config: str | None = None,
         ask_operator: Any = None,
+        subagent_channel: Any = None,
+        budget_channel: Any = None,
+        motion_probe: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -120,6 +123,16 @@ class GeneralWorld:
         #: console once the run's control exists; assignments after construction
         #: also work, because the tool resolves it when a question is asked.
         self.ask_operator = ask_operator
+        #: 子代理编排通道（console 的 SubagentChannel：spawn/status/read）。
+        #: None = 本部署不提供编排，编排工具诚实地不注册。
+        self.subagent_channel = subagent_channel
+        #: 预算延展通道（console 的 BudgetChannel）。None = 不注册延展工具
+        #: （chat/子代理/离线单测都没有"运行预算"可延）。
+        self.budget_channel = budget_channel
+        #: Deterministic browser probe for motion deliverables. Injected by the
+        #: console (it owns Playwright and the run's frame directory); None in
+        #: offline deployments, where motion_check still runs its text checks.
+        self.motion_probe = motion_probe
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -173,7 +186,24 @@ class GeneralWorld:
                         f"the declared verification command cannot run under this host's "
                         f"command policy: {error.code}: {error.message}",
                     ) from error
-        tools = build_general_tools(self.sandbox, self.fetcher, command_runner=runner)
+        repair = bool(self.spec.get("fastProfile") == "motion-render")
+        scaffolded: tuple[str, ...] = ()
+        if repair:
+            # Host-seeded scaffold: the model fills SECTION anchors with
+            # bounded edits instead of emitting the artifact in one response.
+            from .motion_scaffold import ensure_motion_scaffold
+
+            scaffolded = ensure_motion_scaffold(self.sandbox)
+        tools = build_general_tools(
+            self.sandbox, self.fetcher, command_runner=runner,
+            terminal_jail=bool(self.spec.get("fast")),
+            motion_probe=self.motion_probe,
+            # Motion repairs are diff-shaped: after the first write, a second
+            # full regeneration spends output tokens and tends to reintroduce
+            # regressions. Other domains keep the historical write semantics.
+            repair_policy=repair,
+            scaffolded_paths=scaffolded,
+        )
         # The tool is always registered; the *channel* is resolved when a
         # question is actually asked. Assemblies wire it after the world exists
         # (the console's control needs the harness, which needs the world), and
@@ -188,6 +218,25 @@ class GeneralWorld:
         tools.append(replace(build_ask_tool(channel), summarize=summarize_ask_operator))
         if self.memory_records_provider is not None:
             tools.append(build_recall_tool(self.memory_records_provider))
+        if self.subagent_channel is not None:
+            from .subagents import (
+                build_spawn_tool,
+                build_subagent_read_tool,
+                build_subagent_status_tool,
+            )
+
+            tools.append(build_spawn_tool(self.subagent_channel.spawn))
+            tools.append(build_subagent_status_tool(self.subagent_channel.status))
+            tools.append(build_subagent_read_tool(self.subagent_channel.read))
+            # 写子代理的落地点:显式应用(冲突检测在通道里)。只读部署也注册
+            # 无害(没有写子代理就没有可应用的东西,通道会拒绝)。
+            from .apply_changes import build_apply_child_changes_tool
+
+            tools.append(build_apply_child_changes_tool(self.subagent_channel.apply_changes))
+        if self.budget_channel is not None:
+            from .budget import build_budget_extension_tool
+
+            tools.append(build_budget_extension_tool(self.budget_channel.request))
         return tools
 
     def apply_state(self, state: dict[str, Any]) -> None:

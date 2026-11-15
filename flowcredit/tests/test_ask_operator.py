@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 VIEWER = ROOT / "viewer"
 sys.path.insert(0, str(VIEWER))
 
+from console_run_driver import RunDriver  # noqa: E402
 from flowagent.core.contracts import PLAN_VERSION  # noqa: E402
 from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
@@ -30,7 +31,10 @@ from flowagent.domains.general import GENERAL_DOMAIN  # noqa: E402
 from flowagent.providers.base import Proposal  # noqa: E402
 from flowagent.runtime.harness import Harness  # noqa: E402
 from flowagent.runtime.loop import Loop  # noqa: E402
-from flowagent.tools.general.ask import ANSWER_CHARS, QUESTION_CHARS, ask_spec  # noqa: E402
+from flowagent.tools.base import validate_arguments  # noqa: E402
+from flowagent.tools.general.ask import (  # noqa: E402
+    ANSWER_CHARS, OPTION_CHARS, OPTION_COUNT, QUESTION_CHARS, ask_spec,
+)
 from flowagent.tools.general.commands import CommandRunner  # noqa: E402
 from flowagent.tools.general.sandbox import WorkspaceSandbox  # noqa: E402
 from flowagent.tools.general.summaries import summarize_ask_operator  # noqa: E402
@@ -82,6 +86,42 @@ class AskToolTests(unittest.TestCase):
         self.assertTrue(timeout["timed_out"])
         self.assertNotIn("answer", timeout)
 
+    def test_suggested_answers_are_forwarded_trimmed_and_deduped(self) -> None:
+        seen = {}
+
+        def channel(**kwargs):
+            seen.update(kwargs)
+            return {"answered": True, "answer": "上海"}
+
+        spec = ask_spec(channel)
+        result = spec.handler({
+            "question": "你在哪个城市？",
+            "options": [" 上海 ", "北京", "上海", "  "],
+        })
+        self.assertTrue(result["answered"])
+        self.assertEqual(seen["options"], ["上海", "北京"])
+        # The tool result stays the same two facts: suggestions never become
+        # part of the observation contract.
+        self.assertNotIn("options", result)
+
+    def test_suggested_answers_are_bounded_by_the_gate(self) -> None:
+        spec = ask_spec(lambda **kwargs: {"answered": True, "answer": "ok"})
+        option = spec.params[2]
+        self.assertEqual(option.name, "options")
+        self.assertEqual(option.maximum, OPTION_COUNT)
+        with self.assertRaises(Exception):
+            validate_arguments(spec, {"question": "q", "options": ["1", "2", "3", "4", "5"]})
+
+    def test_a_long_suggested_answer_is_truncated_not_refused(self) -> None:
+        seen = {}
+
+        def channel(**kwargs):
+            seen.update(kwargs)
+            return {"answered": True, "answer": "ok"}
+
+        ask_spec(channel).handler({"question": "q", "options": ["答" * 200]})
+        self.assertEqual(len(seen["options"][0]), OPTION_CHARS)
+
 
 class AskingProvider:
     """Proposes one ``ask_operator`` call, then a write, then stops."""
@@ -89,8 +129,9 @@ class AskingProvider:
     name = "asking-test"
     model = "asking-test-v1"
 
-    def __init__(self, question: str = "用哪一天？") -> None:
+    def __init__(self, question: str = "用哪一天？", options: list[str] | None = None) -> None:
         self.question = question
+        self.options = list(options or [])
         self.calls = 0
         self.contexts: list[dict] = []
 
@@ -98,7 +139,10 @@ class AskingProvider:
         self.contexts.append(context)
         self.calls += 1
         if self.calls == 1:
-            step = {"id": "t1", "tool": "ask_operator", "arguments": {"question": self.question}}
+            arguments = {"question": self.question}
+            if self.options:
+                arguments["options"] = self.options
+            step = {"id": "t1", "tool": "ask_operator", "arguments": arguments}
         elif self.calls == 2:
             step = {"id": "t2", "tool": "write_file", "arguments": {"path": "note.md", "content": "记下了\n"}}
         else:
@@ -124,7 +168,7 @@ class RunAsksOperatorTests(unittest.TestCase):
         # RunControl is built against the real runtime surface (Plan, AgentError).
         cls.console_runtime = module.Runtime(ROOT)
 
-    def build(self, *, timeout: float = 5.0):
+    def build(self, *, timeout: float = 5.0, provider=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = pathlib.Path(tmp.name)
@@ -136,7 +180,7 @@ class RunAsksOperatorTests(unittest.TestCase):
             command_runner=CommandRunner(sandbox(tmp.name)),
         )
         scenario = get_scenario("general-research")
-        provider = AskingProvider()
+        provider = provider or AskingProvider()
         harness = Harness(
             store=store,
             registry=ToolRegistry(world.build_tools()),
@@ -207,6 +251,146 @@ class RunAsksOperatorTests(unittest.TestCase):
         self.assertEqual(len(provider.contexts), 2)
         self.assertNotIn("用周三", json.dumps(provider.contexts[0], ensure_ascii=False))
         self.assertIn("用周三", json.dumps(provider.contexts[1], ensure_ascii=False))
+
+    def test_the_pending_payload_carries_the_suggested_answers(self) -> None:
+        provider = AskingProvider(question="你在哪个城市？", options=["上海", "北京"])
+        run, control, harness, loop, world, provider = self.build(provider=provider)
+        published = []
+        thread = threading.Thread(target=lambda: harness.store and loop.run("task-ask"), daemon=True)
+        thread.start()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            pending = control.pending()
+            if pending and pending.get("kind") == "question":
+                published.append(pending)
+                self.assertEqual(pending["options"], ["上海", "北京"])
+                self.assertTrue(control.answer(pending["id"], "上海"))
+                break
+            time.sleep(0.02)
+        self.assertTrue(published, "the question was never published")
+        thread.join(timeout=10)
+        self.assertFalse(thread.is_alive(), "the loop did not resume after the answer")
+        # The options are display hints from the tool call, not a new result
+        # shape: the chain records them with the question and the answer is the
+        # same plain string it would have been if the operator had typed it.
+        events = harness.store.events("task-ask")
+        started = next(e for e in events if e["type"] == "tool_started")
+        self.assertEqual(started["payload"]["detail"]["arguments"]["options"], ["上海", "北京"])
+        observation = next(e for e in events if e["type"] == "tool_succeeded")
+        self.assertEqual(observation["payload"]["detail"]["result"]["answer"], "上海")
+
+    def test_restart_restores_the_same_question_without_restarting_its_tool(self) -> None:
+        run, control, harness, loop, world, provider = self.build()
+        published = []
+        control.persist = lambda current: published.append(
+            dict(current.pending) if current.pending else None
+        )
+
+        class ProcessCrash(BaseException):
+            pass
+
+        class CrashingWake:
+            def clear(self):
+                pass
+
+            def set(self):
+                pass
+
+            def wait(self, _timeout):
+                raise ProcessCrash()
+
+        control._wake = CrashingWake()
+        with self.assertRaises(ProcessCrash):
+            loop.run("task-ask")
+        pending = next(item for item in published if item and item.get("kind") == "question")
+        crashed = harness.store.load("task-ask")
+        self.assertEqual(crashed.status, "running")
+        self.assertEqual(harness.store.events(crashed.id)[-1]["type"], "tool_started")
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(harness.budget(crashed).snapshot()["reads_used"], 1)
+
+        # New store, harness, provider, control and loop over the same durable db.
+        store2 = TaskStore(world.sandbox.root.parent / "task.sqlite")
+        self.addCleanup(store2.close)
+        world2 = GENERAL_DOMAIN.create_world(
+            spec={"mode": "script", "scriptPath": "note.md"},
+            sandbox=sandbox(world.sandbox.root.parent),
+            command_runner=CommandRunner(sandbox(world.sandbox.root.parent)),
+        )
+        provider2 = AskingProvider()
+        provider2.calls = 1  # the next proposal is the original plan's second round
+        harness2 = Harness(
+            store=store2,
+            registry=ToolRegistry(world2.build_tools()),
+            provider=provider2,
+            world=world2,
+            limits=get_scenario("general-research").limits,
+            receipts=ReceiptStore(store2),
+            verifier=lambda observation: world2.verify_observation(observation),
+        )
+        run2 = self.runtime_module.Run(
+            id="run-ask-restarted", template="general-research", objective=crashed.objective,
+            created="2026-10-26T00:00:00+00:00", pace=0.0, status="running",
+            approval="off", task_id=crashed.id,
+        )
+        control2 = self.runtime_module.RunControl(
+            run2, harness2, self.console_runtime, ("write_file",), 5.0,
+        )
+        run2.controller = control2
+        world2.ask_operator = control2.ask
+        loop2 = Loop(
+            harness2,
+            planner=GENERAL_DOMAIN.make_planner(world2),
+            max_rounds=2,
+            result_tools=(),
+            control=control2,
+        )
+        driver = RunDriver.__new__(RunDriver)
+        driver.recover_pending = pending
+        driver.control = control2
+        driver.store = store2
+        driver.harness = harness2
+        driver.loop = loop2
+        statuses = []
+        worker = threading.Thread(
+            target=lambda: statuses.append(driver._execute_recovered_task(store2.load(crashed.id))),
+            daemon=True,
+        )
+        worker.start()
+        deadline = time.time() + 5
+        while time.time() < deadline and not control2.pending():
+            time.sleep(0.02)
+        restored = control2.pending()
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored["id"], pending["id"])
+        self.assertTrue(control2.answer(pending["id"], "用周三"))
+        worker.join(timeout=10)
+        self.assertFalse(worker.is_alive(), "restored question did not finish")
+        self.assertEqual(statuses, ["failed"])
+        self.assertEqual(store2.load(crashed.id).failure["code"], "ROUND_LIMIT")
+        self.assertEqual(provider2.calls, 2)
+
+        events = store2.events(crashed.id)
+        self.assertEqual(len([e for e in events if e["type"] == "model_started"]), 2)
+        self.assertEqual(len([
+            e for e in events
+            if e["type"] == "tool_started"
+            and e["payload"]["detail"]["tool"] == "ask_operator"
+        ]), 1, "重启不得再次开始或收费同一个提问")
+        self.assertEqual(len([
+            e for e in events
+            if e["type"] == "tool_started"
+            and e["payload"]["detail"]["tool"] == "write_file"
+        ]), 1, "恢复后的下一轮必须继续执行写文件")
+        observation = next(
+            e for e in events
+            if e["type"] == "tool_succeeded"
+            and e["payload"]["detail"]["tool"] == "ask_operator"
+        )
+        self.assertEqual(observation["payload"]["detail"]["result"]["answer"], "用周三")
+        # One read for the original ask, one for the next write; no second ask charge.
+        self.assertEqual(harness2.budget(store2.load(crashed.id)).snapshot()["reads_used"], 2)
+        self.assertIn("用周三", json.dumps(provider2.contexts[0], ensure_ascii=False))
 
     def test_answering_the_wrong_question_is_refused(self) -> None:
         run, control, harness, loop, world, provider = self.build()

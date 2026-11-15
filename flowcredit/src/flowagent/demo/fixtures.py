@@ -36,6 +36,9 @@ class Scenario:
     #: to the reference workload without anyone deciding it.
     module: str
     policy: str = "research"
+    #: 内部场景不进模板选择器/定时任务表——它们是运行时自己派生的
+    #: 角色（如子代理），不是操作者可以直接委托的种类。
+    internal: bool = False
     fail_at_call: int | None = None
     reconcile: bool = False
     crash_at: str | None = None
@@ -183,9 +186,106 @@ SCENARIOS: dict[str, Scenario] = {
         partial_corpus=True,
         expected_status="failed",
     ),
+    "general-subagent": Scenario(
+        key="general-subagent",
+        title="内部：只读子代理",
+        objective="只读研究员：在父工作区里调查一个被圈定的子问题，回传带依据的发现",
+        story=(
+            "运行时派生的内部角色，不是操作者可直接委托的种类。只读工具集、"
+            "独立上下文、独立小预算；结果以摘要回流给父运行的 spawn 工具。"
+        ),
+        allowed_tools=(
+            "ls_workspace",
+            "repo_map",
+            "search_codebase",
+            "read_file_raw",
+            "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
+            # 写在自己的沙箱(runs/<child>/workspace)——与父工作区物理隔离,
+            # 发现笔记/产物就是子代理的交付物,由 join 摘要与文件清单回传。
+            "write_file",
+            "report_blocked",
+        ),
+        grant={
+            "grant_id": "subagent-host-grant",
+            "revision": 1,
+            "allowed_tools": [
+                "ls_workspace",
+                "repo_map",
+                "search_codebase",
+                "read_file_raw",
+                "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
+                "write_file",
+                "report_blocked",
+            ],
+            "allowed_effects": ["read", "write"],
+            "max_calls": 8,
+            "max_reads": 24,
+            "max_cost_microusd": 100_000,
+            "max_tokens": 60_000,
+        },
+        limits=BudgetLimits(8, 24, 100_000, 60_000),
+        max_rounds=6,
+        module="general-work",
+        internal=True,
+    ),
+    "general-subagent-writer": Scenario(
+        key="general-subagent-writer",
+        title="内部：写入子代理（隔离拷贝）",
+        objective="在父工作区的隔离副本里完成一个写入子任务；改动由父显式应用",
+        story=(
+            "运行时派生的内部角色。启动时把父工作区拷贝进自己的沙箱，"
+            "读写互不影响；改完回传摘要，父用 apply_child_changes 显式应用"
+            "（write effect → 审批，逐文件冲突检测）。"
+        ),
+        allowed_tools=(
+            "ls_workspace",
+            "repo_map",
+            "search_codebase",
+            "read_file_raw",
+            "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
+            "write_file",
+            "edit_file",
+            "report_blocked",
+        ),
+        grant={
+            "grant_id": "subagent-writer-host-grant",
+            "revision": 1,
+            "allowed_tools": [
+                "ls_workspace",
+                "repo_map",
+                "search_codebase",
+                "read_file_raw",
+                "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
+                "write_file",
+                "edit_file",
+                "report_blocked",
+            ],
+            "allowed_effects": ["read", "write"],
+            "max_calls": 12,
+            "max_reads": 40,
+            "max_cost_microusd": 200_000,
+            "max_tokens": 100_000,
+        },
+        limits=BudgetLimits(12, 40, 200_000, 100_000),
+        max_rounds=8,
+        module="general-work",
+        internal=True,
+    ),
     "general-research": Scenario(
         key="general-research",
-        title="通用委托：抓取公开来源，写入 research.md",
+        title="任务：执行、验证并交付",
         objective="调研指定的公开主题，把来源摘录与结论写成 research.md 放进工作区",
         story=(
             "通用能力的参考实现：模型提议 fetch_url 抓取操作者圈定的公开来源，"
@@ -194,11 +294,27 @@ SCENARIOS: dict[str, Scenario] = {
         ),
         allowed_tools=(
             "ls_workspace",
+            "repo_map",
+            "search_codebase",
+            "read_file_raw",
             "read_file",
+            "grep_workspace",
+            "find_files",
+            "git_status",
+            "motion_check",
+            "browser_inspect",
+            "browser_act",
             "write_file",
             "edit_file",
             "run_command",
+            "terminal",
             "fetch_url",
+            # 并行扇出:写 effect,进审批集——放大必须有意识。
+            "spawn_subagents",
+            # 预算延展:effect=write,进审批集——追加必须有理由并由操作员批准。
+            "request_budget_extension",
+            # 写子代理的落地:显式应用(冲突检测),同样是 write effect。
+            "apply_child_changes",
             # Asking the operator is a host-granted capability like any other:
             # a general delegation with no way to ask has to guess.
             "ask_operator",
@@ -213,11 +329,24 @@ SCENARIOS: dict[str, Scenario] = {
             "revision": 1,
             "allowed_tools": [
                 "ls_workspace",
+                "repo_map",
+                "search_codebase",
+                "read_file_raw",
                 "read_file",
+                "grep_workspace",
+                "find_files",
+                "git_status",
+                "motion_check",
+                "browser_inspect",
+                "browser_act",
                 "write_file",
                 "edit_file",
                 "run_command",
+                "terminal",
                 "fetch_url",
+                "spawn_subagents",
+                "request_budget_extension",
+                "apply_child_changes",
                 "ask_operator",
                 "report_blocked",
             ],
@@ -225,14 +354,14 @@ SCENARIOS: dict[str, Scenario] = {
             # finance grant omits the key and keeps the read-only promise.
             "allowed_effects": ["read", "write", "network"],
             "max_calls": 12,
-            "max_reads": 20,
+            "max_reads": 30,
             # Kimi K2.6 reserves 6,000 prompt + 8,192 completion tokens per
             # call. The default must fit at least one real paid reservation;
             # explicit operator overrides can still tighten these ceilings.
             "max_cost_microusd": 500_000,
             "max_tokens": 120_000,
         },
-        limits=BudgetLimits(12, 20, 500_000, 120_000),
+        limits=BudgetLimits(12, 30, 500_000, 120_000),
         max_rounds=12,
         approval_tools=("write_file", "edit_file", "run_command"),
         module="general-work",

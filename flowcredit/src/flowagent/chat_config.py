@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +34,17 @@ def default_chat_config_path() -> Path:
 #: Providers a settings page may configure. ``mock`` needs nothing.
 CONFIGURABLE_PROVIDERS = ("kimi", "deepseek", "local")
 CHAT_PROVIDER_KEYS = ("mock",) + CONFIGURABLE_PROVIDERS
+
+
+def is_custom_provider_key(key: str | None) -> bool:
+    """Custom OpenAI-compatible keys double as safe environment prefixes."""
+    normalized = str(key or "").strip().lower()
+    return bool(
+        normalized
+        and normalized.isascii()
+        and normalized.isalnum()
+        and normalized not in CHAT_PROVIDER_KEYS
+    )
 
 # The system prompt is not here: it describes the `fcode_action` block format,
 # so it lives next to the parser that enforces it (flowagent.chat). A second
@@ -96,6 +107,10 @@ class ChatProviderConfig:
     timeout_seconds: float = 120.0
     max_completion_tokens: int = DEFAULT_MAX_COMPLETION
     completion_field: str = "max_tokens"
+    #: Whether this transport accepts OpenAI-style ``tools`` and returns
+    #: ``tool_calls`` deltas. False means the chat loop falls back to the
+    #: historical text-only turn (no tools offered, no execution).
+    supports_tools: bool = False
     #: When the prices above were read, and from where. Mandatory for the same
     #: reason the delegation presets demand it: an undated price turns the
     #: budget ceiling into a guess. One settings page, one contract.
@@ -150,6 +165,8 @@ def _remote_config(
     interval_env: str,
     price_as_of_env: str = "",
     price_source_env: str = "",
+    require_api_key: bool = True,
+    allow_zero_price: bool = False,
 ) -> ChatProviderConfig:
     """Resolve one remote provider: environment > user settings > default.
 
@@ -161,7 +178,7 @@ def _remote_config(
     base_url = os.environ.get(base_env, "").strip() or _ov_str(overrides, "base_url") or base_default
 
     missing: list[str] = []
-    if not api_key:
+    if require_api_key and not api_key:
         missing.append(api_env)
 
     raw_input = os.environ.get(in_price_env, "").strip()
@@ -174,8 +191,9 @@ def _remote_config(
         input_price = _ov_int(overrides, "input_price_microusd_per_mtok")
         if input_price is None:
             missing.append(in_price_env)
-    if input_price is not None and input_price <= 0:
-        raise AgentError("CHAT_CONFIG_INVALID", "input price must be positive")
+    if input_price is not None and (input_price < 0 or (input_price == 0 and not allow_zero_price)):
+        rule = "non-negative" if allow_zero_price else "positive"
+        raise AgentError("CHAT_CONFIG_INVALID", f"input price must be {rule}")
 
     raw_output = os.environ.get(out_price_env, "").strip()
     if raw_output:
@@ -187,8 +205,9 @@ def _remote_config(
         output_price = _ov_int(overrides, "output_price_microusd_per_mtok")
         if output_price is None:
             missing.append(out_price_env)
-    if output_price is not None and output_price <= 0:
-        raise AgentError("CHAT_CONFIG_INVALID", "output price must be positive")
+    if output_price is not None and (output_price < 0 or (output_price == 0 and not allow_zero_price)):
+        rule = "non-negative" if allow_zero_price else "positive"
+        raise AgentError("CHAT_CONFIG_INVALID", f"output price must be {rule}")
     # Prices are only half the fact: the date they were read makes them
     # auditable, and the delegation side already refuses to guess it.
     price_as_of = (
@@ -223,6 +242,7 @@ def _remote_config(
         timeout_seconds=_env_float("CHAT_STREAM_TIMEOUT_SECONDS", 120.0),
         max_completion_tokens=max_completion,
         completion_field="max_completion_tokens" if key == "kimi" else "max_tokens",
+        supports_tools=True,  # Moonshot / DeepSeek expose OpenAI-compatible tool calling
         price_as_of=price_as_of,
         price_source=(os.environ.get(price_source_env, "").strip() if price_source_env else "")
         or _ov_str(overrides, "price_source"),
@@ -263,6 +283,43 @@ def _deepseek_config(overrides: dict[str, Any]) -> ChatProviderConfig:
         price_as_of_env="DEEPSEEK_PRICE_AS_OF",
         price_source_env="DEEPSEEK_PRICE_SOURCE",
     )
+
+
+def _generic_config(key: str, overrides: dict[str, Any]) -> ChatProviderConfig:
+    prefix = key.upper()
+    config = _remote_config(
+        key,
+        os.environ.get(f"{prefix}_LABEL", "").strip() or _ov_str(overrides, "label") or key,
+        overrides,
+        api_env=f"{prefix}_API_KEY",
+        model_env=f"{prefix}_MODEL",
+        base_env=f"{prefix}_BASE_URL",
+        base_default="",
+        model_default="",
+        in_price_env=f"{prefix}_INPUT_PRICE_MICROUSD_PER_MTOK",
+        out_price_env=f"{prefix}_OUTPUT_PRICE_MICROUSD_PER_MTOK",
+        interval_env=f"{prefix}_MIN_CALL_INTERVAL_SECONDS",
+        price_as_of_env=f"{prefix}_PRICE_AS_OF",
+        price_source_env=f"{prefix}_PRICE_SOURCE",
+        require_api_key=False,
+        allow_zero_price=True,
+    )
+    if not config.base_url:
+        raise AgentError("CHAT_PROVIDER_UNAVAILABLE", f"{key} 未配置：缺少 {prefix}_BASE_URL")
+    if not config.model:
+        raise AgentError("CHAT_PROVIDER_UNAVAILABLE", f"{key} 未配置：缺少 {prefix}_MODEL")
+    missing_price = [
+        name for name, value in (
+            (f"{prefix}_INPUT_PRICE_MICROUSD_PER_MTOK", config.input_price_microusd_per_mtok),
+            (f"{prefix}_OUTPUT_PRICE_MICROUSD_PER_MTOK", config.output_price_microusd_per_mtok),
+            (f"{prefix}_PRICE_AS_OF", config.price_as_of),
+            (f"{prefix}_PRICE_SOURCE", config.price_source),
+        ) if value is None or value == ""
+    ]
+    if missing_price:
+        raise AgentError("CHAT_PROVIDER_UNAVAILABLE", f"{key} 未配置：缺少 {'、'.join(missing_price)}")
+    # Match the Work generic engine rather than silently choosing another request shape.
+    return replace(config, completion_field="max_completion_tokens")
 
 
 def _local_config(overrides: dict[str, Any]) -> ChatProviderConfig:
@@ -308,6 +365,9 @@ def resolve_chat_provider(
             label="离线 Mock",
             model="offline-chat-mock-v1",
             max_completion_tokens=_env_int("CHAT_MAX_COMPLETION_TOKENS", DEFAULT_MAX_COMPLETION),
+            # 脚本化工具循环（FCODE_CHAT_MOCK_TOOLS）用于端到端测试；
+            # 没有该环境变量时 mock 仍然只回文本。
+            supports_tools=True,
         )
     if normalized == "kimi":
         return _kimi_config(override)
@@ -315,6 +375,8 @@ def resolve_chat_provider(
         return _deepseek_config(override)
     if normalized == "local":
         return _local_config(override)
+    if is_custom_provider_key(normalized):
+        return _generic_config(normalized, override)
     raise AgentError(
         "CHAT_PROVIDER_UNAVAILABLE",
         f"对话模型 {normalized!r} 未接入；可用：mock / kimi / deepseek / local",
@@ -337,8 +399,10 @@ def load_chat_config(path: Path | None) -> dict[str, Any]:
     providers = raw.get("providers")
     config: dict[str, Any] = {"version": CHAT_CONFIG_VERSION, "providers": {}}
     if isinstance(providers, dict):
-        for key in CONFIGURABLE_PROVIDERS:
-            block = providers.get(key)
+        for raw_key, block in providers.items():
+            key = str(raw_key).strip().lower()
+            if key not in CONFIGURABLE_PROVIDERS and not is_custom_provider_key(key):
+                continue
             if not isinstance(block, dict):
                 continue
             clean = {
@@ -347,11 +411,14 @@ def load_chat_config(path: Path | None) -> dict[str, Any]:
             }
             if key in ("kimi", "deepseek"):
                 clean.pop("base_url", None)
+            if key in CONFIGURABLE_PROVIDERS:
+                clean.pop("label", None)
+                clean.pop("supports_effort", None)
             if clean:
                 config["providers"][key] = clean
     default = raw.get("default_model")
-    if default in CHAT_PROVIDER_KEYS:
-        config["default_model"] = str(default)
+    if default in CHAT_PROVIDER_KEYS or is_custom_provider_key(default):
+        config["default_model"] = str(default).strip().lower()
     return config
 
 

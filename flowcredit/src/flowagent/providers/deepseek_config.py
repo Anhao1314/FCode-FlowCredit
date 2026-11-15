@@ -39,6 +39,11 @@ DEEPSEEK_PRICE_AS_OF_ENV = "DEEPSEEK_PRICE_AS_OF"
 DEEPSEEK_PRICE_SOURCE_ENV = "DEEPSEEK_PRICE_SOURCE"
 DEEPSEEK_TIMEOUT_ENV = "DEEPSEEK_TIMEOUT_SECONDS"
 DEEPSEEK_MAX_TOKENS_ENV = "DEEPSEEK_MAX_TOKENS"
+DEEPSEEK_REASONING_EFFORT_ENV = "DEEPSEEK_REASONING_EFFORT"
+#: Streaming is the default transport: a buffered single response races the
+#: provider's response-time budget on large artifacts and loses with 0 body
+#: bytes. ``DEEPSEEK_STREAM=0`` pins the old buffered wire for diagnosis.
+DEEPSEEK_STREAM_ENV = "DEEPSEEK_STREAM"
 
 _DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 _DEFAULT_MODEL = "deepseek-chat"
@@ -87,6 +92,16 @@ def _non_negative_int(value: int, name: str) -> int:
     return value
 
 
+def _optional_reasoning_effort(value: str | None) -> str | None:
+    """Unset keeps the wire shape byte-identical; a set value is validated."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text not in ("low", "medium", "high"):
+        raise ValueError(f"{DEEPSEEK_REASONING_EFFORT_ENV} must be low, medium or high")
+    return text
+
+
 @dataclass(frozen=True)
 class DeepSeekSettings:
     """Validated DeepSeek runtime settings; ``api_key`` never leaves the host."""
@@ -100,6 +115,8 @@ class DeepSeekSettings:
     max_prompt_tokens: int
     max_packet_tokens: int
     price: PriceSnapshot
+    reasoning_effort: str | None = None
+    stream: bool = True
 
     def policy(self) -> DeepSeekPolicy:
         """Build the default packet-choice policy head."""
@@ -112,6 +129,7 @@ class DeepSeekSettings:
             max_tokens=self.max_tokens,
             max_packet_tokens=self.max_packet_tokens,
             json_mode=True,
+            reasoning_effort=self.reasoning_effort,
         )
 
     def provider(self, *, json_mode: bool = True) -> DeepSeekProvider:
@@ -125,6 +143,8 @@ class DeepSeekSettings:
             max_tokens=self.max_tokens,
             max_prompt_tokens=self.max_prompt_tokens,
             json_mode=json_mode,
+            reasoning_effort=self.reasoning_effort,
+            stream=self.stream,
         )
 
     def reservation(self, mode: str) -> tuple[int, int]:
@@ -149,6 +169,7 @@ class DeepSeekSettings:
             "maxTokens": self.max_tokens,
             "maxPromptTokens": self.max_prompt_tokens,
             "maxPacketTokens": self.max_packet_tokens,
+            "stream": self.stream,
             "price": {
                 "inputMicrousdPerMtok": self.price.input_microusd_per_mtok,
                 "outputMicrousdPerMtok": self.price.output_microusd_per_mtok,
@@ -229,6 +250,11 @@ def load_deepseek_settings(
         max_packet_tokens=_positive_int(
             max_packet_tokens or _DEFAULT_PROMPT_TOKENS, "max_packet_tokens"
         ),
+        reasoning_effort=_optional_reasoning_effort(
+            source.get(DEEPSEEK_REASONING_EFFORT_ENV)
+        ),
+        stream=_text(source, DEEPSEEK_STREAM_ENV, "1").strip().lower()
+        in ("1", "true", "yes", "on"),
         price=PriceSnapshot(
             input_microusd_per_mtok=_non_negative_int(
                 resolved_input, DEEPSEEK_INPUT_PRICE_ENV

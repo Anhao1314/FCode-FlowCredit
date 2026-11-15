@@ -46,7 +46,12 @@ class DomainModuleTests(unittest.TestCase):
     def test_general_module_declares_its_own_answer_and_template(self) -> None:
         self.assertEqual(GENERAL_DOMAIN.result_tools, ("write_file",))
         self.assertEqual(GENERAL_DOMAIN.report_template, "generic")
-        self.assertEqual(GENERAL_DOMAIN.approval_tools, ("write_file", "edit_file", "run_command"))
+        # spawn_subagents / browser_act 是 write effect:进审批集
+        self.assertEqual(
+            GENERAL_DOMAIN.approval_tools,
+            ("write_file", "edit_file", "run_command", "terminal",
+             "spawn_subagents", "browser_act"),
+        )
         self.assertIsNotNone(GENERAL_DOMAIN.make_planner(
             GENERAL_DOMAIN.create_world(spec={"sources": ["https://example.com/doc"]}),
         ).decompose("调研 example.com"))

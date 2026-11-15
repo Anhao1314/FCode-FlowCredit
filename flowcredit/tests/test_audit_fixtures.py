@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -41,8 +42,11 @@ GRANT_BLOCK = """        if tool in self._remembered:
                 "approval_granted",
                 {"round": round_no, "tool": tool, "by": "operator-rule", "scope": "run"},
             )
-            return self.ToolControl(task=task, allowed=True)
+            return task, None
 """
+#: prepare_approval 的放行分支（TOOL_LINE 会先在 approval_required 里出现，
+#: 直接 replace(…,1) 会把 step_key 插错方法——用这个方法级锚点）。
+PREPARE_FAST_PATH = "        if not self.approval_required(round_no=round_no, task=task, step=step):"
 TOOL_LINE = '        tool = step["tool"]'
 
 
@@ -72,9 +76,11 @@ def make_clean_control(workdir: pathlib.Path) -> pathlib.Path:
     Plus a decoy file that still trips the static trigger."""
     copy, runtime, text = _copy_and_read(workdir)
     assert REMEMBER_CHECK in text and REMEMBER_ADD in text, "anchor strings drifted"
+    assert PREPARE_FAST_PATH in text, "prepare fast-path anchor drifted"
     text = text.replace(
-        TOOL_LINE,
-        TOOL_LINE + '\n        step_key = json.dumps(step.get("arguments") or {}, sort_keys=True)',
+        PREPARE_FAST_PATH,
+        '        step_key = json.dumps(step.get("arguments") or {}, sort_keys=True)\n'
+        + PREPARE_FAST_PATH,
         1,
     )
     text = text.replace(
@@ -145,12 +151,37 @@ def make_structural_variant(workdir: pathlib.Path) -> pathlib.Path:
         "                \"approval_granted\",\n"
         "                {\"round\": round_no, \"tool\": tool, \"by\": \"operator-rule\", \"scope\": \"run\"},\n"
         "            )\n"
-        "            return self.ToolControl(task=task, allowed=True)\n"
+        "            return task, None\n"
         "        return None\n\n"
     )
     text = text.replace(marker, helper + marker, 1)
     runtime.write_text(text, encoding="utf-8")
     return copy
+
+
+class AuditIdTests(unittest.TestCase):
+    """audit_id 也是落盘目录名,必须与 viewer 的目录白名单一致
+    (viewer/server.py 的 ^[a-z0-9][a-z0-9.-]{1,63}$)。"""
+
+    _DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
+
+    def test_id_matches_viewer_whitelist_for_hard_names(self) -> None:
+        cases = [
+            pathlib.Path("/tmp/EvoX.app"),          # 大写与点
+            pathlib.Path("/tmp/测试应用.app"),       # 非 ASCII 字母(isalnum 为 True)
+            pathlib.Path("/tmp/...--weird"),        # 首字符是标点
+            pathlib.Path("/tmp/" + "x" * 90),       # 超长名
+        ]
+        for target in cases:
+            audit_id = cli._audit_id(target)
+            self.assertRegex(audit_id, self._DIR_RE,
+                             f"{target.name!r} → {audit_id!r} 不符合 viewer 白名单")
+            self.assertLessEqual(len(audit_id), 64)
+
+    def test_ids_stay_unique_for_same_target(self) -> None:
+        target = pathlib.Path("/tmp/same-target")
+        ids = {cli._audit_id(target) for _ in range(20)}
+        self.assertEqual(len(ids), 20, "同靶同日多次审计必须互异(熵后缀不可截掉)")
 
 
 class NegativeControlTests(unittest.TestCase):
@@ -163,13 +194,17 @@ class NegativeControlTests(unittest.TestCase):
                            "--operator", "ci-test"])
             self.assertEqual(rc, 0)
             bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
+            agi_findings = [f for f in bundle["findings"]
+                            if f["category"].startswith("AGI")]
             self.assertEqual(
-                bundle["findings"], [],
-                "a clean target must not produce findings — false positives kill trust")
+                agi_findings, [],
+                "a clean target must not produce AGI findings — false positives kill trust")
             self.assertTrue(bundle["poc_evidence_refs"],
                             "the decoy candidate must still be replayed, not skipped")
             for ref in bundle["poc_evidence_refs"]:
                 record = json.loads((out / f"{ref}.json").read_text(encoding="utf-8"))
+                if record["category"].startswith("VIBE"):
+                    continue  # VIBE findings are quality observations, not security false positives
                 self.assertEqual(record["replay"]["outcome"], "not_reproduced",
                                  "the decoy must be cleared by the host oracle")
 

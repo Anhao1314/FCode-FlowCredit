@@ -1,0 +1,20 @@
+{
+  "vulns": [
+    {
+      "id": "OSV-2026-0001",
+      "aliases": ["CVE-2026-0001"],
+      "summary": "Demo pre-release dependency issue (synthetic fixture).",
+      "affected": [
+        {
+          "package": {"ecosystem": "Go", "name": "github.com/example/rc"},
+          "ranges": [
+            {
+              "type": "SEMVER",
+              "events": [{"introduced": "0"}, {"fixed": "v1.0.0"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

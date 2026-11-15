@@ -7,7 +7,7 @@ export function createRunEvidence(deps) {
   const {
     esc, pct, pp, num, shortHash, doodleSvg, lastBudget,
     EVENT_DOT, HUMAN_EVENTS, REVIEW_LABEL, ICON, FAILURE_REASONS, evExpanded,
-    getRailFilter, getRailTab, getToolContracts,
+    getRailFilter, getRailTab, getToolContracts, setRailMode,
   } = deps;
   const MACHINE_EVENTS = new Set([
     "model_started", "plan_validated", "plan_updated", "execution_started",
@@ -88,7 +88,13 @@ export function createRunEvidence(deps) {
   }
 
   function renderRail(trace, check) {
+    const rail = document.querySelector(".rail");
+    // Project runs can keep the right rail on the code inspector while live
+    // thread updates repaint; do not reset it to the event list underneath.
+    if (rail && (rail.dataset.railMode === "changes" || rail.dataset.railMode === "files")) return;
     const body = document.getElementById("rail-body");
+    // 任务详情渲染即恢复 trace 形态（从治理团队面的频道模式离开时）。
+    setRailMode?.("trace");
     if (!trace) { body.innerHTML = railEmptyHtml(); return; }
     const railTab = getRailTab();
     for (const button of document.querySelectorAll("#rail-tabs button")) button.classList.toggle("active", button.dataset.tab === railTab);
@@ -190,7 +196,9 @@ export function createRunEvidence(deps) {
   }
 
   function tokenSplit(trace) {
-    let prompt = 0, cached = 0, total = 0, known = false;
+    let prompt = 0, cached = 0, cacheCreation = 0, completion = 0;
+    let total = 0, known = false, completionKnown = false;
+    let prefixSamples = 0, prefixRatio = 0;
     for (const r of (trace.rounds || [])) {
       const receipt = r.receipt || {};
       const meta = receipt.metadata || {};
@@ -199,16 +207,56 @@ export function createRunEvidence(deps) {
         known = true;
         prompt += Number(meta.usage_prompt_tokens) || 0;
         cached += Number(meta.cached_tokens) || 0;
+        cacheCreation += Number(
+          meta.cache_creation_tokens ?? meta.prompt_cache_creation_tokens ?? 0,
+        ) || 0;
+      }
+      if (meta.usage_completion_tokens !== undefined && meta.usage_completion_tokens !== null) {
+        completionKnown = true;
+        completion += Number(meta.usage_completion_tokens) || 0;
+      }
+      if (meta.prompt_prefix_bp !== undefined && meta.prompt_prefix_bp !== null) {
+        prefixSamples += 1;
+        prefixRatio += (Number(meta.prompt_prefix_bp) || 0) / 10000;
+      } else if (meta.prompt_prefix_ratio !== undefined && meta.prompt_prefix_ratio !== null) {
+        // Older traces recorded the ratio as a float; the hash chain now only
+        // carries basis points.
+        prefixSamples += 1;
+        prefixRatio += Number(meta.prompt_prefix_ratio) || 0;
       }
     }
-    return { prompt, cached, total, completion: known ? Math.max(0, total - prompt) : null, known };
+    const output = known
+      ? (completionKnown ? completion : Math.max(0, total - prompt))
+      : null;
+    return {
+      prompt, cached, total,
+      completion: output,
+      inputOther: known ? Math.max(0, prompt - cached - cacheCreation) : null,
+      cacheRead: known ? Math.max(0, cached) : null,
+      cacheCreation: known ? Math.max(0, cacheCreation) : null,
+      output,
+      hitRate: prompt ? cached / prompt : null,
+      prefixRatio: prefixSamples ? prefixRatio / prefixSamples : null,
+      known,
+    };
   }
 
-  function tokenSplitHtml(trace) {
+  function tokenSplitHtml(trace, opts = {}) {
     const t = tokenSplit(trace);
     if (!t.total) return "";
     if (!t.known) return `<div class="tok-split unknown"><span class="tok-note">tokens ${num(t.total)} · 当前收据未含 token 分类（offline-mock 不产生 usage_prompt_tokens）</span></div>`;
-    return `<div class="tok-split"><div class="tok-row"><span class="k">prompt</span><span class="v">${num(t.prompt)}</span></div><div class="tok-row"><span class="k">cached</span><span class="v">${num(t.cached)}</span><span class="note">缓存命中按输入价计费（v1）</span></div><div class="tok-row"><span class="k">completion</span><span class="v">${num(t.completion)}</span></div></div>`;
+    const active = Number(opts.active || 0);
+    const hitRate = t.hitRate === null ? "" : `<span class="note">命中率 ${(t.hitRate * 100).toFixed(1)}%</span>`;
+    const prefix = t.prefixRatio === null ? "" : `<span class="note">前缀相似 ${(t.prefixRatio * 100).toFixed(1)}%</span>`;
+    const row = (key, value, note = "") => `<div class="tok-row category"><span class="k">${key}</span><span class="v">${value}</span>${note ? `<span class="note">${note}</span>` : ""}</div>`;
+    return `<div class="tok-split">${[
+      row("input_other", num(t.inputOther)),
+      row("cache_read", num(t.cacheRead), "缓存命中按输入价计费（v1）" + hitRate),
+      row("cache_creation", num(t.cacheCreation), "provider 未单列时为 0"),
+      row("output", num(t.output)),
+      row("active", active > 0 ? `+${num(active)}` : "—", "当前轮次尚未写回收据的增量"),
+      row("prefix", t.prefixRatio === null ? "—" : `${(t.prefixRatio * 100).toFixed(1)}%`, "与上一轮请求的公共前缀均值" + prefix),
+    ].join("")}</div>`;
   }
 
   function activeRoundDelta(trace) {
@@ -241,7 +289,7 @@ export function createRunEvidence(deps) {
       const hot = ratio >= .95 ? " over" : ratio >= .7 ? " hot" : "";
       const isActive = active !== null && label === "tokens";
       return `<span class="meter${hot}${cls ? " " + cls : ""}"><span class="m-k">${label}</span><span class="m-bar"><i style="width:${Math.round(ratio * 100)}%"></i></span><span class="m-v">${num(used || 0)}/${num(max || 0)}</span>${isActive ? `<span class="m-active">本轮 +${num(active)}</span>` : ""}</span>`;
-    }).join("")}${editable ? `<button class="p-edit${editing ? " active" : ""}" data-budget-edit>${editing ? "取消" : "调整"}</button>` : ""}</div>${tokenSplitHtml(trace)}${editing ? budgetForm(lim) : ""}</div>`;
+    }).join("")}${editable ? `<button class="p-edit${editing ? " active" : ""}" data-budget-edit>${editing ? "取消" : "调整"}</button>` : ""}</div>${tokenSplitHtml(trace, { active })}${editing ? budgetForm(lim) : ""}</div>`;
   }
 
   function budgetForm(lim) {
@@ -332,6 +380,7 @@ export function createRunEvidence(deps) {
 
   function renderToolDetail(obs, kind = "brief") {
     if (kind === "diff") return writeDiffHtml(obs);
+    if (kind === "todo") return planResultHtml(obs);
     if (kind === "removed") return removedResultHtml(obs);
     if (kind === "qa") return askAnswerHtml(obs);
     return (TOOL_RENDERERS[obs.tool] || genericToolDetail)(obs);
@@ -352,14 +401,41 @@ export function createRunEvidence(deps) {
     normalize_units: "brief", calculate_margin: "brief", working_paper_append: "diff", collect_source: "diff",
     write_document: "diff", report_blocked: "removed", ls_workspace: "brief", read_file: "brief",
     write_file: "diff", edit_file: "diff", run_command: "brief", fetch_url: "brief", ask_operator: "qa",
+    submit_plan: "todo", plan_update: "todo", plan_addition: "todo", plan_extension: "todo",
   };
 
   function resultBlockKind(round) {
     if (round.decision && round.decision.allowed === false) return "removed";
     const obs = round.observation || {};
     const step = ((round.proposal || {}).steps || [])[0] || {};
-    const tool = obs.tool || (round.decision || {}).tool || step.tool || "";
+    const tool = String(obs.tool || (round.decision || {}).tool || step.tool || "");
+    const result = obs.result || {};
+    if (tool.includes("plan")) return "todo";
+    if (Array.isArray(result.todos) || Array.isArray(result.additions)
+      || (result.plan && Array.isArray(result.plan.todos))) return "todo";
     return RESULT_BLOCK_KINDS[tool] || "brief";
+  }
+
+  /* DisplayBlocks 的 todo 块：计划/计划扩展以事项状态呈现，不塞回 JSON 表格。 */
+  function planResultHtml(obs) {
+    const result = obs.result || {};
+    const plan = result.plan && typeof result.plan === "object" ? result.plan : result;
+    const todos = Array.isArray(plan.todos) ? plan.todos
+      : Array.isArray(result.todos) ? result.todos
+        : Array.isArray(result.additions) ? result.additions : [];
+    const glyph = { done: "✓", active: "◐", pending: "○", blocked: "✕", abandoned: "–" };
+    const states = new Set(Object.keys(glyph));
+    const done = todos.filter(todo => String(todo.status || "") === "done").length;
+    const revision = plan.revision ?? result.revision ?? "—";
+    const rows = todos.slice(0, 8).map(todo => {
+      const status = states.has(String(todo.status || "pending")) ? String(todo.status || "pending") : "pending";
+      const text = String(todo.text || todo.id || "（未命名事项）");
+      const tool = todo.tool ? `<span class="todo-tool">${esc(String(todo.tool))}</span>` : "";
+      return `<div class="todo-row ${status}"><span class="todo-glyph" aria-hidden="true">${glyph[status]}</span><span class="todo-text">${esc(text)}</span>${tool}<span class="todo-state">${esc(status)}</span></div>`;
+    }).join("");
+    const more = todos.length > 8
+      ? `<div class="todo-more">还有 ${todos.length - 8} 项 · 完整计划在线程计划卡中</div>` : "";
+    return `<div class="t-detail block-todo"><div class="todo-head"><span>计划变更 · rev ${esc(String(revision))}</span><span class="grow"></span><span>${done}/${todos.length} settled</span></div><div class="todo-list">${rows || '<div class="todo-empty">没有结构化事项</div>'}</div>${more}</div>`;
   }
 
   function writeDiffHtml(obs) {

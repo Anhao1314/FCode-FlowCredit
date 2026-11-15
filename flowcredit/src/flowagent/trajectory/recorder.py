@@ -52,12 +52,16 @@ class RoundRecord:
     receipt: dict[str, Any] | None = None
     decision: dict[str, Any] | None = None
     observation: dict[str, Any] | None = None
+    #: Batch rounds carry every decision/observation in order. The singular
+    #: fields above stay the last one so existing consumers keep working.
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    observations: list[dict[str, Any]] = field(default_factory=list)
     budget_after: dict[str, Any] = field(default_factory=dict)
     plan: dict[str, Any] | None = None
     plan_after: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "index": self.index,
             "budget_before": self.budget_before,
             "proposal": self.proposal,
@@ -68,6 +72,13 @@ class RoundRecord:
             "plan": self.plan,
             "plan_after": self.plan_after,
         }
+        # Only batch rounds gain the list fields: default one-action traces stay
+        # byte-identical to what the frozen SFT/trace expectations were built on.
+        if len(self.decisions) > 1:
+            out["decisions"] = self.decisions
+        if len(self.observations) > 1:
+            out["observations"] = self.observations
+        return out
 
 
 class TraceRecorder:
@@ -103,10 +114,14 @@ class TraceRecorder:
         record.receipt = proposal.receipt()
 
     def gate(self, round_no: int, decision: Any) -> None:
-        self._current(round_no).decision = decision.to_dict()
+        record = self._current(round_no)
+        record.decision = decision.to_dict()
+        record.decisions.append(record.decision)
 
     def observation(self, round_no: int, observation: Observation) -> None:
-        self._current(round_no).observation = observation.to_dict()
+        record = self._current(round_no)
+        record.observation = observation.to_dict()
+        record.observations.append(record.observation)
 
     def round_end(self, round_no: int, budget: dict[str, Any], plan: Any = None) -> None:
         record = self._current(round_no)

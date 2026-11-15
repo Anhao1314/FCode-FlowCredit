@@ -32,7 +32,8 @@ __all__ = [
 #: definition so the system contract and user-context instruction cannot drift.
 GENERAL_INSTRUCTION = GENERAL_DOMAIN_INSTRUCTION
 
-APPROVAL_TOOLS = ("write_file", "edit_file", "run_command")
+APPROVAL_TOOLS = ("write_file", "edit_file", "run_command", "terminal",
+                  "spawn_subagents", "browser_act")
 
 #: ``report_blocked`` is deliberately *not* an approval tool here. It is a
 #: read-effect declaration whose only consequence is that the runtime stops;
@@ -59,6 +60,9 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         command_runner=kwargs.get("command_runner"),
         command_config=kwargs.get("command_config"),
         ask_operator=kwargs.get("ask_operator"),
+        subagent_channel=kwargs.get("subagent_channel"),
+        budget_channel=kwargs.get("budget_channel"),
+        motion_probe=kwargs.get("motion_probe"),
     )
 
 
@@ -74,6 +78,8 @@ def make_planner(world: GeneralWorld | None = None, **kwargs: Any) -> GeneralPla
         report_path=world.report_path,
         mode=world.mode,
         script_path=world.script_path,
+        mock_spawn=(world.spec or {}).get("mock_spawn_subagents")
+        if isinstance(world.spec, dict) else None,
     )
 
 
@@ -170,7 +176,7 @@ GENERAL_DOMAIN = DomainModule(
     # can establish.
     make_verification=make_verification,
     key="general-work",
-    title="通用委托",
+    title="任务",
     create_world=create_world,
     build_tools=build_tools,
     make_planner=make_planner,

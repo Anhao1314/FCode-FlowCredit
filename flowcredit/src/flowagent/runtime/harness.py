@@ -12,6 +12,7 @@ budget and in the verifier's refusal to accept an unproven result.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, Callable, Protocol
 
@@ -45,6 +46,20 @@ class Harness:
     #: Conservative reservation charged before a model call is dispatched.
     RESERVED_TOKENS = 1_000
     RESERVED_COST_MICROUSD = 500
+
+    #: Dispatches per round. The second one exists because truncated JSON,
+    #: dropped transports and a structurally invalid plan are transient
+    #: model-side failures, not task-level verdicts; it is charged like any
+    #: other dispatch and the retry prompt carries the rejection reason.
+    PROPOSAL_ATTEMPTS = 2
+    RETRYABLE_PROPOSAL_CODES = frozenset({
+        "PROPOSAL_MALFORMED",
+        "MODEL_CALL_FAILED",
+        "BUDGET_EXHAUSTED_REASONING",
+        "EMPTY_CONTENT",
+        "PLAN_SCHEMA_INVALID",
+        "PLAN_ADDITION_INVALID",
+    })
 
     def __init__(
         self,
@@ -81,6 +96,28 @@ class Harness:
         #: more importantly, emits no selector into the context — which is what
         #: keeps finance contexts byte-identical to the frozen SFT set.
         self.prompt_profile = prompt_profile
+        #: How many actions one validated proposal may contain. Derived from the
+        #: prompt profile so the parser bound and the loop bound cannot drift:
+        #: the one-action default stays 1, ``general-fast`` executes all four.
+        from ..providers.prompt import PROMPT_PROFILES
+
+        profile = PROMPT_PROFILES.get(prompt_profile or "")
+        self.max_steps = profile.max_steps if profile is not None else 1
+        #: Fast profiles ask the model to commit to a plan first (native:
+        #: submit_plan tool call; JSON: additions field).
+        self.plan_tool = bool(profile.plan_tool) if profile is not None else False
+        #: Narrow profiles can ask the loop to stop a read-only stall.
+        self.stall_guard = bool(getattr(profile, "stall_guard", False)) if profile is not None else False
+        #: Native function calling needs the registry schemas at the provider
+        #: boundary. They are attached once, outside the prompt context, so the
+        #: user message does not duplicate every tool schema on every round.
+        self.native_tools = bool(profile.native_tools) if profile is not None else False
+        if self.native_tools:
+            from ..providers.tool_schema import to_openai_tools
+
+            setter = getattr(provider, "set_native_tools", None)
+            if callable(setter):
+                setter(to_openai_tools(registry))
         #: Whether the model may propose additional plan todos (see
         #: DomainModule.plan_extension). Carried on the harness so every caller
         #: that builds one — demo, console, tests — gets the domain's own
@@ -201,72 +238,171 @@ class Harness:
 
         intent = self._intent(task, context)
         call_context = {**context, "intent": intent}
+        if self.native_tools:
+            # Advertise only what this task may actually call. A tool the gate
+            # would deny must not appear in the schema list: the model cannot
+            # "try" an unjailed terminal just because it is registered.
+            from ..providers.openai_compat import SUBMIT_PLAN_SCHEMA
+            from ..providers.tool_schema import to_openai_tools
 
-        # Charge before dispatch. A provider that never answers still costs.
-        # Providers may declare a context-aware upper bound; local providers
-        # fall back to the historical constants.
-        reserve = getattr(provider, "reserve", None)
-        if callable(reserve):
-            reserve_tokens, reserve_cost = reserve(call_context)
+            setter = getattr(provider, "set_native_tools", None)
+            if callable(setter):
+                schema_allowed = set(task.allowed_tools)
+                stage_allowed = context.get("native_tools_allowed")
+                if stage_allowed is not None:
+                    # A capability may expose fewer schemas for one stage without
+                    # mutating the task's immutable authorization grant.
+                    schema_allowed &= {str(name) for name in stage_allowed}
+                schemas = to_openai_tools(self.registry, allowed=schema_allowed)
+                if self.plan_tool:
+                    schemas = [*schemas, SUBMIT_PLAN_SCHEMA]
+                setter(schemas)
+
+        # One paid retry for transient/parse failures. A truncated JSON body,
+        # a dropped transport or a structurally invalid plan is not evidence
+        # that the task is unsalvageable; the second dispatch is charged like
+        # any other call, the failed first one is never refunded, and the
+        # rejection reason travels in the retry context so the model can fix
+        # the shape instead of repeating it.
+        retry_feedback: dict[str, Any] | None = None
+        for attempt in range(1, self.PROPOSAL_ATTEMPTS + 1):
+            attempt_context = (
+                {**call_context, "retry_feedback": retry_feedback}
+                if retry_feedback is not None else call_context
+            )
+            # Charge before dispatch. A provider that never answers still costs.
+            # Providers may declare a context-aware upper bound; local providers
+            # fall back to the historical constants.
+            reserve = getattr(provider, "reserve", None)
+            if callable(reserve):
+                reserve_tokens, reserve_cost = reserve(attempt_context)
+            else:
+                reserve_tokens = int(getattr(provider, "reserve_tokens", self.RESERVED_TOKENS))
+                reserve_cost = int(getattr(provider, "reserve_cost_microusd", self.RESERVED_COST_MICROUSD))
+            reserve_tokens = int(reserve_tokens)
+            reserve_cost = int(reserve_cost)
+            self.budget(task).charge_call(
+                tokens=reserve_tokens,
+                cost_microusd=reserve_cost,
+            )
+
+            try:
+                proposal = provider.propose(attempt_context)
+            except AgentError as error:
+                if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    retry_feedback = self._retry_feedback(error)
+                    task = self._retry_proposal(task, context, attempt, error)
+                    continue
+                return self._unknown(task, intent, error), None
+
+            try:
+                self.budget(task).settle_call(
+                    reserved_tokens=reserve_tokens,
+                    reserved_cost_microusd=reserve_cost,
+                    actual_tokens=proposal.tokens,
+                    actual_cost_microusd=proposal.cost_microusd,
+                )
+                plan = validate_plan(proposal.plan)
+            except AgentError as error:
+                if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    retry_feedback = self._retry_feedback(error)
+                    task = self._retry_proposal(task, context, attempt, error)
+                    continue
+                # A response arrived and it was illegal. That is a confirmed failure,
+                # not an unknown one: we know exactly what the model said.
+                failed = task.with_model(status="failed", receipt=proposal.receipt())
+                failed.failure = {"code": error.code, "message": error.message, "retryable": False}
+                return self._commit(task, failed.advance("failed"), "model_invalid", {"code": error.code}), None
+
+            updated = task.with_model(
+                status="validated",
+                proposal=plan.to_dict(),
+                receipt=proposal.receipt(),
+            )
+            if first:
+                updated = updated.advance("planned")
+            try:
+                return self._commit(task, updated, "plan_validated", {"plan": plan.to_dict(), "round": context["round"]}), proposal
+            except TypeError as error:
+                # The integrity layer rejected the model-authored body (e.g. a
+                # float where the runtime requires int micro-units or basis
+                # points). The model said it, so this is a confirmed failure,
+                # not an unknown outcome — but one retry may still produce a
+                # well-formed body.
+                if attempt < self.PROPOSAL_ATTEMPTS:
+                    error = AgentError(
+                        "PROPOSAL_MALFORMED",
+                        f"plan body rejected by integrity layer: {error}",
+                    )
+                    retry_feedback = self._retry_feedback(error)
+                    task = self._retry_proposal(task, context, attempt, error)
+                    continue
+                failed = task.with_model(status="failed", receipt=proposal.receipt())
+                failed.failure = {
+                    "code": "PROPOSAL_MALFORMED",
+                    "message": f"plan body rejected by integrity layer: {error}",
+                    "retryable": False,
+                }
+                return (
+                    self._commit(
+                        task,
+                        failed.advance("failed"),
+                        "model_invalid",
+                        {"code": "PROPOSAL_MALFORMED"},
+                    ),
+                    None,
+                )
+        raise AssertionError("proposal loop must return on its last attempt")
+
+    def _retry_feedback(self, error: AgentError) -> dict[str, Any]:
+        """The context block the retry dispatch carries.
+
+        Without this, a plan-shape error is retried with the exact same prompt
+        and the model has no reason to answer differently. The block is
+        context, not a chain event: the chain already records the
+        ``proposal_retry`` with the same code and message.
+        """
+        if error.code in ("BUDGET_EXHAUSTED_REASONING", "EMPTY_CONTENT"):
+            instruction = (
+                "Your previous reply produced no tool call. This retry has a "
+                "larger completion budget. Reply with exactly one executable "
+                "tool call now; do not write prose, a plan, or only reasoning."
+            )
         else:
-            reserve_tokens = int(getattr(provider, "reserve_tokens", self.RESERVED_TOKENS))
-            reserve_cost = int(getattr(provider, "reserve_cost_microusd", self.RESERVED_COST_MICROUSD))
-        reserve_tokens = int(reserve_tokens)
-        reserve_cost = int(reserve_cost)
-        self.budget(task).charge_call(
-            tokens=reserve_tokens,
-            cost_microusd=reserve_cost,
-        )
-
-        try:
-            proposal = provider.propose(call_context)
-        except AgentError as error:
-            return self._unknown(task, intent, error), None
-
-        try:
-            self.budget(task).settle_call(
-                reserved_tokens=reserve_tokens,
-                reserved_cost_microusd=reserve_cost,
-                actual_tokens=proposal.tokens,
-                actual_cost_microusd=proposal.cost_microusd,
+            cap = min(6, max(1, int(self.max_steps or 1)))
+            width = "exactly one step" if cap == 1 else f"1-{cap} steps"
+            instruction = (
+                f"Reply again with one valid proposal ({width}); each step needs "
+                "id, tool and an object of arguments. Native mode: call at least "
+                "one executable tool; submit_plan alone is not an action. Do not "
+                "answer in prose."
             )
-            plan = validate_plan(proposal.plan)
-        except AgentError as error:
-            # A response arrived and it was illegal. That is a confirmed failure,
-            # not an unknown one: we know exactly what the model said.
-            failed = task.with_model(status="failed", receipt=proposal.receipt())
-            failed.failure = {"code": error.code, "message": error.message, "retryable": False}
-            return self._commit(task, failed.advance("failed"), "model_invalid", {"code": error.code}), None
+        return {
+            "reason": "your previous reply was rejected before execution",
+            "code": error.code,
+            "message": error.message[:300],
+            "instruction": instruction,
+        }
 
-        updated = task.with_model(
-            status="validated",
-            proposal=plan.to_dict(),
-            receipt=proposal.receipt(),
+    def _retry_proposal(
+        self,
+        task: Task,
+        context: dict[str, Any],
+        failed_attempt: int,
+        error: AgentError,
+    ) -> Task:
+        """Record one paid retry before dispatching the same round again."""
+        return self._commit(
+            task,
+            task,
+            "proposal_retry",
+            {
+                "round": context["round"],
+                "attempt": failed_attempt + 1,
+                "cause": error.code,
+                "message": error.message,
+            },
         )
-        if first:
-            updated = updated.advance("planned")
-        try:
-            return self._commit(task, updated, "plan_validated", {"plan": plan.to_dict(), "round": context["round"]}), proposal
-        except TypeError as error:
-            # The integrity layer rejected the model-authored body (e.g. a
-            # float where the runtime requires int micro-units or basis
-            # points). The model said it, so this is a confirmed failure,
-            # not an unknown outcome.
-            failed = task.with_model(status="failed", receipt=proposal.receipt())
-            failed.failure = {
-                "code": "PROPOSAL_MALFORMED",
-                "message": f"plan body rejected by integrity layer: {error}",
-                "retryable": False,
-            }
-            return (
-                self._commit(
-                    task,
-                    failed.advance("failed"),
-                    "model_invalid",
-                    {"code": "PROPOSAL_MALFORMED"},
-                ),
-                None,
-            )
 
     def auto_step(
         self,
@@ -300,9 +436,10 @@ class Harness:
     def reconcile(self, task: Task, receipt_ref: str) -> Task:
         """Resolve an unknown outcome with a signed, matching receipt.
 
-        This is the only exit from ``recovery_required``. It does not re-send the
-        call, does not refund the reservation, and does not accept a receipt for
-        a different round.
+        This is the *receipt* exit from ``recovery_required``; the other is
+        :meth:`recover_unknown` with no matching receipt, which explicitly
+        re-issues a new round. Neither re-sends the disputed call, refunds the
+        reservation, nor accepts a receipt for a different round.
         """
         if task.status != "recovery_required":
             raise AgentError("RECONCILIATION_BLOCKED", f"task is {task.status}, not recovery_required")
@@ -324,6 +461,52 @@ class Harness:
         )
         updated.failure = None
         return self._commit(task, updated.advance("running"), "model_reconciled", {"receipt_ref": receipt_ref})
+
+    def recover_unknown(self, task: Task, *, operator: str) -> Task:
+        """Operator-confirmed exit from a call whose outcome is unknown.
+
+        Two paths, and only two:
+
+        * a **verified receipt** for this exact task/round exists -> the existing
+          :meth:`reconcile` path. No new dispatch, no second charge, the old
+          round's answer is used as-is.
+        * **no receipt** -> an explicit ``model_reissued`` event that names the
+          operator, the unknown round, the absent receipt and the risk of
+          double billing. The old round stays unknown (it is never refunded or
+          guessed successful); the task returns to ``running`` so the loop
+          prices and dispatches a brand-new round.
+
+        The guard is intentionally narrow. A ``failed`` task, a tool-side
+        unknown, or any other failure code has its own recovery semantics and
+        must not be routed through this entry point.
+        """
+        if task.status != "recovery_required":
+            raise AgentError(
+                "RECOVERY_BLOCKED",
+                f"task is {task.status}, not recovery_required",
+            )
+        failure = task.failure or {}
+        if failure.get("code") != "MODEL_OUTCOME_UNKNOWN":
+            raise AgentError(
+                "RECOVERY_BLOCKED",
+                f"failure is {failure.get('code') or 'none'}, not MODEL_OUTCOME_UNKNOWN",
+            )
+        unknown_round = int(failure.get("intent_round") or task.model.attempts)
+        ref = self.receipts.find_intent(task.id, unknown_round)
+        if ref:
+            return self.reconcile(task, ref)
+
+        detail = {
+            "by": operator,
+            "unknown_round": unknown_round,
+            "receipt_ref": "",
+            "risk": "possible double billing",
+        }
+        cleared = replace(task, failure=None)
+        # unknown -> reissued, then reissued -> started when the next round is
+        # priced by the loop. `validated` would claim we had an answer; we do not.
+        cleared = cleared.with_model(status="reissued")
+        return self._commit(task, cleared.advance("running"), "model_reissued", detail)
 
     def transition(self, task: Task, status: str, event: str, detail: dict[str, Any] | None = None) -> Task:
         """Move the task to a non-terminal status and record why.
@@ -433,7 +616,41 @@ class Harness:
                 "round": round_no,
             })
             raise
-        detail = {
+        return self._commit(
+            task, task, "tool_succeeded",
+            self._success_detail(observation, round_no),
+        ), observation
+
+    def complete_started_tool(
+        self, task: Task, observation: Observation, *, round_no: int = 0,
+    ) -> Task:
+        """Complete a tool whose start was committed before a process restart.
+
+        The start was already charged and validated. Only a matching running
+        task and the latest identical ``tool_started`` event may use this path;
+        no handler, budget charge or second start is repeated.
+        """
+        events = self.store.events(task.id)
+        started = events[-1] if events else {}
+        payload = (started.get("payload") or {}).get("detail") or {}
+        if (
+            task.status != "running"
+            or task.model.status != "validated"
+            or started.get("type") != "tool_started"
+            or payload.get("tool") != observation.tool
+            or (payload.get("arguments") or {}) != (observation.arguments or {})
+        ):
+            raise AgentError(
+                "INVALID_TOOL_RECOVERY",
+                "the observation does not match the latest committed tool start",
+            )
+        return self._commit(
+            task, task, "tool_succeeded", self._success_detail(observation, round_no),
+        )
+
+    @staticmethod
+    def _success_detail(observation: Observation, round_no: int) -> dict[str, Any]:
+        return {
             "tool": observation.tool,
             "arguments": observation.arguments,
             "result": observation.result,
@@ -444,7 +661,107 @@ class Harness:
             # 哈希校验不受影响(新事件才携带)。
             "trust": trust_for_tool(observation.tool).value,
         }
-        return self._commit(task, task, "tool_succeeded", detail), observation
+
+    @staticmethod
+    def _failure_detail(step: dict[str, Any], error: AgentError,
+                        round_no: int) -> dict[str, Any]:
+        return {
+            "code": error.code,
+            "tool": step["tool"],
+            "arguments": step.get("arguments") or {},
+            "round": round_no,
+        }
+
+    def execute_read_batch(
+        self,
+        task: Task,
+        steps: list[dict[str, Any]],
+        *,
+        round_no: int = 0,
+    ) -> tuple[Task, list[tuple[dict[str, Any], Observation | None, AgentError | None]]]:
+        """Dispatch a local read-only batch concurrently, commit it in order.
+
+        Governance order is preserved even though the handlers overlap:
+
+        1. the read budget is checked for the whole batch before anything starts;
+        2. every step is charged and gets a ``tool_started`` event before dispatch;
+        3. handlers run in a bounded pool;
+        4. the caller commits outcomes in the original proposal order.
+
+        Only pure local reads use this path (the loop filters the tool set).
+        A sibling failure does not erase other completed reads: the caller
+        commits every outcome, then applies the normal recovery/abort policy.
+        """
+        if task.status == "planned":
+            task = self._commit(task, task.advance("running"), "execution_started", {})
+        budget = self.budget(task)
+        if budget.snapshot()["reads_remaining"] < len(steps):
+            raise AgentError(
+                "BUDGET_EXCEEDED",
+                "read budget cannot cover the whole parallel batch",
+                details={"dimension": "reads"},
+            )
+        for step in steps:
+            budget.charge_read()
+            task = self._commit(task, task, "tool_started", {
+                "tool": step["tool"],
+                "arguments": step.get("arguments") or {},
+                "round": round_no,
+            })
+        workers = max(1, min(4, len(steps)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fcode-read") as pool:
+            futures = [
+                pool.submit(self.registry.execute, step["tool"], step.get("arguments") or {})
+                for step in steps
+            ]
+            outcomes = []
+            for step, future in zip(steps, futures):
+                try:
+                    outcomes.append((step, future.result(), None))
+                except AgentError as error:
+                    outcomes.append((step, None, error))
+                except Exception as error:  # noqa: BLE001 — a handler bug is a tool failure
+                    outcomes.append((
+                        step, None,
+                        AgentError("TOOL_EXECUTION_FAILED", str(error)),
+                    ))
+        return task, outcomes
+
+    def finish_batch_success(self, task: Task, step: dict[str, Any],
+                             observation: Observation, *, round_no: int = 0) -> Task:
+        return self._commit(
+            task, task, "tool_succeeded",
+            self._success_detail(observation, round_no),
+        )
+
+    def finish_batch_error(self, task: Task, step: dict[str, Any], error: AgentError,
+                           *, round_no: int = 0) -> tuple[Task, bool]:
+        """Commit one failed sibling; ``True`` means the task is terminal."""
+        if error.details.get("outcome") == "unknown":
+            task = self._commit(task, task, "tool_unknown", {
+                "tool": step["tool"],
+                "code": error.code,
+                "message": error.message,
+                "round": round_no,
+            })
+            failed = task
+            failed.failure = {
+                "code": "TOOL_OUTCOME_UNKNOWN",
+                "cause": error.code,
+                "retryable": False,
+                "intent_round": round_no,
+            }
+            task = self._commit(task, failed.advance("failed"), "task_failed", {
+                "code": "TOOL_OUTCOME_UNKNOWN",
+                "cause": error.code,
+            })
+            return task, True
+        failed = task
+        failed.failure = error.to_dict()
+        return self._commit(
+            failed, failed, "tool_failed",
+            self._failure_detail(step, error, round_no),
+        ), False
 
     def verify(self, observation: Observation) -> dict[str, Any]:
         """Delegate independent recomputation to the domain module.
