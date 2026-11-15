@@ -168,10 +168,16 @@ def build_provider(
         return FaultInjectionProvider(provider) if scenario.key == "tool-denied" else provider
     if provider_name == "deepseek":
         # 补全预算同时被 reasoning 与 content 消耗。deepseek-flash 这类推理
-        # 模型在 256 下会"reasoning 写满、content 为空"，整轮判死；默认给足
-        # 8192，操作员可用 DEEPSEEK_MAX_TOKENS 显式覆盖。
-        configured = str(env.get("DEEPSEEK_MAX_TOKENS", "")).strip()
-        max_tokens = int(configured) if configured.isdigit() and int(configured) > 0 else 8192
+        # 模型在 8192 下仍可能"reasoning 写满、content 为空"；默认给 32768，
+        # 操作员可用 DEEPSEEK_MAX_TOKENS 覆盖。DEEPSEEK_MAX_COMPLETION_TOKENS
+        # is accepted as an alias because the provider's own error message used
+        # to name it while the factory only read the shorter name.
+        configured = str(
+            env.get("DEEPSEEK_MAX_TOKENS")
+            or env.get("DEEPSEEK_MAX_COMPLETION_TOKENS")
+            or ""
+        ).strip()
+        max_tokens = int(configured) if configured.isdigit() and int(configured) > 0 else 32768
         settings = load_deepseek_settings(
             env=env,
             model=model,

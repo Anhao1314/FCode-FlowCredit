@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { esc, safeUrl } from "../core/format.js";
+import { esc, safeUrl, stripTags } from "../core/format.js";
+
+test("stripTags 去标签并解码实体（工具摘要不能再显示 &quot;）", () => {
+  assert.equal(stripTags('<span class="dim">{&quot;path&quot;:&quot;x&quot;}</span>'), '{"path":"x"}');
+  assert.equal(stripTags("a &lt; b &amp; c &gt; d"), "a < b & c > d");
+});
 
 test("esc 覆盖单引号（属性注入的最后一块拼图）", () => {
   assert.equal(esc("<img src=x onerror='alert(1)'>"),

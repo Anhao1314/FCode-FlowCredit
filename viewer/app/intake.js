@@ -140,7 +140,7 @@ export function createIntake(deps) {
       : mode === "script" ? "工作区脚本，无需 URL"
       : `${d.attach.sources.length}/5 个 URL`;
     const headTag = general
-      ? (template.title ? template.title.split("：")[0] : "通用委托")
+      ? (template.title ? template.title.split("：")[0] : "任务")
       : "内置合成资料 · 恒星智算";
     const fast = !!(d.getFastMode && d.getFastMode());
     const detailRows = general

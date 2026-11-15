@@ -43,6 +43,12 @@ class ProjectWorkspaceTests(unittest.TestCase):
         self.sandbox.write(PROJECT_REPORT_PATH, "fixed\n")
         (self.sandbox.root / "__pycache__").mkdir()
         (self.sandbox.root / "__pycache__" / "app.pyc").write_bytes(b"generated")
+        shell_cache = self.sandbox.root / ".shell-home" / "Library" / "Caches"
+        shell_cache.mkdir(parents=True)
+        (shell_cache / "run.cpython-39.pyc").write_bytes(b"generated")
+        listed = {item["path"] for item in self.sandbox.ls()}
+        self.assertNotIn(".shell-home/Library/Caches/run.cpython-39.pyc", listed)
+        self.assertNotIn("__pycache__/app.pyc", listed)
         delivery = project_delivery(self.sandbox, metadata)
         self.assertEqual({item["path"] for item in delivery["filesChanged"]}, {"app.py", "new_test.py"})
         self.assertIn("-    return 41", delivery["patch"])
@@ -50,6 +56,7 @@ class ProjectWorkspaceTests(unittest.TestCase):
         self.assertIn("new_test.py", delivery["patch"])
         self.assertNotIn(PROJECT_REPORT_PATH, delivery["patch"])
         self.assertNotIn("__pycache__", delivery["patch"])
+        self.assertNotIn(".shell-home", delivery["patch"])
         self.assertEqual(hashlib.sha256((self.source / "app.py").read_bytes()).hexdigest(), original)
         self.assertFalse((self.source / "new_test.py").exists())
 

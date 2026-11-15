@@ -37,7 +37,7 @@ export function workAddMenuHtml({
     : (scopeCount ? `已限定 ${Number(scopeCount)} 份语料` : "全语料（默认）");
   const projectDesc = general
     ? (project ? project : "未选择 · 真实仓库的隔离副本")
-    : "仅通用委托支持";
+    : "仅任务模式支持";
   return `<div class="add-menu-head"><span>添加内容</span><span class="add-menu-count">Work</span></div>
     <button type="button" class="add-menu-item" data-work-add="sources">
       <span class="add-menu-ic add-menu-at" aria-hidden="true">@</span>

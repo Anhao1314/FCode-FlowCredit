@@ -31,7 +31,8 @@ DeepSeek 是当前首先启用的外部 LLM 层：不做本地模型推理，先
 | `DEEPSEEK_PRICE_AS_OF` | Host 读取价格的日期 | 必填 |
 | `DEEPSEEK_PRICE_SOURCE` | 价格来源说明 | `host` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | 传输超时 | `120` |
-| `DEEPSEEK_MAX_TOKENS` | 每次调用输出 token 上限 | packet `64`，proposal `256` |
+| `DEEPSEEK_MAX_TOKENS` | 每次调用输出 token 上限（reasoning + content 共用） | proposal `32768`；packet `64` |
+| `DEEPSEEK_MAX_COMPLETION_TOKENS` | 上者的兼容别名（旧错误信息使用此名） | 可选 |
 
 价格单位是 **µUSD / 1M tokens**。例如输入 0.27 美元/百万、输出 1.10
 美元/百万，写成 `270000` / `1100000`（1 美元 = 1,000,000 µUSD）。请按自己

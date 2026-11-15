@@ -111,7 +111,10 @@ class RunManager:
                 traceback.print_exc()
         self._lock = threading.Lock()
         self._seq = 0
-        self.runs_dir.mkdir(exist_ok=True)
+        # ``parents=True`` keeps this idempotent on hosts that broker Path.mkdir
+        # to an external shim: some of those report EEXIST for an existing
+        # directory when parents is omitted, even with exist_ok=True.
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
         # Work 项目注册表：sqlite 住在 runs 目录旁，与 scheduler/governance 同级。
         # 项目只拥有身份/路径/验证命令；run 统计由 list_runs 组合，避免双事实源。
         try:

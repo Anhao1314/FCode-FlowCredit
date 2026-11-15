@@ -14,12 +14,15 @@ Fixer 有两条入口，但只有一条写路径：
 
 Work 的 project verification 走宿主机命令白名单，不是任意 shell：
 
-- 允许的程序：`cat`、`diff`、`find`、`git`、`grep`、`ls`、`node`、`pytest`、`python`、
-  `python3`、`unittest`、`wc`；
+- 允许的程序：默认集包含 `cat`、`diff`、`find`、`git`、`grep`、`ls`、`node`、`pytest`、
+  `python`、`python3`、`unittest`、`wc`，以及常见的 `npm`/`pnpm`/`yarn`/`npx`、`uv`/
+  `poetry`/`pip`、`ruff`/`mypy`、`cargo`、`go`、`make`、`mvn`/`gradle`、`dotnet` 等
+  项目测试命令（完整列表见 `tools/general/commands.py`，可用 `commands.json` 追加）；
 - 拒绝 inline/module 代码（如 `python3 -c ...`），要求执行工作区里的脚本文件；
 - 对 `git` 的子命令/flag 有独立白名单（例如 `git diff --check` 会被拒绝）。
 
-所以填 `pytest -q`、`python3 verify.py`、`node verify.js` 这类命令；不要填 `npm test`。
+所以填 `npm test`、`pytest -q`、`cargo test`、`go test ./...`、`uv run pytest` 这类命令都可以；
+仍未列出的项目专用命令走 `commands.json`，不要填 `sh -c ...`。
 
 ## 边界
 

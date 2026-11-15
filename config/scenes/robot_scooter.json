@@ -1,0 +1,20 @@
+{
+  "id": "robot-scooter",
+  "subject": {
+    "label": "cartoon robot",
+    "description": "small friendly robot with two articulated legs"
+  },
+  "vehicle": {
+    "label": "kick scooter",
+    "description": "scooter with a deck and two small wheels",
+    "support_label": "deck"
+  },
+  "features": {
+    "two_legs": true,
+    "legs_attach": true,
+    "feet_on_support": true
+  },
+  "composition": "robot riding a kick scooter",
+  "crop": [140, 90, 900, 530],
+  "scale": 2.0
+}

@@ -50,7 +50,20 @@ MCP 工具不自声明副作用：**一切导入默认 consequential（过审批
 只有主机在 `mcp.json` 按工具标注 `readonly: true` 才归入读取类。
 "分类权在主机"与"模型不能自审"同源。
 
-### 2.2 沙箱：路径监狱 + git 版本化 + 哈希收据
+### 2.2 重复读取折叠：省上下文，不省证据
+
+同一次运行里，完整读取一个文件后再次完整读取同一路径：
+
+- handler **仍重新读盘并计算当前 sha256**，内容未变时返回
+  `unchanged: true`、当前哈希和 `content: ""`，并给出 `force=true` 的逃生口；
+- 内容变了就返回全文并刷新缓存；
+- 带 `offset`/`limit` 的分段读取不参与折叠，避免模型把切片误当全文；
+- 链上仍记录一次真实的读操作和当前哈希；省略的只是模型上下文里的重复正文。
+
+这是上下文经济，不是证据缓存。它专门处理“计划重述导致同一文件被再读一遍”
+这类浪费；需要正文时显式 `force=true`，所以不会出现“没看到内容却假装看过”。
+
+### 2.3 沙箱：路径监狱 + git 版本化 + 哈希收据
 
 - 每个运行的沙箱锚定 `runs/{runId}/workspace/`；路径在
   `WorkspaceSandbox.resolve` 内归一化：绝对路径、`..`、空组件、反斜杠、
@@ -65,7 +78,7 @@ MCP 工具不自声明副作用：**一切导入默认 consequential（过审批
 - 崩溃恢复语义照旧：write 的观察已入链，`rebuild_plan` 重放后 todo 已
   done，恢复后不重写。
 
-### 2.3 fetch_url：解析后钉住（防 DNS 重绑定）
+### 2.4 fetch_url：解析后钉住（防 DNS 重绑定）
 
 - 输入 url，输出正文文本；上限 1 MiB，超时 30s，至多 3 次重定向
   （每一跳从头重新校验）。
@@ -78,7 +91,7 @@ MCP 工具不自声明副作用：**一切导入默认 consequential（过审批
 - 诚实标注：结果携带 `content_truth: "not-verified"`——运行时复核的是
   文件状态哈希、预算与链完整性，**网页内容的真实性如实声明不保证**。
 
-### 2.4 unknown 语义的推广
+### 2.5 unknown 语义的推广
 
 工具层引入"结果未知"：AgentError 携带 `details={"outcome": "unknown"}`
 （fetch 超时/断连、MCP 调用超时/进程失联）时，Harness 记
@@ -87,7 +100,7 @@ MCP 工具不自声明副作用：**一切导入默认 consequential（过审批
 凭签名收据对账）同一纪律；工具侧的收据式对账（带外签名结果）刻意
 不在本期发明，留待确有需求时立项。
 
-### 2.5 提案参数上限的再定界
+### 2.6 提案参数上限的再定界
 
 `validate_plan` 的参数上限从 1 KiB **再定界**为 96 KiB（不是取消）：
 1 KiB 假设了只读工具的标识符级参数，`write_file` 携带的是成文内容。
@@ -153,8 +166,10 @@ Agent 编排。
 ### run_command：白名单注册表，不是 shell
 
 - **白名单**：代码默认集（python/python3/node/git/ls/cat/grep/find/
-  wc/diff/pytest/unittest）+ `commands.json`（与 mcp.json 同级，主机
-  审阅；只可加条目，不可弱化内置规则）。
+  wc/diff/pytest/unittest，以及 npm/pnpm/yarn/npx/bun/deno、uv/poetry/pip/
+  ruff/mypy/tox/nox、cargo/go/make/cmake/ctest/ninja、mvn/gradle/dotnet、
+  bundle/rake/ruby/composer/php/swift 等常见项目测试命令）+ `commands.json`
+  （与 mcp.json 同级，主机审阅；只可加条目，不可弱化内置规则）。
 - **参数策略**：解释器只跑 workspace 内脚本文件（`-c`/`-e`/`-m` 一律
   拒绝——内联代码是文件监狱看不见的逻辑逃逸）；git 只放行
   status/diff/log/add/commit（无网络、无改史、无 `-C/--git-dir` 改址）；

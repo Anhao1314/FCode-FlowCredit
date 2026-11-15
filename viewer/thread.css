@@ -670,6 +670,10 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-status.stopped .th-status-dot,
 .th-status.unknown .th-status-dot { background: var(--warn); }
 .th-status-label { font-weight: 550; font-size: var(--fs-3); }
+.th-status-elapsed {
+  color: var(--text-3); font: 12px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 .th-status-detail {
   min-width: 0; color: var(--text-2); font-size: var(--fs-2);
   overflow-wrap: anywhere;
@@ -708,6 +712,11 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-plan-head .th-ic { color: var(--text-3); display: inline-flex; }
 .th-plan-title { font-weight: 550; font-size: var(--fs-2); }
 .th-plan-meta { font: 12px/18px var(--font-mono); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.th-plan-state {
+  padding: 0 5px; border-radius: 4px;
+  background: var(--bad-soft); color: var(--bad);
+  font: 10px/16px var(--font-ui);
+}
 .th-plan-queued { font: 12px/18px var(--font-ui); color: var(--warn); }
 .th-plan-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
 .th-plan-row {
@@ -751,6 +760,15 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-tool-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .th-ic { display: inline-flex; color: var(--text-3); flex: none; }
 .th-ic svg, .th-glyph { width: 15px; height: 15px; flex: none; }
+/* GLYPHS are outline paths. Without an explicit paint they inherit the SVG
+   default (solid black fill), so every tool renders as the same heavy block. */
+.th-ic svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .th-ic.failed, .th-ic.denied { color: var(--bad); }
 .th-ic.stopped, .th-ic.unknown { color: var(--warn); }
 .th-tool-name {
@@ -919,6 +937,29 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-approval .th-ic { color: var(--warn); }
 .th-approval.resolved .th-ic { color: var(--text-3); }
 .th-question-text { margin: 0 0 4px; font-size: var(--fs-3); line-height: 1.6; color: var(--text-1); white-space: pre-wrap; }
+.th-q-options { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px; }
+.th-q-option {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  min-height: 36px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--raised); color: var(--text-1);
+  font: var(--fs-2)/1.45 var(--font-ui); text-align: left;
+  cursor: pointer;
+}
+.th-q-option:hover { border-color: var(--line-strong); background: var(--panel); }
+.th-q-option[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.th-q-option[aria-pressed="true"] .th-q-mark {
+  border-color: var(--accent); background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--raised);
+}
+.th-q-option:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.th-q-mark {
+  width: 14px; height: 14px; flex: none;
+  border: 1px solid var(--line-strong); border-radius: 50%;
+  background: var(--raised);
+}
 .th-q-input {
   width: 100%; resize: vertical; min-height: 52px;
   padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
@@ -934,6 +975,151 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   border-top: 1px solid var(--line-soft);
 }
 .th-answer-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.th-answer-warning { margin: 4px 0 0; color: var(--warn); }
+.th-delivery {
+  margin: 10px 0 6px; padding: 10px;
+  border: 1px solid var(--line-soft); border-radius: 10px; background: var(--raised);
+}
+.th-delivery-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; color: var(--text-2);
+}
+.th-delivery-head > span:first-child { font-weight: 600; color: var(--text-1); }
+.th-delivery-isolated { margin-left: auto; color: var(--text-3); font-size: 11px; }
+.th-delivery-media-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px; margin-top: 8px;
+}
+.th-delivery-item { margin: 0; min-width: 0; }
+.th-delivery-media {
+  display: block; width: auto; max-width: 100%; max-height: 320px;
+  margin: 0 auto; object-fit: contain;
+  border-radius: 8px; background: #0b0b12;
+}
+.th-delivery-item figcaption {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 4px; font: 11px/16px var(--font-mono); color: var(--text-3);
+}
+.th-delivery-item figcaption span { overflow-wrap: anywhere; }
+.th-delivery-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.th-delivery-html { margin-top: 8px; }
+.th-delivery-open {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text-1);
+  font: 12px/18px var(--font-mono); text-align: left; cursor: pointer;
+}
+.th-delivery-open:hover { border-color: var(--accent); }
+.th-delivery-open small { margin-left: auto; color: var(--accent); font-family: var(--font-ui); }
+.th-delivery-quality {
+  margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line-soft);
+  font: 11px/16px var(--font-ui); color: var(--text-3);
+}
+.th-delivery-quality-head { display: flex; align-items: baseline; gap: 8px; }
+.th-delivery-quality b { color: var(--ok); font-weight: 600; margin-right: 2px; }
+.th-delivery-quality.warn b { color: var(--warn); }
+.th-delivery-quality.unverified b { color: var(--warn); }
+.th-delivery-quality.fail b { color: var(--bad); }
+.th-delivery-quality ul { margin: 3px 0 0; padding-left: 16px; }
+.th-delivery-quality li { margin: 1px 0; }
+.th-delivery-quality-frame {
+  margin: 7px 0 0; overflow: hidden; border: 1px solid var(--line-soft);
+  border-radius: 8px; background: var(--panel);
+}
+.th-delivery-quality-frame a { display: block; }
+.th-delivery-quality-frame img {
+  display: block; width: 100%; max-height: 240px; object-fit: contain;
+}
+.th-delivery-quality-metrics {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px;
+}
+.th-delivery-quality-metrics span {
+  padding: 1px 6px; border: 1px solid var(--line-soft); border-radius: 999px;
+  font: 10px/15px var(--font-mono); color: var(--text-2);
+}
+.th-delivery-file {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px;
+  font: 11px/16px var(--font-mono); color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.th-delivery-file b { color: var(--text-3); font-weight: 600; }
+
+/* A failed run still has an artifact. Show its state instead of leaving the
+   user to infer "empty scene" from a tool log. */
+.th-artifact-state {
+  margin: 6px 0 2px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--raised);
+}
+.th-artifact-state-head { display: flex; align-items: center; gap: 8px; }
+.th-artifact-state-kicker {
+  font: 10px/16px var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.th-artifact-state-head b { font: 13px/20px var(--font-ui); font-weight: 600; color: var(--text-1); }
+.th-artifact-state-badge {
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--panel); color: var(--text-3);
+  font: 10px/16px var(--font-ui);
+}
+.th-artifact-state-badge.fail { color: var(--bad); background: var(--bad-soft); }
+.th-artifact-state-badge.warn,
+.th-artifact-state-badge.unverified { color: var(--warn); background: var(--warn-soft); }
+.th-artifact-state-note { margin: 5px 0 0; color: var(--text-3); font: 11px/16px var(--font-ui); }
+.th-artifact-state .th-delivery-quality-frame img { max-height: 180px; }
+.th-artifact-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.th-artifact-file {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px;
+  font: 11px/16px var(--font-mono); color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.th-artifact-file b { color: var(--text-3); font-weight: 600; }
+.th-artifact-more {
+  padding: 2px 6px; color: var(--text-3);
+  font: 11px/16px var(--font-mono);
+}
+.th-artifact-file small { color: var(--text-4); font: 10px/16px var(--font-mono); }
+.th-artifact-quality { margin-top: 6px; border-top: 1px solid var(--line-soft); }
+.th-artifact-quality > summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+  padding-top: 8px; color: var(--text-2); cursor: pointer;
+  font: 11px/16px var(--font-ui); list-style: none;
+}
+.th-artifact-quality.fail > summary { color: var(--bad); }
+.th-artifact-quality.warn > summary,
+.th-artifact-quality.unverified > summary { color: var(--warn); }
+.th-artifact-quality > summary::-webkit-details-marker { display: none; }
+.th-artifact-quality-facts { display: inline-flex; flex-wrap: wrap; gap: 6px 12px; }
+.th-artifact-quality-action { margin-left: auto; color: var(--text-3); }
+.th-artifact-quality-action::after { content: "▾"; margin-left: 5px; font-size: 10px; }
+.th-artifact-quality[open] .th-artifact-quality-action::after { content: "▴"; }
+.th-artifact-quality .th-delivery-quality {
+  margin-top: 6px; padding-top: 0; border-top: 0;
+}
+.html-preview-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, .58);
+}
+.html-preview-card {
+  display: flex; flex-direction: column;
+  width: min(1100px, 96vw); height: min(760px, 92vh);
+  overflow: hidden; border-radius: 14px; background: #fff;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .32);
+}
+.html-preview-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  font: 12px/18px var(--font-mono); color: var(--text-2);
+}
+.html-preview-head b { color: var(--text-1); font-family: var(--font-ui); font-size: 13px; }
+.html-preview-close {
+  margin-left: auto; border: 1px solid var(--line); border-radius: 7px;
+  background: #fff; color: var(--text-2); padding: 3px 9px; cursor: pointer;
+}
+.html-preview-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 .th-answer-kicker {
   font: 600 11px/16px var(--font-ui); letter-spacing: .06em;
   text-transform: uppercase; color: var(--text-3);
@@ -1454,3 +1640,243 @@ html.desktop-app .side-new:hover {
 .chat-row { padding-left: 24px; }
 #gov-history .gov-target-row { padding-left: 24px; }
 .section-empty { padding-left: 24px; }
+
+/* ================================================================ 项目运行 · 右侧扩展栏
+   代码变更/文件不再用浮层检查器；右侧 rail 承载 Patch 与只读文件树，
+   主区线程始终可见。窄栏内文件列表改为可横向滚动的 chip，diff/文件内容
+   在栏内独立滚动。 */
+.rail[data-rail-mode="changes"] .rail-body,
+.rail[data-rail-mode="files"] .rail-body { padding: 8px 12px 24px; }
+.rail-project .project-result,
+.rail-project .project-files {
+  max-width: none; margin: 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.rail-project .project-result-head { padding: 2px 0 8px; align-items: flex-start; }
+.rail-project .project-result-head h3 { margin-top: 2px; font-size: 15px; }
+.rail-project .project-result-layout {
+  display: block; min-height: 0; max-height: none; border: 0;
+}
+.rail-project .project-file-list {
+  display: flex; gap: 2px; overflow-x: auto; padding: 0 0 8px;
+  border-right: 0; border-bottom: 1px solid var(--line-soft);
+}
+.rail-project .project-file-list button {
+  flex: none; width: auto; max-width: 100%; padding: 5px 8px;
+  gap: 5px; border-radius: 7px; font-size: 11px; white-space: nowrap;
+}
+.rail-project .project-file-list button > span:nth-child(2) {
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+}
+.rail-project .project-diff {
+  max-height: 46vh; padding: 8px 0; font-size: 10px; line-height: 1.6;
+}
+.rail-project .project-diff-line { padding: 0 3px; }
+.rail-project .project-result-foot {
+  flex-wrap: wrap; gap: 6px; padding: 10px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+.rail-project .project-result-foot > span:first-child {
+  width: 100%; max-height: 54px; overflow: auto;
+}
+.rail-project .project-result-foot .a-btn { flex: 1; min-width: 120px; }
+.rail-project .project-files-head { padding: 2px 0 8px; border-bottom: 0; }
+.rail-project .project-browser { display: block; min-height: 0; }
+.rail-project .project-browser .project-file-list {
+  display: block; max-height: 180px; overflow: auto;
+  border-right: 0; border-bottom: 1px solid var(--line-soft);
+}
+.rail-project .project-browser .project-file-list button { width: 100%; font-size: 11px; }
+.rail-project .project-browser-content {
+  min-height: 220px; max-height: 42vh; padding: 10px;
+  border: 0; font-size: 10px;
+}
+
+/* ================================================================ 通用委托 · 对话化
+   Work run 不再像后台任务面板：用户任务是一则右对齐消息，Agent 以
+   32px 头像开场；状态、计划、工具、最终回复都缩进到同一条 Agent 回合
+   的内容列里。事件/审批/预算语义不变，只换阅读语法。 */
+.task-thread { gap: 4px; }
+.th-user {
+  display: flex; flex-direction: column; align-items: flex-end;
+  margin: 2px 0 16px; padding: 2px 10px 0;
+}
+.th-user .th-who { display: none; }
+.th-user-head { justify-content: flex-end; }
+.th-user-head .th-chips { justify-content: flex-end; }
+.th-user-text {
+  max-width: min(82%, 620px); padding: 10px 14px;
+  border-radius: 16px 16px 4px 16px; background: var(--panel);
+  font-size: 15px; line-height: 1.7; white-space: pre-wrap;
+}
+.th-status {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 8px 10px; border: 0; background: transparent;
+}
+.th-status.failed { flex-direction: row; }
+.th-avatar-col { flex: none; padding-top: 1px; }
+.th-status-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.th-agent-head { display: flex; align-items: center; gap: 7px; min-height: 20px; }
+.th-agent-name { font: 600 13.5px/20px var(--font-ui); color: var(--text-1); letter-spacing: -.01em; }
+.th-agent-tag { font: 500 10px/16px var(--font-mono); color: var(--text-4); letter-spacing: .04em; }
+.th-status .th-status-line { gap: 7px; }
+.th-status .th-status-facts { padding-left: 0; }
+.task-thread .th-status ~ .th-item:not(.th-user):not(.th-operator) { margin-left: 44px; }
+.task-thread .th-answer {
+  margin: 12px 0 4px; padding: 8px 12px 10px; border-top: 0;
+}
+.task-thread .th-answer-head { display: none; }
+.task-thread .th-answer-text { font-size: 15px; line-height: 1.75; }
+.task-thread .th-answer-facts { margin-top: 8px; }
+.task-thread .th-answer-text { white-space: normal; }
+.task-thread .th-answer-text > :first-child { margin-top: 0; }
+.task-thread .th-answer-text > :last-child { margin-bottom: 0; }
+/* 计划默认折叠成一行，展开后才显示步骤；与 Kimi 的过程摘要一致。 */
+.th-plan > summary { list-style: none; cursor: pointer; }
+.th-plan > summary::-webkit-details-marker { display: none; }
+.th-plan .th-chev { transition: transform 150ms var(--ease); }
+.th-plan[open] .th-chev { transform: rotate(180deg); }
+.th-status.failed ~ .th-plan { padding-top: 8px; padding-bottom: 8px; }
+.th-plan-list { margin-top: 6px; }
+/* 与 chat.css 的用户气泡逐值一致：15/25，#efefef，14/14/4/14。 */
+.task-thread .th-user-text {
+  max-width: 82%; padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: #efefef; color: var(--text-1);
+  font-size: 15px; line-height: 25px;
+  white-space: pre-wrap;
+}
+/* 项目上下文只留“项目名 · 验证命令 · 隔离副本”，完整路径悬停看 title。 */
+.project-context-path { display: none; }
+/* 成功运行的执行过程收成一行；展开后才逐条看工具与证据。 */
+.task-thread.hide-tools .th-tool { display: none; }
+.th-process { padding: 0 10px; }
+.th-process-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px;
+  padding: 0 4px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text-3); font: 12.5px/20px var(--font-ui); text-align: left; cursor: pointer;
+}
+.th-process-toggle:hover { background: var(--k-fill-1); color: var(--text-1); }
+.th-process-count { color: var(--text-4); font: 11px/18px var(--font-mono); }
+.th-process .th-chev { margin-left: auto; font-size: 10px; transition: transform 150ms var(--ease); }
+.task-thread.hide-tools .th-process .th-chev { transform: rotate(-90deg); }
+/* 对话里只留一条成本 chip；prompt/cached/prefix 明细留给报告与证据栏。 */
+.task-thread .th-answer-actions .tok-split { display: none; }
+.th-process-toggle { width: auto; max-width: 100%; padding: 0 8px 0 4px; }
+
+/* --------------------------------------------------------- live run polish
+   正在等待工具返回的条目会把整段命令和计划更新一次性展开，长任务时会把
+   对话顶出可视区。保持“可检查”，但给 body 一个明确的滚动窗口；head 固定，
+   用户仍能随时展开/收起。 */
+.th-tool.waiting,
+.th-tool.running {
+  margin: 6px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--k-fill-1) 45%, transparent);
+}
+.th-tool.waiting .th-tool-head,
+.th-tool.running .th-tool-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-radius: 10px 10px 0 0;
+  background: var(--canvas);
+}
+.th-tool.waiting .th-tool-head { background: var(--k-fill-1); }
+.th-tool.waiting .th-tool-body,
+.th-tool.running .th-tool-body {
+  max-height: 284px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-left: 14px;
+  padding: 2px 10px 12px 18px;
+  border-left: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.th-tool.waiting .th-args .v,
+.th-tool.running .th-args .v {
+  display: block;
+  max-height: 76px;
+  overflow: hidden;
+}
+.th-tool.waiting .th-code,
+.th-tool.running .th-code {
+  max-height: 172px;
+}
+.th-tool.waiting .th-plan-delta,
+.th-tool.running .th-plan-delta {
+  max-height: 168px;
+  overflow-y: auto;
+}
+/* The live status is the anchor of the thread; do not let tool output visually
+   compete with it. */
+.th-status.running .th-status-label { color: var(--text-1); }
+.th-status.running .th-status-label::after {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 2px;
+  animation: thLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes thLivePulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+/* A little more breathing room around the final answer and the composer. */
+.task-thread .th-answer { margin-top: 10px; }
+.task-thread .th-answer-text { max-width: 68ch; }
+.composer-wrap {
+  background: linear-gradient(to top, var(--canvas) 76%, color-mix(in srgb, var(--canvas) 0%, transparent));
+  border-top-color: transparent;
+}
+
+/* --------------------------------------------------------- Kimi-inspired home
+   The public Kimi home is a calm, warm canvas with one floating composer.
+   FCode already shares the structure; these rules reduce border noise and
+   make the primary actions read as objects rather than rows. */
+.side-new {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .025);
+  transition: background-color .16s var(--ease), border-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+.side-new:hover {
+  background: #fff;
+  border-color: rgba(0, 0, 0, .14);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .045);
+}
+.side-new kbd, .side-new .nav-shortcut {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-4);
+}
+.app.stage-mode .composer { max-width: 768px; }
+.app.stage-mode .composer-box {
+  border-color: rgba(0, 0, 0, .08);
+  border-radius: 24px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .02), 0 16px 40px rgba(0, 0, 0, .045);
+}
+/* This rule outranks the generic .composer-box:focus-within; restate focus
+   here or the home composer loses all visual feedback when typing. */
+.app.stage-mode .composer-box:focus-within {
+  border-color: rgba(0, 0, 0, .16);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .025), 0 2px 4px rgba(0, 0, 0, .02),
+              0 18px 48px rgba(0, 0, 0, .055);
+}
+.app.stage-mode .composer-ta { padding: 18px 20px 6px; }
+.app.stage-mode .stage-suggestion {
+  background: #fff;
+  border-color: rgba(0, 0, 0, .08);
+  transition: background-color .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
+}
+.app.stage-mode .stage-suggestion:hover {
+  background: #f7f6f3;
+  border-color: rgba(0, 0, 0, .14);
+  color: var(--text-1);
+}
+.app.stage-mode .tabs { border-bottom-color: transparent; background: transparent; }

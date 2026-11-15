@@ -37,6 +37,9 @@ import {
 } from "./app/approval-card.js";
 import { createThreadSurface } from "./app/thread-surface.js";
 import { createRunActions } from "./app/run-actions.js";
+import {
+  queuePanelHtml, queueMove, queueMoveTo, queueDropIndex,
+} from "./app/queue-panel.js";
 import { createLiveSessions } from "./app/live-sessions.js";
 import { createIntake } from "./app/intake.js";
 import { createSettings } from "./app/settings.js";
@@ -131,6 +134,8 @@ const FAILURE_REASONS = {
   OPERATOR_DENIED: "操作员拒绝了关键工具调用",
   PLAN_BLOCKED: "计划被阻塞",
   PLAN_EXHAUSTED: "计划已没有可执行步骤",
+  NO_PROGRESS: "连续多轮没有写入，Runtime 已停止空转",
+  REPAIR_BUDGET_EXCEEDED: "修复预算耗尽，Runtime 已停止无效重试",
   INSUFFICIENT_EVIDENCE: "证据不足，Runtime 拒绝给出未经证明的数字",
   STOPPED_BY_OPERATOR: "操作员停止了运行",
 };
@@ -336,12 +341,12 @@ function loadProjectContext() {
     const saved = JSON.parse(localStorage.getItem("fa.workProject") || "{}");
     return {
       path: typeof saved.path === "string" ? saved.path : "",
-      verification: typeof saved.verification === "string" && saved.verification ? saved.verification : "pytest -q",
+      verification: typeof saved.verification === "string" && saved.verification ? saved.verification : "",
       projectId: typeof saved.projectId === "string" ? saved.projectId : "",
       name: typeof saved.name === "string" ? saved.name : "",
     };
   } catch {
-    return { path: "", verification: "pytest -q", projectId: "", name: "" };
+    return { path: "", verification: "", projectId: "", name: "" };
   }
 }
 
@@ -373,7 +378,7 @@ function bindProjectContext(project) {
 }
 
 function clearProjectContext() {
-  attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+  attach.project = { path: "", verification: "", projectId: "", name: "" };
   try { localStorage.removeItem("fa.workProject"); } catch { /* storage denied */ }
   renderProjectComposer();
   const input = document.getElementById("composer-ta");
@@ -518,7 +523,7 @@ function setWorkChrome() {
   const badge = document.getElementById("chain-badge");
   if (badge) {
     badge.className = "chain-pill";
-    badge.innerHTML = '<span class="dot"></span><span>无运行</span>';
+    badge.innerHTML = '<span class="dot"></span><span>无进行中的运行</span>';
   }
 }
 
@@ -963,7 +968,7 @@ function generalResultHtml(trace, result, artifacts) {
       <span class="grow"></span>
       <span class="card-meta">succeeded · ${esc(result.verification || "runtime-recomputed")}</span>
     </div>
-    <p class="result-answer">通用委托已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。</p>
+    <p class="result-answer">任务已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。</p>
     <div class="metrics">
       ${artifacts.map(entry => `<div class="metric"><div class="k">${esc(entry.path)}</div><div class="v">${num(entry.bytes)} B</div></div>`).join("")}
       <div class="metric"><div class="k">计划</div><div class="v">${esc(plan.done ?? "—")}/${esc(plan.total ?? "—")}</div></div>
@@ -995,20 +1000,68 @@ function currentWorkTab() {
   return activeSession()?.workTab || store.workTab || "activity";
 }
 
-/* 执行线程常驻，变更/文件在右侧检查器里切换（Kimi 任务页的侧栏交互）。
-   抽屉只影响检查器，不隐藏线程；关闭 = 回到 activity。 */
-function applyWorkTab(layout, tab) {
-  if (!layout) return;
-  layout.querySelectorAll("[data-work-pane]").forEach(pane => {
-    pane.hidden = pane.dataset.workPane !== "activity" && pane.dataset.workPane !== tab;
-  });
-  const inspector = layout.querySelector("[data-work-inspector]");
-  if (inspector) inspector.hidden = tab === "activity";
-  layout.querySelectorAll("[data-work-tab]").forEach(button => {
+/* 执行线程常驻，变更/文件收进右侧扩展栏（Kimi 任务页的侧栏交互）。
+   主区永远保留线程；右侧 rail 承载 Patch/文件浏览，关闭即回到 activity。 */
+const PROJECT_RAIL_MODES = new Set(["changes", "files"]);
+
+function setProjectTab(tab) {
+  const session = activeSession();
+  if (session) session.workTab = tab; else store.workTab = tab;
+  const trace = shownTrace();
+  const tabs = document.querySelector("[data-work-tabs]");
+  if (tabs && trace) tabs.innerHTML = projectWork.projectTabsHtml(trace, tab);
+  document.querySelectorAll("[data-work-tab]").forEach(button => {
     const selected = button.dataset.workTab === tab;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-selected", String(selected));
   });
+}
+
+function renderProjectRail(trace, tab) {
+  if (!trace || !PROJECT_RAIL_MODES.has(tab)) return;
+  const rail = document.querySelector(".rail");
+  const body = document.getElementById("rail-body");
+  if (!rail || !body) return;
+  setRailMode(tab);
+  const count = document.getElementById("rail-count");
+  if (tab === "changes") {
+    const files = (trace.project?.filesChanged || []).length;
+    if (count) count.textContent = files ? `${files} 个文件` : "";
+    body.innerHTML = `<div class="rail-project" data-work-pane="changes">${projectWork.projectResultHtml(trace)}</div>`;
+    return;
+  }
+  const entries = (trace.projectWorkspace?.entries || []).length;
+  if (count) count.textContent = entries ? `${entries} 个文件` : "";
+  body.innerHTML = `<div class="rail-project" data-work-pane="files">${trace.projectWorkspace
+    ? projectWork.projectFilesHtml(trace)
+    : '<div class="work-pane-empty"><b>查看任务文件</b><span>读取本次运行的隔离工作区，不会访问原目录。</span></div>'}</div>`;
+}
+
+function openProjectRail(tab) {
+  const trace = shownTrace();
+  if (!trace || !isProjectTrace(trace) || !PROJECT_RAIL_MODES.has(tab)) return;
+  setProjectTab(tab);
+  renderProjectRail(trace, tab);
+  if (!railOpen) setChromeState({ rail: true });
+  if (tab === "changes" && !(trace.project && trace.project.patchAvailable)) {
+    loadProjectDelivery(trace).then(() => renderProjectRail(trace, tab));
+  }
+  if (tab === "files" && !trace.projectWorkspace) {
+    loadProjectWorkspace(trace).then(() => renderProjectRail(trace, tab));
+  }
+}
+
+function closeProjectRail() {
+  const rail = document.querySelector(".rail");
+  if (!rail || !PROJECT_RAIL_MODES.has(rail.dataset.railMode)) return false;
+  setRailMode("trace");
+  setProjectTab("activity");
+  return true;
+}
+
+function closeRailPanel() {
+  closeProjectRail();
+  setChromeState({ rail: false });
 }
 
 function refreshProjectViews(trace) {
@@ -1016,22 +1069,31 @@ function refreshProjectViews(trace) {
   const active = currentWorkTab();
   const tabs = document.querySelector("[data-work-tabs]");
   if (tabs) tabs.innerHTML = projectWork.projectTabsHtml(trace, active);
-  const changes = document.getElementById("changes-slot");
-  if (changes) changes.innerHTML = projectWork.projectResultHtml(trace);
-  const files = document.getElementById("files-slot");
-  if (files && trace.projectWorkspace) files.innerHTML = projectWork.projectFilesHtml(trace);
+  const rail = document.querySelector(".rail");
+  if (rail && PROJECT_RAIL_MODES.has(rail.dataset.railMode)) {
+    renderProjectRail(trace, rail.dataset.railMode);
+  }
+  // 交付物卡在最终回复里；project.json 是异步送达的，到了要重绘线程，
+  // 否则用户只能刷新页面才看得到媒体预览。
+  const session = activeSession();
+  if (session && session.trace === trace) paintThread(session, trace, { live: false });
+  else if (!session && store.trace === trace) paintThread(null, trace, { live: false });
   if (active === "files" && !trace.projectWorkspace) loadProjectWorkspace(trace);
 }
 
 async function loadProjectDelivery(trace) {
-  if (!trace.project || trace.project.patchAvailable || trace.project.loading) return;
+  // Live SSE traces often carry the project binding but not the delivery yet;
+  // requiring trace.project made the 变更 tab stay empty until a reload.
+  if (!isProjectTrace(trace)) return;
+  const current = trace.project || {};
+  if (current.patchAvailable || current.loading) return;
   const runId = projectRunId(trace);
   if (!runId) return;
-  trace.project.loading = true;
+  trace.project = { ...current, loading: true };
   try {
     const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/project`, { cache: "no-store" });
     if (!response.ok) return;
-    trace.project = await response.json();
+    trace.project = { ...trace.project, ...(await response.json()) };
     refreshProjectViews(trace);
   } catch { /* The code changes remain visible in the trace and workspace. */ }
   finally { if (trace.project) delete trace.project.loading; }
@@ -1097,6 +1159,15 @@ function sessionHeadHtml(trace, title, note = "") {
   const moduleTitle = moduleKey
     ? ((modules.find(item => item.key === moduleKey) || {}).title || moduleKey)
     : "";
+  const spec = binding.spec || {};
+  const projectName = spec.project && spec.project.path
+    ? String(spec.project.path).split("/").filter(Boolean).pop() || ""
+    : "";
+  // 通用能力以对话为主语：任务标题已经在用户气泡里，顶部不再重复一遍
+  // 大标题与机器元数据（任务 id / grant id / 模板名）。
+  const conversation = !!projectName || binding.scenario === "general-work"
+    || binding.scenario === "general-research";
+  if (conversation) return "";
   const meta = [
     moduleTitle,
     binding.corpus,
@@ -1104,7 +1175,7 @@ function sessionHeadHtml(trace, title, note = "") {
     grant.grant_id ? `${grant.grant_id} · r${grant.revision ?? ""}` : "",
     note,
   ].filter(Boolean).map(item => esc(item)).join(" · ");
-  const origin = (binding.spec || {}).origin_thread || null;
+  const origin = spec.origin_thread || null;
   const originChip = origin
     ? `<button class="meta-button origin-chip" type="button" data-origin-thread="${esc(origin.threadId || "")}" title="来自对话${origin.threadTitle ? "：" + esc(origin.threadTitle) : ""} · 点击跳回">来自对话${origin.threadTitle ? " · " + esc(origin.threadTitle.slice(0, 18)) : ""}</button>`
     : "";
@@ -1208,6 +1279,9 @@ async function render(trace, title) {
     loadReviewProfile(trace);
     loadProjectDelivery(trace);
   }
+  if (isProjectTrace(trace) && PROJECT_RAIL_MODES.has(currentWorkTab())) {
+    openProjectRail(currentWorkTab());
+  }
   const replay = !(store.key && store.key.startsWith("run:"));
   const terminalStatus = terminal.status || "";
   const stateText = terminalStatus
@@ -1241,7 +1315,7 @@ function autosize(ta) {
 function liveShell(trace) {
   const task = trace.task || {};
   const body = isProjectTrace(trace) ? projectRunHtml(trace, { live: true }) : threadMountHtml();
-  renderMain(`${sessionHeadHtml(trace, "运行 · " + tplTitle(task.binding ? task.binding.scenario : ""), "")}${body}`, { mode: "run" });
+  renderMain(`${sessionHeadHtml(trace, tplTitle(task.binding ? task.binding.scenario : ""), "")}${body}`, { mode: "run" });
   const session = activeSession();
   if (session) session.threadCache = new Map();
 }
@@ -1259,7 +1333,7 @@ function liveApply(s, data) {
   store.check = { ok: true, live: true, events: (trace.events || []).length };
 
   const scenario = trace.task && trace.task.binding ? trace.task.binding.scenario : s.template;
-  renderHead(trace, "运行 · " + tplTitle(scenario));
+  renderHead(trace, tplTitle(scenario));
 
   if (first) {
     liveShell(trace);
@@ -1481,9 +1555,11 @@ function setComposerRunning(running) {
     const enabled = !!(health && health.live);
     btn.disabled = !enabled;
     ta.disabled = !enabled;
-    // 恢复任务模式的占位符（消息模式会覆盖它）
-    const template = templates.find(t => t.key === tplKey);
-    ta.placeholder = template ? template.objective : "给 agent 派一个任务…";
+    // 恢复任务模式的占位符（消息模式会覆盖它）。模板 objective 不再充当
+    // 占位语——运行结束后用户面对的是对话，不是模板说明书。
+    ta.placeholder = attach.project.projectId
+      ? `在「${attach.project.name || "项目"}」中继续要做什么？`
+      : "给 FCode 发消息…";
   }
   const s = activeSession();
   const status = s && s.trace && s.trace.terminal && s.trace.terminal.status;
@@ -1664,59 +1740,27 @@ function queueMsgId() {
   return `q${Date.now().toString(36)}-${queueMsgSeq}`;
 }
 
-/* 排队面板（对照官方 QueuedMessagesPanel）：两行截断摘要 + hover 操作
-   （steer 闪电 / 编辑 / 上移 / 删除）；草稿条目点击回填输入框。 */
+/* 排队面板（对照本机 Kimi 3.2.27 的 message-queue）：序号、折叠托盘、
+   详情浮层、hover 操作、拖动/键盘调序。HTML 由 queue-panel.js 纯渲染，
+   服务端队列仍是顺序的事实源，移动成功后由 SSE 再次权威同步。 */
 function paintQueuedMsgs() {
   const slot = document.getElementById("queued-slot");
   if (!slot) return;
   const s = activeSession();
   const msgs = s && s.queuedMsgs ? s.queuedMsgs : [];
-  if (!msgs.length) { slot.innerHTML = ""; return; }
-  const items = msgs.map((m, index) => {
-    if (s.queueEditingId && s.queueEditingId === m.id) {
-      return `<div class="q-item editing" data-mid="${esc(m.id)}">
-        <input class="q-edit" data-q-edit-input value="${esc(m.text)}" spellcheck="false">
-        <div class="q-acts">
-          <button class="q-act" data-q-act="save" title="保存 (↵)">✓</button>
-          <button class="q-act" data-q-act="cancel" title="取消 (esc)">×</button>
-        </div>
-      </div>`;
-    }
-    const first = index === 0;
-    const acts = [];
-    if (m.state === "queued" && s.running && !s.finished) {
-      acts.push(`<button class="q-act bolt${m.steered ? " done" : ""}" data-q-act="steer" title="${m.steered ? "已插话 · 下一轮优先处理" : "立即插入（下一轮优先处理）"}">⚡</button>`);
-    }
-    if (m.state === "draft") {
-      acts.push(`<button class="q-act" data-q-act="refill" title="回填输入框">↩</button>`);
-    } else {
-      acts.push(`<button class="q-act" data-q-act="edit" title="编辑">✎</button>`);
-      if (!first && m.state === "queued") acts.push(`<button class="q-act" data-q-act="moveup" title="上移">↑</button>`);
-      acts.push(`<button class="q-act danger" data-q-act="remove" title="删除">🗑</button>`);
-    }
-    const state = m.state === "failed" ? `未送达 · ${esc(m.error || "")}`
-      : m.state === "draft" ? "草稿 · 未入链"
-      : m.state === "delivered" ? "已入链"
-      : m.steered ? "⚡ 插话 · 下一轮优先入链"
-      : "排队中 · 下一轮入链";
-    return `<div class="q-item ${esc(m.state)}${m.steered ? " steered" : ""}" data-mid="${esc(m.id)}">
-      <div class="q-main">
-        <div class="q-text">${esc(m.text)}</div>
-        <div class="q-state">${state}</div>
-      </div>
-      <div class="q-acts">${acts.join("")}</div>
-    </div>`;
-  }).join("");
-  slot.innerHTML = `<div class="queued-msgs">
-    <div class="q-head"><span>排队插话 · ${msgs.length} 条</span><span class="grow"></span><span class="q-hint">下一轮边界入链 · 顺序即生效顺序</span></div>
-    ${items}
-  </div>`;
+  slot.innerHTML = queuePanelHtml(msgs, {
+    collapsed: !!(s && s.queueCollapsed),
+    editingId: s ? s.queueEditingId : "",
+    detailId: s ? s.queueDetailId : "",
+    running: !!(s && s.running),
+    finished: !!(s && s.finished),
+  }, esc);
   const editing = slot.querySelector(".q-edit");
   if (editing) { editing.focus(); editing.setSelectionRange(editing.value.length, editing.value.length); }
 }
 
 /* 队列管理指令：全部走 server 端点，server 侧队列才是生效顺序的事实源 */
-async function queueCommand(op, msg, newText) {
+async function queueCommand(op, msg, newText, extra = {}) {
   const s = activeSession();
   if (!s || !msg) return false;
   if (op === "steer" && !msg.serverId) { toast("这条消息还在发送中，稍后再插话"); return false; }
@@ -1726,7 +1770,7 @@ async function queueCommand(op, msg, newText) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(op === "steer"
         ? { messageId: msg.serverId }
-        : { op, messageId: msg.serverId, text: newText }),
+        : { op, messageId: msg.serverId, text: newText, ...extra }),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -1781,12 +1825,55 @@ function findQueuedMsg(el) {
   return (s.queuedMsgs || []).find(m => m.id === item.dataset.mid) || null;
 }
 
+function focusQueueItem(id) {
+  const selector = typeof CSS !== "undefined" && CSS.escape
+    ? `[data-mid="${CSS.escape(id)}"]`
+    : `[data-mid="${String(id).replace(/"/g, '\\"')}"]`;
+  const item = document.querySelector(selector);
+  if (item) item.focus({ preventScroll: true });
+}
+
+async function reorderQueued(s, msg, delta) {
+  const result = queueMove(s.queuedMsgs, msg.id, delta);
+  if (!result.moved) return false;
+  const op = delta < 0 ? "moveUp" : "moveDown";
+  if (msg.serverId && !(await queueCommand(op, msg))) return false;
+  s.queuedMsgs = result.list;
+  paintQueuedMsgs();
+  focusQueueItem(msg.id);
+  return true;
+}
+
+async function reorderQueuedTo(s, msg, toIndex) {
+  const result = queueMoveTo(s.queuedMsgs, msg.id, toIndex);
+  if (!result.moved) return false;
+  if (msg.serverId && !(await queueCommand("moveTo", msg, null, { toIndex: result.to }))) return false;
+  s.queuedMsgs = result.list;
+  paintQueuedMsgs();
+  focusQueueItem(msg.id);
+  return true;
+}
+
 function handleQueueAction(button) {
   const act = button.dataset.qAct;
-  const msg = findQueuedMsg(button);
   const s = activeSession();
-  if (!msg || !s) return;
-  if (act === "edit") { s.queueEditingId = msg.id; paintQueuedMsgs(); return; }
+  if (!s) return;
+  if (act === "toggle") {
+    s.queueCollapsed = !s.queueCollapsed;
+    if (s.queueCollapsed) s.queueDetailId = null;
+    paintQueuedMsgs();
+    return;
+  }
+  const msg = findQueuedMsg(button);
+  if (!msg) return;
+  if (act === "drag") return; // HTML5 drag is handled by the slot-level listeners.
+  if (act === "detail") {
+    s.queueDetailId = s.queueDetailId === msg.id ? null : msg.id;
+    paintQueuedMsgs();
+    return;
+  }
+  if (act === "close-detail") { s.queueDetailId = null; paintQueuedMsgs(); return; }
+  if (act === "edit") { s.queueEditingId = msg.id; s.queueDetailId = null; paintQueuedMsgs(); return; }
   if (act === "cancel") { s.queueEditingId = null; paintQueuedMsgs(); return; }
   if (act === "save") { saveQueueEdit(s, msg); return; }
   if (act === "refill") {
@@ -1795,6 +1882,7 @@ function handleQueueAction(button) {
     autosize(ta);
     ta.focus();
     s.queuedMsgs = s.queuedMsgs.filter(m => m.id !== msg.id);
+    if (s.queueDetailId === msg.id) s.queueDetailId = null;
     paintQueuedMsgs();
     return;
   }
@@ -1802,18 +1890,13 @@ function handleQueueAction(button) {
     (async () => {
       if (msg.serverId && !(await queueCommand("remove", msg))) return;
       s.queuedMsgs = s.queuedMsgs.filter(m => m.id !== msg.id);
+      if (s.queueDetailId === msg.id) s.queueDetailId = null;
       paintQueuedMsgs();
     })();
     return;
   }
-  if (act === "moveup") {
-    (async () => {
-      if (msg.serverId && !(await queueCommand("moveUp", msg))) return;
-      const list = s.queuedMsgs;
-      const i = list.indexOf(msg);
-      if (i > 0) { list.splice(i, 1); list.splice(i - 1, 0, msg); }
-      paintQueuedMsgs();
-    })();
+  if (act === "moveup" || act === "movedown") {
+    reorderQueued(s, msg, act === "moveup" ? -1 : 1);
     return;
   }
   if (act === "steer") {
@@ -2096,7 +2179,7 @@ async function selectRun(id) {
   if (cached) {
     await renderMode("run", {
       trace: cached,
-      title: "运行 · " + tplTitle(run ? run.template : ""),
+      title: tplTitle(run ? run.template : ""),
       internalView: true,
     });
     return;
@@ -2116,7 +2199,7 @@ async function selectRun(id) {
   if (!ticket.isCurrent()) return;
   await renderMode("run", {
     trace,
-    title: "运行 · " + tplTitle(run ? run.template : ""),
+    title: tplTitle(run ? run.template : ""),
     internalView: true,
   });
   if (!ticket.isCurrent()) return;
@@ -3809,16 +3892,19 @@ async function deleteGovSkill(skillId) {
   }
 }
 
-/* rail 三模式：trace（任务详情，现状）、channel（治理团队频道）、
-   ledger（审计发现账本）。gov 团队面与审计台把各自的流收进右上侧栏；
-   离开这些面由 renderMain/renderRail 恢复 trace 形态。只写变化项。 */
+/* rail 模式：trace（任务详情）、channel（治理团队频道）、ledger（发现账本）、
+   changes/files（项目运行把代码检查器收进右侧扩展栏）。gov 团队面与
+   审计台把各自的流收进右上侧栏；离开这些面由 renderMain/renderRail 恢复
+   trace 形态。只写变化项。 */
 function setRailMode(mode) {
   const rail = document.querySelector(".rail");
   if (!rail || rail.dataset.railMode === mode) return;
   rail.dataset.railMode = mode;
   const kicker = rail.querySelector(".rail-kicker");
   if (kicker) kicker.textContent = mode === "channel" ? "团队频道"
-    : mode === "ledger" ? "发现账本" : "任务详情";
+    : mode === "ledger" ? "发现账本"
+      : mode === "changes" ? "代码变更"
+        : mode === "files" ? "项目文件" : "任务详情";
   const tabs = document.getElementById("rail-tabs");
   if (tabs) tabs.hidden = mode !== "trace";
 }
@@ -4685,6 +4771,7 @@ function bind() {
   bindNavigation();
   bindEvidence();
   bindMainInteractions();
+  document.addEventListener("click", handleProjectControls);
   bindShell();
   // 上下文容量圆圈:每 3s 从 runHistory 取最新 budget 数据刷新
   setInterval(paintCtxRing, 3000);
@@ -5380,7 +5467,7 @@ function bindGlobalActions() {
     }
     if (event.target.closest("#run-chip")) { stopRun(); return; }
     if (event.target.closest("#chain-badge")) { reverify(); return; }
-    if (event.target.closest("[data-rail-close]")) { setChromeState({ rail: false }); return; }
+    if (event.target.closest("[data-rail-close]")) { closeRailPanel(); return; }
     if (event.target.closest("#report-close") || event.target.closest("[data-report-close]")) { closeReport(); return; }
     if (event.target.closest("#report-print")) { printReport(); return; }
     if (event.target.closest("#report-download")) { downloadReport(); return; }
@@ -5526,7 +5613,7 @@ function bindNavigation() {
           // 归档的是当前绑定项目时必须清掉 composer 上下文，
           // 否则下一次提交带着已归档的 project_id，必然 400。
           if (attach.project.projectId === project.id) {
-            attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+            attach.project = { path: "", verification: "", projectId: "", name: "" };
             saveProjectContext();
             renderProjectComposer();
             const input = document.getElementById("composer-ta");
@@ -5555,7 +5642,7 @@ function bindNavigation() {
             input.focus();
           }
         } else if (attach.project.projectId === projectId) {
-          attach.project = { path: "", verification: "pytest -q", projectId: "", name: "" };
+          attach.project = { path: "", verification: "", projectId: "", name: "" };
           saveProjectContext();
           renderProjectComposer();
           const input = document.getElementById("composer-ta");
@@ -5674,94 +5761,154 @@ function bindEvidence() {
   });
 }
 
+function guardHtmlPreview(html) {
+  const csp = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:; script-src \'none\'; connect-src \'none\'; form-action \'none\';">';
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, head => head + csp);
+  return `<!doctype html><html><head>${csp}</head><body>${html}</body></html>`;
+}
+
+/* HTML 动画产物：在沙箱 iframe 里预览。sandbox 去掉 scripts/origin，
+   再注入 CSP 阻断外链与网络；CSS/SVG 动画不受影响。 */
+async function openHtmlPreview(runId, path) {
+  if (!runId || !path) return;
+  const overlay = document.createElement("div");
+  overlay.className = "html-preview-overlay";
+  overlay.innerHTML = `<div class="html-preview-card" role="dialog" aria-modal="true" aria-label="动画预览">
+    <div class="html-preview-head"><b>${esc(path)}</b><span>sandbox · 无脚本 · 无外链</span><button type="button" class="html-preview-close" data-html-preview-close>关闭</button></div>
+    <div class="html-preview-body" style="padding:24px;color:var(--text-3)">正在读取工作区文件…</div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = event => { if (event.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  overlay.addEventListener("click", event => {
+    if (event.target === overlay || event.target.closest("[data-html-preview-close]")) close();
+  });
+  try {
+    const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/workspace/${encodeURIComponent(path)}`, { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const frame = document.createElement("iframe");
+    frame.className = "html-preview-frame";
+    frame.setAttribute("sandbox", "");
+    frame.setAttribute("title", path);
+    frame.srcdoc = guardHtmlPreview(String(data.content || ""));
+    overlay.querySelector(".html-preview-body").replaceWith(frame);
+  } catch (error) {
+    overlay.querySelector(".html-preview-body").textContent = `读取失败：${error.message}`;
+  }
+}
+
+async function handleProjectControls(event) {
+  const htmlButton = event.target.closest("[data-project-html]");
+  if (htmlButton) {
+    const runId = htmlButton.dataset.runId || projectRunId(shownTrace());
+    openHtmlPreview(runId, htmlButton.dataset.projectHtml || "");
+    return;
+  }
+  const applyButton = event.target.closest("[data-project-apply]");
+  if (applyButton) {
+    // 两击确认:应用会修改原目录,第一次点击只进入待确认态。
+    if (applyButton.dataset.armed !== "1") {
+      applyButton.dataset.armed = "1";
+      applyButton.textContent = "再点一次确认应用";
+      setTimeout(() => {
+        if (applyButton.dataset.armed === "1") {
+          applyButton.dataset.armed = "0";
+          applyButton.textContent = "应用到原项目";
+        }
+      }, 4000);
+      return;
+    }
+    applyButton.dataset.armed = "0";
+    applyButton.textContent = "应用到原项目";
+    const owner = applyButton.closest("[data-project-result], [data-project-work]");
+    const taskId = owner?.dataset.projectResult || owner?.dataset.projectWork || "";
+    const runId = taskId.startsWith("task-") ? taskId.slice(5) : projectRunId(shownTrace());
+    if (!runId) { toast("找不到运行 id"); return; }
+    (async () => {
+      try {
+        const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/apply-patch`, { method: "POST" });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        toast(`补丁已应用到原项目（${data.files?.length || 0} 个文件）· 建议重新挖洞验证`);
+      } catch (error) {
+        toast("应用失败：" + error.message);
+      }
+    })();
+    return;
+  }
+  const patchButton = event.target.closest("[data-project-patch]");
+  if (patchButton) {
+    const trace = shownTrace();
+    const patch = trace?.project?.patch;
+    if (!patch) return;
+    const url = URL.createObjectURL(new Blob([patch], { type: "text/x-diff;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "changes.patch";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+  const projectFile = event.target.closest("[data-project-file]");
+  if (projectFile) {
+    const scope = projectFile.closest("[data-work-pane], .project-result");
+    const preview = scope?.querySelector("[data-project-file-content]");
+    const owner = projectFile.closest("[data-project-result], [data-project-work]");
+    const taskId = owner?.dataset.projectResult || owner?.dataset.projectWork || "";
+    const runId = taskId.startsWith("task-") ? taskId.slice(5) : projectRunId(shownTrace());
+    if (!runId || !preview) return;
+    const path = projectFile.dataset.projectFile;
+    scope.querySelectorAll("[data-project-file]").forEach(button => button.classList.toggle("selected", button === projectFile));
+    preview.hidden = false;
+    preview.dataset.file = path;
+    preview.textContent = "读取文件中…";
+    try {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/workspace/${encodeURIComponent(path)}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (preview.dataset.file === path) preview.textContent = `${path}\n\n${data.content || ""}`;
+    } catch (error) { if (preview.dataset.file === path) preview.textContent = `读取失败：${error.message}`; }
+    return;
+  }
+}
+
 function bindMainInteractions() {
   document.getElementById("main").addEventListener("click", async event => {
+    const processToggle = event.target.closest("[data-process-toggle]");
+    if (processToggle) {
+      const thread = document.getElementById("thread");
+      if (!thread) return;
+      const hidden = thread.classList.toggle("hide-tools");
+      thread.dataset.processTouched = "1";
+      processToggle.setAttribute("aria-expanded", String(!hidden));
+      return;
+    }
     const workTab = event.target.closest("[data-work-tab]");
     if (workTab) {
       const tab = workTab.dataset.workTab;
-      const s = activeSession();
-      if (s) s.workTab = tab; else store.workTab = tab;
-      applyWorkTab(workTab.closest("[data-project-work]"), tab);
-      if (tab === "files" && shownTrace()) loadProjectWorkspace(shownTrace());
-      return;
-    }
-    const workClose = event.target.closest("[data-work-close]");
-    if (workClose) {
-      const s = activeSession();
-      if (s) s.workTab = "activity"; else store.workTab = "activity";
-      applyWorkTab(workClose.closest("[data-project-work]"), "activity");
-      return;
-    }
-    const applyButton = event.target.closest("[data-project-apply]");
-    if (applyButton) {
-      // 两击确认:应用会修改原目录,第一次点击只进入待确认态。
-      if (applyButton.dataset.armed !== "1") {
-        applyButton.dataset.armed = "1";
-        applyButton.textContent = "再点一次确认应用";
-        setTimeout(() => {
-          if (applyButton.dataset.armed === "1") {
-            applyButton.dataset.armed = "0";
-            applyButton.textContent = "应用到原项目";
-          }
-        }, 4000);
-        return;
+      if (tab === "activity") {
+        setProjectTab("activity");
+        closeRailPanel();
+      } else {
+        openProjectRail(tab);
       }
-      applyButton.dataset.armed = "0";
-      applyButton.textContent = "应用到原项目";
-      const owner = applyButton.closest("[data-project-result], [data-project-work]");
-      const taskId = owner?.dataset.projectResult || owner?.dataset.projectWork || "";
-      const runId = taskId.startsWith("task-") ? taskId.slice(5) : projectRunId(shownTrace());
-      if (!runId) { toast("找不到运行 id"); return; }
-      (async () => {
-        try {
-          const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/apply-patch`, { method: "POST" });
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-          toast(`补丁已应用到原项目（${data.files?.length || 0} 个文件）· 建议重新挖洞验证`);
-        } catch (error) {
-          toast("应用失败：" + error.message);
-        }
-      })();
-      return;
-    }
-    const patchButton = event.target.closest("[data-project-patch]");
-    if (patchButton) {
-      const trace = shownTrace();
-      const patch = trace?.project?.patch;
-      if (!patch) return;
-      const url = URL.createObjectURL(new Blob([patch], { type: "text/x-diff;charset=utf-8" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "changes.patch";
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return;
-    }
-    const projectFile = event.target.closest("[data-project-file]");
-    if (projectFile) {
-      const scope = projectFile.closest("[data-work-pane], .project-result");
-      const preview = scope?.querySelector("[data-project-file-content]");
-      const owner = projectFile.closest("[data-project-result], [data-project-work]");
-      const taskId = owner?.dataset.projectResult || owner?.dataset.projectWork || "";
-      const runId = taskId.startsWith("task-") ? taskId.slice(5) : projectRunId(shownTrace());
-      if (!runId || !preview) return;
-      const path = projectFile.dataset.projectFile;
-      scope.querySelectorAll("[data-project-file]").forEach(button => button.classList.toggle("selected", button === projectFile));
-      preview.hidden = false;
-      preview.dataset.file = path;
-      preview.textContent = "读取文件中…";
-      try {
-        const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/workspace/${encodeURIComponent(path)}`, { cache: "no-store" });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-        if (preview.dataset.file === path) preview.textContent = `${path}\n\n${data.content || ""}`;
-      } catch (error) { if (preview.dataset.file === path) preview.textContent = `读取失败：${error.message}`; }
       return;
     }
     const railOpenButton = event.target.closest("[data-rail-open]");
-    if (railOpenButton) { setChromeState({ rail: true }); return; }
+    if (railOpenButton) {
+      closeProjectRail();
+      setChromeState({ rail: true });
+      const trace = shownTrace();
+      if (trace) renderRail(trace, store.check || {});
+      return;
+    }
     const railCloseButton = event.target.closest("[data-rail-close]");
-    if (railCloseButton) { setChromeState({ rail: false }); return; }
+    if (railCloseButton) { closeRailPanel(); return; }
     const copy = event.target.closest("[data-copy]");
     if (copy) {
       const ok = await copyText(copy.dataset.copy);
@@ -5831,6 +5978,22 @@ function bindMainInteractions() {
         return;
       }
     }
+    const questionOption = event.target.closest("[data-question-option]");
+    if (questionOption) {
+      const card = questionOption.closest(".th-approval.question");
+      if (card) {
+        const input = card.querySelector("[data-question-input]");
+        const value = questionOption.dataset.questionOption || "";
+        if (input && !input.disabled) {
+          input.value = value;
+          input.focus();
+        }
+        card.querySelectorAll("[data-question-option]").forEach(option => {
+          option.setAttribute("aria-pressed", String(option === questionOption));
+        });
+      }
+      return;
+    }
     const questionSubmit = event.target.closest("[data-question-submit]");
     if (questionSubmit) { answerQuestion(false); return; }
     const questionSkip = event.target.closest("[data-question-skip]");
@@ -5843,6 +6006,8 @@ function bindMainInteractions() {
     }
     const planEdit = event.target.closest("[data-plan-edit]");
     if (planEdit) {
+      event.preventDefault();
+      event.stopPropagation();
       const s = activeSession();
       if (!s) return;
       s.planEditing = !s.planEditing;
@@ -5919,12 +6084,86 @@ function bindMainInteractions() {
     else if (button.dataset.act === "resume") openResumeForm();
   });
   document.getElementById("main").addEventListener("input", event => {
+    const questionInput = event.target.closest("[data-question-input]");
+    if (questionInput) {
+      const card = questionInput.closest(".th-approval.question");
+      if (card) {
+        const value = questionInput.value.trim();
+        card.querySelectorAll("[data-question-option]").forEach(option => {
+          option.setAttribute("aria-pressed", String(option.dataset.questionOption === value));
+        });
+      }
+      return;
+    }
     const input = event.target.closest("[data-review-reason]");
     if (!input) return;
     const panel = input.closest("[data-review-panel]");
     if (panel) syncReviewDraft(panel.dataset.reviewRun, panel, input);
   });
-  document.getElementById("main").addEventListener("keydown", event => {
+  const main = document.getElementById("main");
+  const queueSlot = document.getElementById("queued-slot");
+  let queueDragId = null;
+
+  function clearQueueDragMarks() {
+    if (!queueSlot) return;
+    queueSlot.querySelectorAll(".q-item.dragging, .q-item.drop-before, .q-item.drop-after")
+      .forEach(item => item.classList.remove("dragging", "drop-before", "drop-after"));
+  }
+
+  if (queueSlot) {
+    queueSlot.addEventListener("dragstart", event => {
+      const item = event.target.closest && event.target.closest(".q-item[draggable='true']");
+      if (!item || !event.dataTransfer) return;
+      queueDragId = item.dataset.mid || null;
+      if (!queueDragId) return;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", queueDragId);
+      item.classList.add("dragging");
+    });
+    queueSlot.addEventListener("dragover", event => {
+      if (!queueDragId) return;
+      const item = event.target.closest && event.target.closest(".q-item[data-mid]");
+      if (!item) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      clearQueueDragMarks();
+      const rect = item.getBoundingClientRect();
+      item.classList.add(event.clientY > rect.top + rect.height / 2 ? "drop-after" : "drop-before");
+    });
+    queueSlot.addEventListener("drop", event => {
+      if (!queueDragId) return;
+      const item = event.target.closest && event.target.closest(".q-item[data-mid]");
+      event.preventDefault();
+      event.stopPropagation();
+      const draggedId = queueDragId;
+      const rect = item ? item.getBoundingClientRect() : null;
+      const after = !!(rect && event.clientY > rect.top + rect.height / 2);
+      const s = activeSession();
+      const dragged = s && (s.queuedMsgs || []).find(m => m.id === draggedId);
+      const toIndex = item ? queueDropIndex(s ? s.queuedMsgs : [], draggedId, item.dataset.mid, after) : null;
+      queueDragId = null;
+      clearQueueDragMarks();
+      if (dragged && Number.isInteger(toIndex)) reorderQueuedTo(s, dragged, toIndex);
+    });
+    queueSlot.addEventListener("dragend", () => {
+      queueDragId = null;
+      clearQueueDragMarks();
+    });
+  }
+
+  main.addEventListener("keydown", event => {
+    const qItem = event.target.closest && event.target.closest(".q-item[data-mid]");
+    if (qItem && event.altKey && !event.target.closest(".q-edit")
+      && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const s = activeSession();
+      const msg = s && (s.queuedMsgs || []).find(m => m.id === qItem.dataset.mid);
+      if (msg) {
+        event.preventDefault();
+        event.stopPropagation();
+        reorderQueued(s, msg, event.key === "ArrowUp" ? -1 : 1);
+      }
+      return;
+    }
     const action = commitCancelAction(event); // 判定在 core/keyboard.js（Node 可测）
     if (action !== "commit" && action !== "cancel") return;
     const input = event.target.closest(".q-edit");
@@ -5972,13 +6211,18 @@ function bindShell() {
     footMenu.hidden = true;
   });
   document.getElementById("rail-toggle").addEventListener("click", () => {
-    setChromeState({ rail: !railOpen });
+    if (railOpen) closeRailPanel(); else setChromeState({ rail: true });
   });
   document.querySelectorAll("[data-rail-open]").forEach(button => {
-    button.addEventListener("click", () => setChromeState({ rail: true }));
+    button.addEventListener("click", () => {
+      closeProjectRail();
+      setChromeState({ rail: true });
+      const trace = shownTrace();
+      if (trace) renderRail(trace, store.check || {});
+    });
   });
   document.querySelectorAll("[data-rail-close]").forEach(button => {
-    button.addEventListener("click", () => setChromeState({ rail: false }));
+    button.addEventListener("click", () => closeRailPanel());
   });
 
   document.addEventListener("dragenter", e => e.preventDefault());
@@ -6042,7 +6286,9 @@ function bindShell() {
       if (!overlay) {
         e.preventDefault();
         // 数字键直选：等于点击对应档位按钮；先给焦点环，再提交决定
-        const button = document.querySelector(`.apv-choice[data-decision="${e.key === "1" ? "allow" : e.key === "2" ? "allow-remember" : "deny"}"]`);
+        const choice = e.key === "1" ? "allow" : e.key === "2" ? "allow-remember" : "deny";
+        const button = document.querySelector(`.th-approval [data-decision="${choice}"]`)
+          || document.querySelector(`[data-decision="${choice}"]`);
         if (button) {
           button.classList.add("kb-selected");
           button.focus();
@@ -6075,7 +6321,7 @@ function bindShell() {
       if (addMenu && !addMenu.hidden) { closeAddMenu(); return; }
       if (attach.open) { closeAttachDetail(attach.fromMenu); return; }
       if (settingsOpen) { closeSettingsPage(true); return; }
-      if (!typing && innerWidth <= 1100 && railOpen) setChromeState({ rail: false });
+      if (!typing && innerWidth <= 1100 && railOpen) closeRailPanel();
       return;
     }
     if (typing || mod) return;

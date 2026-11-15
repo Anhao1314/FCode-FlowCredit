@@ -50,8 +50,10 @@ class ScriptedProvider:
     def __init__(self, *outcomes) -> None:
         self.outcomes = list(outcomes)
         self.calls = 0
+        self.contexts = []
 
     def propose(self, context):
+        self.contexts.append(context)
         outcome = self.outcomes[self.calls]
         self.calls += 1
         if isinstance(outcome, Exception):
@@ -111,6 +113,32 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(retry["cause"], "PROPOSAL_MALFORMED")
         # 两次调度都计费（第一次不退款）
         self.assertEqual(self.harness.budget(task).snapshot()["calls_used"], 2)
+
+    def test_invalid_plan_shape_is_retried_with_feedback(self) -> None:
+        """A 0-step plan is a model formatting mistake, not a task verdict.
+
+        It must get the same one paid retry as malformed JSON, and the retry
+        prompt must carry the rejection reason; otherwise the model has no
+        signal to answer differently.
+        """
+        bad = Proposal(
+            plan={"version": PLAN_VERSION, "steps": []},
+            provider="scripted",
+            model="scripted-v1",
+            tokens=10,
+            cost_microusd=5,
+        )
+        provider, task, proposal = self._run(bad, _proposal())
+        self.assertIsNotNone(proposal)
+        self.assertEqual(task.status, "planned")
+        self.assertEqual(provider.calls, 2)
+        retry = [e for e in self._events(task) if e["type"] == "proposal_retry"][0]
+        self.assertEqual(retry["payload"]["detail"]["cause"], "PLAN_SCHEMA_INVALID")
+        feedback = provider.contexts[1]["retry_feedback"]
+        self.assertEqual(feedback["code"], "PLAN_SCHEMA_INVALID")
+        self.assertIn("1-6 steps", feedback["message"])
+        self.assertIn("Do not answer in prose", feedback["instruction"])
+        self.assertNotIn("retry_feedback", provider.contexts[0])
 
     def test_consecutive_transport_failures_stay_unknown_after_one_retry(self) -> None:
         provider, task, proposal = self._run(

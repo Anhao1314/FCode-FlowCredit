@@ -85,6 +85,7 @@ class GeneralWorld:
         ask_operator: Any = None,
         subagent_channel: Any = None,
         budget_channel: Any = None,
+        motion_probe: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -128,6 +129,10 @@ class GeneralWorld:
         #: 预算延展通道（console 的 BudgetChannel）。None = 不注册延展工具
         #: （chat/子代理/离线单测都没有"运行预算"可延）。
         self.budget_channel = budget_channel
+        #: Deterministic browser probe for motion deliverables. Injected by the
+        #: console (it owns Playwright and the run's frame directory); None in
+        #: offline deployments, where motion_check still runs its text checks.
+        self.motion_probe = motion_probe
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -181,9 +186,23 @@ class GeneralWorld:
                         f"the declared verification command cannot run under this host's "
                         f"command policy: {error.code}: {error.message}",
                     ) from error
+        repair = bool(self.spec.get("fastProfile") == "motion-render")
+        scaffolded: tuple[str, ...] = ()
+        if repair:
+            # Host-seeded scaffold: the model fills SECTION anchors with
+            # bounded edits instead of emitting the artifact in one response.
+            from .motion_scaffold import ensure_motion_scaffold
+
+            scaffolded = ensure_motion_scaffold(self.sandbox)
         tools = build_general_tools(
             self.sandbox, self.fetcher, command_runner=runner,
             terminal_jail=bool(self.spec.get("fast")),
+            motion_probe=self.motion_probe,
+            # Motion repairs are diff-shaped: after the first write, a second
+            # full regeneration spends output tokens and tends to reintroduce
+            # regressions. Other domains keep the historical write semantics.
+            repair_policy=repair,
+            scaffolded_paths=scaffolded,
         )
         # The tool is always registered; the *channel* is resolved when a
         # question is actually asked. Assemblies wire it after the world exists

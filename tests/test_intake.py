@@ -84,6 +84,28 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(turn["task"]["approval"], "consequential")
         self.assertIn("关键审批", turn["reply"])
 
+    def test_motion_task_gets_the_compact_profile_and_toolset(self) -> None:
+        prompt = (
+            "编写单文件HTML，内含SVG动画：卡通鹈鹕骑带辐条自行车；"
+            "纯CSS Keyframes控制，无外部库。"
+        )
+        turn = clarify(message=prompt, template="general-research")
+        self.assertTrue(turn["ready"])
+        spec = turn["task"]["spec"]
+        self.assertEqual(spec["fastProfile"], "motion-render")
+        self.assertEqual(
+            spec["toolset"],
+            ["ls_workspace", "read_file_raw", "write_file", "edit_file",
+             "run_command", "motion_check"],
+        )
+        self.assertIn("动效", turn["reply"])
+
+    def test_an_ordinary_general_task_keeps_the_full_toolset(self) -> None:
+        turn = clarify(message="帮我整理一下这周的行程", template="general-research")
+        spec = turn["task"]["spec"]
+        self.assertNotIn("fastProfile", spec)
+        self.assertNotIn("toolset", spec)
+
     def test_an_unknown_tier_falls_back_to_the_default(self) -> None:
         turn = clarify(
             message="帮我整理一下这周的行程",

@@ -46,7 +46,7 @@ export function createLiveSessions(deps) {
     d.renderTabs();
     if (fresh) {
       d.setComposerRunning(true);
-      document.getElementById("tb-title").textContent = "运行 · " + d.tplTitle(template);
+      document.getElementById("tb-title").textContent = d.tplTitle(template);
       document.getElementById("tb-chips").innerHTML = "";
       document.getElementById("rail-body").innerHTML = "";
       d.renderMain(`<div class="empty">任务已提交，等待 Runtime 启动…</div>`, { mode: "loading", scroll: "top" });
@@ -204,7 +204,7 @@ export function createLiveSessions(deps) {
     if (s.finished || (s.trace.terminal && s.trace.terminal.status)) {
       d.setComposerRunning(false);
       d.store.trace = s.trace;
-      d.render(s.trace, "运行 · " + tabTitle(s));
+      d.render(s.trace, tabTitle(s));
       return;
     }
     d.setComposerRunning(true);

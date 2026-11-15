@@ -222,8 +222,16 @@ def post_run_queue(handler, run_id: str):
     if control is None:
         return None
     body = handler._read_body()
+    raw_index = body.get("toIndex")
+    to_index = None
+    if raw_index is not None:
+        try:
+            to_index = int(raw_index)
+        except (TypeError, ValueError):
+            to_index = None
     result = control.mutate_message(
         str(body.get("messageId") or ""), str(body.get("op") or ""), body.get("text"),
+        to_index=to_index,
     )
     if not result.get("ok"):
         return handler._json({"error": result.get("error", "queue op failed")}, 409)

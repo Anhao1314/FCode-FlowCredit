@@ -542,11 +542,11 @@ class CommandConfigTests(unittest.TestCase):
             path = pathlib.Path(tmp) / "commands.json"
             path.write_text(json.dumps({
                 "commands": [
-                    {"program": "ruff", "readonly": True, "argPolicy": "free"},
+                    {"program": "shellcheck", "readonly": True, "argPolicy": "free"},
                 ]
             }), encoding="utf-8")
             policy = load_command_config(path)
-        self.assertFalse(policy.classify("ruff", []))
+        self.assertFalse(policy.classify("shellcheck", []))
         self.assertTrue(policy.classify("python3", ["x.py"]), "defaults survive")
 
             # a config may not weaken a built-in rule

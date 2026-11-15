@@ -285,7 +285,7 @@ SCENARIOS: dict[str, Scenario] = {
     ),
     "general-research": Scenario(
         key="general-research",
-        title="通用委托：抓取公开来源，写入 research.md",
+        title="任务：执行、验证并交付",
         objective="调研指定的公开主题，把来源摘录与结论写成 research.md 放进工作区",
         story=(
             "通用能力的参考实现：模型提议 fetch_url 抓取操作者圈定的公开来源，"
@@ -301,6 +301,7 @@ SCENARIOS: dict[str, Scenario] = {
             "grep_workspace",
             "find_files",
             "git_status",
+            "motion_check",
             "browser_inspect",
             "browser_act",
             "write_file",
@@ -335,6 +336,7 @@ SCENARIOS: dict[str, Scenario] = {
                 "grep_workspace",
                 "find_files",
                 "git_status",
+                "motion_check",
                 "browser_inspect",
                 "browser_act",
                 "write_file",

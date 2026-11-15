@@ -337,7 +337,7 @@ class DelegationConstructionTests(unittest.TestCase):
             self.build(env=merged_env(overlay, env={}))
 
     def test_deepseek_gets_reasoning_headroom_and_env_override(self) -> None:
-        """回归：硬编码 256 会被 reasoning 吃光，content 为空整轮判死。"""
+        """回归：补全预算太小会被 reasoning 吃光，content 为空整轮判死。"""
         from flowagent.demo.provider_factory import build_provider
 
         base = {
@@ -350,13 +350,23 @@ class DelegationConstructionTests(unittest.TestCase):
             "deepseek", scenario=get_scenario("full"),
             receipts=ReceiptStore(self.store), env=base,
         )
-        self.assertEqual(provider.max_completion_tokens, 8192)
+        self.assertEqual(provider.max_completion_tokens, 32768)
         tuned = build_provider(
             "deepseek", scenario=get_scenario("full"),
             receipts=ReceiptStore(self.store),
             env={**base, "DEEPSEEK_MAX_TOKENS": "12000"},
         )
         self.assertEqual(tuned.max_completion_tokens, 12000)
+        alias = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store),
+            env={**base, "DEEPSEEK_MAX_COMPLETION_TOKENS": "12001"},
+        )
+        self.assertEqual(alias.max_completion_tokens, 12001)
+        # The error names the variable the factory actually reads.
+        error = provider.client._empty_content_error({"reasoning_content": "x" * 20})
+        self.assertIn("DEEPSEEK_MAX_TOKENS", error.message)
+        self.assertNotIn("DEEPSEEK_MAX_COMPLETION_TOKENS", error.message)
 
 
 class ConsoleWiringTests(unittest.TestCase):

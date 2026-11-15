@@ -64,6 +64,9 @@ def summarize_read_file(result: dict[str, Any]) -> dict[str, Any]:
         "bytes": result.get("bytes"),
         "sha256": result.get("sha256"),
     }
+    if result.get("unchanged"):
+        out["unchanged"] = True
+        out["note"] = result.get("note")
     out.update(_head(result.get("content")))
     return out
 
@@ -87,6 +90,9 @@ def summarize_read_file_raw(result: dict[str, Any]) -> dict[str, Any]:
         "truncated": len(content) > cap,
         "content": content[:cap],
     }
+    if result.get("unchanged"):
+        out["unchanged"] = True
+        out["note"] = result.get("note")
     if result.get("start_line") is not None:
         out["start_line"] = result.get("start_line")
         out["end_line"] = result.get("end_line")

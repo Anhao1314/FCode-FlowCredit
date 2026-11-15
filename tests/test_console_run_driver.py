@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -11,7 +12,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "viewer"))
 
-from console_run_driver import RunDriver  # noqa: E402
+from console_run_driver import RunDriver, filter_toolset  # noqa: E402
+from flowagent.tools.general.sandbox import WorkspaceSandbox  # noqa: E402
 
 
 class _Loop:
@@ -55,6 +57,31 @@ class ConsoleRunDriverTests(unittest.TestCase):
         driver.harness = _Harness()
         driver.observer = _Observer()
         return driver, task
+
+    def test_motion_profile_routes_through_capability_not_legacy_loop(self):
+        driver, task = self.driver_for("running")
+        driver.run.spec = {"fastProfile": "motion-render", "fast": True}
+        driver.run.objective = "pelican"
+        driver.fast = True
+        driver.general = True
+        driver.sandbox = object()
+        driver.recover_pending = None
+
+        def execute_capability(current):
+            current.status = "succeeded"
+            return current
+
+        driver._execute_capability = execute_capability
+        self.assertEqual(driver._execute_task(task), "succeeded")
+
+    def test_capability_runtime_opt_out_preserves_legacy_route(self):
+        driver, _task = self.driver_for("running")
+        driver.run.spec = {"fastProfile": "motion-render", "capabilityRuntime": False}
+        driver.fast = True
+        driver.general = True
+        driver.sandbox = object()
+        driver.recover_pending = None
+        self.assertFalse(driver._use_capability_runtime())
 
     def test_created_failure_uses_legal_denied_terminal(self):
         driver, task = self.driver_for("created")
@@ -121,6 +148,39 @@ class ConsoleRunDriverTests(unittest.TestCase):
             driver2.run_dir = pathlib.Path(tmp) / "runs" / "r2"
             driver2.run_dir.mkdir(parents=True)
             self.assertFalse(driver2._try_worktree({"path": str(source)}))
+
+
+    def test_a_requested_toolset_narrows_the_run_and_never_invents_tools(self):
+        available = ["ls_workspace", "read_file_raw", "write_file", "edit_file", "run_command", "terminal"]
+        narrowed, requested = filter_toolset(
+            {"toolset": ["write_file", "run_command", "write_file"]}, available,
+        )
+        self.assertEqual(narrowed, ["write_file", "run_command"])
+        self.assertEqual(requested, ["write_file", "run_command", "write_file"])
+        self.assertEqual(filter_toolset({}, available), (available, []))
+        with self.assertRaises(ValueError):
+            filter_toolset({"toolset": ["not_a_tool"]}, available)
+
+    def test_project_instructions_are_appended_and_stashed_for_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = pathlib.Path(tmp) / "workspace"
+            workspace.mkdir()
+            (workspace / "AGENTS.md").write_text(
+                "Use `npm test` and keep changes minimal.\n", encoding="utf-8",
+            )
+            driver = RunDriver.__new__(RunDriver)
+            driver.run = SimpleNamespace(spec={})
+            driver.module = SimpleNamespace(instruction="BASE")
+            driver.manager = SimpleNamespace(chat=None)
+            driver.fast = False
+            driver.general = True
+            driver.sandbox = WorkspaceSandbox(workspace)
+            text = driver._build_instruction()
+            self.assertIn("BASE", text)
+            self.assertIn("【项目约定】", text)
+            self.assertIn("Use `npm test`", text)
+            self.assertEqual(driver.project_instructions[0].path, "AGENTS.md")
+            self.assertEqual(len(driver.project_instructions[0].sha256), 64)
 
 
 if __name__ == "__main__":

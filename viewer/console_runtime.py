@@ -479,8 +479,18 @@ class RunControl:
         """
         return self.mutate_message(message_id, "steer")
 
-    def mutate_message(self, message_id: str, op: str, new_text: str | None = None) -> dict:
-        """Edit / remove / reorder / steer a queued operator message by id."""
+    def mutate_message(
+        self,
+        message_id: str,
+        op: str,
+        new_text: str | None = None,
+        to_index: int | None = None,
+    ) -> dict:
+        """Edit / remove / reorder / steer a queued operator message by id.
+
+        ``to_index`` is a zero-based position among the *remaining* messages
+        for ``moveTo``; ``len(remaining)`` means append to the queue tail.
+        """
         with self._lock:
             idx = next(
                 (
@@ -508,6 +518,41 @@ class RunControl:
                         self._commands[prev],
                         self._commands[idx],
                     )
+            elif op == "moveDown":
+                nxt = next(
+                    (
+                        j
+                        for j in range(idx + 1, len(self._commands))
+                        if self._commands[j].get("kind") == "message"
+                    ),
+                    None,
+                )
+                if nxt is not None:
+                    self._commands[idx], self._commands[nxt] = (
+                        self._commands[nxt],
+                        self._commands[idx],
+                    )
+            elif op == "moveTo":
+                if to_index is None:
+                    return {"ok": False, "error": "toIndex is required for moveTo"}
+                try:
+                    target = max(0, int(to_index))
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "toIndex must be an integer"}
+                command = self._commands[idx]
+                del self._commands[idx]
+                message_positions = [
+                    j
+                    for j, queued in enumerate(self._commands)
+                    if queued.get("kind") == "message"
+                ]
+                if not message_positions:
+                    insert_at = 0
+                elif target >= len(message_positions):
+                    insert_at = message_positions[-1] + 1
+                else:
+                    insert_at = message_positions[target]
+                self._commands.insert(insert_at, command)
             elif op == "edit":
                 text = str(new_text or "").strip()
                 if not text:
@@ -519,7 +564,7 @@ class RunControl:
                 command["steered"] = True
                 self._commands.appendleft(command)
             else:
-                return {"ok": False, "error": "op must be edit, remove, moveUp or steer"}
+                return {"ok": False, "error": "op must be edit, remove, moveUp, moveDown, moveTo or steer"}
         self._publish_queue()
         return {"ok": True, "queue": self.queue_snapshot()}
 
@@ -548,7 +593,7 @@ class RunControl:
     # comes back as that tool's observation. The console owns the human
     # channel, the kernel owns the accounting.
 
-    def ask(self, *, question: str, why: str = "") -> dict:
+    def ask(self, *, question: str, why: str = "", options: list[str] | None = None) -> dict:
         """Publish one question, wait for the operator, return the answer.
 
         The audit trail is the tool call itself, not a side event: the harness
@@ -558,6 +603,11 @@ class RunControl:
         sequencing (the loop holds a task snapshot) — and it would be less
         honest, because the tool call *is* the unit an auditor reads.
 
+        ``options`` are display hints from the same tool call. They are copied
+        into the pending payload so the console can render one-click choices;
+        answering still goes through :meth:`answer` as one plain string, so a
+        click cannot become a second answer shape.
+
         A timeout is reported as a timeout — the model is told it is on its own
         rather than handed an invented answer. A stop request ends the question
         the same way it ends an approval.
@@ -565,6 +615,13 @@ class RunControl:
         text = str(question or "").strip()[:400]
         if not text:
             raise AgentError("ASK_QUESTION_EMPTY", "question must not be empty")
+        suggestions: list[str] = []
+        for raw in options or []:
+            value = str(raw or "").strip()[:60]
+            if value and value not in suggestions:
+                suggestions.append(value)
+            if len(suggestions) >= 4:
+                break
         with self._lock:
             if self._approval is not None:
                 # One human decision at a time: the gate and the question share
@@ -578,6 +635,7 @@ class RunControl:
                 "round": round_no,
                 "question": text,
                 "why": str(why or "")[:200],
+                "options": suggestions,
                 "expiresIn": int(self.timeout),
                 "requestedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }

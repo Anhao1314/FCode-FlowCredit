@@ -27,6 +27,13 @@ from flowagent.runtime.policy import (  # noqa: E402
 
 
 class _Response:
+    """Both wire shapes: buffered ``read`` and an iterable SSE translation.
+
+    The deepseek preset streams by default; the policy head stays buffered.
+    One mock serves both — which method the client calls is itself the
+    assertion that the right wire shape was requested.
+    """
+
     def __init__(self, payload: dict) -> None:
         self.payload = payload
 
@@ -38,6 +45,24 @@ class _Response:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+    def __iter__(self):
+        message = (self.payload.get("choices") or [{}])[0].get("message") or {}
+        delta: dict = {}
+        if isinstance(message.get("content"), str) and message["content"]:
+            delta["content"] = message["content"]
+        for call in message.get("tool_calls") or []:
+            delta.setdefault("tool_calls", []).append(call)
+        events = [{
+            "id": str(self.payload.get("id") or ""),
+            "choices": [{"delta": delta, "finish_reason": "stop"}],
+        }, {
+            "choices": [],
+            "usage": dict(self.payload.get("usage") or {}),
+        }]
+        for event in events:
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
+        yield b"data: [DONE]\n\n"
 
 
 def _price() -> PriceSnapshot:
@@ -83,12 +108,71 @@ class DeepSeekTests(unittest.TestCase):
         self.assertEqual(seen["auth"], "Bearer sk-test")
         self.assertEqual(seen["body"]["model"], "deepseek-chat")
         self.assertEqual(seen["body"]["response_format"], {"type": "json_object"})
+        # The preset streams by default (large-artifact disconnect fix).
+        self.assertIs(seen["body"]["stream"], True)
+        self.assertEqual(seen["body"]["stream_options"], {"include_usage": True})
         self.assertEqual(proposal.tokens, 1100)
         self.assertEqual(proposal.cost_microusd, 1100)
         self.assertEqual(proposal.metadata["provider_request_id"], "req-1")
         self.assertEqual(proposal.plan["steps"][0]["tool"], "list_documents")
         self.assertEqual(provider.reserve_tokens, 4608)
         self.assertEqual(provider.reserve_cost_microusd, 5120)
+
+    def test_native_retry_after_reasoning_exhaustion_gets_a_larger_budget(self) -> None:
+        seen, fake = self._fake({
+            "id": "req-native-retry",
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "edit_file",
+                            "arguments": json.dumps({
+                                "path": "index.html",
+                                "old_text": "<!-- SECTION: scene -->",
+                                "new_text": "<g class=\"wheel\"></g>",
+                            }),
+                        },
+                    }],
+                },
+            }],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
+        })
+        provider = DeepSeekProvider(
+            api_key="sk-test", price=_price(), max_prompt_tokens=4096, max_tokens=512,
+        )
+        provider.set_native_tools([{
+            "type": "function",
+            "function": {
+                "name": "edit_file",
+                "description": "edit the artifact",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }])
+        context = {
+            "prompt_profile": "capability-motion",
+            "objective": "draw",
+            "round": 1,
+            "tools": [{"name": "edit_file"}],
+            "state": {},
+            "plan": [],
+            "observations": [],
+            "native_tools_allowed": ["edit_file"],
+            "retry_feedback": {
+                "code": "BUDGET_EXHAUSTED_REASONING",
+                "message": "reasoning budget exhausted",
+            },
+        }
+        with mock.patch("flowagent.providers.deepseek.urllib.request.urlopen", fake):
+            proposal = provider.propose(context)
+        self.assertEqual(seen["body"]["max_tokens"], 65_536)
+        self.assertEqual(seen["body"]["tool_choice"], "auto")
+        self.assertEqual(proposal.metadata["completion_tokens_override"], 65_536)
+        self.assertEqual(proposal.plan["steps"][0]["tool"], "edit_file")
+        reserved, _cost = provider.reserve(context)
+        self.assertGreaterEqual(reserved, 65_536)
 
     def test_policy_choice_and_cost(self) -> None:
         seen, fake = self._fake({

@@ -40,6 +40,17 @@ def to_openai_tools(
             schema.pop("required", None)
             schema.pop("nullable", None)
             schema["type"] = _KIND_MAP.get(str(schema.get("type")), "string")
+            if param.kind == "array":
+                # OpenAI's function schema requires an item type for arrays.
+                # Every Param array here is an array of non-empty strings
+                # (validate_arguments enforces exactly that), so say so instead
+                # of sending a bare ``{"type":"array"}``. ``maximum`` is an
+                # array-length cap internally; JSON Schema spells it maxItems.
+                schema["items"] = {"type": "string"}
+                if "maximum" in schema:
+                    schema["maxItems"] = schema.pop("maximum")
+                if "minimum" in schema:
+                    schema["minItems"] = schema.pop("minimum")
             if param.enum is not None:
                 schema["enum"] = list(param.enum)
             properties[param.name] = schema

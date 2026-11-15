@@ -56,6 +56,15 @@ RECOVERABLE_TOOL_ERRORS = frozenset({
     "TOOL_ARGUMENTS_INVALID", "COMMAND_GIT_FLAG_REFUSED", "COMMAND_FLAG_REFUSED",
     "COMMAND_NOT_FOUND", "COMMAND_LAUNCH_FAILED", "COMMAND_SHELL_SYNTAX",
     "COMMAND_INLINE_REFUSED",
+    # Host-guidance errors: the request is legal but the wrong repair mode was
+    # chosen. They are visible tool_failed events and must be handed back to
+    # the model, not promoted to a task-level failure. Bounded by
+    # MAX_PROPOSAL_REPAIRS like schema repairs.
+    "WRITE_SCAFFOLDED_USE_EDIT",
+    "EDIT_TOO_LARGE",
+    "FILE_EXISTS_USE_EDIT",
+    "WRITE_TOO_LARGE_USE_APPEND",
+    "WRITE_MODE_CONFLICT",
 })
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
@@ -161,6 +170,10 @@ class Loop:
         self.plan_extension = (
             plan_extension if plan_extension is not None else harness.plan_extension
         )
+        #: Narrow motion profiles opt into a stall guard: a pending write plus
+        #: several read/command-only rounds is not progress. The loop steers
+        #: once, then stops instead of spending the whole budget.
+        self.stall_guard = bool(getattr(harness, "stall_guard", False))
         #: Sprint A memory policy head: parsed from ``spec.memory_policy`` (with
         #: an env fallback) in :meth:`restore`; default off. Shadow decisions are
         #: recorded but never consumed by ``WorkingMemory.build``.
@@ -179,8 +192,15 @@ class Loop:
             recall_holder["memory"] = memory
         pending = self.pending_step(task)
         repairs = 0
+        stalled_rounds = 0
+        stall_signature: tuple[str, ...] | None = None
+        stall_write_baseline = 0
 
         while True:
+            if pending is None and self.stall_guard:
+                exhausted = self._motion_repair_exhausted(memory)
+                if exhausted is not None:
+                    return self._abort(task.id, exhausted)
             if pending is None and self.control is not None:
                 controlled = self.control.before_round(
                     round_no=self._decisions(task) + 1,
@@ -299,6 +319,52 @@ class Loop:
                 else:
                     task = self._maybe_memory_policy(task, memory, round_no, plan)
                     context = memory.build(round_no, budget_snapshot, plan)
+                    if self.stall_guard:
+                        pending_writes = [
+                            todo.id for todo in plan.todos
+                            if todo.status in ("pending", "active")
+                            and todo.tool in ("write_file", "edit_file")
+                        ]
+                        signature = tuple(sorted(pending_writes))
+                        write_count = sum(
+                            1 for record in memory.records
+                            if getattr(record, "tool", "") in ("write_file", "edit_file")
+                        )
+                        if not pending_writes:
+                            stalled_rounds = 0
+                            stall_signature = signature
+                            stall_write_baseline = write_count
+                        elif signature != stall_signature:
+                            # A newly pending write gets its own progress window;
+                            # writes completed for an earlier todo do not count.
+                            stall_signature = signature
+                            stall_write_baseline = write_count
+                            stalled_rounds = 1
+                        elif write_count > stall_write_baseline:
+                            stall_write_baseline = write_count
+                            stalled_rounds = 0
+                        else:
+                            stalled_rounds += 1
+                        if stalled_rounds >= 4:
+                            return self._abort(
+                                task.id,
+                                AgentError(
+                                    "NO_PROGRESS",
+                                    "four rounds passed with the same write todo pending; "
+                                    "the model kept reading or running commands instead of writing",
+                                ),
+                            )
+                        if stalled_rounds >= 2:
+                            context["progress_guard"] = {
+                                "reason": "a write todo is pending and no new write has happened since it became pending",
+                                "rounds_without_write": stalled_rounds,
+                                "pending_writes": pending_writes[:4],
+                                "instruction": (
+                                    "Do not read more files or run verification first. "
+                                    "The next proposal must be write_file or edit_file "
+                                    "for one pending write todo."
+                                ),
+                            }
                     try:
                         task, proposal = self.harness.propose(task, context)
                     except AgentError as error:
@@ -468,13 +534,20 @@ class Loop:
                 try:
                     task, observation = self.harness.execute(task, step, round_no=round_no)
                 except AgentError as error:
-                    if self.harness.max_steps > 1 and error.code in RECOVERABLE_TOOL_ERRORS:
+                    if (
+                        self.harness.max_steps > 1
+                        and error.code in RECOVERABLE_TOOL_ERRORS
+                        and repairs < MAX_PROPOSAL_REPAIRS
+                    ):
                         # The tool call itself was malformed (a 600-char spawn
-                        # objective, a bad regex/range). The harness already
-                        # committed tool_failed; hand the error back in context
-                        # and let the model fix it next round instead of killing
-                        # the whole run. Fast mode only: the one-action contract
-                        # keeps terminal-on-tool-failure.
+                        # objective, a bad regex/range) or chose the wrong
+                        # repair mode (scaffold write, oversized edit). The
+                        # harness has already committed tool_failed; hand the
+                        # error back in context and let the model fix it next
+                        # round instead of killing the whole run. Fast mode
+                        # only, and bounded by the same repair budget as
+                        # proposal-shape repairs.
+                        repairs += 1
                         memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
                             "tool": step["tool"], "code": error.code,
                             "message": error.message,
@@ -526,6 +599,56 @@ class Loop:
             self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
             if completed_without_result:
                 continue
+
+    # ----------------------------------------------------------- repair budget
+
+    #: A motion run may inspect the artifact a few times while repairing it.
+    #: Beyond this many failed quality observations, further rounds are not
+    #: evidence of progress; stop with a concrete failure instead of spending
+    #: the whole token budget.
+    MAX_MOTION_QUALITY_FAILURES = 5
+    #: The same failure fingerprint three times means the model is looping over
+    #: one broken invariant.
+    MAX_MOTION_REPEATED_FINGERPRINT = 3
+
+    def _motion_repair_exhausted(self, memory: Any) -> AgentError | None:
+        records = [
+            record for record in getattr(memory, "records", [])
+            if getattr(record, "tool", "") == "motion_check"
+            and isinstance(getattr(record, "result", None), dict)
+        ]
+        last_pass = -1
+        for index, record in enumerate(records):
+            result = record.result
+            coverage = result.get("coverage") or {}
+            if result.get("status") == "pass" and coverage.get("complete"):
+                last_pass = index
+        failures = records[last_pass + 1:]
+        failed = [
+            record.result for record in failures
+            if record.result.get("status") in ("fail", "unverified")
+        ]
+        if len(failed) >= self.MAX_MOTION_QUALITY_FAILURES:
+            return AgentError(
+                "REPAIR_BUDGET_EXCEEDED",
+                f"motion quality failed {len(failed)} times after the last passing check; "
+                "the repair budget is exhausted",
+            )
+        fingerprints: dict[tuple[str, ...], int] = {}
+        for result in failed:
+            coverage = result.get("coverage") or {}
+            fingerprint = tuple(
+                [str(item) for item in (coverage.get("uncovered") or [])]
+                + [str(item) for item in (result.get("issues") or [])]
+            )
+            fingerprints[fingerprint] = fingerprints.get(fingerprint, 0) + 1
+            if fingerprints[fingerprint] >= self.MAX_MOTION_REPEATED_FINGERPRINT:
+                return AgentError(
+                    "NO_PROGRESS",
+                    "the same motion-quality failure repeated "
+                    f"{fingerprints[fingerprint]} times; the model is not converging",
+                )
+        return None
 
     # ----------------------------------------------------------- plan extension
 
@@ -692,8 +815,13 @@ class Loop:
         otherwise would just move the false confidence one level down.
 
         A citation that cannot be resolved is different from a claim with no
-        citation. The first asserts support that is not there and fails the run;
-        the second is merely unverified, and is labelled as such.
+        citation. The first asserts support that is not there; the second is
+        merely unverified. Neither is allowed to turn a **verified artifact**
+        into a failed run: the artifact and the report are different outputs.
+        An unresolved citation marks the report as ``unresolved``, keeps the
+        verified artifact deliverable, and makes the warning explicit in the
+        result. (A structurally malformed evidence block is still rejected as a
+        malformed proposal before this point.)
         """
         references = list((task.model.proposal or {}).get("evidence") or [])
         if not references:
@@ -735,11 +863,18 @@ class Loop:
             "semantic_truth": "not-verified",
         })
         if unresolved:
-            raise AgentError(
-                "EVIDENCE_REFERENCE_UNRESOLVED",
-                "the artifact cites sources that are not in the durable history: "
-                + "; ".join(f"{item['path']} ({item['tool']})" for item in unresolved),
+            note = (
+                "the artifact passed independent verification, but "
+                f"{len(unresolved)} cited source(s) are not in the durable history; "
+                "treat those claims as unverified"
             )
+            return {
+                "status": "unresolved",
+                "references": resolved,
+                "unresolved": unresolved,
+                "semantic_truth": "not-verified",
+                "note": note,
+            }
         return {
             "status": "resolved",
             "references": resolved,
@@ -1438,6 +1573,9 @@ class Loop:
         # exactly how "the file was written" became "the work was correct".
         result["source_links"] = (sources or {}).get("status", "not-declared")
         result["sources"] = list((sources or {}).get("references") or [])
+        result["evidence_unresolved"] = [
+            dict(item) for item in ((sources or {}).get("unresolved") or [])
+        ]
         result["semantic_truth"] = (sources or {}).get("semantic_truth", "not-verified")
         if sources and sources.get("note"):
             result["truth_note"] = sources["note"]

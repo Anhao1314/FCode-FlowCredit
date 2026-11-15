@@ -52,4 +52,13 @@ export const pct = bp => (bp / 100).toFixed(2) + "%";
 export const pp = bp => (bp >= 0 ? "+" : "") + (bp / 100).toFixed(2) + " pp";
 export const num = n => Number(n).toLocaleString("en-US");
 export const shortHash = h => String(h || "").slice(0, 12);
-export const stripTags = html => String(html).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+export const stripTags = html => String(html)
+  .replace(/<[^>]*>/g, "")
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;|&apos;/g, "'")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">")
+  .replace(/&nbsp;/g, " ")
+  .replace(/&amp;/g, "&")
+  .replace(/\s+/g, " ")
+  .trim();

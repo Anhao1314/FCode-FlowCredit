@@ -62,6 +62,7 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         ask_operator=kwargs.get("ask_operator"),
         subagent_channel=kwargs.get("subagent_channel"),
         budget_channel=kwargs.get("budget_channel"),
+        motion_probe=kwargs.get("motion_probe"),
     )
 
 
@@ -175,7 +176,7 @@ GENERAL_DOMAIN = DomainModule(
     # can establish.
     make_verification=make_verification,
     key="general-work",
-    title="通用委托",
+    title="任务",
     create_world=create_world,
     build_tools=build_tools,
     make_planner=make_planner,

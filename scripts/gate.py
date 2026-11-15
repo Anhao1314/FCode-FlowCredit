@@ -142,6 +142,26 @@ def check_e2e() -> tuple[bool, dict]:
     out_path = OUT_DIR / "e2e-output.txt"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     import os
+    import tempfile
+
+    # Playwright keeps one transient output tree per run. After a few runs it
+    # can hold thousands of trace artifacts, and its startup cleanup becomes a
+    # single bulk delete that sandboxed hosts refuse. Move the stale tree aside
+    # with one atomic rename (no bulk deletion) before Node starts, so every
+    # run begins from an empty output directory. This is transient test output,
+    # never run evidence; the archive lives in the OS temp dir, not the repo.
+    stale_output = PROJECT_ROOT / "viewer" / "test-results"
+    if stale_output.exists():
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        archived = Path(tempfile.gettempdir()) / f"fcode-e2e-stale-{int(started)}-{os.getpid()}"
+        try:
+            os.replace(stale_output, archived)
+        except OSError:
+            # Different filesystem: fall back to a same-volume scratch path.
+            try:
+                os.replace(stale_output, OUT_DIR / f"e2e-stale-{int(started)}-{os.getpid()}")
+            except OSError:
+                pass
 
     env = dict(os.environ)
     try:

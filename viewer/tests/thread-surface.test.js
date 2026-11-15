@@ -67,7 +67,8 @@ function makeSurface(overrides = {}) {
     tplTitle: key => { calls.tplTitle += 1; return "通用委托"; },
     currentWorkTab: () => "activity",
     projectWork: {
-      projectTabsHtml: () => "<div class='tabs'></div>",
+      projectTabsHtml: (trace, active = "activity") => ["activity", "changes", "files"].map(key =>
+        `<button data-work-tab="${key}" class="work-view-tab${active === key ? " active" : ""}">${key}</button>`).join(""),
       projectContextHtml: () => "<div class='ctx'></div>",
       projectResultHtml: () => "<div class='diff'></div>",
       projectFilesHtml: () => "<div class='files'></div>",
@@ -265,7 +266,7 @@ test("threadCacheFor:会话缓存与会话缺失时的 store 缓存各自独立"
   assert.equal(store.threadCache, b);
 });
 
-test("projectRunHtml:线程常驻,变更/文件在检查器里按当前 tab 侧开", () => {
+test("projectRunHtml:线程常驻,变更/文件由右侧 rail 承载", () => {
   const { surface } = makeSurface();
   const trace = { task: { id: "task-9" } };
   const html = surface.projectRunHtml(trace);
@@ -273,11 +274,22 @@ test("projectRunHtml:线程常驻,变更/文件在检查器里按当前 tab 侧�
   assert.ok(html.includes('data-work-pane="activity"'));
   assert.ok(!/data-work-pane="activity" hidden/.test(html), "线程面不因 tab 隐藏");
   assert.ok(html.includes('id="thread"'), "activity 面内挂任务线程");
-  assert.ok(html.includes('id="changes-slot"'));
-  assert.ok(html.includes('data-work-pane="files"'));
-  assert.ok(html.includes("data-work-inspector hidden"), "默认收起检查器");
+  assert.ok(!html.includes("data-work-inspector"), "旧浮层检查器已移除");
+  assert.ok(!html.includes('id="changes-slot"'), "变更内容不再驻留主区");
+  assert.ok(html.includes('data-work-tab="changes"'));
+  assert.ok(html.includes('data-work-tab="files"'));
   const opened = makeSurface({ currentWorkTab: () => "changes" }).surface.projectRunHtml(trace);
-  assert.ok(/data-work-inspector(?![^>]*hidden)/.test(opened), "changes tab 打开检查器");
-  const files = surface.projectRunHtml({ task: { id: "t" }, projectWorkspace: true });
-  assert.ok(files.includes("files"), "有工作区时渲染文件面板内容");
+  assert.ok(/data-work-tab="changes"[^>]*class="work-view-tab active"|class="work-view-tab active"[^>]*data-work-tab="changes"/.test(opened), "changes tab 保持点亮");
+});
+
+test("a successful answer hides run actions; a failure keeps them", () => {
+  const { surface, calls } = makeSurface();
+  const succeeded = { terminal: { status: "succeeded" } };
+  const options = surface.threadOptions(succeeded, null);
+  assert.equal(options.answerActionsHtml(succeeded), "");
+  assert.equal(calls.runActionsHtml, 0, "success does not even build the action row");
+
+  const failed = { terminal: { status: "failed" } };
+  assert.match(options.answerActionsHtml(failed), /导出/);
+  assert.equal(calls.runActionsHtml, 1);
 });

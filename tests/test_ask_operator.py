@@ -31,7 +31,10 @@ from flowagent.domains.general import GENERAL_DOMAIN  # noqa: E402
 from flowagent.providers.base import Proposal  # noqa: E402
 from flowagent.runtime.harness import Harness  # noqa: E402
 from flowagent.runtime.loop import Loop  # noqa: E402
-from flowagent.tools.general.ask import ANSWER_CHARS, QUESTION_CHARS, ask_spec  # noqa: E402
+from flowagent.tools.base import validate_arguments  # noqa: E402
+from flowagent.tools.general.ask import (  # noqa: E402
+    ANSWER_CHARS, OPTION_CHARS, OPTION_COUNT, QUESTION_CHARS, ask_spec,
+)
 from flowagent.tools.general.commands import CommandRunner  # noqa: E402
 from flowagent.tools.general.sandbox import WorkspaceSandbox  # noqa: E402
 from flowagent.tools.general.summaries import summarize_ask_operator  # noqa: E402
@@ -83,6 +86,42 @@ class AskToolTests(unittest.TestCase):
         self.assertTrue(timeout["timed_out"])
         self.assertNotIn("answer", timeout)
 
+    def test_suggested_answers_are_forwarded_trimmed_and_deduped(self) -> None:
+        seen = {}
+
+        def channel(**kwargs):
+            seen.update(kwargs)
+            return {"answered": True, "answer": "上海"}
+
+        spec = ask_spec(channel)
+        result = spec.handler({
+            "question": "你在哪个城市？",
+            "options": [" 上海 ", "北京", "上海", "  "],
+        })
+        self.assertTrue(result["answered"])
+        self.assertEqual(seen["options"], ["上海", "北京"])
+        # The tool result stays the same two facts: suggestions never become
+        # part of the observation contract.
+        self.assertNotIn("options", result)
+
+    def test_suggested_answers_are_bounded_by_the_gate(self) -> None:
+        spec = ask_spec(lambda **kwargs: {"answered": True, "answer": "ok"})
+        option = spec.params[2]
+        self.assertEqual(option.name, "options")
+        self.assertEqual(option.maximum, OPTION_COUNT)
+        with self.assertRaises(Exception):
+            validate_arguments(spec, {"question": "q", "options": ["1", "2", "3", "4", "5"]})
+
+    def test_a_long_suggested_answer_is_truncated_not_refused(self) -> None:
+        seen = {}
+
+        def channel(**kwargs):
+            seen.update(kwargs)
+            return {"answered": True, "answer": "ok"}
+
+        ask_spec(channel).handler({"question": "q", "options": ["答" * 200]})
+        self.assertEqual(len(seen["options"][0]), OPTION_CHARS)
+
 
 class AskingProvider:
     """Proposes one ``ask_operator`` call, then a write, then stops."""
@@ -90,8 +129,9 @@ class AskingProvider:
     name = "asking-test"
     model = "asking-test-v1"
 
-    def __init__(self, question: str = "用哪一天？") -> None:
+    def __init__(self, question: str = "用哪一天？", options: list[str] | None = None) -> None:
         self.question = question
+        self.options = list(options or [])
         self.calls = 0
         self.contexts: list[dict] = []
 
@@ -99,7 +139,10 @@ class AskingProvider:
         self.contexts.append(context)
         self.calls += 1
         if self.calls == 1:
-            step = {"id": "t1", "tool": "ask_operator", "arguments": {"question": self.question}}
+            arguments = {"question": self.question}
+            if self.options:
+                arguments["options"] = self.options
+            step = {"id": "t1", "tool": "ask_operator", "arguments": arguments}
         elif self.calls == 2:
             step = {"id": "t2", "tool": "write_file", "arguments": {"path": "note.md", "content": "记下了\n"}}
         else:
@@ -125,7 +168,7 @@ class RunAsksOperatorTests(unittest.TestCase):
         # RunControl is built against the real runtime surface (Plan, AgentError).
         cls.console_runtime = module.Runtime(ROOT)
 
-    def build(self, *, timeout: float = 5.0):
+    def build(self, *, timeout: float = 5.0, provider=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = pathlib.Path(tmp.name)
@@ -137,7 +180,7 @@ class RunAsksOperatorTests(unittest.TestCase):
             command_runner=CommandRunner(sandbox(tmp.name)),
         )
         scenario = get_scenario("general-research")
-        provider = AskingProvider()
+        provider = provider or AskingProvider()
         harness = Harness(
             store=store,
             registry=ToolRegistry(world.build_tools()),
@@ -208,6 +251,33 @@ class RunAsksOperatorTests(unittest.TestCase):
         self.assertEqual(len(provider.contexts), 2)
         self.assertNotIn("用周三", json.dumps(provider.contexts[0], ensure_ascii=False))
         self.assertIn("用周三", json.dumps(provider.contexts[1], ensure_ascii=False))
+
+    def test_the_pending_payload_carries_the_suggested_answers(self) -> None:
+        provider = AskingProvider(question="你在哪个城市？", options=["上海", "北京"])
+        run, control, harness, loop, world, provider = self.build(provider=provider)
+        published = []
+        thread = threading.Thread(target=lambda: harness.store and loop.run("task-ask"), daemon=True)
+        thread.start()
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            pending = control.pending()
+            if pending and pending.get("kind") == "question":
+                published.append(pending)
+                self.assertEqual(pending["options"], ["上海", "北京"])
+                self.assertTrue(control.answer(pending["id"], "上海"))
+                break
+            time.sleep(0.02)
+        self.assertTrue(published, "the question was never published")
+        thread.join(timeout=10)
+        self.assertFalse(thread.is_alive(), "the loop did not resume after the answer")
+        # The options are display hints from the tool call, not a new result
+        # shape: the chain records them with the question and the answer is the
+        # same plain string it would have been if the operator had typed it.
+        events = harness.store.events("task-ask")
+        started = next(e for e in events if e["type"] == "tool_started")
+        self.assertEqual(started["payload"]["detail"]["arguments"]["options"], ["上海", "北京"])
+        observation = next(e for e in events if e["type"] == "tool_succeeded")
+        self.assertEqual(observation["payload"]["detail"]["result"]["answer"], "上海")
 
     def test_restart_restores_the_same_question_without_restarting_its_tool(self) -> None:
         run, control, harness, loop, world, provider = self.build()

@@ -53,6 +53,15 @@ test("Work 侧栏：项目创建 → 运行嵌套 → 刷新 → 归档", async 
     // 点运行进运行视图；主区不是项目看板
     await reopened.locator(".proj-runs .run-row").first().click();
     await expect(page.locator("#main")).toHaveAttribute("data-view", "run");
+    await expect(page.locator(".task-thread .th-user .th-user-text")).toBeVisible();
+    await expect(page.locator(".task-thread .th-status .ai-avatar")).toBeVisible();
+
+    // 变更/文件收进右侧扩展栏：主区线程不被浮层替换
+    await page.locator('[data-work-tab="changes"]').click();
+    await expect(page.locator(".rail")).toHaveAttribute("data-rail-mode", "changes");
+    await expect(page.locator(".work-inspector")).toHaveCount(0);
+    await page.locator(".rail-close").click();
+    await expect(page.locator(".work-view-tab.active")).toHaveText("执行");
 
     // 设置 → 两步确认归档（不用原生 confirm）；归档清掉 composer 绑定
     await page.locator("[data-proj-toggle]").filter({ hasText: "E2E 侧栏项目" }).hover();

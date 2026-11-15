@@ -18,7 +18,38 @@ from console_budget_extension import BudgetChannel
 from console_subagents import SubagentChannel
 from console_run_budget import budget_summary
 from console_runtime import LiveObserver, RunControl, ScopedPlanner, StopRequested, _run_crash, _watch
-from flowagent.providers.prompt import GENERAL_FAST_INSTRUCTION
+from flowagent.capabilities.motion import build_motion_capability
+from flowagent.providers.prompt import GENERAL_FAST_INSTRUCTION, PROMPT_PROFILES
+from flowagent.runtime.capability import HarnessCapabilityBridge
+from flowagent.tools.general.motion_quality import analyze_motion, merge_quality
+from motion_frames import HOST_VERIFY_TIMES_MS, MotionProbe
+from project_instructions import (
+    collect_project_instructions,
+    instruction_block,
+    instructions_binding,
+)
+
+
+def filter_toolset(spec: dict | None, allowed_tools: list[str]) -> tuple[list[str], list[str]]:
+    """Narrow a run's tools to the task's requested toolset.
+
+    A narrower schema is both a permission boundary and a token saving: every
+    tool schema is sent on every model call. An empty/absent request keeps the
+    full scenario set, so existing runs are unchanged. A requested name the
+    scenario does not grant is an error, never silently dropped.
+    """
+    requested = [
+        str(name).strip()
+        for name in ((spec or {}).get("toolset") or [])
+        if str(name).strip()
+    ]
+    if not requested:
+        return list(allowed_tools), []
+    missing = [name for name in requested if name not in allowed_tools]
+    if missing:
+        raise ValueError(f"toolset contains tools this run cannot use: {missing}")
+    narrowed = [name for name in allowed_tools if name in set(requested)]
+    return narrowed, requested
 
 
 class RunDriver:
@@ -56,6 +87,8 @@ class RunDriver:
         self.sandbox = None
         self.ask_holder: dict[str, Any] = {}
         self.issued: dict[str, str] = {}
+        self.capability_result = None
+        self.capability_quality = None
 
     def execute(self) -> None:
         assert self.rt is not None
@@ -180,6 +213,8 @@ class RunDriver:
         # experiment compare JSON batching (`general-fast`) with native tools
         # (`general-fast-native`, the default).
         fast_profile = str((self.run.spec or {}).get("fastProfile") or "").strip()
+        if fast_profile and fast_profile not in PROMPT_PROFILES:
+            raise ValueError(f"unknown fastProfile {fast_profile!r}")
         prompt_profile = (
             fast_profile or "general-fast-native"
         ) if (self.fast and self.general) else self.module.prompt_profile
@@ -285,6 +320,14 @@ class RunDriver:
                 # 预算延展通道(S2a):长任务在批前申请加预算,审批门后生效
                 "budget_channel": self.budget_channel,
             }
+            if (self.run.spec or {}).get("fastProfile") == "motion-render":
+                # Model-in-the-loop geometry check plus a host-side final
+                # verdict. Frames live beside the run, never in the deliverable
+                # workspace; only their names/hashes enter project.json.
+                self.motion_probe = MotionProbe(
+                    self.sandbox.root, self.run_dir / "quality-frames",
+                )
+                kwargs["motion_probe"] = self.motion_probe
         return self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
         )
@@ -377,6 +420,19 @@ class RunDriver:
                 f"\n\n【验证目标】你的产出将被以下命令独立验证——"
                 f"确保它通过：\n  {full_cmd}"
             )
+
+        # 仓库级约定：只读隔离工作区，限长，哈希随 task binding 入链。
+        # 失败时宁可不注入，也不能因为一个项目说明文件阻断运行。
+        self.project_instructions = []
+        sandbox = getattr(self, "sandbox", None)
+        if sandbox is not None:
+            try:
+                self.project_instructions = collect_project_instructions(sandbox.root)
+                block = instruction_block(self.project_instructions)
+                if block:
+                    instruction = (instruction or "") + "\n\n" + block
+            except Exception:  # noqa: BLE001 — project instructions are best-effort context
+                traceback.print_exc()
 
         # 操作员长期记忆
         chat = getattr(self.manager, "chat", None)
@@ -529,12 +585,19 @@ class RunDriver:
             }
             if self.general:
                 binding["workspace"] = "workspace"
+            if getattr(self, "project_instructions", None):
+                # The exact bytes that entered the prompt, with their hashes.
+                # This is the audit trail for "which conventions did the model see".
+                binding["project_instructions"] = instructions_binding(self.project_instructions)
             if self.extra_allowed:
                 binding["mcp_imports"] = self.extra_allowed
             grant = dict(self.scenario.grant)
             if self.extra_allowed:
                 grant["allowed_tools"] = list(grant.get("allowed_tools") or []) + self.extra_allowed
             allowed_tools = list(self.scenario.allowed_tools) + self.extra_allowed
+            allowed_tools, requested_tools = filter_toolset(self.run.spec, allowed_tools)
+            if requested_tools:
+                binding["toolset"] = requested_tools
             task = self.harness.create(
                 task_id=f"task-{self.run.id}",
                 objective=self.run.objective,
@@ -651,12 +714,112 @@ class RunDriver:
         )
         return self.loop.resume_operator_approval(gate.task, gate, step).status
 
+    def _use_capability_runtime(self) -> bool:
+        spec = getattr(self.run, "spec", None) or {}
+        selected = spec.get("capabilityRuntime", True) not in (False, "off", "legacy")
+        return bool(
+            selected
+            and os.environ.get("FCODE_CAPABILITY_RUNTIME", "1") != "0"
+            and getattr(self, "fast", False)
+            and getattr(self, "general", False)
+            and getattr(self, "sandbox", None) is not None
+            and spec.get("fastProfile") == "motion-render"
+            and not self.scenario.crash_at
+            and not getattr(self, "recover_pending", None)
+        )
+
+    def _capability_constraints(self) -> dict[str, Any]:
+        documents: dict[str, str] = {}
+        for name in ("README.md", "verify.py"):
+            try:
+                record = self.sandbox.read(name)
+            except Exception:  # noqa: BLE001 — an absent optional document is empty input
+                continue
+            documents[name] = str(record.get("content") or "")[:20_000]
+        return {
+            "instruction": self._build_instruction(),
+            "documents": documents,
+            "verification": dict((self.run.spec or {}).get("verification") or {}),
+            "artifact_policy": "index.html is the primary artifact; FCODE_RESULT.md is only a delivery receipt",
+        }
+
+    def _execute_capability(self, task):
+        """Run motion.render as staged Work, with Harness-owned side effects."""
+        if self.general and self.motion_probe is None:
+            from motion_frames import MotionProbe
+
+            self.motion_probe = MotionProbe(
+                self.sandbox.root,
+                out_dir=self.run_dir / "motion_frames",
+                node=os.environ.get("FCODE_NODE_BIN"),
+            )
+        verification_loop = self.rt.Loop(
+            self.harness,
+            planner=self.planner,
+            max_rounds=self.max_rounds,
+            observer=self.observer,
+            control=self.control,
+            result_tools=self.module.result_tools,
+        )
+        bridge = HarnessCapabilityBridge(
+            self.harness,
+            task,
+            control=self.control,
+            observer=self.observer,
+            loop=verification_loop,
+            motion_probe=self.motion_probe,
+            host_verify_times_ms=HOST_VERIFY_TIMES_MS,
+        )
+        runtime = build_motion_capability(
+            self.sandbox,
+            bridge,
+            probe=self.motion_probe,
+            verify=bridge.verify,
+            executor=bridge.execute,
+            child_run_id=f"cap-{self.run.id}",
+        )
+        bridge.bind(runtime)
+        try:
+            result = runtime.run(self.run.objective, constraints=self._capability_constraints())
+        except Exception:
+            bridge.finish()
+            raise
+        task = bridge.finish()
+        self.capability_result = result
+        self.capability_quality = dict(bridge.final_quality or result.quality or {})
+        if task.status not in TERMINAL_STATUS:
+            payload = result.to_dict()
+            task = self.harness.record(
+                task,
+                "capability_succeeded" if result.succeeded else "capability_failed",
+                payload,
+            )
+            target = "succeeded" if result.succeeded else "failed"
+            task = self.harness.finalize(
+                task,
+                target,
+                failure=(
+                    None if result.succeeded else {
+                        "code": result.reason or "CAPABILITY_FAILED",
+                        "message": f"capability stopped in {result.stage}: {result.reason}",
+                        "retryable": False,
+                    }
+                ),
+                event="task_succeeded" if result.succeeded else "task_failed",
+                detail={"code": "CAPABILITY_PASSED" if result.succeeded else result.reason,
+                        "stage": result.stage, "child_run_id": result.child_run_id},
+            )
+        self.observer.terminal(task, result.to_dict())
+        return task
+
     def _execute_task(self, task) -> str:
         try:
             if self.scenario.crash_at:
                 task = _run_crash(
                     self.rt, self.harness, self.store, self.world, self.scenario, task, self.observer, self.db,
                 )
+            elif self._use_capability_runtime():
+                task = self._execute_capability(task)
             else:
                 task = self.loop.run(task.id)
             if self.scenario.reconcile and task.status == "recovery_required":
@@ -704,6 +867,32 @@ class RunDriver:
             delivery = self.rt.project_delivery(self.sandbox, self.project)
             patch = delivery.pop("patch")
             (self.run_dir / "changes.patch").write_text(patch, encoding="utf-8")
+            if self.capability_result is not None:
+                # The capability reached its terminal state only after this
+                # artifact hash passed final host quality and declared verify.
+                # Publish that same fact instead of taking a contradictory
+                # post-terminal sample.
+                delivery["capability"] = self.capability_result.to_dict()
+                if self.capability_quality:
+                    delivery["quality"] = self.capability_quality
+            elif (self.run.spec or {}).get("fastProfile") == "motion-render" and self.sandbox is not None:
+                # Legacy rollback path: quality remains a best-effort publication
+                # observation and cannot repair the already settled task.
+                try:
+                    record = self.sandbox.read("index.html")
+                    motion = analyze_motion(str(record.get("content") or ""))
+                    probe = getattr(self, "motion_probe", None)
+                    delivery["quality"] = merge_quality(
+                        motion,
+                        probe.probe("index.html", times=HOST_VERIFY_TIMES_MS)
+                        if probe is not None else None,
+                    )
+                except Exception as error:  # noqa: BLE001 — quality is best-effort, not a run failure
+                    delivery["quality"] = {
+                        "status": "unknown",
+                        "score": 0,
+                        "issues": [f"quality check unavailable: {error}"],
+                    }
             (self.run_dir / "project.json").write_text(
                 json.dumps(delivery, ensure_ascii=False, indent=2), encoding="utf-8",
             )

@@ -47,11 +47,19 @@ class Harness:
     RESERVED_TOKENS = 1_000
     RESERVED_COST_MICROUSD = 500
 
-    #: Dispatches per round. The second one exists because truncated JSON and
-    #: dropped transports are transient model-side failures, not task-level
-    #: verdicts; it is charged like any other dispatch.
+    #: Dispatches per round. The second one exists because truncated JSON,
+    #: dropped transports and a structurally invalid plan are transient
+    #: model-side failures, not task-level verdicts; it is charged like any
+    #: other dispatch and the retry prompt carries the rejection reason.
     PROPOSAL_ATTEMPTS = 2
-    RETRYABLE_PROPOSAL_CODES = frozenset({"PROPOSAL_MALFORMED", "MODEL_CALL_FAILED"})
+    RETRYABLE_PROPOSAL_CODES = frozenset({
+        "PROPOSAL_MALFORMED",
+        "MODEL_CALL_FAILED",
+        "BUDGET_EXHAUSTED_REASONING",
+        "EMPTY_CONTENT",
+        "PLAN_SCHEMA_INVALID",
+        "PLAN_ADDITION_INVALID",
+    })
 
     def __init__(
         self,
@@ -98,6 +106,8 @@ class Harness:
         #: Fast profiles ask the model to commit to a plan first (native:
         #: submit_plan tool call; JSON: additions field).
         self.plan_tool = bool(profile.plan_tool) if profile is not None else False
+        #: Narrow profiles can ask the loop to stop a read-only stall.
+        self.stall_guard = bool(getattr(profile, "stall_guard", False)) if profile is not None else False
         #: Native function calling needs the registry schemas at the provider
         #: boundary. They are attached once, outside the prompt context, so the
         #: user message does not duplicate every tool schema on every round.
@@ -237,22 +247,35 @@ class Harness:
 
             setter = getattr(provider, "set_native_tools", None)
             if callable(setter):
-                schemas = to_openai_tools(self.registry, allowed=set(task.allowed_tools))
+                schema_allowed = set(task.allowed_tools)
+                stage_allowed = context.get("native_tools_allowed")
+                if stage_allowed is not None:
+                    # A capability may expose fewer schemas for one stage without
+                    # mutating the task's immutable authorization grant.
+                    schema_allowed &= {str(name) for name in stage_allowed}
+                schemas = to_openai_tools(self.registry, allowed=schema_allowed)
                 if self.plan_tool:
                     schemas = [*schemas, SUBMIT_PLAN_SCHEMA]
                 setter(schemas)
 
-        # One paid retry for transient/parse failures. A truncated JSON body or
-        # a dropped transport is not evidence that the task is unsalvageable;
-        # the second dispatch is charged like any other call, and the failed
-        # first one is never refunded (we already sent it).
+        # One paid retry for transient/parse failures. A truncated JSON body,
+        # a dropped transport or a structurally invalid plan is not evidence
+        # that the task is unsalvageable; the second dispatch is charged like
+        # any other call, the failed first one is never refunded, and the
+        # rejection reason travels in the retry context so the model can fix
+        # the shape instead of repeating it.
+        retry_feedback: dict[str, Any] | None = None
         for attempt in range(1, self.PROPOSAL_ATTEMPTS + 1):
+            attempt_context = (
+                {**call_context, "retry_feedback": retry_feedback}
+                if retry_feedback is not None else call_context
+            )
             # Charge before dispatch. A provider that never answers still costs.
             # Providers may declare a context-aware upper bound; local providers
             # fall back to the historical constants.
             reserve = getattr(provider, "reserve", None)
             if callable(reserve):
-                reserve_tokens, reserve_cost = reserve(call_context)
+                reserve_tokens, reserve_cost = reserve(attempt_context)
             else:
                 reserve_tokens = int(getattr(provider, "reserve_tokens", self.RESERVED_TOKENS))
                 reserve_cost = int(getattr(provider, "reserve_cost_microusd", self.RESERVED_COST_MICROUSD))
@@ -264,9 +287,10 @@ class Harness:
             )
 
             try:
-                proposal = provider.propose(call_context)
+                proposal = provider.propose(attempt_context)
             except AgentError as error:
                 if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    retry_feedback = self._retry_feedback(error)
                     task = self._retry_proposal(task, context, attempt, error)
                     continue
                 return self._unknown(task, intent, error), None
@@ -281,6 +305,7 @@ class Harness:
                 plan = validate_plan(proposal.plan)
             except AgentError as error:
                 if attempt < self.PROPOSAL_ATTEMPTS and error.code in self.RETRYABLE_PROPOSAL_CODES:
+                    retry_feedback = self._retry_feedback(error)
                     task = self._retry_proposal(task, context, attempt, error)
                     continue
                 # A response arrived and it was illegal. That is a confirmed failure,
@@ -305,10 +330,12 @@ class Harness:
                 # not an unknown outcome — but one retry may still produce a
                 # well-formed body.
                 if attempt < self.PROPOSAL_ATTEMPTS:
-                    task = self._retry_proposal(
-                        task, context, attempt,
-                        AgentError("PROPOSAL_MALFORMED", f"plan body rejected by integrity layer: {error}"),
+                    error = AgentError(
+                        "PROPOSAL_MALFORMED",
+                        f"plan body rejected by integrity layer: {error}",
                     )
+                    retry_feedback = self._retry_feedback(error)
+                    task = self._retry_proposal(task, context, attempt, error)
                     continue
                 failed = task.with_model(status="failed", receipt=proposal.receipt())
                 failed.failure = {
@@ -326,6 +353,36 @@ class Harness:
                     None,
                 )
         raise AssertionError("proposal loop must return on its last attempt")
+
+    def _retry_feedback(self, error: AgentError) -> dict[str, Any]:
+        """The context block the retry dispatch carries.
+
+        Without this, a plan-shape error is retried with the exact same prompt
+        and the model has no reason to answer differently. The block is
+        context, not a chain event: the chain already records the
+        ``proposal_retry`` with the same code and message.
+        """
+        if error.code in ("BUDGET_EXHAUSTED_REASONING", "EMPTY_CONTENT"):
+            instruction = (
+                "Your previous reply produced no tool call. This retry has a "
+                "larger completion budget. Reply with exactly one executable "
+                "tool call now; do not write prose, a plan, or only reasoning."
+            )
+        else:
+            cap = min(6, max(1, int(self.max_steps or 1)))
+            width = "exactly one step" if cap == 1 else f"1-{cap} steps"
+            instruction = (
+                f"Reply again with one valid proposal ({width}); each step needs "
+                "id, tool and an object of arguments. Native mode: call at least "
+                "one executable tool; submit_plan alone is not an action. Do not "
+                "answer in prose."
+            )
+        return {
+            "reason": "your previous reply was rejected before execution",
+            "code": error.code,
+            "message": error.message[:300],
+            "instruction": instruction,
+        }
 
     def _retry_proposal(
         self,

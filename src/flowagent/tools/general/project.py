@@ -36,8 +36,10 @@ _EXCLUDED_DIRS = {
 _EXCLUDED_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc", ".pyo"}
 _SAFE_ENV_FILES = {".env.example", ".env.sample", ".env.template"}
 _DELIVERY_EXCLUDES = (
+    ".shell-home/", ".cache/",
     "__pycache__/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
     "node_modules/", "dist/", "build/", "target/",
+    "*.pyc", "*.pyo",
 )
 
 

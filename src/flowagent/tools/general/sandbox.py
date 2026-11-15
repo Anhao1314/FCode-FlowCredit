@@ -47,6 +47,20 @@ _GIT_IDENTITY = [
     "-c", "user.email=runtime@fcode.local",
 ]
 
+#: Runtime-private files that must not appear as project content in tools or
+#: the UI. `.shell-home` is the HOME overlay used to strip credentials; Python
+#: and test caches are execution residue, not the operator's source tree.
+_INTERNAL_PARTS = {".shell-home", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+_INTERNAL_SUFFIXES = (".pyc", ".pyo")
+
+
+def _is_internal(relative: str) -> bool:
+    parts = relative.split("/")
+    return (
+        any(part in _INTERNAL_PARTS for part in parts)
+        or relative.endswith(_INTERNAL_SUFFIXES)
+    )
+
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -149,8 +163,10 @@ class WorkspaceSandbox:
             # reads still use resolve(); listings fail closed by omitting links.
             if path.is_symlink() or not path.is_file() or self._is_metadata(path):
                 continue
-            data = path.read_bytes()
             relative = path.relative_to(self.root).as_posix()
+            if _is_internal(relative):
+                continue
+            data = path.read_bytes()
             out.append({
                 "path": relative,
                 "bytes": len(data),

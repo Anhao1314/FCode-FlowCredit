@@ -6,6 +6,7 @@ test("Work 落地渲染:任务舞台 + 模型徽章 + 侧栏导航", async ({ pa
   await page.goto("/");
   await page.waitForSelector('body[data-booted="1"]');
   await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
+  await expect(page.locator("#chain-badge")).toContainText("无进行中的运行");
   await expect(page.locator(".moonshot-title")).toContainText("Build your");
   await expect(page.locator("#chat-projects")).toContainText("项目");
   // 模型徽章来自 paintModelBadge(新 composer-panel 模块):全新档案的

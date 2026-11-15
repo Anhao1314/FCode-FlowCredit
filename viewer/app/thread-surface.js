@@ -82,6 +82,14 @@ export function createThreadSurface(deps) {
     return "";
   }
 
+  /* 交付物在最终回复正文里，不要求用户先打开右侧 rail。项目任务只展示
+     本次变更过的文件；媒体文件可直接预览，代码文件保留状态标签。 */
+  function answerDeliveryFor(trace) {
+    if ((trace.terminal || {}).status !== "succeeded") return "";
+    if (!isProjectTrace(trace)) return "";
+    return d.projectWork.projectDeliveryHtml(trace) || "";
+  }
+
   function threadOptions(trace, session) {
     const running = !!(session && session.running && !session.finished);
     const budget = lastBudget(trace);
@@ -102,10 +110,21 @@ export function createThreadSurface(deps) {
         })
         : "",
       answerText: source => answerTextFor(source),
+      answerDeliveryHtml: source => answerDeliveryFor(source),
       answerDetailTitle: source => answerDetailTitleFor(source),
       answerDetailHtml: source => answerDetailFor(source),
-      answerActionsHtml: source => d.runActionsHtml(source),
+      // Successful answers are a conversation, not an admin panel: no report/
+      // diagnostics/cost chips in the thread. Failures keep their recovery
+      // actions, and the rail still carries the full evidence.
+      answerActionsHtml: source => ((source.terminal || {}).status === "succeeded"
+        ? "" : d.runActionsHtml(source)),
       failureText: terminal => d.failureConclusion(terminal.failure || {}),
+      statusArtifactHtml: source => {
+        const terminal = source.terminal || {};
+        if (!terminal.status || terminal.status === "succeeded") return "";
+        return isProjectTrace(source)
+          ? d.projectWork.projectArtifactStateHtml(source) || "" : "";
+      },
       failureDetailHtml: source => d.failureJudgmentHtml(source, source.terminal || {}),
     };
   }
@@ -200,8 +219,16 @@ export function createThreadSurface(deps) {
       answering: !!(s && s.answering),
       terminal: source.terminal || {},
     };
-    const { items } = projectTaskThread(source, liveState, threadOptions(source, s));
+    const { items } = projectTaskThread(
+      source,
+      live ? Object.assign({}, liveState, { now: Date.now() }) : liveState,
+      threadOptions(source, s),
+    );
     patchThread(container, items, threadCtx(), threadCacheFor(s));
+    const terminalStatus = ((source.terminal || liveState.terminal || {}) || {}).status || "";
+    if (container.dataset && container.classList && !container.dataset.processTouched) {
+      container.classList.toggle("hide-tools", terminalStatus === "succeeded" || terminalStatus === "failed");
+    }
     return items;
   }
 
@@ -211,29 +238,18 @@ export function createThreadSurface(deps) {
 
   function projectRunHtml(trace, { live = false } = {}) {
     const active = d.currentWorkTab();
-    const drawerOpen = active !== "activity";
     return `<div class="project-work-layout" data-project-work="${esc(trace.task?.id || "")}">
       <div class="work-view-tabs" data-work-tabs role="tablist" aria-label="项目任务视图">${d.projectWork.projectTabsHtml(trace, active)}</div>
       <section class="work-pane" data-work-pane="activity">
         ${d.projectWork.projectContextHtml(trace)}
         ${threadMountHtml()}
       </section>
-      <aside class="work-inspector" data-work-inspector${drawerOpen ? "" : " hidden"} aria-label="变更与文件检查器">
-        <div class="work-inspector-head">
-          <span class="work-inspector-kicker">检查器</span>
-          <button type="button" class="work-inspector-close" data-work-close aria-label="关闭检查器">
-            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-          </button>
-        </div>
-        <section class="work-pane" data-work-pane="changes"${active === "changes" ? "" : " hidden"}><div id="changes-slot">${d.projectWork.projectResultHtml(trace)}</div></section>
-        <section class="work-pane" data-work-pane="files"${active === "files" ? "" : " hidden"}><div id="files-slot">${trace.projectWorkspace ? d.projectWork.projectFilesHtml(trace) : '<div class="work-pane-empty"><b>查看任务文件</b><span>读取本次运行的隔离工作区，不会访问原目录。</span></div>'}</div></section>
-      </aside>
     </div>`;
   }
 
   return {
-    observationSummary, threadCtx, artifactsOf, answerTextFor, answerDetailTitleFor,
-    answerDetailFor, threadOptions, liveStateOf, carryDisclosure, patchThread,
-    threadCacheFor, paintThread, threadMountHtml, projectRunHtml,
+    observationSummary, threadCtx, artifactsOf, answerTextFor, answerDeliveryFor,
+    answerDetailTitleFor, answerDetailFor, threadOptions, liveStateOf, carryDisclosure,
+    patchThread, threadCacheFor, paintThread, threadMountHtml, projectRunHtml,
   };
 }

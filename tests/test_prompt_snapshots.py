@@ -37,6 +37,14 @@ EXPECTED = {
         "fcode.prompt/general-fast-native-v3", 3846,
         "a93ba5b28f43456c89af83ae22b7bd9ef1aa1e97d3f51667d150ce58db598def",
     ),
+    "motion-render": (
+        "fcode.prompt/motion-render-v12", 3287,
+        "2af7f3f639d8977bca6f072a5ee8a6cb85d658107193f705390d441fe723ae23",
+    ),
+    "capability-motion": (
+        "fcode.prompt/capability-motion-v2", 1835,
+        "dd9d23371852e09c13afe3d5ff10313de751583595715ce1e27f498345a0251a",
+    ),
 }
 
 CHAT_SHA256 = "bac45dbfd2af50025aa7e71ea2a461fc11b084f0d3e0141307205eae19a362f8"

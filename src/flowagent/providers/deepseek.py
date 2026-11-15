@@ -62,6 +62,7 @@ class DeepSeekProvider(OpenAICompatProvider):
         max_prompt_tokens: int = 4_096,
         json_mode: bool = True,
         reasoning_effort: str | None = None,
+        stream: bool = True,
     ) -> None:
         super().__init__(
             api_key=api_key,
@@ -80,9 +81,14 @@ class DeepSeekProvider(OpenAICompatProvider):
             require_https=True,
             receipt_detail="compact",
             max_prompt_tokens=max_prompt_tokens,
+            stream=stream,
         )
         # Historical attribute names the preset's callers rely on.
         self.max_tokens = max_tokens
+        # This preset uses ``max_tokens`` on the wire; the host override is
+        # DEEPSEEK_MAX_TOKENS, not the generic *_MAX_COMPLETION_TOKENS name.
+        self.max_completion_env = "DEEPSEEK_MAX_TOKENS"
+        self.client.max_completion_env = "DEEPSEEK_MAX_TOKENS"
 
 
 class DeepSeekPolicy:

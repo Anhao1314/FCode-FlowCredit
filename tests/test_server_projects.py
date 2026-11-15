@@ -8,6 +8,8 @@ import shutil
 import tempfile
 import time
 import unittest
+import urllib.error
+import urllib.request
 import uuid
 
 from tests.server_harness import ConsoleServer, request
@@ -198,6 +200,77 @@ class ProjectApiTests(unittest.TestCase):
         status, body = self._post(f"/api/runs/{run_id}/project", {"projectId": ""})
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)["projectId"], "")
+
+
+class WorkspaceMediaTests(unittest.TestCase):
+    """Raw delivery bytes for <img>/<video>, under the workspace jail."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = pathlib.Path(cls._tmp.name)
+        runs_dir = cls.root / "runs"
+        run_dir = runs_dir / "run-media-test"
+        workspace = run_dir / "workspace"
+        workspace.mkdir(parents=True)
+        (workspace / "preview.gif").write_bytes(b"GIF89a-preview")
+        (workspace / "notes.txt").write_text("text", encoding="utf-8")
+        frames = run_dir / "quality-frames"
+        frames.mkdir()
+        (frames / "contact.png").write_bytes(b"\x89PNG\r\n\x1a\ncontact")
+        (run_dir / "meta.json").write_text(json.dumps({
+            "id": "run-media-test",
+            "template": "general-research",
+            "objective": "media",
+            "created": "2026-11-14T09:00:00+00:00",
+            "status": "succeeded",
+        }), encoding="utf-8")
+        cls.server = ConsoleServer(
+            runs_dir=runs_dir,
+            config_dir=cls.root / "config",
+            timeout=30,
+        )
+        cls.server.start()
+        # LIFO: stop the server before removing the tree it is reading.
+        cls.addClassCleanup(cls._tmp.cleanup)
+        cls.addClassCleanup(cls.server.stop)
+
+    def _raw(self, path: str):
+        try:
+            with urllib.request.urlopen(self.server.url(path), timeout=10) as response:
+                return response.status, response.headers.get("Content-Type"), response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.headers.get("Content-Type"), error.read()
+
+    def test_gif_is_served_as_image_bytes(self) -> None:
+        status, content_type, body = self._raw(
+            "/api/runs/run-media-test/workspace-media?path=preview.gif")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/gif")
+        self.assertEqual(body, b"GIF89a-preview")
+
+    def test_non_media_and_traversal_are_refused(self) -> None:
+        status, _, _ = self._raw(
+            "/api/runs/run-media-test/workspace-media?path=notes.txt")
+        self.assertEqual(status, 404)
+        status, _, _ = self._raw(
+            "/api/runs/run-media-test/workspace-media?path=../meta.json")
+        self.assertEqual(status, 404)
+
+    def test_quality_contact_sheet_is_served_from_the_run_directory(self) -> None:
+        status, content_type, body = self._raw(
+            "/api/runs/run-media-test/quality-frame?name=contact.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG"))
+
+    def test_quality_frame_names_are_flat_png_only(self) -> None:
+        status, _, _ = self._raw(
+            "/api/runs/run-media-test/quality-frame?name=../meta.json")
+        self.assertEqual(status, 400)
+        status, _, _ = self._raw(
+            "/api/runs/run-media-test/quality-frame?name=missing.png")
+        self.assertEqual(status, 404)
 
 
 if __name__ == "__main__":

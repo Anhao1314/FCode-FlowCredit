@@ -115,6 +115,7 @@ Work 把执行过程组织成 **项目 → 运行 → 状态／计划 → 工具
 - **结果可以展开核对**：工具默认保持一行摘要，展开后查看参数、命令、真实 diff、原始输出与签名收据。diff 来自沙箱的实际前后内容，不由前端推测。
 - **审批属于具体一轮**：提交后只禁用当前审批并显示等待状态，下一轮审批不会被旧状态卡住；`?run=` 与 `?trace=` 深链始终进入 Work。
 - **项目交付保持隔离**：普通项目在独立副本中执行，交付 `FCODE_RESULT.md`，通过独立验证后可切换执行、变更和文件视图。
+- **动效交付带确定性质量门**：单文件 HTML/SVG 动画在 0/300/600/900 ms 采样，检查脚-支撑面距离（≤25 px，支撑面可以是 `.pedal`/`.deck`/`.support`）、腿/轮包围盒、`.hip` 髋锚点、腿长与腿端点；报告带 `coverage`，缺失测量显示「质量未验证」而不是 100 分。contact sheet、覆盖项和具体 issues 直接出现在最终回复，不依赖模型自述。
 - **Chat 连续对话不串线**：流式回答按线程与世代隔离；完成或停止后立即发送下一条，不会被旧回读覆盖，分页与归档也不会带回失效列表。
 
 真实模型接入与 Provider 配置见 [Kimi 接入说明](docs/kimi.md)。密钥只放在本机环境或本地配置中，不要提交到仓库。
@@ -164,7 +165,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**1,227 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、391 项前端测试、36 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**1,304 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、404 项前端测试、36 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -202,6 +203,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [Work 模式](docs/work-mode.md) | 项目实体、运行看板与待处理队列的当前边界 |
 | [治理解释层](docs/gov-explainer.md) | 模型解释确定性证据（非裁决）的边界与 API |
 | [审计员 triage](docs/gov-triage.md) | 模型只提议跟进优先级；影子/受控两档，复扫需批准 |
+| [Jev 视觉 critic](docs/jev-visual-critic.md) | 用图像型 System One 给动效做 advisory 第二意见，不接终态 |
 | [治理运行流](docs/gov-runs.md) | 对话/团队/定时共用一条运行流：来源、预算与审批语义 |
 | [目标级蜂群](docs/gov-swarm.md) | 多目标 fan-out：宿主并发调度、取消/重试与运行图 |
 | [Fixer 修复通道](docs/gov-fixes.md) | 补丁隔离验证、人工批准、写回与自动复扫 |

@@ -260,7 +260,7 @@ class GeneralPlanner:
             return self._compose_results(updated, observation)
         if observation.tool == "edit_file":
             self._edits.append(dict(observation.arguments))
-            return self._settle_sequential(plan, "edit_file", observation)
+            return self._settle_edit(plan, observation)
         if observation.tool == "write_file":
             return self._settle_write(plan, observation)
         if observation.tool == "spawn_subagents":
@@ -286,6 +286,31 @@ class GeneralPlanner:
         for todo in plan.todos:
             if todo.tool == tool and todo.status in ("pending", "active"):
                 return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+        return plan
+
+    def _settle_edit(self, plan: Plan, observation: Observation) -> Plan:
+        """Settle an edit only against the artifact and anchor it actually used.
+
+        Several model-added todos may target different sections of one file. Tool
+        order cannot prove which one ran: only an exact declared ``old_text`` can.
+        The single unanchored blueprint edit remains sequential for compatibility;
+        ambiguous unanchored edits stay pending instead of consuming a sibling's
+        intended work.
+        """
+        path = observation.arguments.get("path")
+        old_text = observation.arguments.get("old_text")
+        candidates = [
+            todo for todo in plan.todos
+            if todo.tool == "edit_file"
+            and todo.status in ("pending", "active")
+            and (todo.arguments or {}).get("path") == path
+        ]
+        for todo in candidates:
+            declared = (todo.arguments or {}).get("old_text")
+            if declared is not None and declared == old_text:
+                return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+        if len(candidates) == 1 and candidates[0].arguments.get("old_text") is None:
+            return plan.mark(candidates[0].id, "done", evidence=(observation.result_hash,))
         return plan
 
     def _settle_by_identity(self, plan: Plan, observation: Observation) -> Plan:
@@ -314,10 +339,18 @@ class GeneralPlanner:
     def _settle_write(self, plan: Plan, observation: Observation) -> Plan:
         path = str(observation.arguments.get("path") or "")
         for todo in plan.todos:
-            if todo.tool == "write_file" and todo.arguments.get("path") == path:
-                if todo.status in ("done", "abandoned"):
-                    return plan
-                return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+            if todo.tool != "write_file":
+                continue
+            declared = (todo.arguments or {}).get("path")
+            # A model-added todo that says "write index.html" in prose but
+            # omits arguments.path is satisfied by the first write; otherwise
+            # None == "index.html" left the todo pending forever and the loop
+            # degenerated into no-op ls_workspace calls.
+            if declared is not None and declared != path:
+                continue
+            if todo.status in ("done", "abandoned"):
+                return plan
+            return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
         return plan
 
     def _compose_report(self, plan: Plan, observation: Observation) -> Plan:

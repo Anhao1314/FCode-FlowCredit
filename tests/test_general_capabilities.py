@@ -19,6 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from flowagent.core.contracts import AgentError, Task  # noqa: E402
+from flowagent.core.plan import Plan, Todo  # noqa: E402
 from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
 from flowagent.demo.fixtures import get_scenario  # noqa: E402
@@ -445,6 +446,23 @@ class GeneralPlannerTests(unittest.TestCase):
             {"path": "research.md", "content": write.arguments["content"]},
             {"computed": True, "sha256_after": "cd" * 32, "path": "research.md"}))
         self.assertEqual(done.todos[-1].status, "done")
+
+    def test_a_model_added_write_todo_without_a_path_settles_on_a_write(self) -> None:
+        """submit_plan may say "写 index.html" without a path in arguments.
+
+        The old _settle_write compared None == "index.html" and left the todo
+        pending forever; the run then looped on no-op ls_workspace calls.
+        """
+        planner = GeneralPlanner([])
+        plan = Plan(goal="write a page", todos=[
+            Todo(id="m1", text="write index.html", tool="write_file", done_when="done:m1"),
+        ])
+        settled = planner.advance(plan, self._observation(
+            "write_file", {"path": "index.html", "content": "<html></html>"},
+            {"computed": True, "sha256_after": "ef" * 32, "path": "index.html"},
+        ))
+        self.assertEqual(settled.todos[0].status, "done")
+        self.assertTrue(settled.is_complete())
 
 
 class GeneralRunTests(unittest.TestCase):

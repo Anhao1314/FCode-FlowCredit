@@ -38,7 +38,9 @@ flowcredit/viewer/
   console_runtime.py  ← runtime 导入、单次运行、观察者与崩溃检查
   console_manager.py  ← 运行历史、创建、控制、续跑与持久化
   projects.py         ← Work 项目注册表（目录 / 验证命令 / 归档）
-  tests/              ← 前端纯函数测试（node --test，377 项）
+  motion_frames.py    ← 确定性动效帧采样/几何门（Playwright，无模型调用）
+  motion_frames.js    ← 暂停 CSS 动画、采样 4 帧、量脚-支撑面与腿-轮几何
+  tests/              ← 前端纯函数测试（node --test，404 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）
@@ -112,7 +114,7 @@ open 'http://127.0.0.1:8642/?desktop=1'
 
 - **添加内容**：`+` 第一层统一为「资料与来源 / 项目 / 工具 / 更多设置」，
   细节仍落到真实委托输入（来源白名单、隔离副本、工具注册表、模板与预算）。
-- **8 个模板**：`通用委托`（抓取公开来源 → 写 `research.md` / 写脚本 → 受限运行 → 修复 → 复跑），
+- **8 个模板**：`任务`（抓取公开来源 → 写 `research.md` / 写脚本 → 受限运行 → 修复 → 复跑），
   以及 7 个财务参考负载上的故障注入（越权、预算耗尽、预算追加、崩溃恢复、未知结果、
   目标无法完成、完整研究）。
 - **审批门**：默认只在关键工具前暂停；可切「逐步审批」或「自动」。允许 / 拒绝 / 超时都入链。

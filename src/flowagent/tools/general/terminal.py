@@ -16,6 +16,7 @@ bash 进程，``cd`` / ``export`` / 管道 / venv 激活跨调用存活——适
 from __future__ import annotations
 
 import os
+import site
 import subprocess
 import sys
 import threading
@@ -85,6 +86,22 @@ class PersistentShell:
                 self.cwd = self.cwd.resolve()
                 command = ["/usr/bin/sandbox-exec", "-p", _seatbelt_profile(self.cwd), *command]
                 env = dict(os.environ)
+                # ``site`` resolves the user site from HOME, so read it before
+                # HOME is redirected. Without this, a package installed in the
+                # operator's user site (Pillow on this machine, for example)
+                # imports under run_command but vanishes inside the jail.
+                user_sites = site.getusersitepackages()
+                if isinstance(user_sites, str):
+                    user_sites = [user_sites]
+                python_path = [
+                    part for part in (env.get("PYTHONPATH") or "").split(os.pathsep)
+                    if part
+                ]
+                for path in user_sites:
+                    if path and os.path.isdir(path) and path not in python_path:
+                        python_path.append(path)
+                if python_path:
+                    env["PYTHONPATH"] = os.pathsep.join(python_path)
                 # Keep caches/temp inside the writable jail; otherwise Python
                 # writes to $HOME and fails with EPERM.
                 env["HOME"] = str(self.cwd / ".shell-home")

@@ -46,7 +46,7 @@ test("finance work menu disables project and shows corpus scope", () => {
   const html = workAddMenuHtml({ general: false, scopeCount: 3 });
   assert.match(html, /已限定 3 份语料/);
   assert.match(html, /data-work-add="project" disabled/);
-  assert.match(html, /仅通用委托支持/);
+  assert.match(html, /仅任务模式支持/);
 });
 
 test("work menu escapes project and template text", () => {

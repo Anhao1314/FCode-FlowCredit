@@ -832,6 +832,12 @@ class FastAdvisorySettlementTests(unittest.TestCase):
         rounds = [
             (step("ls_workspace", {}), [
                 addition("p_never", "read_file", {"path": "stats.py"}),
+                addition("p_scene1", "edit_file", {
+                    "path": "index.html", "old_text": "<!-- SECTION: scene -->",
+                }),
+                addition("p_scene2", "edit_file", {
+                    "path": "index.html", "old_text": "<g id=\"wheel\"></g>",
+                }),
             ]),
             (step("write_file", {"path": "SUMMARY.md", "content": "# done\n"}), []),
         ]
@@ -841,12 +847,17 @@ class FastAdvisorySettlementTests(unittest.TestCase):
         states = {todo["id"]: todo["status"] for todo in final.plan_state["todos"]}
         self.assertEqual(states["out"], "done")
         self.assertEqual(states["p_never"], "abandoned")
+        self.assertEqual(states["p_scene1"], "abandoned")
+        self.assertEqual(states["p_scene2"], "abandoned")
         events = harness.store.events(final.id)
         settled = [e for e in events if e["type"] == "plan_steered"
                    and e["payload"]["detail"].get("action") == "settle_advisory"]
         self.assertEqual(len(settled), 1)
         self.assertEqual(settled[0]["payload"]["detail"]["by"], "host")
-        self.assertEqual(settled[0]["payload"]["detail"]["dropped"], ["p_never"])
+        self.assertEqual(
+            settled[0]["payload"]["detail"]["dropped"],
+            ["p_never", "p_scene1", "p_scene2"],
+        )
         self.assertEqual(final.result["verification"], "file-state-recomputed")
         verify_trace(recorder.build(harness.store.load(final.id)))
         stack.close()

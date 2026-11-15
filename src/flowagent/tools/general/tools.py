@@ -32,6 +32,7 @@ from .browser import BrowserRunner
 from .code_index import WorkspaceIndex
 from .commands import CommandRunner, MAX_TIMEOUT_SECONDS
 from .fetch import UrlFetcher
+from .motion_quality import analyze_motion, merge_quality
 from .sandbox import MAX_WRITE_CHARS, WorkspaceSandbox
 from . import summaries
 
@@ -40,6 +41,11 @@ __all__ = ["GENERAL_TOOLS", "MAX_BLOCK_REASON_CHARS", "build_general_tools"]
 #: A stop declaration is a reason, not a report: bounded so the prompt and the
 #: chain entry stay small. The model's explanation survives whole up to this.
 MAX_BLOCK_REASON_CHARS = 600
+
+#: Motion artifacts can exceed a provider's single-response envelope. A large
+#: full-file write gets a directional error instead of a transport drop; the
+#: model must emit a skeleton and append the remaining chunks.
+MOTION_MAX_SINGLE_WRITE_CHARS = 3_000
 
 
 def _out(name: str, kind: str, required: bool = True, nullable: bool = False) -> Param:
@@ -54,6 +60,9 @@ def build_general_tools(
     command_runner: CommandRunner | None = None,
     terminal_jail: bool = False,
     browser_artifact_root: Path | None = None,
+    motion_probe: Any = None,
+    repair_policy: bool = False,
+    scaffolded_paths: tuple[str, ...] = (),
 ) -> list[ToolSpec]:
     """Bind the sandbox, fetcher and command runner to their tool specs.
 
@@ -66,6 +75,28 @@ def build_general_tools(
     # reuses it for every later search; no disk cache and no new effect.
     code_index = WorkspaceIndex(sandbox.root)
     browser = BrowserRunner(sandbox.root, artifact_root=browser_artifact_root)
+    # Full-file reads already returned in this run, keyed by the sandbox's
+    # canonical path. A repeat with the same hash is projected as an
+    # ``unchanged`` marker instead of resending the body; the handler still
+    # re-reads the file, so changed content always returns in full. This is a
+    # context-economy cache, not an evidence cache: the chain still records a
+    # read with the current sha256, and ``force=true`` is the explicit escape
+    # hatch when a model needs the body again.
+    read_cache: dict[str, str] = {}
+    #: Motion quality is deterministic for a given artifact hash. Repeated
+    #: checks avoid another browser render; the host's final publication still
+    #: runs its own independent probe.
+    quality_cache: dict[tuple[str, str], dict[str, Any]] = {}
+    #: Paths this run already wrote through ``write_file``. In repair-policy
+    #: mode a second full-file write is refused: a repair must be a bounded
+    #: edit, not another 10–15 KB regeneration. ``rewrite=true`` is explicit.
+    written_paths: set[str] = set()
+    rewritten_paths: set[str] = set()
+    #: Paths the host seeded with a SECTION-anchored scaffold this run. A
+    #: scaffolded file may only change through bounded edit_file calls: the
+    #: whole point of the seed is that the model never has to emit the full
+    #: artifact in a single response.
+    scaffolded: frozenset[str] = frozenset(scaffolded_paths)
 
     def ls_workspace(_: dict[str, Any]) -> dict[str, Any]:
         entries = sandbox.ls()
@@ -83,6 +114,21 @@ def build_general_tools(
         offset = arguments.get("offset")
         limit = arguments.get("limit")
         if offset is None and limit is None:
+            previous = read_cache.get(record["path"])
+            read_cache[record["path"]] = record["sha256"]
+            if previous == record["sha256"] and not bool(arguments.get("force")):
+                return {
+                    "path": record["path"],
+                    "content": "",
+                    "sha256": record["sha256"],
+                    "bytes": record["bytes"],
+                    "file_sha256": record["sha256"],
+                    "unchanged": True,
+                    "note": (
+                        "content omitted: this exact file hash was already returned in "
+                        "this run; pass force=true to re-read the full body"
+                    ),
+                }
             return record
         try:
             start = int(offset) if offset is not None else 1
@@ -191,16 +237,119 @@ def build_general_tools(
     def git_status(_: dict[str, Any]) -> dict[str, Any]:
         return sandbox.status()
 
+    def motion_check(arguments: dict[str, Any]) -> dict[str, Any]:
+        """Check invariants and, when available, rendered foot/pedal contact.
+
+        The text checks are always available. The browser geometry probe is
+        injected by the console (it owns Playwright and the run's frame
+        directory); offline tools honestly report that geometry is
+        unavailable instead of inventing a pass.
+        """
+        path = str(arguments.get("path") or "index.html")
+        record = sandbox.read(path)
+        cache_key = (str(record.get("path") or path), str(record.get("sha256") or ""))
+        if cache_key in quality_cache:
+            cached = dict(quality_cache[cache_key])
+            cached["cached"] = True
+            cached["cache_note"] = (
+                "same artifact hash as an earlier motion_check; no new browser render. "
+                "Use the existing result; do not recheck unchanged content."
+            )
+            return cached
+        result = analyze_motion(str(record.get("content") or ""))
+        result = merge_quality(
+            result, motion_probe.probe(path) if motion_probe is not None else None,
+        )
+        # The frame names/hashes and contact-sheet path are for the host and
+        # the delivery card. Sending them to the model would spend tokens on
+        # data it cannot see; the geometry summary is the actionable part.
+        result.pop("frames", None)
+        result.pop("contact", None)
+        result.setdefault("frame_count", 0)
+        result.setdefault("hip_count", 0)
+        result.setdefault("legs_checked", 0)
+        result.setdefault("max_leg_start_to_hip_px", 0)
+        result.setdefault("min_leg_length_px", 0)
+        result.setdefault("max_leg_end_to_foot_px", 0)
+        result.setdefault("max_foot_pedal_px", 0)
+        result.setdefault("unpaired_feet", 0)
+        result.setdefault("leg_wheel_overlap_px2", 0)
+        result.setdefault("leg_leg_overlap_px2", 0)
+        result.setdefault("geometry_status", "unverified")
+        result.setdefault("coverage", {
+            "required": ["text_invariants"],
+            "covered": ["text_invariants"],
+            "uncovered": [],
+            "complete": True,
+        })
+        result.setdefault("required_fixes", [])
+        result.setdefault("foot_pedal_details", [])
+        result["cached"] = False
+        quality_cache[cache_key] = dict(result)
+        return result
+
     def write_file(arguments: dict[str, Any]) -> dict[str, Any]:
-        record = sandbox.write(arguments["path"], arguments["content"])
+        _, relative = sandbox.resolve(str(arguments["path"]))
+        rewrite = bool(arguments.get("rewrite"))
+        append = bool(arguments.get("append"))
+        content = str(arguments["content"])
+        if rewrite and append:
+            raise AgentError(
+                "WRITE_MODE_CONFLICT",
+                "append=true and rewrite=true are mutually exclusive",
+            )
+        if relative in scaffolded:
+            raise AgentError(
+                "WRITE_SCAFFOLDED_USE_EDIT",
+                f"{relative!r} is the host-seeded scaffold for this run; whole-file "
+                "writes are forbidden by design. Fill the SECTION anchors with "
+                "edit_file (each new_text bounded), re-adding the anchor comment "
+                "at the end of new_text when a section needs several edits",
+            )
+        if repair_policy and not append and len(content) > MOTION_MAX_SINGLE_WRITE_CHARS:
+            raise AgentError(
+                "WRITE_TOO_LARGE_USE_APPEND",
+                f"{len(content)} characters exceeds the motion single-write limit "
+                f"({MOTION_MAX_SINGLE_WRITE_CHARS}); write a small skeleton first, "
+                "then append the rest with append=true",
+            )
+        if repair_policy and relative in rewritten_paths:
+            raise AgentError(
+                "FILE_EXISTS_USE_EDIT",
+                f"{relative!r} already used its one deliberate full rewrite; "
+                "use edit_file for further repairs",
+            )
+        if repair_policy and relative in written_paths and not rewrite and not append:
+            raise AgentError(
+                "FILE_EXISTS_USE_EDIT",
+                f"{relative!r} was already written in this run; repair it with "
+                "edit_file, append=true, or pass rewrite=true for a deliberate full replacement",
+            )
+        target, _ = sandbox.resolve(str(arguments["path"]))
+        if append and target.is_file():
+            existing = sandbox.read(relative)["content"]
+            content = existing + content
+        record = sandbox.write(arguments["path"], content)
+        written_paths.add(str(record.get("path") or relative))
+        if rewrite:
+            rewritten_paths.add(relative)
         record["computed"] = True
         return record
 
     def edit_file(arguments: dict[str, Any]) -> dict[str, Any]:
+        new_text = arguments.get("new_text") or ""
+        if repair_policy and len(str(new_text)) > MOTION_MAX_SINGLE_WRITE_CHARS:
+            raise AgentError(
+                "EDIT_TOO_LARGE",
+                f"new_text carries {len(str(new_text))} characters, over the "
+                f"motion single-edit limit ({MOTION_MAX_SINGLE_WRITE_CHARS}); "
+                "fill the section in several anchored edits, re-adding the "
+                "SECTION anchor comment at the end of each new_text",
+            )
         record = sandbox.edit(
             arguments["path"],
             arguments["old_text"],
-            arguments.get("new_text") or "",
+            new_text,
         )
         record["computed"] = True
         return record
@@ -493,7 +642,11 @@ def build_general_tools(
         ToolSpec(
             name="read_file",
             summarize=summaries.summarize_read_file,
-            summary="Read one file from the workspace sandbox; paths are jailed and escapes refused",
+            summary=(
+                "Read one file from the workspace sandbox; paths are jailed and escapes refused. "
+                "A repeat of an unchanged full read returns a compact unchanged marker; "
+                "pass force=true to get the body again"
+            ),
             effect=EFFECT_READ,
             params=(
                 Param(
@@ -516,6 +669,13 @@ def build_general_tools(
                     minimum=1, maximum=400,
                     description="optional max lines for a ranged read (1-400)",
                 ),
+                Param(
+                    name="force",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description="return the full body even if this exact hash was already read",
+                ),
             ),
             handler=read_file,
             outputs=(
@@ -529,13 +689,15 @@ def build_general_tools(
                 _out("total_lines", "integer", required=False, nullable=True),
             ),
             version="1.1",
+            summary_version=2,
         ),
         ToolSpec(
             name="read_file_raw",
             summarize=summaries.summarize_read_file_raw,
             summary=(
                 "Read one file/slice with up to 3,500 chars kept in context "
-                "(same jail as read_file; use for code you intend to edit)"
+                "(same jail as read_file; use for code you intend to edit). "
+                "Repeated unchanged full reads are compact; pass force=true for the body"
             ),
             effect=EFFECT_READ,
             params=(
@@ -559,6 +721,13 @@ def build_general_tools(
                     minimum=1, maximum=400,
                     description="optional max lines (1-400)",
                 ),
+                Param(
+                    name="force",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description="return the full body even if this exact hash was already read",
+                ),
             ),
             handler=read_file,
             outputs=(
@@ -568,6 +737,7 @@ def build_general_tools(
                 _out("bytes", "integer"),
             ),
             version="1.0",
+            summary_version=2,
         ),
         ToolSpec(
             name="grep_workspace",
@@ -637,6 +807,50 @@ def build_general_tools(
                 _out("commit_count", "integer"),
             ),
             version="1.0",
+        ),
+        ToolSpec(
+            name="motion_check",
+            summary=(
+                "Check a single-file HTML animation's motion invariants: wheel/ground speed, "
+                "crank/leg period, foot/pedal contact, hip-anchored leg length/endpoints and "
+                "leg/wheel overlap. Returns coverage, geometry metrics and concrete issues; "
+                "missing measurements are unverified, not pass."
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="path", kind="string", required=False, nullable=True,
+                    description="HTML file relative to the workspace root (default index.html)",
+                ),
+            ),
+            handler=motion_check,
+            outputs=(
+                _out("status", "string"),
+                _out("score", "integer"),
+                _out("issues", "array"),
+                _out("wheel_speed_px_s", "integer"),
+                _out("background_speed_px_s", "integer"),
+                _out("slip_bp", "integer"),
+                _out("crank_period_ms", "integer"),
+                _out("leg_period_ms", "integer"),
+                _out("phase_mismatch_bp", "integer"),
+                _out("foot_pedal_hooks", "boolean"),
+                _out("frame_count", "integer"),
+                _out("hip_count", "integer"),
+                _out("legs_checked", "integer"),
+                _out("max_leg_start_to_hip_px", "integer"),
+                _out("min_leg_length_px", "integer"),
+                _out("max_leg_end_to_foot_px", "integer"),
+                _out("max_foot_pedal_px", "integer"),
+                _out("unpaired_feet", "integer"),
+                _out("leg_wheel_overlap_px2", "integer"),
+                _out("leg_leg_overlap_px2", "integer"),
+                _out("geometry_status", "string"),
+                _out("coverage", "object"),
+                _out("required_fixes", "array"),
+                _out("foot_pedal_details", "array"),
+            ),
+            version="1.3",
         ),
         ToolSpec(
             name="browser_inspect",
@@ -783,7 +997,10 @@ def build_general_tools(
         ToolSpec(
             name="write_file",
             summarize=summaries.summarize_write_file,
-            summary="Write one file into the workspace sandbox; approval-gated, hashed and git-committed",
+            summary=(
+                "Write one file into the workspace sandbox; approval-gated, hashed "
+                "and git-committed. Large motion artifacts may append chunks with append=true"
+            ),
             effect=EFFECT_WRITE,
             params=(
                 Param(
@@ -797,8 +1014,32 @@ def build_general_tools(
                     identity=False,
                     kind="string",
                     required=True,
-                    max_length=MAX_WRITE_CHARS,
-                    description=f"full file content, at most {MAX_WRITE_CHARS} characters",
+                    max_length=(MOTION_MAX_SINGLE_WRITE_CHARS if repair_policy else MAX_WRITE_CHARS),
+                    description=(
+                        f"file content or chunk, at most "
+                        f"{MOTION_MAX_SINGLE_WRITE_CHARS if repair_policy else MAX_WRITE_CHARS} "
+                        "characters"
+                    ),
+                ),
+                Param(
+                    name="rewrite",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description=(
+                        "set true only for a deliberate full replacement after the first "
+                        "write; ordinary repairs must use edit_file"
+                    ),
+                ),
+                Param(
+                    name="append",
+                    kind="boolean",
+                    required=False,
+                    nullable=True,
+                    description=(
+                        "append this chunk to the existing file; use a small skeleton "
+                        "then append when the full artifact would be too large for one response"
+                    ),
                 ),
             ),
             handler=write_file,
@@ -813,7 +1054,7 @@ def build_general_tools(
                 _out("truncated", "boolean"),
                 _out("computed", "boolean"),
             ),
-            version="1.0",
+            version="1.2",
         ),
         ToolSpec(
             name="edit_file",
@@ -991,6 +1232,7 @@ def build_general_tools(
 #: 三个只读工具（搜索与状态查询），注册顺序随之扩展。
 GENERAL_TOOLS: tuple[str, ...] = (
     "ls_workspace", "repo_map", "search_codebase", "read_file", "read_file_raw", "grep_workspace", "find_files", "git_status",
+    "motion_check",
     "browser_inspect", "browser_act",
     "write_file", "edit_file", "run_command", "terminal", "fetch_url",
     "report_blocked",
