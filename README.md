@@ -3,138 +3,219 @@
 
   # FCode
 
-  ## Audit the agents.
+  ## Build your own work.
 
-  **审计 agent 应用的 agent:每条发现附带可重放的 PoC,审计过程自身进哈希链。**
+  **让模型提议，让主机决定。**
+
+  一个本地优先、可恢复、可审计的 Agent Runtime。
 
   `MODEL PROPOSES · HOST VERIFIES · YOU DECIDE`
 
-  [![CI](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml/badge.svg)](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml)
+  [![CI](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml)
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+  ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)
 
   <img src="flowcredit/viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
 </div>
 
 ---
 
-## 30 秒版本
+FCode 把目标变成一段可检查的工作过程：模型负责理解与提议，Runtime 负责计划、权限、预算、执行、验证与恢复，人始终保留关键决定的控制权。
 
-- **问题**:agent 应用爆发式增长,而它们有一个传统软件没有的攻击面——**不可信内容会变成指令**。现有评测工具给出分数,却不给出能被第三方重新执行的证据。
-- **做法**:一个治理级 Runtime 之上(哈希链事件日志、权限门控、预算、SIGKILL 崩溃恢复,全部 stdlib-only),构建审计域 `flowaudit`:AGI 九类漏洞分类法、规则即数据、PoC 在受限子进程中重放、**宿主侧 oracle 判定**、负对照必带、审计包可独立复核。
-- **证据**:它审计了自己的仓库——端到端挖出 1 个真实缺陷(审批记忆参数无关免审批,带正反对照重放),7 个自体缺陷归档为 ground truth;一份 49 条意见的外部对抗评审被逐条裁决并合入契约(`docs/design-reviews/`)。
-- **状态**:Sprint 2 进行中。**765 项 Python 测试 + 177 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
+它不是另一个把模型输出包装成聊天气泡的壳。它关心的是更难的一组问题：读了哪些证据，调用了什么工具，为什么被允许执行，失败后能否修复，结果能否由独立过程复算，以及什么时候应该诚实地停下。
 
-## 它和评分工具的区别
+仓库是 monorepo 结构：可运行的项目在 [`flowcredit/`](flowcredit/README.md)，根目录保留仓库级入口、桌面端与归档原型。
 
-| | 评分型评测工具 | FCode |
+## 这一版：Work 是通用 agent，能力有类型
+
+Work 首先是通用 chat agent：理解目标、读写代码、执行命令、检查页面、整理证据、交付文件，也可以只回答一个问题。`motion.render` 不是一条写死的产品 workflow，而是宿主在合适场景下选择的一条 **typed capability**。
+
+```text
+Work agent
+   │  host routes a typed capability
+   ▼
+motion.render: draft → structure → motion → delivery
+   │  exit checks read the artifact itself
+   ▼
+typed result + quality + budget + reason
+```
+
+这条能力路径有三个刻意设计：
+
+**阶段只由产物推进。** `draft`、`structure`、`motion`、`delivery` 不按工具调用顺序结算，也不相信模型说“做好了”。每个阶段的 exit checks 读取当前 artifact 的字节；静态检查、真实浏览器帧探针、覆盖项和最终验证共同决定能不能进入下一阶段。
+
+**失败可以修，但不能无限重试。** 门拒绝动作时返回有界 `repair_ticket`（失败码、违反的约束、剩余 repair 次数、artifact hash），下一轮带着它继续修。每个失败码有独立上限；repair 用尽才失败。预算拆成 `model_calls`、`valid_actions`、`repairs` 与 `attempts`，不再把“模型调用了几次”和“产物真正改对了几次”混成一个数字。
+
+**坏改动可以回滚。** Runtime 保存最后一次构图安全的 revision。后续编辑如果把轮子或主体移出 scene，会记录 `artifact_rolled_back`，恢复 best revision，并发出 `COMPOSITION_REGRESSION`；模型必须回到安全版本上继续修，不能靠牺牲构图换取局部指标。
+
+### 一次工作里，谁负责什么
+
+| 角色 | 负责 | 不负责 |
 | --- | --- | --- |
-| 输出 | 分数、通过率 | **发现**:分类号 + 证据指针 + 可重放 PoC |
-| 判定 | 模型说通过就算通过 | **宿主 oracle 读事件链**,PoC 自报无效 |
-| 重放失败 | 常被记为通过或忽略 | 三值如实区分:未复现 / harness 缺陷 / 范围内不成立 |
-| 审计自身 | 无 | 审计事件入哈希链,`verify` 可回放 |
-| 依赖 | 通常重依赖 | **stdlib-only**,CI 断言 `dependencies = []` |
+| 模型 / Provider | 理解目标、提出动作、生成候选产物 | 不拥有权限、预算或最终判定 |
+| Work Harness | 计划、审批、预算、工具执行、持久事件、恢复 | 不替模型编造内容 |
+| Capability Runtime | 阶段迁移、动作门、artifact 检查、修复票据、回滚 | 不重写主循环的计费与授权 |
+| Host Verifier | 独立重算、真实帧探针、声明验证 | 不接受模型自报的“通过” |
+| 人 | 授权、拒绝、追加预算、停止、复核 | 不需要逐行读内部 journal |
 
-*(对比以公开了解为限,欢迎指正;竞品能力矩阵在持续核对。)*
+## 不是“计划完成”，是“产物通过”
+
+动效交付是一个很好的压力测试，因为它同时考验计划、工具、上下文、物理理解和验证。FCode 对单文件 HTML/SVG/CSS 动画的门包括：
+
+- **静态契约**：必需的动画名、DOM hooks、scene 结构与禁用项；
+- **真实帧探针**：Playwright 在 150/450/750/1050 ms 采样，测量脚与支撑面距离、髋锚点、腿长、腿端点、腿/轮重叠；
+- **构图不变量**：scene 与所有轮子的 bounding box、至少两个轮子、轮子与主体不出画（允许 2 px 贴边）；
+- **coverage**：缺一项测量就是 `unverified`，不是默认 100 分；
+- **最终验证**：独立 verifier 通过后，才允许产生 typed success。
+
+失败码也是类型化的：`NO_TOOL_CALL`、`INVALID_TOOL_CALL`、`ACTION_REJECTED`、`ARTIFACT_CHECK_FAILED`、`BUDGET_EXHAUSTED_REASONING`、`ACTION_REPAIR_EXHAUSTED_*` 等分别归因；旧的 `NO_DRAFT` / `STATIC_CHECK_FAILED` / `PROBE_NOT_PASS` 只作为兼容别名保留。
+
+### 一个真实的失败样本
+
+鹈鹕骑自行车，单文件 HTML/SVG/CSS，`deepseek-flash`，真实 Playwright，独立 verifier：
+
+| 指标 | 结果 |
+| --- | --- |
+| 耗时 / 调用 | 611.7 s，8 / 10 calls |
+| Token / 成本 | 155,425 / 300,000；75,350 / 200,000 µUSD |
+| 有效动作 / repair | 7 valid actions，0 repairs |
+| 产物 | 4,743 B，coverage 9/9 |
+| 构图 / 几何 | composition pass；脚-踏板 0 px、腿端点 0 px、腿长 73 px |
+| 终态 | **failed**，`ARTIFACT_CHECK_FAILED` |
+| 未通过项 | 轮速 188 px/s vs 背景 94 px/s，约 50% slip |
+
+这是一个失败样本，但它证明了门在工作：静态分数 85、构图和几何都通过，产物仍然没有因为“看起来快好了”被宣布成功。几何与构图已经可复算，运动物理还没有完全收敛；这正是当前版本继续要修的地方。
+
+## 审计域仍然在
+
+同一个 Runtime 之上，FCode 还有审计域 `flowaudit`：审计其他 agent 应用，而不是只给它们打分。
+
+- AGI 九类漏洞分类法，规则即数据；
+- PoC 在受限子进程中重放，宿主侧 oracle 判定；
+- 发现附带可重放证据，审计事件本身进哈希链；
+- REA 制品证据覆盖 Go 构建信息、bundle 解剖、entitlements 与 sidecar 静态事实；
+- 审计器用自己的仓库和 19 个版本化 Runtime 任务自检。
+
+```bash
+cd flowcredit
+python3 audit.py audit fixtures/demo-target
+
+# 制品审计：没有源码的 .app / 二进制 / JS 树
+python3 audit.py audit /Applications/EvoX.app \
+  --adapter rea --declared-features "microphone"
+```
+
+审计台读取 `work/audit/<audit_id>/` 的 bundle 与 PoC Evidence，不执行目标。启动 Work 控制台后从侧栏「审计台」进入（`#/audit`；旧 `/audit.html` 链接会 302 到新入口）。
+
+审计台与方法见 [审计方法论](flowcredit/docs/audit-methodology.md)、[REA 证据融合](flowcredit/docs/integration-rea.md) 和 [能力图谱](flowcredit/docs/capability-map.md)。
 
 ## 快速开始
 
-需要 Python 3.11+。离线演示零第三方依赖、零配置。
+需要 **Python 3.11+**。离线演示零第三方依赖、零配置。
 
 ```bash
 git clone https://github.com/Anhao1314/FCode-FlowCredit.git
 cd FCode-FlowCredit/flowcredit
 
-python audit.py audit fixtures/demo-target
-# → 30 秒看到审计器工作:内置漏洞样例应用 MiniAgent,
-#   2 条发现(审批记忆绕过 AGI-02 / 明文密钥 AGI-03),每条附可重放证据
-
-python demo.py all                      # 8 个治理场景,全部离线
-python audit.py audit .                 # 进阶:让审计器审计本仓库自己
+python3 demo.py all
 ```
 
-打开 Work 控制台(规划、执行、审批、Trace 回放):
+打开 Work 控制台：
 
 ```bash
-python viewer/server.py --repo . --port 8642   # http://127.0.0.1:8642/
+python3 viewer/server.py --repo . --port 8642
+# http://127.0.0.1:8642/
 ```
 
-真实模型接入见 [Kimi 配置](flowcredit/docs/kimi.md);密钥只存本机环境,不进仓库。
+默认落在 **Work 工作台**：项目、运行看板与待处理事项；Chat、任务历史、审批、轨迹回放和运行控制仍在同一壳内。
 
-## 工作原理
+真实模型接入与密钥配置见 [Kimi 接入](flowcredit/docs/kimi.md) 和 [DeepSeek 配置](flowcredit/docs/deepseek.md)。密钥只放在本机环境或本地配置中，不要提交到仓库。
 
-```text
-Rule (AGI taxonomy) → Candidate finding → PoC → Constrained replay
-                                                        │
-                                                        ↓
-Audit event chain ← Receipt ← Gated execution (budget / approval)
-      │
-      └──── "Who audits the auditor" = verify_chain, replayable ────┘
+复现实验里的鹈鹕样本：
+
+```bash
+python3 scripts/evaluate_work_pelican.py --output /tmp/fcode-pelican-eval
 ```
 
-三层结构:**内核**(flowagent:哈希链、门控、预算、恢复)、**审计域**(flowaudit:分类法、PoC、目标适配器、报告,单向依赖由 AST 测试强制)、**数据**(JSON 规则库、已知缺陷靶子)。静态与动态分会话,共享 `audit_id` 与不可变目标清单。
+脚本读取本机已保存的 provider 配置，默认硬限制为 10 calls / 300k tokens / 200,000 µUSD，并输出脱敏 `report.json`、workspace 与运动帧。
 
-四条不变量,每条都有测试背书:
+### 构建桌面应用
 
-1. **发现 = PoC 重放通过**,宿主 oracle 执行,模型与 operator 的意见都只是输入;
-2. **FAIL 不是"不存在"**——`not_reproduced / invalid_poc / not_vulnerable_under_scope` 三值如实区分;
-3. **目标内容永远不可信**——包括 Analyst 读完它之后写下的每一行 PoC(能力清单 + 宿主校验,越界即中止);
-4. **审计器每天用自己的 19 任务基准自检**——标尺必须先证明自己没坏。
+```bash
+bash desktop/build.sh
+```
 
-## 审计产品状态(诚实版)
+当前已实际验证 **macOS arm64**。其他平台需要对应环境重新构建与验收，不能由一次 macOS 构建推定可用。
 
-- **已交付**:AGI 分类法 v1、审计方法论、被测试钉死的证据 Schema、垂直切片(见"证据")、外部评审裁决记录、审计台设计稿。
-- **Ground truth**:`fixtures/fcode-self/` 记录本仓库 7 个已确认缺陷(含 file:line 证据),划分为 dev 集(01/02/06)与**盲测集**(04/07,不进任何规则与示例)。**用自己当第一个靶子是刻意的。**
-- **尚未实现**:动态探针全量、Jev 决策模型 shadow 接线、审计控制台 UI、容器级沙箱。本文档不提前声称它们存在。
+## 验证，而不是感觉
 
-## 诚实的边界
+```bash
+python3 -m unittest discover -s tests -q       # 1,389 Python tests
+node --test viewer/tests/*.test.js              # 417 frontend tests
+python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
+```
 
-- 治理较强的**单 Agent Runtime**,不是多 Agent 集群(多 agent 在 labs/)。
-- 本地工具约束是**应用层**的;重放隔离是"审计钩子 + env 剥离 + 临时副本"强度,不是 OS 级沙箱,容器层在路线图。
-- 审计分类法覆盖**已知模式**,报告会明示未覆盖面;发现面向修复,不面向武器化。
-- 在线模型评测保持 `NOT_RUN` 直至操作者明确授权;双 API 已冒烟(deepseek-flash / jev-1.14.0)。
-- Chat 回答有事件链与收据,不代表每个回答都经过领域 verifier 验证。
+当前完整回归：**1,389 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
-知道何时不能完成,和完成工作同样重要。
-
-## 文档地图
-
-| 方向 | 文档 |
-| --- | --- |
-| Runtime 完整说明 | [flowcredit/README.md](flowcredit/README.md) |
-| 系统架构 | [architecture](flowcredit/docs/architecture.md) |
-| 仓库全貌：分层、包职责、逐文件地图与结构债 | [architecture-map](flowcredit/docs/architecture-map.md) |
-| **Agent 应用威胁模型(AGI 分类法)** | [threat-model](flowcredit/docs/threat-model.md) |
-| **审计方法论与交互模型** | [audit-methodology](flowcredit/docs/audit-methodology.md) |
-| **规则编写指南** | [rule-authoring](flowcredit/docs/rule-authoring.md) |
-| **能力图谱(逐条可复现)** | [capability-map](flowcredit/docs/capability-map.md) |
-| **外部设计评审裁决记录** | [design-reviews](flowcredit/docs/design-reviews/) |
-| 任务基准、指标与证据 | [runtime-benchmark](flowcredit/docs/runtime-benchmark.md) |
-| 上下文与记忆 | [context-management](flowcredit/docs/context-management.md) |
-| 技术债与重构记录 | [refactor-evaluation](flowcredit/docs/refactor-evaluation.md) |
+测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 
 ## 项目结构
 
 ```text
 flowcredit/
-  src/flowagent/   Agent Runtime 内核:哈希链、门控、预算、恢复(域无关)
-  src/flowaudit/   审计域:分类法、PoC 受限重放、目标适配器、报告
-  audit-rules/     版本化规则库 + 证据 Schema(数据,非代码)
-  fixtures/        已知缺陷靶子(fcode-self = 自审计 ground truth)
-  viewer/          Work / Chat 控制台、SSE、Trace 回放
-  desktop/         桌面应用入口与构建脚本(macOS arm64 已验证)
-  tests/           765 项 Python 测试;viewer/tests/ 177 项前端测试
-archive/           v1 Node 原型(NO_GO 负结果,不参与 CI)
+  src/flowagent/
+    core/        合约、计划、哈希、SQLite 事件存储、签名收据
+    runtime/     状态机、权限、预算、人工控制、循环、恢复与 capability bridge
+    capabilities/ typed capability：manifest、artifact store、gate、阶段机
+    providers/   mock、本地、Kimi、DeepSeek 与 oracle
+    memory/      从事件日志重建模型可见上下文
+    tools/       工具注册表、沙箱、终端、浏览器与动效质量门
+    trajectory/  轨迹记录、导出与独立重算
+    benchmark/   版本化任务、独立 verifier、指标与真实运行证据
+  src/flowaudit/ 审计域：AGI 分类法、规则、受限重放、REA 制品证据
+  viewer/        Work / Chat / Audit 控制台、SSE、Trace 回放
+  desktop/       桌面应用入口与构建脚本
+  tests/         Python 单元、集成与端到端测试
+  docs/          架构、设计、能力与评估文档
+archive/          v1 Node 原型（NO_GO 负结果，不参与 CI）
 ```
+
+## 诚实的边界
+
+- FCode 当前是治理较强的 **单 Agent Runtime**，不是产品级多 Agent 集群。
+- `motion.render` 是第一条接入真实 Work 执行链的 typed capability；其他 capability 仍是库级能力，不自动路由。
+- 动效门测量的是契约、几何和构图，不是审美；Jev 视觉 critic 仍是 advisory，不接运行终态。
+- 上面的鹈鹕结果是一个在线失败样本，不是统计意义上的模型对比；当前仍未通过轮速/背景速度一致性。
+- 本地工具与命令有应用层约束，但不构成操作系统级安全沙箱。
+- REA 审计当前以静态事实为主；动态探针全量、容器级隔离仍在路线图。
+- Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
+- 恢复覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用。
+
+这些边界不是附注，而是产品设计的一部分：知道何时不能完成，和完成工作同样重要。
+
+## 继续深入
+
+| 文档 | 内容 |
+| --- | --- |
+| [Runtime 完整说明](flowcredit/README.md) | 启动、场景、Provider、桌面端与边界 |
+| [架构](flowcredit/docs/architecture.md) | Runtime、状态、存储与执行链 |
+| [Capability Runtime](flowcredit/docs/capabilities.md) | 阶段机、动作门、预算语义、构图回滚 |
+| [能力图谱](flowcredit/docs/capability-map.md) | 逐条可复现的能力与测试口径 |
+| [Work 模式](flowcredit/docs/work-mode.md) | 项目实体、运行看板与待处理队列 |
+| [任务基准](flowcredit/docs/runtime-benchmark.md) | 19 项任务、独立 verifier、指标与证据 |
+| [审计方法论](flowcredit/docs/audit-methodology.md) | AGI 分类法、证据模型与交互方式 |
+| [REA 证据融合](flowcredit/docs/integration-rea.md) | 制品审计与声明覆盖 |
+| [Prompt 目录](flowcredit/docs/prompt-catalog.md) | 提示词版本、快照与边界 |
+| [Jev 视觉 critic](flowcredit/docs/jev-visual-critic.md) | advisory 第二意见与 false negative |
 
 ---
 
 <div align="center">
 
 **If it cannot be verified, it is not done.**
-**An audit that cannot be replayed is not an audit.**
 
 Apache License 2.0 · [LICENSE](LICENSE)
 
-FCode 是一个独立开源项目,不是 Moonshot AI 官方产品。
+FCode 是一个独立开源项目，不是 Moonshot AI 官方产品。
 
 </div>

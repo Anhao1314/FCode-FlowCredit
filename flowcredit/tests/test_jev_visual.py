@@ -66,7 +66,10 @@ def good_answers() -> dict:
 
 class JevVisualTests(unittest.TestCase):
     def test_image_is_cropped_resized_and_encoded(self) -> None:
-        from PIL import Image
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is optional; image cropping is not installed")
 
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "frame.png"

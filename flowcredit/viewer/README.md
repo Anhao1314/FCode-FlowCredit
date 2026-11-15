@@ -40,7 +40,7 @@ flowcredit/viewer/
   projects.py         ← Work 项目注册表（目录 / 验证命令 / 归档）
   motion_frames.py    ← 确定性动效帧采样/几何门（Playwright，无模型调用）
   motion_frames.js    ← 暂停 CSS 动画、采样 4 帧、量脚-支撑面与腿-轮几何
-  tests/              ← 前端纯函数测试（node --test，404 项）
+  tests/              ← 前端纯函数测试（node --test，417 项）
   runs/               ← 运行产物（task.sqlite / trace.json / meta.json，不入库）
   chat.sqlite         ← 对话事件库（不入库）
   docs/console-live.png  ← 看板 · 账本（换肤后重拍；另有 desktop-home / -chat / -run）
