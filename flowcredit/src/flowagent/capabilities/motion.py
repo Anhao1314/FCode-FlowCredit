@@ -74,10 +74,15 @@ def motion_manifest() -> CapabilityManifest:
             ),
             StageSpec(
                 name="delivery",
-                allowed_tools=("write_file", "verify"),
-                exit_checks=("verify.pass", "result.written"),
-                budget=BudgetSpec(calls=1, tokens=30_000, repairs=1),
-                on_fail="stop",
+                # A failed final verifier is an artifact problem, not a reason
+                # to stop while global calls remain. Keep a bounded repair
+                # window: edit the artifact, re-check it, then re-verify.
+                allowed_tools=("edit_file", "write_file", "motion_check", "verify"),
+                # ``motion_check`` is part of the exit checks so a repair edit
+                # re-records the pass for the new hash before verify runs.
+                exit_checks=("motion_check", "verify.pass", "result.written"),
+                budget=BudgetSpec(calls=3, tokens=60_000, repairs=1),
+                on_fail="retry",
                 action_rules=("result_write_only", "motion_check_required"),
             ),
         ),

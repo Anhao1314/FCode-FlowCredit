@@ -75,10 +75,24 @@ StageSpec(
 | `draft` | scene 编辑 | `scene.nonempty` | 2 actions / 3 repairs / 60k |
 | `structure` | scene/style 编辑 | `hooks.all && static.pass` | 4 actions / 2 repairs / 120k |
 | `motion` | 编辑 + `motion_check` | `probe.pass && coverage.complete` | 4 actions / 2 repairs / 150k |
-| `delivery` | result 写入 + verify | `verify.pass && result.written` | 1 action / 1 repair / 30k |
+| `delivery` | edit + result 写入 + `motion_check`/verify | `motion_check && verify.pass && result.written` | 3 actions / 1 repair / 60k |
 
 `structure` 每次编辑后自动跑静态检查（`analyze_motion`），`status=fail`
 不前进；`motion` 阶段 `unverified` / coverage 不完整都不算 pass。
+
+### 输入契约与结构化检查
+
+阶段包的 `constraints` 是宿主提供的输入契约，不是模型提示词的一部分：
+
+- `raw_user_prompt` 保留用户原始目标；
+- `scene_descriptor` 提供主体、载具、构图与 `verify_terms`；
+- `verifier_contract` 列出 identity terms、hooks、关键帧名与禁用项。
+
+`last_check` 的 summary 现在包含 `required_fixes`、`coverage` 与每个 check 的
+bounded 明细；`verify.pass` 失败会返回 `VERIFICATION_FAILED`，并把声明验证的
+实际输出放进 fix，而不是笼统的 `MOTION_CHECK_REQUIRED`。delivery 阶段
+`on_fail=retry`，最多 3 个动作：验证失败时可以修 `index.html`、让当前 hash
+重新获得 motion pass，再重新验证；全局预算仍然最终裁决。
 
 ### 预算语义
 

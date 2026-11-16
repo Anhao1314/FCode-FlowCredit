@@ -15,6 +15,7 @@
     "feet_on_support": true
   },
   "composition": "pelican riding a bicycle",
+  "verify_terms": ["pelican", "bicycle"],
   "crop": [140, 90, 900, 530],
   "scale": 2.0
 }

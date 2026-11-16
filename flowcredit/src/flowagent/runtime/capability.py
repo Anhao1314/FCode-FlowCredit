@@ -268,11 +268,8 @@ class HarnessCapabilityBridge:
         self._finish_round()
         return revision
 
-    def verify(self, path: str) -> dict[str, Any]:
-        """Run final host quality and any declared command before success."""
-        if self.store is None:
-            raise RuntimeError("capability bridge is not bound to a runtime")
-        revision = self.store.snapshot()
+    def _mark_verifying(self, revision: Any) -> None:
+        """Enter the terminal ``verifying`` state only for a passing verdict."""
         if self.task.status == "running":
             self.task = self.harness.finalize(
                 self.task,
@@ -281,6 +278,15 @@ class HarnessCapabilityBridge:
                 event="verification_started",
                 detail={"kind": "motion.render", "artifact_sha256": revision.sha256},
             )
+
+    def verify(self, path: str) -> dict[str, Any]:
+        """Run final host quality and any declared command before success."""
+        if self.store is None:
+            raise RuntimeError("capability bridge is not bound to a runtime")
+        revision = self.store.snapshot()
+        # Verification may fail and the delivery stage may retry. Keep the task
+        # in ``running`` until the final verdict is known; a ``verifying`` state
+        # is terminal and would block the bounded repair window.
         if self.motion_probe is not None:
             raw = self.motion_probe.probe(
                 path,
@@ -320,5 +326,7 @@ class HarnessCapabilityBridge:
                 self._plan(),
                 self.task.model.attempts,
             )
+            self._mark_verifying(revision)
             return {"ok": True, "detail": outcome}
+        self._mark_verifying(revision)
         return {"ok": True, "basis": "final_host_quality"}
