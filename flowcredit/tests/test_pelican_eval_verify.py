@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.evaluate_work_pelican import VERIFY
+from scripts.evaluate_work_pelican import DEFAULT_OUTPUT_ROOT, VERIFY, default_output
 
 
 VALID_HTML = """<!doctype html>
@@ -28,6 +28,12 @@ VALID_HTML = """<!doctype html>
 
 
 class PelicanEvalVerifyTests(unittest.TestCase):
+    def test_default_output_is_durable_and_outside_viewer_runs(self) -> None:
+        output = default_output()
+        self.assertEqual(output.parent, DEFAULT_OUTPUT_ROOT)
+        self.assertNotIn("viewer/runs", str(output))
+        self.assertTrue(output.name.startswith("pelican-"))
+
     def run_verify(self, html: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
