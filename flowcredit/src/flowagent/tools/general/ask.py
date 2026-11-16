@@ -21,11 +21,34 @@ from typing import Any, Callable
 from ...core.contracts import AgentError
 from ..base import EFFECT_READ, Param, ToolSpec
 
-__all__ = ["ANSWER_CHARS", "QUESTION_CHARS", "ask_spec", "build_ask_tool"]
+__all__ = [
+    "ANSWER_CHARS", "OPTION_CHARS", "OPTION_COUNT", "QUESTION_CHARS",
+    "ask_spec", "build_ask_tool",
+]
 
 #: A question is a question, not a briefing; an answer is a sentence or three.
 QUESTION_CHARS = 400
 ANSWER_CHARS = 600
+
+#: Suggested answers are a shortcut, not a form: a handful of short labels the
+#: operator can accept instead of typing the same sentence. They are only hints
+#: — choosing one submits that label as the same plain-text answer, so the
+#: observation contract does not grow a second shape.
+OPTION_COUNT = 4
+OPTION_CHARS = 60
+
+
+def _options(arguments: dict[str, Any]) -> list[str]:
+    """Normalise suggested answers: trim, dedupe, cap. Never invent one."""
+    out: list[str] = []
+    for raw in arguments.get("options") or []:
+        value = str(raw or "").strip()
+        if not value or value in out:
+            continue
+        out.append(value[:OPTION_CHARS])
+        if len(out) >= OPTION_COUNT:
+            break
+    return out
 
 
 def ask_spec(ask: Callable[..., Any] | None) -> ToolSpec:
@@ -38,6 +61,7 @@ def ask_spec(ask: Callable[..., Any] | None) -> ToolSpec:
         if len(question) > QUESTION_CHARS:
             raise AgentError("ASK_QUESTION_TOO_LONG", f"question must be at most {QUESTION_CHARS} characters")
         why = str(arguments.get("why") or "").strip()[:200]
+        options = _options(arguments)
         if ask is None:
             # No human on this deployment. Say so plainly: the model can still
             # decide for itself, and the operator reading the trace sees why.
@@ -46,7 +70,7 @@ def ask_spec(ask: Callable[..., Any] | None) -> ToolSpec:
                 "answered": False,
                 "reason": "this deployment has no operator channel",
             }
-        reply = ask(question=question, why=why)
+        reply = ask(question=question, why=why, options=options)
         answered = bool(reply.get("answered"))
         out: dict[str, Any] = {"asked": question, "answered": answered}
         if answered:
@@ -62,8 +86,21 @@ def ask_spec(ask: Callable[..., Any] | None) -> ToolSpec:
         summary="Ask the operator one question and wait for the answer (or a timeout)",
         effect=EFFECT_READ,
         params=(
-            Param(name="question", kind="string", required=True),
-            Param(name="why", kind="string", required=False),
+            Param(
+                name="question", kind="string", required=True,
+                description="One concrete question the operator must answer; at most 400 characters.",
+            ),
+            Param(
+                name="why", kind="string", required=False,
+                description="Optional short reason this answer is needed; at most 200 characters.",
+            ),
+            Param(
+                name="options", kind="array", required=False, maximum=OPTION_COUNT,
+                description=(
+                    "Optional 2–4 short suggested answers shown as one-click choices; "
+                    f"each at most {OPTION_CHARS} characters. The operator may still type another answer."
+                ),
+            ),
         ),
         handler=handler,
         # Only the two facts a reader can always rely on are required; the rest

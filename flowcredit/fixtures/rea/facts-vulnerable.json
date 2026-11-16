@@ -1,0 +1,19 @@
+{
+  "schema_version": "fcode.rea-facts/v1",
+  "target": {"identity": "fixtures/rea/facts-vulnerable.json", "version": "1.0.0",
+             "artifact_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+  "operations": {},
+  "host": {
+    "entitlements": [],
+    "declared_features": [],
+    "vulnerabilities": [{
+      "osv_id": "OSV-2026-0001",
+      "dependency": "github.com/example/rc",
+      "version": "v1.0.0-rc1",
+      "aliases": ["CVE-2026-0001"],
+      "summary": "Demo pre-release dependency issue (synthetic fixture).",
+      "fixed_versions": ["v1.0.0"]
+    }]
+  },
+  "uncovered": []
+}

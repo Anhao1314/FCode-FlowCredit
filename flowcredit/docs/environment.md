@@ -30,4 +30,4 @@ online badcases=NOT_MEASURED
 
 ## 可选命令白名单扩展
 
-默认命令白名单在 `tools/general/commands.py`。需要扩展时，复制 `config/commands.json.example` 到本机配置位置并由主机审阅；扩展只能新增，不能删除或降级内置规则。`run_command` 始终无 shell，且不构成 OS 沙箱。
+默认命令白名单在 `tools/general/commands.py`，已包含 Python/Node、Rust、Go、JVM、.NET、Ruby、PHP 等常见测试命令（`pytest`、`npm test`、`cargo test`、`go test ./...`、`make test`、`uv run pytest` 等）。需要扩展时，复制 `config/commands.json.example` 到本机配置位置并由主机审阅；扩展只能新增，不能删除或降级内置规则。`run_command` 始终无 shell，且不构成 OS 沙箱。

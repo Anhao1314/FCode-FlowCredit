@@ -36,8 +36,10 @@ _EXCLUDED_DIRS = {
 _EXCLUDED_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc", ".pyo"}
 _SAFE_ENV_FILES = {".env.example", ".env.sample", ".env.template"}
 _DELIVERY_EXCLUDES = (
+    ".shell-home/", ".cache/",
     "__pycache__/", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
     "node_modules/", "dist/", "build/", "target/",
+    "*.pyc", "*.pyo",
 )
 
 
@@ -56,6 +58,20 @@ def validate_project_spec(project: Any) -> dict[str, str]:
     if not candidate.is_absolute():
         raise ValueError("project.path must be absolute")
     return {"path": str(candidate.resolve())}
+
+
+def _inside_excluded_subtree(destination: Path, source: Path) -> bool:
+    """目标位于源的某个排除目录之下（如 repo/work/runs/…）不算递归包含。
+
+    复制遍历会跳过排除目录（work/runs/.git/node_modules…），工作区不会被
+    再拷回自己——因此这种嵌套是安全的；这是「修复本仓库自身」的关键路径
+    （运行目录就住在被修仓库的 work/runs 下）。普通嵌套仍然拒绝。
+    """
+    try:
+        rel = destination.relative_to(source)
+    except ValueError:
+        return False
+    return any(part in _EXCLUDED_DIRS for part in rel.parts)
 
 
 def _is_sensitive(path: Path) -> bool:
@@ -83,8 +99,11 @@ def import_project(
     if not resolved.is_dir():
         raise _project_error("PROJECT_NOT_DIRECTORY", "project.path must name a directory")
     destination = sandbox.root.resolve()
-    if destination == resolved or destination in resolved.parents or resolved in destination.parents:
-        raise _project_error("PROJECT_COPY_RECURSIVE", "project and run workspace must not contain one another")
+    if (destination == resolved or destination in resolved.parents
+            or (resolved in destination.parents
+                and not _inside_excluded_subtree(destination, resolved))):
+        raise _project_error("PROJECT_COPY_RECURSIVE",
+                             "project and run workspace must not contain one another")
     if sandbox.root.exists() and any(sandbox.root.iterdir()):
         raise _project_error("PROJECT_WORKSPACE_NOT_EMPTY", "a project can only be imported into an empty run workspace")
 

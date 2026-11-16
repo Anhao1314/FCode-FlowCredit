@@ -47,6 +47,20 @@ _GIT_IDENTITY = [
     "-c", "user.email=runtime@fcode.local",
 ]
 
+#: Runtime-private files that must not appear as project content in tools or
+#: the UI. `.shell-home` is the HOME overlay used to strip credentials; Python
+#: and test caches are execution residue, not the operator's source tree.
+_INTERNAL_PARTS = {".shell-home", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+_INTERNAL_SUFFIXES = (".pyc", ".pyo")
+
+
+def _is_internal(relative: str) -> bool:
+    parts = relative.split("/")
+    return (
+        any(part in _INTERNAL_PARTS for part in parts)
+        or relative.endswith(_INTERNAL_SUFFIXES)
+    )
+
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -124,7 +138,9 @@ class WorkspaceSandbox:
         if not parts:
             raise AgentError("SANDBOX_PATH_DENIED", "path must name a file")
         relative = "/".join(parts)
-        if relative.startswith(".git") or "/.git" in f"/{relative}":
+        # 只拒绝名为 .git 的路径组件（元数据目录 / gitfile）。不能用子串判断：
+        # ".gitignore"、".gitattributes" 是普通可读文件，子串会把全仓 grep 打死。
+        if ".git" in parts:
             raise AgentError("SANDBOX_PATH_DENIED", "the sandbox metadata directory is not addressable")
 
         root_resolved = self.root.resolve()
@@ -147,8 +163,10 @@ class WorkspaceSandbox:
             # reads still use resolve(); listings fail closed by omitting links.
             if path.is_symlink() or not path.is_file() or self._is_metadata(path):
                 continue
-            data = path.read_bytes()
             relative = path.relative_to(self.root).as_posix()
+            if _is_internal(relative):
+                continue
+            data = path.read_bytes()
             out.append({
                 "path": relative,
                 "bytes": len(data),
@@ -166,6 +184,43 @@ class WorkspaceSandbox:
             "content": data.decode("utf-8", errors="replace"),
             "sha256": _sha256(data),
             "bytes": len(data),
+        }
+
+    def status(self) -> dict[str, Any]:
+        """Read-only git query: branch, pending changes, recent commits.
+
+        The sandbox root is a git repository (one commit per write), so this
+        is the honest answer to "what state am I in" — no side effect.
+        """
+        self.ensure()
+        try:
+            branch = self._git(self.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        except AgentError:
+            # 空仓库（零 commit）没有 HEAD——如实报告而非崩溃
+            return {
+                "branch": "(no commits yet)",
+                "changes": [],
+                "change_count": 0,
+                "commits": [],
+                "commit_count": 0,
+            }
+        porcelain = self._git(self.root, "status", "--porcelain")
+        changes = []
+        for line in porcelain.splitlines():
+            if not line.strip():
+                continue
+            changes.append({"status": line[:2].strip(), "path": line[3:].strip()})
+        commits = []
+        for line in self._git(self.root, "log", "--oneline", "-10").splitlines():
+            sha, _, subject = line.partition(" ")
+            if sha:
+                commits.append({"sha": sha[:12], "subject": subject[:120]})
+        return {
+            "branch": branch,
+            "changes": changes,
+            "change_count": len(changes),
+            "commits": commits,
+            "commit_count": len(commits),
         }
 
     # ------------------------------------------------------------------ writes

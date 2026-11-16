@@ -65,14 +65,48 @@ class _MockProvider:
     ````fcode_action```` proposal to the reply, so the confirmation path can be
     exercised end to end without a real model. Only this provider reads it —
     a real provider never does — and malformed JSON adds nothing.
+
+    ``FCODE_CHAT_MOCK_TOOLS`` (a JSON array of ``{"name","arguments"}``) emits
+    one scripted tool-call round when tools are offered and the last message
+    is still the user's: the follow-up round (role ``tool`` present) answers
+    with plain text, so the loop terminates deterministically.
     """
 
     name = "offline-mock"
+    supports_tools = True
 
     def __init__(self, model: str) -> None:
         self.model = model
 
-    def stream(self, messages: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    def stream(self, messages: list[dict[str, Any]],
+               tools: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
+        if tools and messages and messages[-1].get("role") == "user":
+            scripted_tools = (os.environ.get("FCODE_CHAT_MOCK_TOOLS") or "").strip()
+            if scripted_tools:
+                try:
+                    parsed = json.loads(scripted_tools)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, list) and parsed:
+                    calls = []
+                    for index, item in enumerate(parsed[:4]):
+                        if not isinstance(item, dict) or not item.get("name"):
+                            continue
+                        calls.append({
+                            "id": f"call_mock_{index}",
+                            "name": str(item["name"]),
+                            "arguments": json.dumps(item.get("arguments") or {}, ensure_ascii=False),
+                        })
+                    if calls:
+                        yield {"delta": "我先看一下工作区。"}
+                        yield {"tool_calls": calls}
+                        prompt_tokens = _estimate_tokens(messages)
+                        yield {
+                            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": 12,
+                                      "total_tokens": prompt_tokens + 12},
+                            "finish_reason": "tool_calls",
+                        }
+                        return
         last_user = next(
             (str(m.get("content") or "") for m in reversed(messages) if m.get("role") == "user"),
             "",
@@ -116,7 +150,8 @@ class _RemoteProvider:
         self.name = config.key
         self.model = config.model
 
-    def stream(self, messages: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    def stream(self, messages: list[dict[str, Any]],
+               tools: list[dict[str, Any]] | None = None) -> Iterator[dict[str, Any]]:
         parsed = urlsplit(self.config.base_url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise AgentError("CHAT_CONFIG_INVALID", f"invalid base URL {self.config.base_url!r}")
@@ -143,6 +178,8 @@ class _RemoteProvider:
             "stream": True,
             self.config.completion_field: self.config.max_completion_tokens,
         }
+        if tools:
+            payload["tools"] = tools
         try:
             connection.request("POST", path, body=json.dumps(payload, ensure_ascii=False).encode("utf-8"), headers=headers)
             response = connection.getresponse()
@@ -152,6 +189,10 @@ class _RemoteProvider:
                     "CHAT_PROVIDER_ERROR",
                     f"{self.config.key} HTTP {response.status}: {body[:300]}",
                 )
+            # OpenAI streams tool calls as fragments keyed by index: the id and
+            # function name arrive once, the JSON arguments arrive in pieces.
+            # Accumulate until the stream ends, then emit one completed list.
+            tool_calls: dict[int, dict[str, str]] = {}
             for line in response:
                 item = parse_sse_data(line)
                 if item is None:
@@ -172,9 +213,32 @@ class _RemoteProvider:
                 content = delta.get("content")
                 if isinstance(content, str) and content:
                     yield {"delta": content}
+                for fragment in delta.get("tool_calls") or []:
+                    if not isinstance(fragment, dict):
+                        continue
+                    index = fragment.get("index")
+                    slot = tool_calls.setdefault(
+                        int(index) if isinstance(index, int) else 0,
+                        {"id": "", "name": "", "arguments": ""},
+                    )
+                    if isinstance(fragment.get("id"), str):
+                        slot["id"] = fragment["id"]
+                    function = fragment.get("function") or {}
+                    if isinstance(function, dict):
+                        if isinstance(function.get("name"), str):
+                            slot["name"] = function["name"]
+                        if isinstance(function.get("arguments"), str):
+                            slot["arguments"] += function["arguments"]
                 finish = choice.get("finish_reason")
                 if finish:
                     yield {"finish_reason": str(finish)}
+            completed = [
+                {"id": slot["id"] or f"call_{index}", "name": slot["name"],
+                 "arguments": slot["arguments"] or "{}"}
+                for index, slot in sorted(tool_calls.items()) if slot["name"]
+            ]
+            if completed:
+                yield {"tool_calls": completed}
         except (socket.timeout, TimeoutError) as error:
             raise AgentError("CHAT_TIMEOUT", f"{self.config.key} stream timed out: {error}")
         except AgentError:

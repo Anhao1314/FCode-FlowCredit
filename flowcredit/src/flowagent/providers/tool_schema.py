@@ -1,0 +1,72 @@
+"""ToolSpec → OpenAI function-calling schema.
+
+One implementation shared by the chat tool loop and the fast proposal path.
+Keeping it here (pure registry transform, no chat/runtime imports) lets the
+provider layer reuse it without pulling the conversational stack in.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..tools.registry import ToolRegistry
+
+__all__ = ["to_openai_tools"]
+
+_KIND_MAP = {
+    "string": "string",
+    "integer": "integer",
+    "number": "number",
+    "boolean": "boolean",
+    "array": "array",
+}
+
+
+def to_openai_tools(
+    registry: ToolRegistry,
+    *,
+    allowed: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Render every registered tool (or only the granted subset) as tools."""
+    tools: list[dict[str, Any]] = []
+    for name in registry.names:
+        if allowed is not None and name not in allowed:
+            continue
+        spec = registry.get(name)
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+        for param in spec.params:
+            schema = param.to_schema()
+            schema.pop("required", None)
+            schema.pop("nullable", None)
+            schema["type"] = _KIND_MAP.get(str(schema.get("type")), "string")
+            if param.kind == "array":
+                # OpenAI's function schema requires an item type for arrays.
+                # Every Param array here is an array of non-empty strings
+                # (validate_arguments enforces exactly that), so say so instead
+                # of sending a bare ``{"type":"array"}``. ``maximum`` is an
+                # array-length cap internally; JSON Schema spells it maxItems.
+                schema["items"] = {"type": "string"}
+                if "maximum" in schema:
+                    schema["maxItems"] = schema.pop("maximum")
+                if "minimum" in schema:
+                    schema["minItems"] = schema.pop("minimum")
+            if param.enum is not None:
+                schema["enum"] = list(param.enum)
+            properties[param.name] = schema
+            if param.required:
+                required.append(param.name)
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.summary,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                    "additionalProperties": False,
+                },
+            },
+        })
+    return tools

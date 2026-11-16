@@ -1,0 +1,30 @@
+{
+  "schema_version": "fcode.rea-facts/v1",
+  "target": {
+    "identity": "fixtures/rea/facts-prerelease.json",
+    "version": "1.0.0",
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "operations": {
+    "inspect_go_binary": {
+      "evidence_id": "ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operation": "inspect_go_binary",
+      "provider": {"id": "fixture", "name": "fixture", "version": "1"},
+      "confidence": "observed",
+      "authority": "shipped-artifact",
+      "facts": {
+        "go_version": "go1.26.10",
+        "module": {"path": "example/app", "version": "(devel)"},
+        "dependencies": [
+          {"path": "example/rc", "version": "v1.0.0-rc1", "replacement": null, "prerelease": true},
+          {"path": "example/stable", "version": "v1.2.3", "replacement": null, "prerelease": false}
+        ],
+        "settings": {"-tags": "production"},
+        "limitations": []
+      },
+      "limitations": []
+    }
+  },
+  "host": {"entitlements": [], "declared_features": []},
+  "uncovered": []
+}

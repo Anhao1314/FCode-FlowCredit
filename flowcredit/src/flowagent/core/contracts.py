@@ -50,7 +50,10 @@ TASK_STATES = (
     "recovery_required",
 )
 
-MODEL_STATES = ("not_started", "started", "validated", "failed", "unknown")
+#: ``reissued`` is the explicit-operator exit from ``unknown`` when no signed
+#: receipt exists. It is deliberately *not* ``validated``: nothing was proven
+#: about the old call, a fresh round will be priced and dispatched instead.
+MODEL_STATES = ("not_started", "started", "validated", "failed", "unknown", "reissued")
 
 STEP_STATES = ("pending", "started", "succeeded", "failed", "denied")
 
@@ -79,7 +82,14 @@ TASK_TRANSITIONS: dict[str, tuple[str, ...]] = {
 MODEL_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "not_started": ("not_started", "started"),
     "started": ("started", "unknown", "validated", "failed"),
-    "unknown": ("unknown", "validated", "failed"),
+    # ``unknown -> validated`` is the receipt-only path (reconcile). The other
+    # exit is ``unknown -> reissued``, which requires an explicit operator
+    # decision and may only be followed by a *new* priced round (-> started).
+    # There is deliberately no ``unknown -> succeeded`` and no
+    # ``unknown -> started``: an unknown outcome is never guessed successful
+    # and never silently re-sent.
+    "unknown": ("unknown", "validated", "failed", "reissued"),
+    "reissued": ("reissued", "started"),
     "validated": ("validated", "started"),
     "failed": ("failed",),
 }

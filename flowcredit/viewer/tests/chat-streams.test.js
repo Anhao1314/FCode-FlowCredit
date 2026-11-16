@@ -104,3 +104,38 @@ test("start 事件把 pending 用户消息替换为服务端事实", () => {
   assert.equal(outcome.render, true);
   assert.equal(outcome.head, true);
 });
+test("agentic chat:tool_call/tool_result 归约进 blocks,done 保留 blocks", async () => {
+  const { applyChatEvent } = await import("../core/chat-streams.js");
+  const thread = { id: null, title: "", messages: [] };
+  const assistant = { id: "pending-assistant-1", role: "assistant", text: "", status: "streaming" };
+
+  applyChatEvent(thread, assistant, { type: "start", thread_id: "chat-1", user: null, assistant_id: "a-1" });
+  applyChatEvent(thread, assistant, { type: "delta", text: "先看文件。" });
+  applyChatEvent(thread, assistant, {
+    type: "tool_call", call_id: "call_1", name: "read_file",
+    arguments: '{"path":"README.md"}', round: 1,
+  });
+  applyChatEvent(thread, assistant, {
+    type: "tool_result", call_id: "call_1", status: "ok",
+    result: { content: "hi" }, result_hash: "abc", trust: "verified_tool", round: 1,
+  });
+  applyChatEvent(thread, assistant, { type: "delta", text: "读完了。" });
+
+  assert.deepEqual(assistant.blocks.map(b => b.type), ["text", "tool", "text"]);
+  assert.equal(assistant.blocks[0].text, "先看文件。");
+  assert.equal(assistant.blocks[1].status, "ok");
+  assert.equal(assistant.blocks[1].result_hash, "abc");
+  assert.equal(assistant.tool_calls.length, 1);
+
+  // done 用服务端 blocks 覆盖（权威投影）
+  applyChatEvent(thread, assistant, {
+    type: "done",
+    message: {
+      id: "a-1", text: "先看文件。读完了。",
+      blocks: [{ type: "text", text: "先看文件。读完了。" }],
+      tool_calls: [],
+    },
+  });
+  assert.equal(assistant.status, "ok");
+  assert.deepEqual(assistant.blocks.map(b => b.type), ["text"]);
+});

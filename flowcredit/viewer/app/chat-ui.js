@@ -4,7 +4,7 @@ import { applyChatEvent, createChatStreamRegistry } from "../core/chat-streams.j
 
 /* /audit <target> 斜杠命令:在唯一对话框里触发审计管线。
    解析是纯函数,node --test 直接覆盖;执行走 POST /api/audit/run,
-   轮询 /api/audit/jobs/<id>,结果指向发现账本(audit.html)。 */
+   轮询 /api/audit/jobs/<id>,完成后给统一壳内的审计面深链(#/audit/<dir>)。 */
 export function parseAuditCommand(text) {
   const match = /^\s*\/audit\s+(\S[\s\S]*)$/.exec(text || "");
   return match ? match[1].trim() : null;
@@ -14,7 +14,8 @@ export function auditStatusText(job) {
   if (!job) return "审计任务不存在";
   if (job.status === "running") return `⏳ 审计进行中(job ${job.job_id})…完成后在审计台查看发现`;
   if (job.status === "done") {
-    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:/audit.html`;
+    const target = job.audit_id ? `/#/audit/${encodeURIComponent(job.audit_id)}` : "/#/audit";
+    return `✅ 审计完成:${job.findings} 条发现、${job.evidence ?? "—"} 条证据。发现账本:[打开审计台](${target})`;
   }
   if (job.status === "failed") return `❌ 审计失败:${job.error || "unknown"}`;
   return `审计状态:${job.status}`;
@@ -244,15 +245,20 @@ export function createChatUI(deps) {
     show("chain-badge", !on);
     show("rail-toggle", !on);
     show("approval-btn", !on);
-    show("composer-open", !on);
-    const attach = document.getElementById("chat-attach");
-    if (attach) { attach.hidden = !on; attach.style.display = on ? "" : "none"; }
+    show("fast-btn", !on);
+    // The same + is the add-content menu in both modes; Work's menu then
+    // routes to the context/settings detail sheet. It is never hidden by the
+    // chat switch alone.
+    show("composer-open", true);
+    const addMenu = document.getElementById("composer-add-menu");
+    if (addMenu) addMenu.hidden = true;
+    const open = document.getElementById("composer-open");
+    if (open) open.setAttribute("title", "添加内容");
     const runChip = document.getElementById("run-chip");
     if (runChip && on) runChip.hidden = true;
     if (on) {
       const panel = document.getElementById("attach-panel");
       if (panel) panel.hidden = true;
-      const open = document.getElementById("composer-open");
       if (open) open.setAttribute("aria-expanded", "false");
       document.getElementById("composer-box")?.classList.remove("open-attach");
     }
@@ -277,31 +283,6 @@ export function createChatUI(deps) {
     restoreSendButton();
   }
 
-  function openWorkHome() {
-    d.invalidateView();
-    openChatSeq += 1;
-    detachChatChrome();
-    if (d.intake.active) d.closeIntake(false);
-    if (d.getSettingsOpen()) d.closeSettingsPage(false);
-    d.setLedgerOpen(false);
-    if (d.activeSession()) d.detachLive();
-    d.setChromeState({ rail: false });
-    d.store.key = null;
-    d.store.trace = null;
-    chat.active = false;
-    chat.streaming = false;
-    chat.editing = null;
-    d.renderNav();
-    d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-    paintChatChrome(false);
-    document.getElementById("tb-title").textContent = "FCode";
-    document.getElementById("tb-chips").innerHTML = "";
-    const ta = document.getElementById("composer-ta");
-    if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = d.WORK_PLACEHOLDER; ta.focus(); }
-    renderChatAttachChips();
-    paintSendState();
-  }
-
   function switchToChat() {
     if (chat.current && (chat.current.messages || []).length) {
       chat.active = true;
@@ -317,52 +298,19 @@ export function createChatUI(deps) {
     } else newChat();
   }
 
-  function setUiMode(mode) {
+  // 统一壳只有一个侧栏,工作模式已退役(2026-11-02 收敛):setUiMode 只负责
+  // 把聊天状态摆正(openChat/初始化调用)。侧栏/顶栏文案是静态的,无需投影。
+  function setUiMode() {
     d.invalidateView();
     openChatSeq += 1;
-    if (d.getUiMode() !== mode) {
-      d.setUiModeValue(mode);
-      try { localStorage.setItem("fa.uiMode", mode); } catch { /* quota */ }
-    }
-    d.setSidebarMode(mode);
     const app = document.getElementById("app");
-    app.classList.toggle("mode-chat", mode === "chat");
-    app.classList.toggle("mode-work", mode === "work");
-    const chatTab = document.getElementById("mode-chat"), workTab = document.getElementById("mode-work");
-    if (chatTab) {
-      chatTab.classList.toggle("active", mode === "chat");
-      chatTab.setAttribute("aria-selected", mode === "chat" ? "true" : "false");
-    }
-    if (workTab) {
-      workTab.classList.toggle("active", mode === "work");
-      workTab.setAttribute("aria-selected", mode === "work" ? "true" : "false");
-    }
-    const paneChat = document.getElementById("pane-chat"), paneWork = document.getElementById("pane-work");
-    if (paneChat) paneChat.hidden = mode !== "chat";
-    if (paneWork) paneWork.hidden = mode !== "work";
-    const chrome = d.modeChrome(mode);
-    const newLabel = document.getElementById("new-label");
-    if (newLabel) newLabel.textContent = chrome.newLabel;
-    const flavor = document.getElementById("side-flavor");
-    if (flavor) { flavor.textContent = chrome.flavor; flavor.hidden = !chrome.flavor; }
-    const newBtn = document.getElementById("new-run");
-    if (newBtn) newBtn.title = chrome.newTitle;
+    app.classList.add("mode-chat");
+    app.classList.remove("mode-work");
     d.renderNav();
     d.paintSections();
-    if (mode === "chat") {
-      if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
-      if (chat.current && (chat.current.messages || []).length) switchToChat();
-      else if (!chat.active) newChat();
-    } else {
-      const view = document.getElementById("main")?.dataset.view;
-      if (view === "empty" && !chat.active) {
-        d.renderMain(d.stageEmptyHtml(d.WORK_STAGE_NOTE, { work: true }), { mode: "empty" });
-        const ta = document.getElementById("composer-ta");
-        if (ta) ta.placeholder = d.WORK_PLACEHOLDER;
-        return;
-      }
-      if (d.activeSession()) d.selectRun(d.activeSession().id); else openWorkHome();
-    }
+    if (chat.active && document.getElementById("main")?.dataset.view === "empty") return;
+    if (chat.current && (chat.current.messages || []).length) switchToChat();
+    else if (!chat.active) newChat();
   }
 
   function resetForChat() {
@@ -394,6 +342,7 @@ export function createChatUI(deps) {
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     renderChatAttachChips();
     paintSendState();
+    d.paintCtxRing?.();
     d.adoptDefaultChatModel(d.getChatConfig() && d.getChatConfig().default_model);
     d.loadChatModels();
   }
@@ -419,6 +368,7 @@ export function createChatUI(deps) {
       const ta = document.getElementById("composer-ta");
       if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
       paintSendState();
+      d.paintCtxRing?.();
       return;
     }
 
@@ -445,6 +395,7 @@ export function createChatUI(deps) {
     const ta = document.getElementById("composer-ta");
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     paintSendState();
+    d.paintCtxRing?.();
   }
 
   function renderChat({ forceBottom = false } = {}) {
@@ -548,8 +499,15 @@ export function createChatUI(deps) {
     const node = document.querySelector(`.chat-msg[data-msg-id="${String(assistant.id)}"]`);
     if (!node) { renderChat(); return; }
     const stick = d.nearMainBottom();
-    const body = node.querySelector(".chat-md");
-    if (body) body.innerHTML = d.renderMarkdown(assistant.text);
+    const bodies = node.querySelectorAll(".chat-md");
+    const body = bodies[bodies.length - 1];
+    if (body) {
+      const blocks = Array.isArray(assistant.blocks) ? assistant.blocks : null;
+      const lastText = blocks && blocks.length
+        ? [...blocks].reverse().find(block => block.type === "text")
+        : null;
+      body.innerHTML = d.renderMarkdown(lastText ? lastText.text : assistant.text);
+    }
     const typing = node.querySelector(".chat-typing");
     if (typing && assistant.text) typing.remove();
     let wait = node.querySelector(".chat-wait");
@@ -646,7 +604,8 @@ export function createChatUI(deps) {
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
         assistant.text = auditStatusText({ status: "running", job_id: data.job_id });
         renderChat({ forceBottom: true });
-        for (let poll = 0; poll < 90; poll++) {
+        // 轮询上限对齐子进程 900s 超时(460×2s),避免长审计卡片提前停在"进行中"。
+        for (let poll = 0; poll < 460; poll++) {
           await new Promise(resolve => setTimeout(resolve, 2000));
           const jobRes = await fetch(`/api/audit/jobs/${encodeURIComponent(data.job_id)}`);
           const job = await jobRes.json();
@@ -733,6 +692,7 @@ export function createChatUI(deps) {
       if (visible(threadRef)) {
         renderChat();
         renderChatHead();
+        d.paintCtxRing?.();
       }
       await loadChatThreads();
     }
@@ -794,6 +754,67 @@ export function createChatUI(deps) {
     d.copyText(message.text).then(ok => d.toast(ok ? "已复制回答" : "复制失败"));
   }
 
+  /* 操作员长期记忆（M1）:/remember 写入、设置页列表与删除。 */
+  async function rememberChatMemory(text) {
+    const value = String(text || "").trim();
+    if (value.length < 2) { d.toast("要记住的内容太短：/remember 一句话"); return false; }
+    if (value.length > 600) { d.toast("记忆最多 600 字"); return false; }
+    try {
+      const response = await fetch("/api/chat/memory", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: value }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+      d.toast("已存入长期记忆 · 设置页可管理");
+      return true;
+    } catch (error) {
+      d.toast("记忆未写入：" + error.message);
+      return false;
+    }
+  }
+
+  async function refreshChatMemory() {
+    const list = document.getElementById("settings-memory-list");
+    if (!list) return;
+    try {
+      const response = await fetch("/api/chat/memory", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const entries = data.memories || [];
+      if (!entries.length) {
+        list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>还没有长期记忆——对话里用「/remember 一句话」沉淀。</small></span></div>';
+        return;
+      }
+      list.innerHTML = entries.map(entry => {
+        const source = entry.auto ? "自动提炼" : "操作员明示";
+        return `<div class="set-row" data-mem-row="${entry.id}">
+        <span class="set-row-text"><b>${d.esc(entry.text)}</b><small>${d.esc(entry.created || "")} · ${source} · 相关时注入</small></span>
+        <button class="set-action" type="button" data-mem-del="${entry.id}">删除</button>
+      </div>`;
+      }).join("");
+    } catch {
+      list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>记忆列表加载失败</small></span></div>';
+    }
+  }
+
+  async function deleteChatMemory(entryId) {
+    if (!entryId) return;
+    try {
+      const response = await fetch("/api/chat/memory/delete", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entryId }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      d.toast("已删除该条记忆");
+    } catch (error) {
+      d.toast("删除失败：" + error.message);
+    }
+    refreshChatMemory();
+  }
+
   function delegateChatMessage(messageId) {
     if (!chat.current) return;
     const message = chat.current.messages.find(item => item.id === messageId);
@@ -803,9 +824,10 @@ export function createChatUI(deps) {
 
   return {
     loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-    detachChatChrome, openWorkHome, switchToChat, setUiMode, newChat, openChat, renderChat,
+    detachChatChrome, switchToChat, newChat, openChat, renderChat,
     renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
     stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
     regenerateChat, copyChatMessage, delegateChatMessage,
+    rememberChatMemory, refreshChatMemory, deleteChatMemory,
   };
 }

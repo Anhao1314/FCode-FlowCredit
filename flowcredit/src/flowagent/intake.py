@@ -164,6 +164,19 @@ def _task(spec: dict[str, str], original: str) -> dict[str, Any]:
 
 GENERAL_TEMPLATE = "general-research"
 _SCRIPT_INTENT = re.compile(r"脚本|script|fibonacci|运行.{0,12}(写|产出)|python|node")
+#: A single-file HTML/SVG/CSS animation is a motion task: it is fully specified
+#: and needs no repository exploration. The detector is deliberately narrow so
+#: ordinary HTML cleanup does not silently lose the general toolset.
+_MOTION_INTENT = re.compile(
+    r"(?:单文件|single[- ]file).{0,24}html|(?:svg|css).{0,24}(?:动画|animation|keyframes)",
+    re.IGNORECASE,
+)
+#: Six tools cover the whole loop: list/read, write/edit, run the verifier and
+#: run the deterministic motion-quality check.
+MOTION_TOOLSET = (
+    "ls_workspace", "read_file_raw", "write_file", "edit_file", "run_command",
+    "motion_check",
+)
 
 
 def _requested_approval(spec: dict[str, Any] | None) -> str:
@@ -192,23 +205,30 @@ def _general_turn(message: str, spec: dict[str, Any] | None) -> dict[str, Any]:
     """
     base = str(message or "").strip()
     mode = "script" if _SCRIPT_INTENT.search(base) else "research"
+    motion = bool(_MOTION_INTENT.search(base))
     objective = base[:600] or (
         "调研指定的公开主题，把来源摘录与结论写成 research.md 放进工作区"
     )
     approval_label = APPROVALS[_requested_approval(spec)]["label"]
-    if mode == "script":
+    if motion:
         reply = (
-            "通用委托（脚本模式）已就绪：写脚本 → 受限终端运行 → 锚定修复 → 复跑 → "
+            "动效任务已就绪：单文件 HTML + SVG + 纯 CSS keyframes；"
+            f"审批档位「{approval_label}」，写入与校验仍过门控与预算。确认后开始。"
+        )
+        thought = "任务模板：动效渲染；短契约、6 个工具、公开验收与几何门后停止。"
+    elif mode == "script":
+        reply = (
+            "任务（脚本模式）已就绪：写脚本 → 受限终端运行 → 锚定修复 → 复跑 → "
             f"results.md 归档；审批档位「{approval_label}」，命令白名单与收据全程生效。"
             "确认后开始。"
         )
-        thought = "通用模板：脚本模式；命令白名单与审批全程生效。"
+        thought = "任务模板：脚本模式；命令白名单与审批全程生效。"
     else:
         reply = (
-            "通用委托已就绪：来源 URL 与预算在 + 附加面里确认，"
+            "任务已就绪：来源 URL 与预算在 + 附加面里确认，"
             f"审批档位「{approval_label}」，抓取与写入全程过门控、预算与收据。确认后开始。"
         )
-        thought = "通用模板：无需财务问卷，来源在附加面板指定。"
+        thought = "任务模板：无需财务问卷，来源在附加面板指定。"
     return {
         "reply": reply,
         "thought": thought,
@@ -224,6 +244,8 @@ def _general_turn(message: str, spec: dict[str, Any] | None) -> dict[str, Any]:
                 "task": "general-research",
                 "mode": mode,
                 "source": "console-intake",
+                **({"fastProfile": "motion-render", "toolset": list(MOTION_TOOLSET)}
+                   if motion else {}),
             },
         },
     }

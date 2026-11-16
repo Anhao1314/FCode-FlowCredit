@@ -37,9 +37,28 @@ export async function verifyChain(trace) {
   return { ok: true, events: events.length, head: previous };
 }
 
-export const esc = value => String(value).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+export const esc = value => String(value).replace(/[&<>"']/g, c => ESC_MAP[c]);
+
+/* URL 白名单：模型/工具结果里的 href 与 img src 一律过这里。
+   只放行相对路径、http(s) 与图片 data URL——其它 scheme（javascript: 等）
+   直接丢弃成空串，宁可少一个链接也不多一个注入面。 */
+const SAFE_URL = /^(?:https?:\/\/|data:image\/|\/(?!\/))/i;
+export function safeUrl(value) {
+  const raw = String(value || "");
+  return SAFE_URL.test(raw) ? raw : "";
+}
 export const pct = bp => (bp / 100).toFixed(2) + "%";
 export const pp = bp => (bp >= 0 ? "+" : "") + (bp / 100).toFixed(2) + " pp";
 export const num = n => Number(n).toLocaleString("en-US");
 export const shortHash = h => String(h || "").slice(0, 12);
-export const stripTags = html => String(html).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+export const stripTags = html => String(html)
+  .replace(/<[^>]*>/g, "")
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;|&apos;/g, "'")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">")
+  .replace(/&nbsp;/g, " ")
+  .replace(/&amp;/g, "&")
+  .replace(/\s+/g, " ")
+  .trim();

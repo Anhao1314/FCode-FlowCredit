@@ -39,3 +39,13 @@ test("parses SSE data frames", () => {
   assert.equal(parseSseFrame("data: nope"), null);
   assert.equal(parseSseFrame(""), null);
 });
+
+test("壳内审计深链:markdown 链接渲染为同文档锚点,不开新标签", async () => {
+  const { renderMarkdown } = await import("../core/chat-format.js");
+  const html = renderMarkdown("发现账本:[打开审计台](/#/audit/evox-2026-11-03)");
+  assert.ok(html.includes('href="/#/audit/evox-2026-11-03"'), "深链 href 保留");
+  assert.ok(!html.includes('target="_blank"'), "壳内导航不开新标签");
+  // 外部链接行为不变
+  const ext = renderMarkdown("[文档](https://example.com/x)");
+  assert.ok(ext.includes('target="_blank"'), "外链保持新标签");
+});

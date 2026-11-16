@@ -128,16 +128,21 @@ def reconstruct_trace(trace: dict[str, Any], *, source_id: str = "trace") -> lis
             "source": f"{source_id}#r{index}",
         })
         observation = record.get("observation")
-        if observation and observation.get("tool"):
-            memory.record(
-                index,
-                Observation(
-                    tool=observation["tool"],
-                    arguments=dict(observation.get("arguments") or {}),
-                    result=dict(observation.get("result") or {}),
-                    result_hash=observation.get("result_hash", ""),
-                ),
-            )
+        # A batch round carries every observation in order; the singular field
+        # is only the last one. Replaying just that would silently train on a
+        # context that never saw the earlier results.
+        replay = record.get("observations") or ([observation] if observation else [])
+        for item in replay:
+            if item and item.get("tool"):
+                memory.record(
+                    index,
+                    Observation(
+                        tool=item["tool"],
+                        arguments=dict(item.get("arguments") or {}),
+                        result=dict(item.get("result") or {}),
+                        result_hash=item.get("result_hash", ""),
+                    ),
+                )
     return samples
 
 

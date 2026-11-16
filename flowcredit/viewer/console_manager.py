@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 import threading
@@ -37,6 +38,12 @@ from console_common import (
 )
 from console_run_budget import budget_summary as _budget_summary
 from console_runtime import Run, Runtime
+
+
+class ProjectNotFoundError(ValueError):
+    """The selected project disappeared after it was registered or bound."""
+
+    code = "PROJECT_NOT_FOUND"
 
 
 class RunManager:
@@ -77,6 +84,9 @@ class RunManager:
             except Exception:  # noqa: BLE001 — memory must never take the console down
                 traceback.print_exc()
         self.chat = None
+        #: LangGraph 引擎的审批挂起会话：run_id → {"driver", "loop"}。
+        #: 挂起时 run 线程已结束；决策端点据此以 Command(resume) 续跑图。
+        self.graph_sessions: dict[str, dict] = {}
         if runtime is not None:
             try:
                 # Chat lives next to the run history (Application Support in the
@@ -86,6 +96,8 @@ class RunManager:
                 self.chat = runtime.ChatService(
                     self.runs_dir.parent / "chat.sqlite",
                     CHAT_CONFIG_PATH,
+                    # Agentic chat 的只读工具沙箱：以仓库根为界（越狱由沙箱拒绝）。
+                    workspace_root=Path(runtime.repo or self.runs_dir.parent),
                 )
                 try:
                     retention = int(os.environ.get("FCODE_CHAT_RETENTION_DAYS", "0") or 0)
@@ -99,8 +111,34 @@ class RunManager:
                 traceback.print_exc()
         self._lock = threading.Lock()
         self._seq = 0
-        self.runs_dir.mkdir(exist_ok=True)
+        # ``parents=True`` keeps this idempotent on hosts that broker Path.mkdir
+        # to an external shim: some of those report EEXIST for an existing
+        # directory when parents is omitted, even with exist_ok=True.
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        # Work 项目注册表：sqlite 住在 runs 目录旁，与 scheduler/governance 同级。
+        # 项目只拥有身份/路径/验证命令；run 统计由 list_runs 组合，避免双事实源。
+        try:
+            from projects import ProjectStore
+
+            self.projects = ProjectStore(self.runs_dir.parent / "projects.sqlite")
+        except Exception:  # noqa: BLE001 — 项目存储故障不拖垮控制台
+            traceback.print_exc()
+            self.projects = None
         self._load_history()
+        self._restore_pending()
+        # 定时任务调度器：排程存 runs 目录旁的 scheduler.sqlite；到点经
+        # mgr.create 走与手创运行完全相同的流水线（门控/预算/收据/链）。
+        # runtime 不可用时排程仍可增删查看，只是到点跳过触发。
+        try:
+            from console_scheduler import Scheduler, SchedulerStore
+
+            self.schedules = SchedulerStore(self.runs_dir.parent / "scheduler.sqlite")
+            self.scheduler = Scheduler(self.schedules, self._scheduled_create)
+            self.scheduler.start()
+        except Exception:  # noqa: BLE001 — 调度器故障不拖垮控制台
+            traceback.print_exc()
+            self.schedules = None
+            self.scheduler = None
         # The MCP bridge attaches whatever the host reviewed into mcp.json.
         # Connection happens off-thread: a hanging server must not delay boot,
         # and /api/mcp reports the honest per-server status meanwhile.
@@ -116,12 +154,36 @@ class RunManager:
         try:
             from flowagent.tools.mcp.bridge import McpBridge
 
+            print(f"[mcp] connecting {config_path}", flush=True)
             bridge = McpBridge(config_path, cwd=self.runtime.repo if self.runtime else None)
             bridge.connect()
             self.mcp = {"ready": True, "bridge": bridge}
+            print(f"[mcp] connected · {len(bridge.statuses())} server(s)", flush=True)
         except Exception as error:  # noqa: BLE001 — the bridge must never kill the console
             traceback.print_exc()
             self.mcp = {"ready": True, "bridge": None, "error": f"{type(error).__name__}: {error}"}
+
+    def reload_mcp(self) -> None:
+        """Reconnect MCP after mcp.json changes (plugin install/uninstall).
+
+        The old bridge's subprocesses are stopped first; the new bridge comes
+        up off-thread so a hanging server still cannot block the console. New
+        runs pick up the refreshed specs through RunDriver.
+        """
+        old = self.mcp.get("bridge")
+        if old is not None:
+            try:
+                old.disconnect()
+            except Exception:  # noqa: BLE001 — teardown must not block reload
+                traceback.print_exc()
+        self.mcp = {"ready": False, "bridge": None}
+        if self.runtime is None:
+            return
+        config_path = os.environ.get("FCODE_MCP_CONFIG") or str(self.runtime.repo / "mcp.json")
+        print(f"[mcp] reload requested · {config_path}", flush=True)
+        threading.Thread(
+            target=self._connect_mcp, args=(config_path,), name="mcp:reload", daemon=True,
+        ).start()
 
     def mcp_tools(self) -> list[dict]:
         """Honest MCP availability for the console (server-by-server)."""
@@ -143,6 +205,25 @@ class RunManager:
             return dict(self._settings_env)
         return settings_provider_env()
 
+    def local_model_endpoint(self) -> str | None:
+        """Resolve local endpoint changes without a process restart."""
+        env = merged_provider_env(self.settings_env())
+        return str(env.get("FCODE_LOCAL_ENDPOINT", "")).strip() or self.local_endpoint
+
+    def default_model(self) -> str:
+        """One default for Work, Chat, governance and new schedule drafts."""
+        explicit = os.environ.get("FCODE_DEFAULT_RUN_MODEL", "").strip()
+        if explicit:
+            return explicit
+        if self.chat is not None:
+            return self.chat.default_model()
+        try:
+            from flowagent.chat_config import load_chat_config
+
+            return str(load_chat_config(CHAT_CONFIG_PATH).get("default_model") or "mock")
+        except Exception:  # noqa: BLE001 — static mode has no provider package
+            return "mock"
+
     def resolve_model(self, model_key: str | None, effort: str | None) -> tuple[str, str]:
         """Fail-closed model resolution for run creation.
 
@@ -155,7 +236,7 @@ class RunManager:
             return "mock", ""
         # The same catalog the menu shows: settings-page values included, so a
         # provider the operator configured in the app resolves here too.
-        catalog = model_catalog(self.local_endpoint, settings_env=self.settings_env())
+        catalog = model_catalog(self.local_model_endpoint(), settings_env=self.settings_env())
         entry = next((m for m in catalog if m["key"] == model_key), None)
         if entry is None:
             raise ValueError(f"未知模型 {model_key!r}")
@@ -209,7 +290,7 @@ class RunManager:
         general = scenario.module != DOMAIN_KEY
         if general:
             mode = str(spec.get("mode") or "research")
-            if mode not in ("research", "script", "open"):
+            if mode not in ("research", "script", "open", "subagent"):
                 # ``open`` is the delegation whose plan the model extends; the
                 # other two are blueprints and stay closed.
                 raise ValueError("mode must be research, script or open")
@@ -239,6 +320,14 @@ class RunManager:
                     spec["project"] = self.runtime.validate_project_spec(project)
                 except ValueError as error:
                     raise ValueError(str(error)) from error
+                project_path = spec["project"]["path"]
+                # Registration/binding may be stale by the time a run starts.
+                # Refuse synchronously instead of accepting a 202 whose driver
+                # can only create a zero-round PROJECT_NOT_FOUND error record.
+                if not os.path.isdir(project_path) or not os.access(project_path, os.R_OK):
+                    raise ProjectNotFoundError(
+                        f"project directory is not readable: {project_path}"
+                    )
                 if spec.get("verification") is None:
                     raise ValueError("a project delegation needs an independent verification command")
                 spec.setdefault("reportPath", self.runtime.PROJECT_REPORT_PATH)
@@ -316,9 +405,33 @@ class RunManager:
                     raise ValueError(f"budget.{name} must be a positive integer")
         return spec
 
+    def gov_explainer_provider(self, model_key: str | None = None):
+        """解释层的裸补全 provider；不可用时返回 None（fail-closed）。
+
+        解释层走与运行相同的 provider 纪律（目录可用性 + 价格 + 回执字段），
+        但不接回执存储——它的产物进 governance.sqlite，不进审计包。
+        mock 永远不可用：解释层不伪造模型输出。
+        """
+        from console_common import merged_provider_env
+        from flowagent.providers.catalog import compat_settings_for
+        from flowagent.providers.openai_compat import OpenAICompatProvider
+
+        env = merged_provider_env(self.settings_env())
+        key = str(model_key or self.default_model() or "").strip()
+        if not key or key == "mock":
+            return None
+        entry = next((item for item in self.model_catalog_with_budget(None)
+                      if item.get("key") == key and item.get("available")), None)
+        if entry is None:
+            return None
+        settings = compat_settings_for(key, env=env)
+        if settings is None:
+            return None
+        return OpenAICompatProvider.from_settings(settings)
+
     def model_catalog_with_budget(self, template_key: str | None) -> list[dict]:
         """模型清单 + 该模板下各自真实生效的预算顶（草稿预览的单一事实源）。"""
-        models = model_catalog(self.local_endpoint, settings_env=self.settings_env())
+        models = model_catalog(self.local_model_endpoint(), settings_env=self.settings_env())
         limits = None
         if template_key and self.runtime is not None:
             try:
@@ -375,12 +488,31 @@ class RunManager:
     #: unknown-outcome rule.
     INTERRUPTED_NOTE = "进程重启时这次运行还在进行；轨迹停在进程消失的那一刻"
 
+    def _scheduled_create(self, payload: dict) -> str:
+        """调度器触发回调：与 POST /api/runs 同一条创建路径。"""
+        template = str(payload.get("template") or "full")
+        objective = str(payload.get("objective") or "").strip()
+        approval = str(payload.get("approval") or "consequential")
+        if self.runtime is not None:
+            try:
+                self.runtime.get_scenario(template)
+            except Exception as error:
+                raise ValueError(f"unknown template {template!r}") from error
+        model, effort = self.resolve_model(payload.get("model") or "mock", payload.get("effort"))
+        run = self.create(
+            objective, template, approval, None,
+            model_key=model, effort=effort, source="scheduled",
+        )
+        return run.id
+
     def _load_history(self) -> None:
         """Make runs from earlier processes visible again, read-only.
 
-        The index, the trace and the task database all outlive the process, so
-        this rebuilds only the in-memory record: no thread, no observer, no
-        re-ingest, no snapshot. One damaged meta.json is skipped rather than
+        The index, trace and task database all outlive the process. Ordinary
+        history gets only an in-memory record: no thread, no observer, no
+        re-ingest and no snapshot. A run with a durable operator wait is marked
+        recoverable here; ``_restore_pending`` starts its worker after history
+        loading. One damaged meta.json is skipped rather than
         taking the console's boot down with it — a half-written file must not
         hide the rest of the history.
         """
@@ -391,13 +523,22 @@ class RunManager:
                     continue
                 recorded = str(meta.get("status") or "")
                 interrupted = recorded not in FINISHED_STATUS
+                candidate = meta.get("pending")
+                recoverable = bool(
+                    interrupted
+                    and meta.get("taskId")
+                    and isinstance(candidate, dict)
+                    and candidate.get("id")
+                    and (candidate.get("kind") == "question" or candidate.get("tool"))
+                )
+                pending = dict(candidate) if recoverable else None
                 run = Run(
                     id=str(meta["id"]),
                     template=str(meta.get("template") or "?"),
                     objective=str(meta.get("objective") or ""),
                     created=str(meta.get("created") or ""),
                     pace=0.0,
-                    status="stopped" if interrupted else recorded,
+                    status=recorded if recoverable else ("stopped" if interrupted else recorded),
                     rounds=int(meta.get("rounds") or 0),
                     event_count=int(meta.get("events") or 0),
                     trace_path=str(meta.get("tracePath") or ""),
@@ -410,14 +551,31 @@ class RunManager:
                     effort=str(meta.get("effort") or ""),
                     cost=meta.get("cost"),
                     spec=meta.get("spec"),
-                    error=self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or ""),
-                    finished=True,
+                    source=str(meta.get("source") or "manual"),
+                    project_id=str(meta.get("projectId") or ""),
+                    pending=pending,
+                    error="" if recoverable else (self.INTERRUPTED_NOTE if interrupted else str(meta.get("error") or "")),
+                    finished=not recoverable,
                 )
             except (OSError, ValueError, TypeError):
                 continue
             self.runs[run.id] = run
             self.order.append(run.id)
         self.order.sort(key=lambda rid: self.runs[rid].created, reverse=True)
+
+    def _restore_pending(self) -> None:
+        """Resume only operator waits whose durable identity survived a restart."""
+        if self.runtime is None:
+            return
+        from console_run_driver import RunDriver
+
+        for run in list(self.runs.values()):
+            if run.finished or not run.pending or not run.task_id:
+                continue
+            driver = RunDriver(self, run, recover_pending=dict(run.pending))
+            threading.Thread(
+                target=driver.execute, name=f"recover:{run.id}", daemon=True,
+            ).start()
 
     def _ingest_memory(self, rt: Runtime, run: Run, final: dict) -> None:
         """Every projection of one finished trace, in one place.
@@ -456,6 +614,7 @@ class RunManager:
         meta["model"] = run.model
         meta["effort"] = run.effort
         meta["error"] = run.error
+        meta["pending"] = dict(run.pending) if run.pending else None
         try:
             (self.runs_dir / run.id / "meta.json").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -465,12 +624,112 @@ class RunManager:
 
     # ------------------------------------------------------------------ public
 
-    def list_runs(self) -> list[dict]:
+    def list_runs(self, project_id: str | None = None) -> list[dict]:
         with self._lock:
-            return [self.runs[rid].to_json() for rid in self.order]
+            runs = [self.runs[rid] for rid in self.order]
+        if project_id is not None:
+            runs = [run for run in runs if run.project_id == project_id]
+        return [run.to_json() for run in runs]
 
     def get(self, run_id: str) -> Run | None:
         return self.runs.get(run_id)
+
+    # ------------------------------------------------------------------ projects
+
+    def list_projects(self, *, include_archived: bool = False) -> list[dict]:
+        """Projects plus run statistics composed from the runs themselves."""
+        if self.projects is None:
+            return []
+        projects = self.projects.list(include_archived=include_archived)
+        with self._lock:
+            runs = list(self.runs.values())
+        out: list[dict] = []
+        for project in projects:
+            mine = [run for run in runs if run.project_id == project["id"]]
+            out.append({
+                **project,
+                "runs": len(mine),
+                "running": sum(
+                    1 for run in mine
+                    if not run.finished and run.status == "running"
+                ),
+                "attention": sum(1 for run in mine if run.attention),
+                "succeeded": sum(1 for run in mine if run.status == "succeeded"),
+                "lastRunAt": max((run.created for run in mine), default=""),
+            })
+        out.sort(key=lambda item: item["lastRunAt"] or item["created"], reverse=True)
+        return out
+
+    def resolve_project_spec(
+        self,
+        spec: dict | None,
+        project_id: str | None,
+        scenario,
+    ) -> dict | None:
+        """Fill a delegation spec from its project before validation.
+
+        The project is the authority for the directory path; the operator may
+        override the verification command per run, but an empty string falls
+        back to the project's command. A project run is always ``open`` mode —
+        the run's plan extends within the project.
+        """
+        if not project_id:
+            return spec
+        if self.projects is None:
+            raise ValueError("项目存储不可用")
+        project = self.projects.get(str(project_id))
+        if project is None or project.get("archived"):
+            raise ValueError(f"项目不存在或已归档：{project_id}")
+        if getattr(scenario, "module", "") == DOMAIN_KEY:
+            raise ValueError("项目运行仅支持通用工作区")
+        merged = dict(spec or {})
+        merged["project"] = {"path": project["path"]}
+        merged["project_id"] = project["id"]
+        merged.setdefault("mode", "open")
+        if merged.get("mode") != "open":
+            raise ValueError("项目运行必须使用 open 模式")
+        raw_verification = merged.get("verification")
+        if isinstance(raw_verification, dict):
+            verification = dict(raw_verification)
+        else:
+            text = str(
+                raw_verification or project["verification"] or "").strip()
+            if not text:
+                raise ValueError("项目缺少验证命令：请先在项目设置中填写")
+            try:
+                parts = shlex.split(text)
+            except ValueError as error:
+                raise ValueError(f"验证命令无法解析：{error}") from error
+            if not parts:
+                raise ValueError("项目缺少验证命令：请先在项目设置中填写")
+            # Mirror the composer's parseVerificationCommand: a bare program
+            # plus args, no shell. build_obligation validates the rest.
+            verification = {
+                "name": f"项目测试：{' '.join(parts)}"[:200],
+                "command": parts[0],
+                "args": parts[1:],
+                "expectExitCode": 0,
+                "timeoutSeconds": 120,
+            }
+        merged["verification"] = verification
+        return merged
+
+    def assign_run_project(self, run_id: str, project_id: str | None) -> Run:
+        """Move a run between projects after the fact (meta-only, not a chain fact)."""
+        run = self.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        target = str(project_id or "")
+        if target:
+            if self.projects is None:
+                raise ValueError("项目存储不可用")
+            project = self.projects.get(target)
+            if project is None or project.get("archived"):
+                raise ValueError(f"项目不存在或已归档：{target}")
+        with run.lock:
+            run.project_id = target
+        self._write_meta(run)
+        return run
 
     def delete(self, run_id: str) -> tuple[bool, str]:
         """Remove a finished run's record and directory. Running runs are refused."""
@@ -560,6 +819,8 @@ class RunManager:
         spec: dict | None = None,
         model_key: str = "mock",
         effort: str = "",
+        source: str = "manual",
+        project_id: str = "",
     ) -> Run:
         with self._lock:
             self._seq += 1
@@ -575,6 +836,8 @@ class RunManager:
                 spec=spec,
                 model=model_key,
                 effort=effort,
+                source=source,
+                project_id=str(project_id or ""),
             )
             self.runs[run_id] = run
             self.order.insert(0, run_id)
@@ -583,6 +846,101 @@ class RunManager:
         thread = threading.Thread(target=self._run_thread, args=(run,), name=f"run:{run.id}", daemon=True)
         thread.start()
         return run
+
+    def create_fix_run(
+        self,
+        objective: str,
+        project_path: str,
+        verification: str,
+        model_key: str = "",
+        effort: str = "",
+    ) -> Run:
+        """Create a Work repair run in an isolated project copy.
+
+        Governance uses this as the Fixer's patch producer: the run writes only
+        inside its imported project sandbox and publishes changes.patch; the
+        target directory is not touched until the operator applies the patch.
+        """
+        if self.runtime is None:
+            raise ValueError("live mode is unavailable")
+        text = str(verification or "").strip()
+        if not text:
+            raise ValueError("fixer needs a verification command")
+        try:
+            parts = shlex.split(text)
+        except ValueError as error:
+            raise ValueError(f"verification command is invalid: {error}") from error
+        if not parts:
+            raise ValueError("fixer needs a verification command")
+        path = Path(project_path).expanduser()
+        if not path.is_absolute() or not path.is_dir():
+            raise ValueError("fixer project path must be an absolute directory")
+        spec = {
+            "mode": "open",
+            "project": {"path": str(path.resolve())},
+            "verification": {
+                "name": f"修复验证：{' '.join(parts)}"[:200],
+                "command": parts[0],
+                "args": parts[1:],
+                "expectExitCode": 0,
+                "timeoutSeconds": 120,
+            },
+            "reportPath": self.runtime.PROJECT_REPORT_PATH,
+        }
+        scenario = self.runtime.get_scenario("general-research")
+        self.validate_delegation_spec(spec, scenario)
+        key, resolved_effort = self.resolve_model(model_key or None, effort or None)
+        return self.create(
+            objective, "general-research", "consequential", spec,
+            model_key=key, effort=resolved_effort, source="governance-fix",
+        )
+
+    # ----------------------------------------------------- LangGraph 审批恢复
+
+    def graph_approval_pending(self, run: Run) -> bool:
+        """该 run 是否被 LangGraph 引擎在审批处挂起（决策端点的分流依据）。"""
+        return (not run.finished) and run.id in self.graph_sessions
+
+    def resume_graph_decision(
+        self, run_id: str, approval_id: str, *, allow: bool, remember: bool,
+    ) -> dict:
+        """把操作员的审批决策以 Command(resume) 送回挂起的图。
+
+        校验 pending id 与会话存在；run 线程已在挂起时结束，这里起新线程
+        续跑图——下一个审批会再次挂起并登记，终态则走正常发布。"""
+        run = self.get(run_id)
+        session = self.graph_sessions.get(run_id)
+        if run is None or session is None:
+            return {"ok": False, "error": "no suspended graph session for this run"}
+        pending = run.pending or {}
+        if pending.get("id") != approval_id:
+            return {"ok": False, "error": "no pending approval with that id"}
+        if run.stop_requested:
+            response = {"allow": False, "remember": False, "stop": True}
+        else:
+            response = {"allow": allow, "remember": remember}
+        with run.lock:
+            run.pending = None
+            run.status = "running"
+            run.bump()
+        threading.Thread(
+            target=self._graph_resume_thread,
+            args=(run, session, response),
+            name=f"graph-resume:{run_id}",
+            daemon=True,
+        ).start()
+        return {"ok": True}
+
+    def _graph_resume_thread(self, run: Run, session: dict, response: dict) -> None:
+        try:
+            session["driver"].resume_from_decision(response)
+        except Exception:  # noqa: BLE001 — resume 线程的兜底（driver 内已尽力发布）
+            traceback.print_exc()
+            with run.lock:
+                if run.status not in ("succeeded", "failed", "denied", "stopped", "error"):
+                    run.status = "error"
+                    run.finished = True
+                run.bump()
 
     def resume(self, run: Run, *, limits: dict, extra_rounds: int = 6) -> Run:
         """Continue a run that stopped on a resource limit, without re-paying."""
@@ -601,7 +959,13 @@ class RunManager:
             store.close()
         code = (task.failure or {}).get("code", "")
         if task.status != "failed" or code not in ("BUDGET_EXCEEDED", "ROUND_LIMIT"):
-            raise ValueError(f"run cannot be resumed from {task.status}/{code or 'no failure'}")
+            hint = (
+                "; an unknown model outcome uses the explicit recovery entry "
+                "POST /api/runs/{id}/recover instead"
+                if task.status == "recovery_required" and code == "MODEL_OUTCOME_UNKNOWN"
+                else ""
+            )
+            raise ValueError(f"run cannot be resumed from {task.status}/{code or 'no failure'}{hint}")
         with run.lock:
             run.finished = False
             run.status = "running"
@@ -613,6 +977,54 @@ class RunManager:
             target=self._run_thread,
             args=(run,),
             kwargs={"resume_limits": limits, "extra_rounds": extra_rounds},
+            name=f"run:{run.id}",
+            daemon=True,
+        )
+        thread.start()
+        return run
+
+    def recover_unknown(self, run: Run, *, limits: dict, extra_rounds: int = 40) -> Run:
+        """Explicit operator recovery from a run whose model outcome is unknown.
+
+        Only ``recovery_required`` + ``MODEL_OUTCOME_UNKNOWN`` is accepted. The
+        driver then either reconciles against a signed receipt or records a
+        ``model_reissued`` event with the double-billing risk before pricing a
+        fresh round; this method never guesses the disputed call succeeded.
+        """
+        rt = self.runtime
+        if rt is None:
+            raise ValueError("live runtime is unavailable")
+        if not run.finished:
+            raise ValueError("run is still active")
+        if not run.task_id:
+            raise ValueError("run has no durable task to continue")
+        db = self.runs_dir / run.id / "task.sqlite"
+        store = rt.TaskStore(db)
+        try:
+            task = store.load(run.task_id)
+        finally:
+            store.close()
+        code = (task.failure or {}).get("code", "")
+        if task.status != "recovery_required" or code != "MODEL_OUTCOME_UNKNOWN":
+            raise ValueError(
+                f"run cannot be recovered from {task.status}/{code or 'no failure'}; "
+                "only recovery_required/MODEL_OUTCOME_UNKNOWN qualifies"
+            )
+        with run.lock:
+            run.finished = False
+            run.status = "running"
+            run.error = ""
+            run.stop_requested = False
+            run.pending = None
+            run.bump()
+        thread = threading.Thread(
+            target=self._run_thread,
+            args=(run,),
+            kwargs={
+                "resume_limits": limits,
+                "extra_rounds": extra_rounds,
+                "recover_unknown": True,
+            },
             name=f"run:{run.id}",
             daemon=True,
         )
@@ -727,17 +1139,29 @@ class RunManager:
             run.model,
             scenario=scenario,
             receipts=receipts,
-            endpoint=self.local_endpoint if run.model == "local" else None,
+            endpoint=self.local_model_endpoint() if run.model == "local" else None,
             # 思考强度对任何 supportsEffort 的 provider 生效（创建时已校验）
             reasoning_effort=(run.effort or None) if run.model != "mock" else None,
             # 设置页保存的 provider 值：委托与对话走同一份配置
             env=merged_provider_env(self.settings_env()),
         )
 
-    def _run_thread(self, run: Run, *, resume_limits: dict | None = None, extra_rounds: int = 6) -> None:
+    def _run_thread(
+        self,
+        run: Run,
+        *,
+        resume_limits: dict | None = None,
+        extra_rounds: int = 6,
+        recover_unknown: bool = False,
+    ) -> None:
         from console_run_driver import RunDriver
 
-        RunDriver(self, run, resume_limits=resume_limits, extra_rounds=extra_rounds).execute()
+        RunDriver(
+            self, run,
+            resume_limits=resume_limits,
+            extra_rounds=extra_rounds,
+            recover_unknown=recover_unknown,
+        ).execute()
 
 
 # -------------------------------------------------------------------- observer

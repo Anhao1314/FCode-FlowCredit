@@ -143,10 +143,16 @@ FCode 不引入 Starlark 依赖也能先做一版确定性规则：
 
 ### AGENTS.md 的最小落地
 
+> 现状（2026-11-14）：已在 Work 项目运行落地。根目录与子目录的 `AGENTS.md` 会被收集，
+> 最多 8 个文件 / 单文件 4,000 字 / 合计 8,000 字；每个文件记
+> `{path, sha256, bytes, truncated}` 并写进 `task.binding.project_instructions`。
+> 内容作为「项目约定」注入，明确不能覆盖系统/操作员指令或工具授权边界。
+> 尚未实现按项目信任等级自动跳过——当前把操作员显式选择的本地项目视为已审阅。
+
 - 从任务 workspace 根向下收集 `AGENTS.md`，限制总字节；
 - 每个文件记 `{path, sha256, bytes}`，写进 binding/run manifest；
 - 只作为只读上下文，不允许覆盖 Host 的权限、预算、验证规则；
-- 不信任的 workspace 跳过，并显式记录“已跳过”。
+- 不信任的 workspace 跳过，并显式记录“已跳过”（待信任等级机制落地）。
 
 ## 四、路线 A：把 Codex 当受控执行器
 

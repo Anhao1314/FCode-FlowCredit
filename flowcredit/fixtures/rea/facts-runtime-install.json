@@ -1,0 +1,16 @@
+{
+  "schema_version": "fcode.rea-facts/v1",
+  "target": {"identity": "fixtures/rea/facts-runtime-install.json", "version": "1.0.0",
+             "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "operations": {},
+  "host": {
+    "entitlements": [],
+    "declared_features": [],
+    "runtime_installers": [{
+      "command": "npm install -g @evomap/evolver",
+      "offset": 123,
+      "source": "executable-strings"
+    }]
+  },
+  "uncovered": []
+}

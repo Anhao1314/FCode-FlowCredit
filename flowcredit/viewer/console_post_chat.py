@@ -63,13 +63,19 @@ def post_chat_config(handler):
     default_model = body.get("default_model")
     if default_model is not None and not isinstance(default_model, str):
         return handler._json({"error": "default_model must be a string"}, 400)
+    delete_provider = body.get("delete_provider", False)
+    if not isinstance(delete_provider, bool):
+        return handler._json({"error": "delete_provider must be boolean"}, 400)
     values = body.get("values")
     if values is not None and not isinstance(values, dict):
         return handler._json({"error": "values must be an object"}, 400)
     if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > 8192:
         return handler._json({"error": "config payload is too large"}, 400)
     try:
-        snapshot = chat.update_config(provider=provider, values=values, default_model=default_model)
+        snapshot = chat.update_config(
+            provider=provider, values=values, default_model=default_model,
+            delete_provider=delete_provider,
+        )
     except Exception as error:  # noqa: BLE001 — validation errors are 400s
         return handler._json(
             {"error": str(error), "code": getattr(error, "code", "CHAT_CONFIG_INVALID")}, 400,
@@ -91,10 +97,32 @@ def post_chat_send(handler):
     model = _model_or_error(handler, chat, body)
     if model is _INVALID_MODEL:
         return None
+    approval = body.get("approval")
+    if approval is not None and approval not in ("off", "consequential", "all"):
+        return handler._json({"error": "approval must be off/consequential/all"}, 400)
     events = chat.send(
         thread_id=thread_id, text=text, attachments=body.get("attachments"), model=model,
+        approval=approval,
     )
     return handler._stream_chat(events)
+
+
+def post_chat_tool_decision(handler, thread_id: str):
+    """写工具的逐调用审批：允许/拒绝（可记住本回合）。"""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    approval_id = body.get("approvalId")
+    if not isinstance(approval_id, str) or not approval_id:
+        return handler._json({"error": "approvalId is required"}, 400)
+    allow = bool(body.get("allow"))
+    remember = bool(body.get("remember"))
+    decision = chat.decide_tool(thread_id, approval_id, allow, remember)
+    if decision is None:
+        return handler._json({"error": "approval not found"}, 404)
+    return handler._json({"ok": True, "decision": decision})
+
 
 
 def post_chat_confirm(handler, thread_id: str):
@@ -216,3 +244,32 @@ def post_chat_regenerate(handler, thread_id: str):
         return None
     events = chat.regenerate(thread_id=thread_id, message_id=message_id, model=model)
     return handler._stream_chat(events)
+
+
+def post_chat_memory(handler):
+    """操作员长期记忆：/remember 或设置页写入（M1 只收操作员明示内容）。"""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    text = body.get("text")
+    if not isinstance(text, str):
+        return handler._json({"error": "text must be a string"}, 400)
+    try:
+        entry = chat.memory.remember(text, source="operator")
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"memory": entry, "count": chat.memory.count()})
+
+
+def post_chat_memory_delete(handler):
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    entry_id = body.get("id")
+    if not isinstance(entry_id, str) or not entry_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    if not chat.memory.forget(entry_id):
+        return handler._json({"error": "memory not found"}, 404)
+    return handler._json({"ok": True, "count": chat.memory.count()})
