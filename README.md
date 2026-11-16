@@ -82,9 +82,9 @@ typed result + quality + budget + reason
 | 产物 | 4,743 B，coverage 9/9 |
 | 构图 / 几何 | composition pass；脚-踏板 0 px、腿端点 0 px、腿长 73 px |
 | 终态 | **failed**，`ARTIFACT_CHECK_FAILED` |
-| 未通过项（旧测量器） | 报告轮速 188 px/s vs 背景 94 px/s；该静态测量无法区分 180° 与 360°，正在用保留 artifact 复测 |
+| 未通过项（旧测量器） | 报告轮速 188 px/s vs 背景 94 px/s；该静态测量无法区分 180° 与 360°，已被修复 |
 
-这是一个失败样本，但它首先暴露的是验证器本身的问题：旧的静态分析默认每个动画周期转满 360°，因此 180° 旋转也会被报成同样的 50% slip。这个数字不能再当作已经证实的物理错误。构图和几何仍然可复算；新的检查已按 keyframe 的真实角位移计算，并把失败 artifact 保留在 `work/evaluations/` 供复测。
+这个旧样本先暴露的是验证器自身的问题：旧检查默认每个周期转满 360°，因此 180° 旋转也会被报成同样的 50% slip。修复后的新样本表现不同：263.0 s / 5 calls / 65,055 tokens / 29,721 µUSD，quality pass，coverage 9/9，轮子实际转 360°，轮速 302 vs 背景 300（0.66%）。它仍然失败在 delivery：声明验证要求 `pelican` / `bicycle` 文本或 class，而模型没有收到这个契约。物理一致性已经过第一道门；下一步是把 raw prompt、scene descriptor 与 verifier contract 显式传给模型，并给 delivery 失败一个有界修复窗口。
 
 ## 审计域仍然在
 
@@ -150,12 +150,12 @@ bash desktop/build.sh
 ## 验证，而不是感觉
 
 ```bash
-python3 -m unittest discover -s tests -q       # 1,394 Python tests
+python3 -m unittest discover -s tests -q       # 1,399 Python tests
 node --test viewer/tests/*.test.js              # 417 frontend tests
 python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
 ```
 
-当前完整回归：**1,394 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
+当前完整回归：**1,399 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
 测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 

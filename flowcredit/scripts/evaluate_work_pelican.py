@@ -18,6 +18,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = ROOT / "work" / "evaluations"
+RAW_USER_PROMPT = (
+    "编写单文件HTML，内含SVG动画：卡通鹈鹕（白/浅黄色、大喉囊）"
+    "骑带辐条自行车，车轮旋转、腿部踩踏板、背景后移模拟移动，"
+    "纯CSS Keyframes控制，无外部库"
+)
+DEFAULT_IDENTITY_TERMS = ("pelican", "bicycle")
+NORMALIZED_OBJECTIVE = (
+    "Create a polished animated index.html of a pelican riding a bicycle. "
+    "Both feet must remain on the pedals and both legs must stay attached "
+    "to the pelican throughout the animation."
+)
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "viewer"))
 
@@ -37,7 +48,10 @@ from flowagent.tools.registry import ToolRegistry  # noqa: E402
 from motion_frames import MotionProbe  # noqa: E402
 
 
-def verify_html(text: str) -> list[str]:
+def verify_html(
+    text: str,
+    identities: tuple[str, ...] = ("pelican", "bicycle"),
+) -> list[str]:
     """Return capability-motion contract violations in an HTML artifact."""
     errors: list[str] = []
     for animation in ("wheel-spin", "pedal", "scenery-scroll"):
@@ -62,8 +76,8 @@ def verify_html(text: str) -> list[str]:
 
     visible_text = re.sub(r"<[^>]*>", " ", text)
     visible_text += " " + " ".join(name for group in classes for name in group)
-    for identity in ("pelican", "bicycle"):
-        if not re.search(rf"\b{identity}\b", visible_text, re.IGNORECASE):
+    for identity in identities:
+        if not re.search(rf"\b{re.escape(identity)}\b", visible_text, re.IGNORECASE):
             errors.append(f"text or class {identity}")
 
     if re.search(r"<\s*script\b", text, re.IGNORECASE):
@@ -73,15 +87,18 @@ def verify_html(text: str) -> list[str]:
     return errors
 
 
-def _build_verify_script() -> str:
+def _build_verify_script(
+    identities: tuple[str, ...] = DEFAULT_IDENTITY_TERMS,
+) -> str:
     """Embed the same verifier in the isolated workspace's verify.py."""
     return "\n".join((
         "from pathlib import Path",
         "import re",
         inspect.getsource(verify_html).rstrip(),
         "",
+        f"IDENTITIES = {tuple(identities)!r}",
         'text = Path("index.html").read_text(encoding="utf-8")',
-        "errors = verify_html(text)",
+        "errors = verify_html(text, identities=IDENTITIES)",
         "if errors:",
         '    raise SystemExit("invalid pelican artifact: " + ", ".join(errors))',
         'print("pelican artifact structure verified")',
@@ -90,6 +107,22 @@ def _build_verify_script() -> str:
 
 
 VERIFY = _build_verify_script()
+
+
+def verification_contract(identities: tuple[str, ...]) -> dict[str, object]:
+    """The host contract the model must satisfy, in model-readable form."""
+    return {
+        "required_keyframes": ["wheel-spin", "pedal", "scenery-scroll"],
+        "required_hooks": ["wheel", "leg", "foot", "hip"],
+        "support_hooks": ["pedal", "deck", "support"],
+        "scenery_hooks": ["scenery", "background"],
+        "identity_terms": list(identities),
+        "forbidden": ["<script>", "requestAnimationFrame"],
+        "single_file": True,
+        "inline_svg": True,
+        "pure_css_keyframes": True,
+        "external_assets": False,
+    }
 
 
 def default_output() -> Path:
@@ -118,10 +151,18 @@ def run(
         raise ValueError("evaluation output must not overwrite viewer/runs")
     output.mkdir(parents=True, exist_ok=True)
     scene = json.loads((ROOT / "config" / "scenes" / "pelican_bicycle.json").read_text())
+    identity_terms = tuple(scene.get("verify_terms") or DEFAULT_IDENTITY_TERMS)
+    contract = verification_contract(identity_terms)
+    constraints = {
+        "raw_user_prompt": RAW_USER_PROMPT,
+        "normalized_objective": NORMALIZED_OBJECTIVE,
+        "scene_descriptor": scene,
+        "verifier_contract": contract,
+    }
     scenario = get_scenario("general-research")
     sandbox = WorkspaceSandbox(output / "workspace")
     sandbox.ensure()
-    sandbox.write("verify.py", VERIFY)
+    sandbox.write("verify.py", _build_verify_script(identity_terms))
     probe = MotionProbe(sandbox.root, output / "frames")
     spec = {
         "mode": "open",
@@ -161,11 +202,7 @@ def run(
     )
     task = harness.create(
         task_id=f"pelican-{int(time.time())}",
-        objective=(
-            "Create a polished animated index.html of a pelican riding a bicycle. "
-            "Both feet must remain on the pedals and both legs must stay attached "
-            "to the pelican throughout the animation."
-        ),
+        objective=RAW_USER_PROMPT,
         principal="work-pelican-eval",
         binding={"scenario": scenario.key, "scene": scene["id"], "evaluation": True},
         allowed_tools=list(scenario.allowed_tools),
@@ -190,7 +227,7 @@ def run(
     started = time.monotonic()
     error = None
     try:
-        result = runtime.run(task.objective)
+        result = runtime.run(task.objective, constraints=constraints)
     except AgentError as exc:
         error = exc.to_dict()
         raise
@@ -228,6 +265,12 @@ def run(
         "prompt_profile": "capability-motion",
         "completion": {"max_tokens": max_tokens, "reasoning_effort": reasoning_effort},
         "scene": scene["id"],
+        "task_objective": task.objective,
+        "input_contract": {
+            "raw_user_prompt": RAW_USER_PROMPT,
+            "scene_descriptor": scene,
+            "verifier_contract": contract,
+        },
         "task_status": task.status,
         "elapsed_seconds": round(elapsed, 3),
         "result": result.to_dict(),

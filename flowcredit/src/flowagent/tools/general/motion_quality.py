@@ -272,6 +272,7 @@ def analyze_motion(html: str) -> dict[str, Any]:
     foot_pedal = _has_class(html, "foot") and support
 
     issues: list[str] = []
+    required_fixes: list[dict[str, Any]] = []
     blocking = False
     if not radius or not wheel_ms or wheel_rotation_deg <= 0:
         issues.append(
@@ -288,6 +289,20 @@ def analyze_motion(html: str) -> dict[str, Any]:
             f"wheel/ground speed mismatch: wheel {wheel_speed} px/s vs background {bg_speed} px/s "
             f"({slip_bp / 100:.1f}% slip)"
         )
+        target_translate = (
+            int(round(wheel_speed * bg_ms / 1000)) if bg_ms and wheel_speed else 0
+        )
+        required_fixes.append({
+            "code": "ROLLING_SPEED_MISMATCH",
+            "selector": ".scenery",
+            "expected": f"background {wheel_speed} px/s",
+            "actual": f"background {bg_speed} px/s",
+            "suggested_background_translate_px": target_translate,
+            "message": (
+                f"set .scenery translateX to -{target_translate}px over {bg_ms}ms "
+                "or change its duration so its speed equals the wheel circumference speed"
+            ),
+        })
         blocking = blocking or slip_bp > 2000
     if phase_bp > 500:
         issues.append(
@@ -316,6 +331,7 @@ def analyze_motion(html: str) -> dict[str, Any]:
         "status": status,
         "score": score,
         "issues": issues,
+        "required_fixes": required_fixes,
         "wheel_radius_px": radius,
         "wheel_rotation_deg": int(round(wheel_rotation_deg)),
         "background_translate_px": int(round(bg_px)),
@@ -745,9 +761,13 @@ def merge_quality(base: dict[str, Any], probe: dict[str, Any] | None) -> dict[st
     for issue in geometry["issues"]:
         if issue not in issues:
             issues.append(issue)
-    fixes = list(geometry.get("required_fixes") or [])
+    base_fixes = list(base.get("required_fixes") or [])
+    fixes = [*base_fixes, *(geometry.get("required_fixes") or [])]
     existing_fixes = {(fix.get("code"), fix.get("message")) for fix in fixes}
+    fixed_issues = {str(fix.get("message")) for fix in base_fixes}
     for issue in base.get("issues") or []:
+        if str(issue) in fixed_issues:
+            continue
         candidate = {"code": "TEXT_INVARIANT", "selector": "", "expected": "", "actual": "",
                      "message": str(issue)}
         key = (candidate["code"], candidate["message"])

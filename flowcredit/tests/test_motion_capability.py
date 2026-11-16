@@ -90,6 +90,14 @@ def result_write() -> Action:
     }, tokens=200, cost_microusd=50)
 
 
+def identity_label_edit() -> Action:
+    """Add the evaluator's identity hooks without touching motion CSS."""
+    return Action("edit_file", {
+        "old_text": '<g class="scenery">',
+        "new_text": '<g class="pelican bicycle"></g>\n<g class="scenery">',
+    }, tokens=300, cost_microusd=80)
+
+
 def fake_pass_probe(_path: str = "") -> dict[str, Any]:
     """Raw frame-probe payload; merged by the existing probe_quality helper."""
     return {
@@ -334,6 +342,72 @@ class DeliveryStageTests(unittest.TestCase):
         }))
         self.assertNotEqual(runtime.store.snapshot().sha256, passed_sha)
         self.assertFalse(runtime.checks.motion_check_pass(runtime.store.snapshot().sha256))
+
+    def test_6d_a_failed_final_verifier_repairs_index_html_then_rechecks(self) -> None:
+        verify_calls: list[str] = []
+
+        def verifier(path: str) -> dict[str, Any]:
+            verify_calls.append(path)
+            target = pathlib.Path(path)
+            if not target.is_absolute():
+                target = self.stack.sandbox.root / target
+            ok = 'class="pelican bicycle"' in target.read_text(encoding="utf-8")
+            return {"ok": ok, "detail": "" if ok else "missing identity hooks"}
+
+        result, runtime, proposer = self.stack.run({
+            "draft": [scene_fill(GOOD_SCENE)],
+            "structure": [styles_fill()],
+            "motion": [motion_check_action()],
+            "delivery": [result_write(), identity_label_edit(), motion_check_action()],
+        }, probe=fake_pass_probe, verify=verifier)
+        self.assertTrue(result.succeeded, result.reason)
+        self.assertEqual(result.stage, "delivery")
+        self.assertTrue(runtime.store.result_exists())
+        self.assertIn('class="pelican bicycle"', runtime.store.read("index.html")["content"])
+        delivered = [
+            item for item in result.journal
+            if item["event"] == "action_applied" and item["stage"] == "delivery"
+        ]
+        self.assertEqual([item["tool"] for item in delivered],
+                         ["write_file", "edit_file"])
+        failed = [item["check"] for item in delivered if not item["check"]["passed"]]
+        self.assertTrue(failed)
+        verify_check = next(
+            entry
+            for item in failed
+            for entry in item["checks"]
+            if entry["name"] == "verify.pass"
+        )
+        self.assertEqual(verify_check["required_fixes"][0]["code"], "VERIFICATION_FAILED")
+        self.assertEqual(len(verify_calls), 2)
+        self.assertEqual(len(proposer.packets), 5)
+
+
+class ConstraintsPacketTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.stack = MotionStack(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_raw_prompt_descriptor_and_verifier_contract_reach_the_packet(self) -> None:
+        runtime, proposer, _ = self.stack.runtime({}, probe=fake_pass_probe)
+        constraints = {
+            "raw_user_prompt": "编写单文件HTML，内含SVG动画：卡通鹈鹕骑带辐条自行车",
+            "scene_descriptor": {"id": "pelican-bicycle", "verify_terms": ["pelican", "bicycle"]},
+            "verifier_contract": {"identity_terms": ["pelican", "bicycle"]},
+        }
+        result = runtime.run(
+            "编写单文件HTML，内含SVG动画：卡通鹈鹕骑带辐条自行车",
+            constraints=constraints,
+            start_stage="draft",
+        )
+        self.assertTrue(proposer.packets)
+        packet_constraints = proposer.packets[0]["constraints"]
+        self.assertEqual(packet_constraints["raw_user_prompt"], constraints["raw_user_prompt"])
+        self.assertEqual(packet_constraints["scene_descriptor"], constraints["scene_descriptor"])
+        self.assertEqual(packet_constraints["verifier_contract"], constraints["verifier_contract"])
 
 
 class CompositionRegressionTests(unittest.TestCase):

@@ -62,6 +62,8 @@ class CheckResult:
             "status": self.status,
             "score": self.score,
             "issues": list(self.issues[:_ISSUE_LIMIT]),
+            "required_fixes": list(self.required_fixes[:_ISSUE_LIMIT]),
+            "coverage": dict(self.coverage or {}),
             "cached": self.cached,
         }
 
@@ -84,6 +86,9 @@ class CheckOutcome:
             "passed": self.passed,
             "status": self.status,
             "score": self.score,
+            "issues": list(self.issues[:_ISSUE_LIMIT]),
+            "required_fixes": list(self.required_fixes[:_ISSUE_LIMIT]),
+            "coverage": dict(self.coverage or {}),
             "checks": [item.summary() for item in self.results],
         }
 
@@ -367,25 +372,41 @@ def _coverage_complete(context: CheckContext, registry: CheckRegistry) -> CheckR
 
 
 def _verify_pass(context: CheckContext, registry: CheckRegistry) -> CheckResult:
-    passed = registry.motion_check_pass(context.artifact.sha256)
+    motion_pass = registry.motion_check_pass(context.artifact.sha256)
     issues: list[str] = []
-    if not passed:
+    fixes: list[dict[str, Any]] = []
+    passed = motion_pass
+    if not motion_pass:
         issues.append("no motion_check pass recorded for the current artifact hash")
-    if passed:
+        fixes.append({
+            "code": "MOTION_CHECK_REQUIRED",
+            "message": "run motion_check on the current artifact until it passes",
+        })
+    else:
         verdict = registry.run_verifier(context)
         if not verdict.get("ok"):
             passed = False
-            issues.append(f"verification failed: {verdict.get('error') or verdict.get('detail') or 'no details'}")
+            detail = str(
+                verdict.get("error") or verdict.get("detail") or "no details"
+            )[:300]
+            issues.append(f"declared verification failed: {detail}")
+            fixes.append({
+                "code": "VERIFICATION_FAILED",
+                "selector": "verify.py",
+                "expected": "exit code 0",
+                "actual": detail,
+                "message": (
+                    "fix index.html against the declared verifier, then run "
+                    "verify again; do not rewrite FCODE_RESULT.md instead"
+                ),
+            })
     return CheckResult(
         name="verify.pass",
         passed=passed,
         status="pass" if passed else "fail",
         score=100 if passed else 0,
         issues=tuple(issues),
-        required_fixes=() if passed else ({
-            "code": "MOTION_CHECK_REQUIRED",
-            "message": "run motion_check on the current artifact until it passes",
-        },),
+        required_fixes=tuple(fixes),
         artifact_sha256=context.artifact.sha256,
     )
 

@@ -343,6 +343,9 @@ class CapabilityRuntime:
         stage: StageSpec | None = initial
         journal: list[dict[str, Any]] = []
         last_check: CheckOutcome | None = None
+        #: True only after a gate-passed action failed its exit checks. Gate
+        #: denials and repair tickets must not mask a missing proposal.
+        artifact_check_failed = False
         stage_attempts = stage_actions = stage_repairs = stage_tokens = stage_cost = 0
         total_model_calls = total_attempts = total_valid_actions = total_repairs = 0
         total_tokens = total_cost = 0
@@ -543,6 +546,10 @@ class CapabilityRuntime:
                     raise
                 total_model_calls += 1
                 code = classify_error(error)
+                if artifact_check_failed:
+                    # The model stopped after a failing artifact check: report
+                    # the artifact failure, not the missing proposal.
+                    code = ARTIFACT_CHECK_FAILED
                 journal.append({
                     "stage": stage.name, "event": "proposer_error",
                     "code": code, "message": str(error)[:300],
@@ -554,14 +561,18 @@ class CapabilityRuntime:
                 return fail(stage.name, code)
             if action is None:
                 total_model_calls += 1
+                reason = (
+                    ARTIFACT_CHECK_FAILED if artifact_check_failed else NO_TOOL_CALL
+                )
                 journal.append({
                     "stage": stage.name, "event": "proposer_exhausted",
                     "artifact_sha256": state.sha256,
                     "model_calls": total_model_calls,
                     "valid_actions": total_valid_actions,
                     "repairs": total_repairs,
+                    "reason": reason,
                 })
-                return fail(stage.name, NO_TOOL_CALL)
+                return fail(stage.name, reason)
 
             calls_for_action = max(1, int(getattr(action, "model_calls", 1) or 1))
             total_model_calls += calls_for_action
@@ -734,6 +745,7 @@ class CapabilityRuntime:
             )
             outcome = self.checks.run(stage.exit_checks, after)
             last_check = outcome
+            artifact_check_failed = not outcome.passed
             quality = dict(outcome.quality or {})
             composition = quality.get("composition_ok")
             if composition is True:
@@ -859,6 +871,7 @@ class CapabilityRuntime:
                 stage = following
                 stage_attempts = stage_actions = stage_repairs = stage_tokens = stage_cost = 0
                 no_delta = 0
+                artifact_check_failed = False
                 repair_by_code = {}
                 last_repair_ticket = None
                 continue

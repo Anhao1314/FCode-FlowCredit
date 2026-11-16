@@ -8,7 +8,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.evaluate_work_pelican import DEFAULT_OUTPUT_ROOT, VERIFY, default_output
+from scripts.evaluate_work_pelican import (
+    DEFAULT_OUTPUT_ROOT,
+    VERIFY,
+    _build_verify_script,
+    default_output,
+    verification_contract,
+    verify_html,
+)
 
 
 VALID_HTML = """<!doctype html>
@@ -33,6 +40,46 @@ class PelicanEvalVerifyTests(unittest.TestCase):
         self.assertEqual(output.parent, DEFAULT_OUTPUT_ROOT)
         self.assertNotIn("viewer/runs", str(output))
         self.assertTrue(output.name.startswith("pelican-"))
+
+    def test_identity_terms_are_reported_as_contract_gaps(self) -> None:
+        missing_identity = VALID_HTML.replace("<h1>Pelican bicycle ride</h1>", "")
+        errors = verify_html(missing_identity)
+        self.assertIn("text or class pelican", errors)
+        self.assertIn("text or class bicycle", errors)
+
+        labelled = VALID_HTML.replace(
+            'class="wheel leg foot hip pedal scenery"',
+            'class="pelican bicycle wheel leg foot hip pedal scenery"',
+        )
+        self.assertEqual(verify_html(labelled), [])
+
+    def test_verify_script_uses_scene_specific_identity_terms(self) -> None:
+        script = _build_verify_script(("robot", "scooter"))
+        self.assertIn("IDENTITIES = ('robot', 'scooter')", script)
+        self.assertNotIn("IDENTITIES = ('pelican', 'bicycle')", script)
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "verify.py").write_text(script, encoding="utf-8")
+            (workspace / "index.html").write_text(VALID_HTML, encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "verify.py"],
+                cwd=workspace,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("text or class robot", result.stderr)
+        self.assertIn("text or class scooter", result.stderr)
+        self.assertNotIn("text or class pelican", result.stderr)
+
+    def test_verification_contract_is_model_readable(self) -> None:
+        contract = verification_contract(("robot", "scooter"))
+        self.assertEqual(contract["identity_terms"], ["robot", "scooter"])
+        self.assertIn("wheel-spin", contract["required_keyframes"])
+        self.assertIn("single_file", contract)
+        self.assertTrue(contract["single_file"])
 
     def run_verify(self, html: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:

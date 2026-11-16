@@ -136,10 +136,15 @@ class MotionManifestTests(unittest.TestCase):
         self.assertEqual(by_name["draft"].exit_checks, ("scene.nonempty",))
         self.assertEqual(by_name["structure"].exit_checks, ("hooks.all", "static.pass"))
         self.assertEqual(by_name["motion"].exit_checks, ("probe.pass", "coverage.complete"))
-        self.assertEqual(by_name["delivery"].exit_checks, ("verify.pass", "result.written"))
+        self.assertEqual(
+            by_name["delivery"].exit_checks,
+            ("motion_check", "verify.pass", "result.written"),
+        )
         self.assertIn("motion_check_required", by_name["delivery"].action_rules)
-        self.assertEqual(by_name["delivery"].on_fail, "stop")
-        self.assertEqual([s.budget.calls for s in manifest.stages], [2, 4, 4, 1])
+        self.assertEqual(by_name["delivery"].on_fail, "retry")
+        self.assertIn("edit_file", by_name["delivery"].allowed_tools)
+        self.assertIn("motion_check", by_name["delivery"].allowed_tools)
+        self.assertEqual([s.budget.calls for s in manifest.stages], [2, 4, 4, 3])
         self.assertEqual(manifest.result_path, "FCODE_RESULT.md")
         self.assertTrue(all(isinstance(s.budget.tokens, int) for s in manifest.stages))
 
