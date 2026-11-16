@@ -155,8 +155,10 @@ def build_stack(
     # input. The reference workload ignores it; the general world reads it.
     world_kwargs: dict[str, Any] = {}
     if module.key == "general-work":
-        # The sandbox sits next to the chain it feeds, so files survive a restart.
-        world_kwargs["sandbox"] = WorkspaceSandbox(db_path.parent / "workspace")
+        # Keep the sandbox next to the chain it feeds so files survive a restart,
+        # but scope it to that chain. A shared work/demo/workspace lets one
+        # scenario's leftover files change the next scenario's verification.
+        world_kwargs["sandbox"] = WorkspaceSandbox(db_path.with_suffix(".workspace"))
     world = module.create_world(
         partial=scenario.partial_corpus, spec=spec or {}, **world_kwargs,
     )
@@ -605,7 +607,9 @@ def run_all(
     if provider_name != "mock" and max_total_cost is None:
         raise ValueError("an external provider batch requires --max-total-cost")
 
-    keys = list(SCENARIOS)
+    # Internal roles are spawned by a parent run; they are not operator-facing
+    # delegations and their standalone proposal is expected to be denied.
+    keys = [key for key, scenario in SCENARIOS.items() if not scenario.internal]
     per_task_cap = limits.max_cost_microusd if limits is not None else SCENARIOS[keys[0]].limits.max_cost_microusd
     worst_case = len(keys) * per_task_cap
     print(
