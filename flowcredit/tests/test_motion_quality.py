@@ -68,9 +68,13 @@ def probe(*distances, leg_wheel=0, ok=True, frames=4, hips=True,
 
 
 def page(*, wheel_ms=1000, bg_ms=1000, bg_px=628, crank_ms=1000, leg_ms=1000,
-         with_feet=True, wheel_rotate=True, bg_translate=True) -> str:
+         with_feet=True, wheel_rotate=True, bg_translate=True, wheel_deg=360,
+         extra_circle=False) -> str:
     feet = '<g class="foot"></g><g class="pedal"></g>' if with_feet else ""
-    rotate = "transform: rotate(360deg);" if wheel_rotate else "transform: translateX(0);"
+    rotate = (
+        f"transform: rotate({wheel_deg}deg);" if wheel_rotate
+        else "transform: translateX(0);"
+    )
     translate = "transform: translateX(-%dpx);" % bg_px if bg_translate else "transform: rotate(0deg);"
     return f"""<!doctype html><html><head><style>
       .wheel {{ animation: wheel-spin {wheel_ms}ms linear infinite; }}
@@ -83,6 +87,7 @@ def page(*, wheel_ms=1000, bg_ms=1000, bg_px=628, crank_ms=1000, leg_ms=1000,
       @keyframes pedal {{ to {{ transform: rotate(20deg); }} }}
     </style></head><body><svg>
       <g class="wheel"><circle cx="100" cy="100" r="100"></circle></g>
+      {('<circle cx="500" cy="500" r="300"></circle>' if extra_circle else '')}
       <g class="scenery"></g><g class="crank"></g><g class="leg"></g>
       <g class="leg"></g>{feet}
     </svg></body></html>"""
@@ -98,6 +103,40 @@ class MotionQualityTests(unittest.TestCase):
         self.assertEqual(result["slip_bp"], 0)
         self.assertEqual(result["phase_mismatch_bp"], 0)
         self.assertTrue(result["foot_pedal_hooks"])
+
+    def test_half_turn_with_half_circumference_background_passes(self) -> None:
+        # A 180-degree turn is half a wheel circumference, not a full one.
+        # The old analyzer assumed 360 degrees and reported a false 50% slip.
+        result = analyze_motion(page(wheel_deg=180, bg_px=314))
+        self.assertEqual(result["wheel_rotation_deg"], 180)
+        self.assertEqual(result["wheel_speed_px_s"], 314)
+        self.assertEqual(result["background_speed_px_s"], 314)
+        self.assertEqual(result["slip_bp"], 0)
+        self.assertEqual(result["status"], "pass")
+
+    def test_full_turn_with_half_circumference_background_fails(self) -> None:
+        result = analyze_motion(page(wheel_deg=360, bg_px=314))
+        self.assertEqual(result["wheel_rotation_deg"], 360)
+        self.assertEqual(result["wheel_speed_px_s"], 628)
+        self.assertEqual(result["background_speed_px_s"], 314)
+        self.assertGreater(result["slip_bp"], 2000)
+        self.assertEqual(result["status"], "fail")
+
+    def test_wheel_radius_ignores_larger_non_wheel_scene_circles(self) -> None:
+        result = analyze_motion(page(extra_circle=True))
+        self.assertEqual(result["wheel_radius_px"], 100)
+        self.assertEqual(result["wheel_speed_px_s"], 628)
+        self.assertEqual(result["status"], "pass")
+
+    def test_rotate_property_and_explicit_from_to_are_measured(self) -> None:
+        html = page(bg_px=314).replace(
+            "to { transform: rotate(360deg); }",
+            "from { rotate: 0deg; } to { rotate: 180deg; }",
+        )
+        result = analyze_motion(html)
+        self.assertEqual(result["wheel_rotation_deg"], 180)
+        self.assertEqual(result["wheel_speed_px_s"], 314)
+        self.assertEqual(result["status"], "pass")
 
     def test_wheel_ground_slip_and_phase_mismatch_fail(self) -> None:
         result = analyze_motion(page(wheel_ms=1000, bg_px=450, bg_ms=4000,

@@ -24,6 +24,26 @@ __all__ = [
 ]
 
 _STYLE = re.compile(r"<style[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL)
+_ANGLE = re.compile(
+    r"\brotate\s*\(\s*(-?\d+(?:\.\d+)?)\s*(deg|turn|rad|grad)\s*\)",
+    re.IGNORECASE,
+)
+_ROTATE_PROPERTY = re.compile(
+    r"(?<![-\w])rotate\s*:\s*(-?\d+(?:\.\d+)?)\s*(deg|turn|rad|grad)\s*;",
+    re.IGNORECASE,
+)
+_TRANSLATE_X = re.compile(
+    r"\btranslateX\s*\(\s*(-?\d+(?:\.\d+)?)\s*(px)?\s*\)",
+    re.IGNORECASE,
+)
+_CIRCLE_RADIUS = re.compile(
+    r"<circle\b[^>]*\br\s*=\s*[\"']([\d.]+)[\"']",
+    re.IGNORECASE,
+)
+_WHEEL_GROUP = re.compile(
+    r"<g\b[^>]*\bclass\s*=\s*[\"'][^\"']*\bwheel\b[^\"']*[\"'][^>]*>(.*?)</g>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 #: A foot centre further than this from the nearest pedal centre is visibly off
 #: the pedal at this render size. 25 px is roughly a third of a foot at the
@@ -119,13 +139,99 @@ def _animation(rule: str) -> tuple[str, int]:
     return name, duration_ms
 
 
-def _translate_px(body: str) -> int:
-    values = [abs(float(value)) for value in re.findall(r"translateX\(\s*(-?[\d.]+)px\s*\)", body, re.IGNORECASE)]
-    return int(round(max(values))) if values else 0
+def _angle_degrees(raw: str, unit: str) -> float:
+    value = float(raw)
+    lowered = unit.lower()
+    if lowered == "turn":
+        return value * 360.0
+    if lowered == "rad":
+        return value * 180.0 / math.pi
+    if lowered == "grad":
+        return value * 0.9
+    return value
+
+
+def _rotation_degrees(declarations: str) -> float | None:
+    match = _ROTATE_PROPERTY.search(declarations)
+    if match:
+        return _angle_degrees(match.group(1), match.group(2))
+    match = _ANGLE.search(declarations)
+    if match:
+        return _angle_degrees(match.group(1), match.group(2))
+    return None
+
+
+def _translate_x_px(declarations: str) -> float | None:
+    matches = _TRANSLATE_X.findall(declarations)
+    if not matches:
+        return None
+    return sum(float(raw) for raw, _unit in matches)
+
+
+def _keyframe_steps(
+    body: str,
+    extractor: Any,
+) -> list[tuple[float, float]]:
+    """Return (percentage, value) pairs in keyframe order.
+
+    A ``to``-only block is the common case; CSS supplies an implicit zero
+    starting value. The previous implementation treated every cycle as a full
+    360-degree wheel turn, which made a 180-degree rotation indistinguishable
+    from a 360-degree one.
+    """
+    steps: list[tuple[float, float]] = []
+    for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", body, re.DOTALL):
+        selectors = [part.strip().lower() for part in match.group(1).split(",")]
+        if not selectors or not all(
+            selector in ("from", "to") or selector.endswith("%")
+            for selector in selectors
+        ):
+            continue
+        value = extractor(match.group(2))
+        if value is None:
+            continue
+        for selector in selectors:
+            if selector == "from":
+                offset = 0.0
+            elif selector == "to":
+                offset = 100.0
+            else:
+                try:
+                    offset = float(selector[:-1])
+                except ValueError:
+                    continue
+            steps.append((offset, float(value)))
+    steps.sort(key=lambda item: item[0])
+    if steps and steps[0][0] > 0:
+        steps.insert(0, (0.0, 0.0))
+    return steps
+
+
+def _total_abs_delta(steps: list[tuple[float, float]]) -> float:
+    return sum(abs(right[1] - left[1]) for left, right in zip(steps, steps[1:]))
 
 
 def _wheel_radius(html: str) -> int:
-    values = [float(value) for value in re.findall(r"<circle\b[^>]*\br\s*=\s*[\"']([\d.]+)[\"']", html, re.IGNORECASE)]
+    values = [
+        float(value)
+        for group in _WHEEL_GROUP.findall(html)
+        for value in _CIRCLE_RADIUS.findall(group)
+    ]
+    if not values:
+        # Some artifacts put the hook directly on the circle rather than a
+        # wrapping <g>. Prefer those over arbitrary scene circles.
+        for tag in re.findall(r"<circle\b[^>]*>", html, re.IGNORECASE):
+            if _has_class(tag, "wheel"):
+                values.extend(float(value) for value in _CIRCLE_RADIUS.findall(tag))
+    if not values:
+        values = [
+            float(value)
+            for value in re.findall(
+                r"<circle\b[^>]*\br\s*=\s*[\"']([\d.]+)[\"']",
+                html,
+                re.IGNORECASE,
+            )
+        ]
     return int(round(max(values))) if values else 0
 
 
@@ -141,12 +247,16 @@ def analyze_motion(html: str) -> dict[str, Any]:
     wheel_name, wheel_ms = _animation(wheel_rule)
     wheel_body = _keyframes(css, wheel_name) if wheel_name else ""
     radius = _wheel_radius(html)
-    wheel_speed = int(round(2 * math.pi * radius * 1000 / wheel_ms)) if radius and wheel_ms else 0
+    wheel_rotation_deg = _total_abs_delta(_keyframe_steps(wheel_body, _rotation_degrees))
+    wheel_speed = (
+        int(round(2 * math.pi * radius * (wheel_rotation_deg / 360.0) * 1000 / wheel_ms))
+        if radius and wheel_ms and wheel_rotation_deg > 0 else 0
+    )
 
     bg_rule = _rule(css, ".scenery") or _rule(css, ".background")
     bg_name, bg_ms = _animation(bg_rule)
     bg_body = _keyframes(css, bg_name) if bg_name else ""
-    bg_px = _translate_px(bg_body)
+    bg_px = _total_abs_delta(_keyframe_steps(bg_body, _translate_x_px))
     bg_speed = int(round(bg_px * 1000 / bg_ms)) if bg_px and bg_ms else 0
 
     crank_rule = _rule(css, ".crank")
@@ -163,11 +273,15 @@ def analyze_motion(html: str) -> dict[str, Any]:
 
     issues: list[str] = []
     blocking = False
-    if not radius or not wheel_ms or "rotate(" not in wheel_body.lower():
-        issues.append("wheel: missing radius, spin duration, or rotate() keyframes")
+    if not radius or not wheel_ms or wheel_rotation_deg <= 0:
+        issues.append(
+            "wheel: missing radius, spin duration, or measurable rotation delta"
+        )
         blocking = True
-    if not bg_ms or not bg_px or "translatex(" not in bg_body.lower().replace(" ", ""):
-        issues.append("background: missing scroll duration or translateX() keyframes")
+    if not bg_ms or bg_px <= 0:
+        issues.append(
+            "background: missing scroll duration or measurable translateX delta"
+        )
         blocking = True
     if slip_bp > 1000:
         issues.append(
@@ -194,7 +308,7 @@ def analyze_motion(html: str) -> dict[str, Any]:
         score -= min(20, int(round(phase_bp / 10000 * 20)))
     if not foot_pedal:
         score -= 10
-    if not radius or not wheel_ms or not bg_ms or not bg_px:
+    if not radius or not wheel_ms or wheel_rotation_deg <= 0 or not bg_ms or bg_px <= 0:
         score -= 30
     score = max(0, min(100, score))
     status = "fail" if blocking else ("warn" if issues or score < 90 else "pass")
@@ -202,6 +316,10 @@ def analyze_motion(html: str) -> dict[str, Any]:
         "status": status,
         "score": score,
         "issues": issues,
+        "wheel_radius_px": radius,
+        "wheel_rotation_deg": int(round(wheel_rotation_deg)),
+        "background_translate_px": int(round(bg_px)),
+        "motion_measurement": "static_keyframes",
         "wheel_speed_px_s": wheel_speed,
         "background_speed_px_s": bg_speed,
         "slip_bp": slip_bp,

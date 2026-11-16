@@ -90,6 +90,15 @@ StageSpec(
 - 每个拒绝原因另有独立上限：`EDIT_TOO_LARGE` 最多 3 次，其它 shape/锚点错误 1 次；
 - `model_calls` 按 provider dispatch 统计，包含 harness 内部重试，单独计费。
 
+### 运动学测量
+
+`analyze_motion` 从 `.wheel` 的 keyframes 读取实际旋转角位移，而不是假定每个周期
+都是 360°：`rotate(180deg)` 与 `rotate(360deg)` 会得到不同轮速；缺少可测角位移时
+直接 fail，不用 360° 兜底。`rotate: ...` 属性、`from`/`to`/百分比关键帧和
+`translateX` 的起止位移都按同一规则解析。`wheel_radius` 优先取 `.wheel` 组内的
+circle，避免场景里更大的装饰圆改变轮速。这个测量仍是静态 keyframes 事实；真实
+渲染矩阵测量是后续独立切片。
+
 ### 构图不变量与回归守卫
 
 `probe_quality` 除了脚/腿几何，还检查 `composition`：
@@ -217,7 +226,9 @@ python3 scripts/evaluate_work_pelican.py --output /path/outside-viewer-runs
 
 脚本读取 host 已保存的 DeepSeek 配置，默认硬限制为 10 calls / 300k tokens /
 200,000 µUSD（`--max-calls` / `--max-total-tokens` / `--max-cost-microusd`
-可显式覆盖），并输出脱敏 `report.json`、workspace 和 motion frames。单次在线样本只用于
+可显式覆盖），并输出脱敏 `report.json`、workspace 和 motion frames。默认输出目录是
+`work/evaluations/pelican-<timestamp>/`；不要把失败样本只留在易失的 `/tmp`，否则
+无法在之后复核测量争议。单次在线样本只用于
 回归观察，不构成统计意义上的模型对比。
 
 ## 8. 后续切片

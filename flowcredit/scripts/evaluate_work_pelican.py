@@ -17,6 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT_ROOT = ROOT / "work" / "evaluations"
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "viewer"))
 
@@ -91,8 +92,20 @@ def _build_verify_script() -> str:
 VERIFY = _build_verify_script()
 
 
+def default_output() -> Path:
+    """Return a durable evaluation directory under the workspace.
+
+    The previous workflow usually pointed --output at /private/tmp; when the
+    OS cleaned that directory the artifact and report disappeared, leaving
+    only a summary in the conversation. Keep new evaluations in work/ so a
+    failed sample can be re-measured instead of becoming folklore.
+    """
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return DEFAULT_OUTPUT_ROOT / f"pelican-{stamp}"
+
+
 def run(
-    output: Path,
+    output: Path | None = None,
     *,
     max_tokens: int = 32_768,
     reasoning_effort: str = "low",
@@ -100,7 +113,7 @@ def run(
     max_total_tokens: int = 300_000,
     max_cost_microusd: int = 200_000,
 ) -> dict:
-    output = output.resolve()
+    output = (output or default_output()).resolve()
     if ROOT / "viewer" / "runs" in output.parents:
         raise ValueError("evaluation output must not overwrite viewer/runs")
     output.mkdir(parents=True, exist_ok=True)
@@ -208,6 +221,7 @@ def run(
     )
     report = {
         "schema_version": "fcode.work-pelican-eval-v1",
+        "output_dir": str(output),
         "mode": "online-real-model+real-playwright+independent-verifier",
         "provider": provider.name,
         "model": provider.model,
@@ -245,7 +259,10 @@ def run(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output", type=Path, default=None,
+        help="evaluation directory (default: work/evaluations/pelican-<timestamp>)",
+    )
     parser.add_argument("--max-tokens", type=int, default=32_768)
     parser.add_argument("--max-calls", type=int, default=10)
     parser.add_argument("--max-total-tokens", type=int, default=300_000)
@@ -266,7 +283,7 @@ def main() -> int:
         "failure": report["result"].get("reason") or None,
         "budget": report["budget"],
         "quality": (report["result"].get("quality") or {}).get("status"),
-        "report": str(args.output.resolve() / "report.json"),
+        "report": str(Path(report["output_dir"]) / "report.json"),
     }, ensure_ascii=False, indent=2))
     return 0 if report["task_status"] == "succeeded" else 1
 
