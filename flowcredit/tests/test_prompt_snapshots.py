@@ -42,8 +42,8 @@ EXPECTED = {
         "2af7f3f639d8977bca6f072a5ee8a6cb85d658107193f705390d441fe723ae23",
     ),
     "capability-motion": (
-        "fcode.prompt/capability-motion-v3", 2301,
-        "e3d74a36d36d0bc22e927b064b8566921fbe600aea8f082c1c98e95f95ee3510",
+        "fcode.prompt/capability-motion-v4", 2528,
+        "d2f8918c9839fa3b9004fe42e17c4ba285acfe9349ea2b32e8f2e3ba32bf5c12",
     ),
 }
 

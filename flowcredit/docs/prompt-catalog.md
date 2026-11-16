@@ -12,7 +12,7 @@
 | `general-fast` | `fcode.prompt/general-fast-v3` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
 | `general-fast-native` | `fcode.prompt/general-fast-native-v3` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
 | `motion-render` | `fcode.prompt/motion-render-v12` | `providers/prompt.py::MOTION_SYSTEM_PROMPT` | 单文件 HTML/SVG/CSS 动效任务（intake 自动识别） | 否 | 原生 tool calling；6 工具；`max_steps=4`；宿主预置 SECTION 骨架，`index.html` 只允许 edit_file 锚点填充（每次 ≤3000 字符）；明确禁止未列出的 grep/terminal；verify + motion_check（轮速/相位、髋锚点/腿长、脚-踏板/支撑面、关键帧名、coverage、required_fixes） |
-| `capability-motion` | `fcode.prompt/capability-motion-v3` | `providers/prompt.py::CAPABILITY_MOTION_SYSTEM_PROMPT` | Work `motion.render` capability 的 Harness adapter | 否 | 原生 tool calling；每轮恰好一个阶段内动作；无 plan/submit_plan/additions；只依据 bounded stage packet + constraints（raw prompt/scene descriptor/verifier contract）+ repair ticket；单次 edit ≤3000 字符；delivery 验证失败允许有界修复；最终 host probe 与声明验证独立验收 |
+| `capability-motion` | `fcode.prompt/capability-motion-v4` | `providers/prompt.py::CAPABILITY_MOTION_SYSTEM_PROMPT` | Work `motion.render` capability 的 Harness adapter | 否 | 原生 tool calling；每轮恰好一个阶段内动作；无 plan/submit_plan/additions；只依据 bounded stage packet + constraints（raw prompt/scene descriptor/verifier contract）+ repair ticket；单次 edit ≤3000 字符；delivery 验证失败允许有界修复；stage budget 只是护栏，质量/no-progress 决定停止；最终 host probe 与声明验证独立验收 |
 | `chat` | 无独立 profile（inline） | `chat.py::CHAT_SYSTEM_PROMPT` | `ChatService` | 否 | 只读工具直接执行；写/网络逐次审批；完整任务用执行提案转委托 |
 | `audit-analyst` | 无独立 profile（inline） | `flowaudit/analyst.py` 的 objective | `flowaudit.analyst` | 否 | 只依据审计 bundle 给跟进计划；不编造未给出的信息 |
 
@@ -27,6 +27,7 @@
 
 ## Changelog
 
+- **2026-11-17 · capability-motion-v4**：stage budget 从终态条件改为护栏；runtime 用综合质量排序选择 best revision，连续 3 个有效编辑没有超过 best candidate 才 `QUALITY_STALLED`；模型不再因阶段 calls/tokens 用完而提前停。
 - **2026-11-16 · capability-motion-v3**：阶段包新增 `constraints` 输入契约（`raw_user_prompt`、`scene_descriptor`、`verifier_contract`）；模型必须保留 identity terms / hooks；`last_check` 带结构化 `required_fixes` 与 coverage；delivery 验证失败允许有界修 index.html → motion_check → 重新验证，而不是只改结果文件。
 - **2026-11-16 · capability-motion-v2**：阶段包新增 `repair.last_ticket`；被 gate 拒绝后模型先按 ticket.constraint 修复，`remaining_repairs` 为 0 时不得重复同一动作。控制面失败码与 repair 预算由 runtime 记录，不占用成功动作预算。
 - **2026-11-16 · capability-motion-v1**：新增 Work 阶段化执行契约；不修改 frozen finance 或旧 motion-render 字节。模型每轮只提议一个阶段内原生工具动作，最终成功由 Harness 的 host probe 与声明验证决定。

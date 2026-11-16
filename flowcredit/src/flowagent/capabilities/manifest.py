@@ -35,10 +35,11 @@ ACTION_RULES = (
 class BudgetSpec:
     """Integer-only budget; micro-units so nothing float enters the hash chain.
 
-    ``calls`` is the number of **valid artifact actions** a stage may apply.
-    ``repairs`` is a separate allowance for gate-rejected proposals: a rejected
-    edit is a control-plane event, not a failed artifact action. Model calls and
-    tokens are charged independently in the runtime result.
+    Stage budgets are **guardrails, not terminal conditions**: the runtime uses
+    artifact quality/no-progress and the caller's global budget to decide when
+    to stop. ``calls`` still counts valid artifact actions applied in a stage,
+    ``repairs`` counts gate-rejected proposals, and tokens/cost are charged
+    independently in the runtime result.
     """
 
     calls: int

@@ -145,40 +145,124 @@ class RuntimeLoopTests(unittest.TestCase):
         self.assertEqual(self.stack.store.snapshot().sha256, before.sha256)
         self.assertFalse(self.stack.store.result_exists())
 
-    def test_budget_exhaustion_returns_a_typed_failure(self) -> None:
-        manifest = one_stage_manifest(calls=1)
+    def test_global_budget_returns_a_typed_failure(self) -> None:
+        manifest = one_stage_manifest(calls=10)
         runtime = self.stack.runtime(
             Scripted(Action("edit_file", {"old_text": "ONE", "new_text": "TWO"})),
             manifest=manifest,
         )
-        result = runtime.run("never passes")
+        result = runtime.run("never passes", budget=BudgetSpec(calls=1))
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.stage, "only")
-        self.assertEqual(result.reason, "ARTIFACT_CHECK_FAILED")
+        self.assertEqual(result.reason, "BUDGET_EXHAUSTED_ACTION")
         self.assertEqual(result.to_dict()["budget"]["calls_used"], 1)
         self.assertTrue(result.required_fixes)
 
-    def test_stage_token_budget_is_a_real_stop_condition(self) -> None:
+    def test_stage_budget_is_a_guardrail_not_the_quality_bar(self) -> None:
+        # The manifest allows one stage action, but the artifact keeps changing
+        # without improving. The run stops on quality, not on the stage counter.
+        manifest = one_stage_manifest(calls=1)
+        actions = [
+            Action("edit_file", {"old_text": "ONE", "new_text": "TWO-0"}),
+            Action("edit_file", {"old_text": "TWO-0", "new_text": "TWO-1"}),
+            Action("edit_file", {"old_text": "TWO-1", "new_text": "TWO-2"}),
+        ]
+        runtime = self.stack.runtime(Scripted(*actions), manifest=manifest)
+        result = runtime.run("keep trying")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "QUALITY_STALLED")
+        self.assertEqual(result.to_dict()["budget"]["calls_used"], 3)
+        self.assertTrue(result.required_fixes)
+
+    def test_global_token_budget_stops_the_run(self) -> None:
         runtime = self.stack.runtime(Scripted(
             Action("edit_file", {"old_text": "ONE", "new_text": "TWO"}, tokens=1_000),
         ))
-        result = runtime.run("token bound")
+        result = runtime.run(
+            "token bound", budget=BudgetSpec(calls=10, tokens=1_000),
+        )
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.to_dict()["budget"]["calls_used"], 1)
         self.assertEqual(result.to_dict()["budget"]["tokens_used"], 1_000)
+        self.assertEqual(result.reason, "BUDGET_EXHAUSTED_ACTION")
 
-    def test_stage_cost_budget_is_a_real_stop_condition(self) -> None:
+    def test_global_cost_budget_stops_the_run(self) -> None:
         manifest = one_stage_manifest(calls=10)
-        stage = manifest.stages[0]
-        budget = replace(stage.budget, tokens=0, cost_microusd=50)
-        manifest = replace(manifest, stages=(replace(stage, budget=budget),))
         runtime = self.stack.runtime(Scripted(
             Action("edit_file", {"old_text": "ONE", "new_text": "TWO"}, cost_microusd=50),
         ), manifest=manifest)
-        result = runtime.run("cost bound")
+        result = runtime.run(
+            "cost bound", budget=BudgetSpec(calls=10, cost_microusd=50),
+        )
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.to_dict()["budget"]["calls_used"], 1)
         self.assertEqual(result.to_dict()["budget"]["cost_microusd"], 50)
+        self.assertEqual(result.reason, "BUDGET_EXHAUSTED_ACTION")
+
+    def test_stage_budget_does_not_stop_a_still_improving_run(self) -> None:
+        def improving_check(context: CheckContext, registry: CheckRegistry) -> CheckResult:
+            score = 10 * context.artifact.content.count("STEP")
+            return CheckResult(
+                name="quality.gate", passed=False, status="fail", score=score,
+                issues=("not done",),
+                required_fixes=({"code": "NOT_DONE", "message": "add DONE"},),
+                artifact_sha256=context.artifact.sha256,
+            )
+
+        manifest = replace(one_stage_manifest(calls=1), stages=(
+            replace(one_stage_manifest(calls=1).stages[0], exit_checks=("quality.gate",)),
+        ), checks=(CheckSpec("quality.gate"),))
+        actions = [
+            Action("edit_file", {"old_text": "ONE", "new_text": "STEP1"}),
+            Action("edit_file", {"old_text": "STEP1", "new_text": "STEP1 STEP2"}),
+            Action("edit_file", {"old_text": "STEP1 STEP2", "new_text": "STEP1 STEP2 STEP3"}),
+        ]
+        runtime = CapabilityRuntime(
+            manifest=manifest,
+            store=self.stack.store,
+            checks=CheckRegistry().register("quality.gate", improving_check),
+            proposer=Scripted(*actions),
+            gate=ActionGate(),
+            child_run_id="cap-test-improving",
+        )
+        result = runtime.run("keep improving")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "ARTIFACT_CHECK_FAILED")
+        self.assertEqual(result.to_dict()["budget"]["calls_used"], 4)
+        self.assertEqual(result.to_dict()["budget"]["valid_actions"], 3)
+        self.assertEqual(result.to_dict()["budget"]["attempts"], 3)
+
+    def test_best_revision_is_restored_when_a_later_edit_is_worse(self) -> None:
+        def scoring_check(context: CheckContext, registry: CheckRegistry) -> CheckResult:
+            content = context.artifact.content
+            score = 80 if "GOOD1" in content else 40 if "GOOD2" in content else 0
+            return CheckResult(
+                name="quality.gate", passed=False, status="fail", score=score,
+                issues=("not done",),
+                required_fixes=({"code": "NOT_DONE", "message": "add DONE"},),
+                artifact_sha256=context.artifact.sha256,
+            )
+
+        manifest = replace(one_stage_manifest(calls=4), stages=(
+            replace(one_stage_manifest(calls=4).stages[0], exit_checks=("quality.gate",)),
+        ), checks=(CheckSpec("quality.gate"),))
+        actions = [
+            Action("edit_file", {"old_text": "ONE", "new_text": "GOOD1"}),
+            Action("edit_file", {"old_text": "GOOD1", "new_text": "GOOD2"}),
+        ]
+        runtime = CapabilityRuntime(
+            manifest=manifest,
+            store=self.stack.store,
+            checks=CheckRegistry().register("quality.gate", scoring_check),
+            proposer=Scripted(*actions),
+            gate=ActionGate(),
+            child_run_id="cap-test-best",
+        )
+        result = runtime.run("keep the best candidate")
+        self.assertEqual(result.status, "failed")
+        content = self.stack.store.snapshot().content
+        self.assertIn("GOOD1", content)
+        self.assertNotIn("GOOD2", content)
 
     def test_two_rounds_without_artifact_delta_stop_the_runtime(self) -> None:
         manifest = one_stage_manifest(calls=10)

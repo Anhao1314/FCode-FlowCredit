@@ -46,6 +46,8 @@ typed result + quality + budget + reason
 
 **失败可以修，但不能无限重试。** 门拒绝动作时返回有界 `repair_ticket`（失败码、违反的约束、剩余 repair 次数、artifact hash），下一轮带着它继续修。每个失败码有独立上限；repair 用尽才失败。预算拆成 `model_calls`、`valid_actions`、`repairs` 与 `attempts`，不再把“模型调用了几次”和“产物真正改对了几次”混成一个数字。
 
+**质量优先，预算是护栏。** stage budget 不再单独终止 run；只要 artifact 仍在改善且全局预算未耗尽，runtime 会继续修。停止条件是综合质量排序上的 no-progress（连续 3 个有效编辑没有超过 best candidate），或全局预算耗尽。best revision 按综合质量保存，失败时如果 best candidate 仍更好，会先恢复它再返回。
+
 **坏改动可以回滚。** Runtime 保存最后一次构图安全的 revision。后续编辑如果把轮子或主体移出 scene，会记录 `artifact_rolled_back`，恢复 best revision，并发出 `COMPOSITION_REGRESSION`；模型必须回到安全版本上继续修，不能靠牺牲构图换取局部指标。
 
 ### 一次工作里，谁负责什么
@@ -150,12 +152,12 @@ bash desktop/build.sh
 ## 验证，而不是感觉
 
 ```bash
-python3 -m unittest discover -s tests -q       # 1,399 Python tests
+python3 -m unittest discover -s tests -q       # 1,402 Python tests
 node --test viewer/tests/*.test.js              # 417 frontend tests
 python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
 ```
 
-当前完整回归：**1,399 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
+当前完整回归：**1,402 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
 测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 

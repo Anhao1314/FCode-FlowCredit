@@ -52,6 +52,7 @@ ACTION_REPAIR_EXHAUSTED_PARTIAL = "ACTION_REPAIR_EXHAUSTED_PARTIAL"
 ACTION_EXECUTION_FAILED = "ACTION_EXECUTION_FAILED"
 MODEL_CALL_FAILED = "MODEL_CALL_FAILED"
 ITERATION_LIMIT = "ITERATION_LIMIT"
+QUALITY_STALLED = "QUALITY_STALLED"
 
 FAILURE_CODES = frozenset({
     NO_TOOL_CALL,
@@ -66,6 +67,7 @@ FAILURE_CODES = frozenset({
     ACTION_EXECUTION_FAILED,
     MODEL_CALL_FAILED,
     ITERATION_LIMIT,
+    QUALITY_STALLED,
 })
 
 #: Compatibility aliases for the old stage-specific failure vocabulary.
@@ -102,11 +104,41 @@ ARTIFACT_FAILURE_CODES = frozenset({
     BUDGET_EXHAUSTED_ACTION,
     ACTION_REPAIR_EXHAUSTED_NO_VALID,
     ACTION_REPAIR_EXHAUSTED_PARTIAL,
+    QUALITY_STALLED,
 })
 
 #: Two consecutive applied actions with no artifact delta mean the capability
 #: is looping. Gate denials use the separate repair budget instead.
 MAX_NO_DELTA_ROUNDS = 2
+
+#: Stage budgets are guardrails, not terminal conditions. A run stops when the
+#: artifact stops improving for this many applied actions, or when the global
+#: budget is exhausted. This keeps a hard ceiling without making a stage's
+#: fixed action count the quality bar.
+MAX_NO_PROGRESS_ROUNDS = 3
+
+#: A final safety ceiling over applied actions across the whole capability.
+#: It is intentionally much larger than the per-stage budgets: a model that is
+#: still improving the artifact should not be cut off by a stage counter.
+MAX_TOTAL_ATTEMPTS = 64
+
+
+def quality_rank(quality: dict[str, Any] | None) -> tuple[int, int, int, int, int]:
+    """Rank one artifact verdict for best-revision selection.
+
+    The tuple is deliberately coarse: composition and coverage are structural
+    facts, geometry and overall status are gate results, and score is the
+    remaining tie-breaker. This is not a model-visible metric.
+    """
+    quality = quality or {}
+    coverage = quality.get("coverage") or {}
+    return (
+        int(quality.get("composition_ok") is True),
+        int(coverage.get("complete") is True),
+        int(quality.get("geometry_status") == "pass"),
+        int(quality.get("status") == "pass"),
+        int(quality.get("score") or 0),
+    )
 
 
 class Proposer(Protocol):
@@ -355,9 +387,9 @@ class CapabilityRuntime:
         best_content: str | None = None
         best_sha: str = ""
         best_quality: dict[str, Any] | None = None
-        hard_limit = sum(
-            item.budget.calls + item.budget.repairs for item in self.manifest.stages
-        ) + 8
+        best_rank: tuple[int, int, int, int, int] = quality_rank(None)
+        no_progress = 0
+        hard_limit = MAX_TOTAL_ATTEMPTS
 
         def budget_view() -> dict[str, int]:
             return {
@@ -415,6 +447,15 @@ class CapabilityRuntime:
             *,
             ticket: dict[str, Any] | None = None,
         ) -> CapabilityResult:
+            # A failure is not permission to keep the worst bytes. If a later
+            # edit made the artifact worse than a previously measured
+            # candidate, restore the better one before reporting.
+            if best_content is not None and best_quality is not None:
+                current = self.store.snapshot()
+                if current.sha256 != best_sha:
+                    current_quality = self.checks.quality_for(current.sha256) or {}
+                    if quality_rank(best_quality) > quality_rank(current_quality):
+                        self.store.restore(best_content)
             fixes: list[Any] = []
             if last_check is not None:
                 fixes = list(last_check.required_fixes)
@@ -462,22 +503,19 @@ class CapabilityRuntime:
             ).to_dict()
 
         def stop_reason() -> str | None:
-            if stage_attempts >= stage.budget.calls:
-                # A gate-passed action that fails its exit check is an artifact
-                # failure, not a budget failure. The budget only explains why we
-                # stopped retrying, not why the artifact was rejected.
-                return ARTIFACT_CHECK_FAILED
+            # Stage budgets are guardrails, not the quality bar. A gate-passed
+            # action that fails its exit check is an artifact problem; keep the
+            # model working while the artifact still improves and the global
+            # budget allows it.
             if stage.budget.repairs and stage_repairs >= stage.budget.repairs:
                 return (
                     ACTION_REPAIR_EXHAUSTED_PARTIAL
                     if stage_actions else ACTION_REPAIR_EXHAUSTED_NO_VALID
                 )
-            if stage.budget.tokens and stage_tokens >= stage.budget.tokens:
-                return BUDGET_EXHAUSTED_ACTION
-            if stage.budget.cost_microusd and stage_cost >= stage.budget.cost_microusd:
-                return BUDGET_EXHAUSTED_ACTION
             if no_delta >= MAX_NO_DELTA_ROUNDS:
                 return ARTIFACT_CHECK_FAILED
+            if no_progress >= MAX_NO_PROGRESS_ROUNDS:
+                return QUALITY_STALLED
             if budget is not None:
                 if total_model_calls >= budget.calls:
                     return BUDGET_EXHAUSTED_ACTION
@@ -748,10 +786,18 @@ class CapabilityRuntime:
             artifact_check_failed = not outcome.passed
             quality = dict(outcome.quality or {})
             composition = quality.get("composition_ok")
-            if composition is True:
+            rank = quality_rank(quality)
+            candidate_is_safe = composition is not False
+            if candidate_is_safe and rank > best_rank:
                 best_content = str(revision.content)
                 best_sha = revision.sha256
                 best_quality = quality
+                best_rank = rank
+                no_progress = 0
+            elif changed:
+                # A changed artifact that did not beat the best candidate is
+                # still work, but it is not progress toward quality.
+                no_progress += 1
 
             rolled_back = False
             if (
@@ -871,6 +917,7 @@ class CapabilityRuntime:
                 stage = following
                 stage_attempts = stage_actions = stage_repairs = stage_tokens = stage_cost = 0
                 no_delta = 0
+                no_progress = 0
                 artifact_check_failed = False
                 repair_by_code = {}
                 last_repair_ticket = None
