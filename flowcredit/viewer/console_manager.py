@@ -111,6 +111,9 @@ class RunManager:
                 traceback.print_exc()
         self._lock = threading.Lock()
         self._seq = 0
+        # Initialize the MCP bridge slot before pending runs can start workers:
+        # a restored run may reach RunDriver before the connection thread runs.
+        self.mcp: dict[str, Any] = {"ready": False, "bridge": None}
         # ``parents=True`` keeps this idempotent on hosts that broker Path.mkdir
         # to an external shim: some of those report EEXIST for an existing
         # directory when parents is omitted, even with exist_ok=True.
@@ -142,7 +145,6 @@ class RunManager:
         # The MCP bridge attaches whatever the host reviewed into mcp.json.
         # Connection happens off-thread: a hanging server must not delay boot,
         # and /api/mcp reports the honest per-server status meanwhile.
-        self.mcp: dict[str, Any] = {"ready": False, "bridge": None}
         if runtime is not None:
             config_path = os.environ.get("FCODE_MCP_CONFIG") or str(runtime.repo / "mcp.json")
             thread = threading.Thread(
