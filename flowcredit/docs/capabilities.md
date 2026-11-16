@@ -102,7 +102,23 @@ bounded 明细；`verify.pass` 失败会返回 `VERIFICATION_FAILED`，并把声
 - `repairs` 是被 gate 拒绝的提议（如 `EDIT_TOO_LARGE` / `WRONG_ANCHOR`）；
   被拒动作消耗 repair 和全局 tokens/cost，但不消耗 `calls`，也不直接触发阶段失败；
 - 每个拒绝原因另有独立上限：`EDIT_TOO_LARGE` 最多 3 次，其它 shape/锚点错误 1 次；
-- `model_calls` 按 provider dispatch 统计，包含 harness 内部重试，单独计费。
+- `model_calls` 按 provider dispatch 统计，包含 harness 内部重试，单独计费；
+- **stage budget 是护栏，不是质量门槛**：阶段 `calls` / tokens / cost 不再单独
+  把 run 判成失败。只要 artifact 仍在改善且全局预算未耗尽，runtime 会继续修。
+  全局预算（如果宿主传入）仍是硬上限。
+
+### 质量循环
+
+runtime 现在用综合质量排序选择 best revision，而不是只看 composition：
+
+```text
+rank = (composition_ok, coverage.complete, geometry.pass, status.pass, score)
+```
+
+每个有效编辑后都会和当前 best candidate 比较。只有更好才更新 best；没有变好
+则累计 `no_progress`。连续 3 个有效编辑没有超过 best candidate 时，返回
+`QUALITY_STALLED`。失败时如果 best candidate 仍然比当前 artifact 好，会先恢复
+best revision 再返回，避免把较差的字节交给父 agent。
 
 ### 运动学测量
 
@@ -153,13 +169,14 @@ while stage:
   `NO_TOOL_CALL` / `EMPTY_CONTENT` / `INVALID_TOOL_CALL` / `ACTION_REJECTED` /
   `ARTIFACT_CHECK_FAILED` / `BUDGET_EXHAUSTED_REASONING` /
   `BUDGET_EXHAUSTED_ACTION` / `ACTION_REPAIR_EXHAUSTED_NO_VALID` /
-  `ACTION_REPAIR_EXHAUSTED_PARTIAL`。旧的 `NO_DRAFT` / `STATIC_CHECK_FAILED` /
+  `ACTION_REPAIR_EXHAUSTED_PARTIAL` / `QUALITY_STALLED`。旧的 `NO_DRAFT` / `STATIC_CHECK_FAILED` /
   `PROBE_NOT_PASS` / `DELIVERY_BLOCKED` 只作为 `legacy_reason` 兼容别名。
 * `model_calls` 按 provider dispatch 计，包含 harness 内部重试；`calls_used`
   保留为它的兼容别名。`valid_actions` 只统计改变 artifact hash 的动作；
   `repairs` 统计被 gate 拒绝的提议。token 与 µUSD 为整数。
 * 观测类动作（`motion_check` / `verify`）不改变 artifact，`changed=False`，
-  但会消耗阶段 `calls` 预算与 `model_calls`。
+  但会消耗阶段 `calls` 预算与 `model_calls`。阶段 `calls` / tokens / cost 只是
+  护栏，不单独终态；质量停止条件是 no-progress，全局预算仍是硬上限。
 * gate 拒绝返回有界 `repair_ticket`（code / violation / constraint /
   remaining_repairs / artifact_sha256），下一轮 packet 的 `repair` 字段携带它；
   repair 用尽才失败，模型不能靠重复同一超限动作无限重试。
