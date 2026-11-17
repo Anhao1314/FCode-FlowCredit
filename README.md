@@ -152,12 +152,12 @@ bash desktop/build.sh
 ## 验证，而不是感觉
 
 ```bash
-python3 -m unittest discover -s tests -q       # 1,403 Python tests
-node --test viewer/tests/*.test.js              # 417 frontend tests
+python3 -m unittest discover -s tests -q       # 1,406 Python tests
+node --test viewer/tests/*.test.js              # 418 frontend tests
 python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
 ```
 
-当前完整回归：**1,403 项 Python 测试、417 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
+当前完整回归：**1,406 项 Python 测试、418 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
 测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 

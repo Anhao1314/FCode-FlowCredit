@@ -78,7 +78,10 @@ StageSpec(
 | `delivery` | edit + result 写入 + `motion_check`/verify | `motion_check && verify.pass && result.written` | 3 actions / 1 repair / 60k |
 
 `structure` 每次编辑后自动跑静态检查（`analyze_motion`），`status=fail`
-不前进；`motion` 阶段 `unverified` / coverage 不完整都不算 pass。
+不前进；`motion` 阶段 `unverified` / coverage 不完整都不算 pass。delivery 阶段
+如果模型没有提议 result 写入，但当前 artifact 已通过 motion gate，runtime 会
+注入一次 `RESULT_MISSING` 有界修复票据，要求它写 `FCODE_RESULT.md`；第二次
+仍然沉默才终态失败。
 
 ### 输入契约与结构化检查
 

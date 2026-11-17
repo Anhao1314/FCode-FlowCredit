@@ -88,8 +88,14 @@ REPAIR_LIMITS_BY_CODE = {
     "WRONG_ANCHOR": 1,
     "STAGE_ACTION_DENIED": 1,
     "MOTION_CHECK_REQUIRED": 1,
+    "RESULT_MISSING": 1,
 }
 DEFAULT_REPAIR_LIMIT = 1
+
+#: A no-tool-call round at delivery is often a wording lapse, not proof that
+#: the artifact is bad. When the current artifact already passes its motion
+#: gate, give one host-directed “write the result” retry before failing.
+MAX_RESULT_WRITE_RETRIES = 1
 
 #: Host-side argument errors are control-plane rejections: nothing executed and
 #: the artifact did not change. They get the same bounded repair treatment as a
@@ -389,6 +395,7 @@ class CapabilityRuntime:
         best_quality: dict[str, Any] | None = None
         best_rank: tuple[int, int, int, int, int] = quality_rank(None)
         no_progress = 0
+        result_write_retries = 0
         hard_limit = MAX_TOTAL_ATTEMPTS
 
         def budget_view() -> dict[str, int]:
@@ -599,6 +606,96 @@ class CapabilityRuntime:
                 return fail(stage.name, code)
             if action is None:
                 total_model_calls += 1
+                # A delivery round with a passing artifact but no result file is
+                # an omission, not a bad artifact. Give one directed retry that
+                # tells the model exactly what to write; a second silence fails.
+                if (
+                    stage.name == "delivery"
+                    and not artifact_check_failed
+                    and not self.store.result_exists()
+                    and result_write_retries < MAX_RESULT_WRITE_RETRIES
+                    and self.checks.motion_check_pass(state.sha256)
+                ):
+                    result_write_retries += 1
+                    stage_repairs += 1
+                    total_repairs += 1
+                    repair_by_code["RESULT_MISSING"] = (
+                        repair_by_code.get("RESULT_MISSING", 0) + 1
+                    )
+                    ticket = RepairTicket(
+                        repair_id=f"{stage.name}:{state.sha256[:12]}:{stage_repairs}",
+                        stage=stage.name,
+                        code="RESULT_MISSING",
+                        message=(
+                            "the artifact passed its quality gate, but no result "
+                            f"was proposed for {self.manifest.result_path}"
+                        ),
+                        violation={
+                            "artifact_sha256": state.sha256,
+                            "result_path": self.manifest.result_path,
+                            "quality_status": (
+                                self.checks.quality_for(state.sha256) or {}
+                            ).get("status", "pass"),
+                        },
+                        constraint=(
+                            f"write_file to {self.manifest.result_path} only; "
+                            "summarize the delivered artifact path, sha256, "
+                            "quality status and remaining risks"
+                        ),
+                        suggested_action="write_result",
+                        remaining_repairs=max(
+                            0, stage.budget.repairs - stage_repairs
+                        ),
+                        remaining_by_code={
+                            "RESULT_MISSING": max(
+                                0,
+                                repair_limit("RESULT_MISSING")
+                                - repair_by_code["RESULT_MISSING"],
+                            ),
+                        },
+                        artifact_sha256=state.sha256,
+                        attempt=stage_repairs,
+                    ).to_dict()
+                    last_repair_ticket = ticket
+                    last_check = CheckOutcome(
+                        passed=False,
+                        results=(CheckResult(
+                            name="result.written",
+                            passed=False,
+                            status="fail",
+                            score=100,
+                            issues=(f"{self.manifest.result_path} has not been written",),
+                            required_fixes=({
+                                "code": "RESULT_MISSING",
+                                "selector": self.manifest.result_path,
+                                "message": "write the delivery result",
+                            },),
+                            artifact_sha256=state.sha256,
+                        ),),
+                        status="fail",
+                        score=100,
+                        issues=(f"{self.manifest.result_path} has not been written",),
+                        required_fixes=({
+                            "code": "RESULT_MISSING",
+                            "selector": self.manifest.result_path,
+                            "message": "write the delivery result",
+                        },),
+                        coverage={"required": [], "covered": [], "uncovered": [], "complete": False},
+                        quality=dict(self.checks.quality_for(state.sha256) or {}),
+                    )
+                    artifact_check_failed = True
+                    journal.append({
+                        "stage": stage.name,
+                        "event": "result_write_retry",
+                        "code": "RESULT_MISSING",
+                        "message": "no proposal; retry with a directed result write",
+                        "repair_ticket": ticket,
+                        "artifact_sha256": state.sha256,
+                        "model_calls": total_model_calls,
+                        "valid_actions": stage_actions,
+                        "repairs": stage_repairs,
+                    })
+                    continue
                 reason = (
                     ARTIFACT_CHECK_FAILED if artifact_check_failed else NO_TOOL_CALL
                 )
