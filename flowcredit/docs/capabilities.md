@@ -257,7 +257,9 @@ python3 scripts/evaluate_work_pelican.py --output /path/outside-viewer-runs
 
 脚本读取 host 已保存的 DeepSeek 配置，默认硬限制为 10 calls / 300k tokens /
 200,000 µUSD（`--max-calls` / `--max-total-tokens` / `--max-cost-microusd`
-可显式覆盖），并输出脱敏 `report.json`、workspace 和 motion frames。默认输出目录是
+可显式覆盖），并输出脱敏 `report.json`、workspace 和 motion frames。`report.json`
+同时包含 capability journal 和 provider audit，便于在失败样本里直接看到
+proposer error / raw request shape，而不是只留下一个模糊的终态码。默认输出目录是
 `work/evaluations/pelican-<timestamp>/`；不要把失败样本只留在易失的 `/tmp`，否则
 无法在之后复核测量争议。单次在线样本只用于
 回归观察，不构成统计意义上的模型对比。

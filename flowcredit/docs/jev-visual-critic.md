@@ -30,7 +30,7 @@ Jev 的 `noul` / `choice` / `score` / `box` + 图像输入可以补这一层。�
   "features": {"two_legs": true, "legs_attach": true, "feet_on_support": true},
   "composition": "pelican riding a bicycle",
   "crop": [140, 90, 900, 530],
-  "scale": 2.0
+  "scale": 2
 }
 ```
 
