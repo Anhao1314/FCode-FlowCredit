@@ -169,6 +169,13 @@ class JevVisualTests(unittest.TestCase):
             self.assertEqual(scene["id"], scene["id"])
             self.assertIn("subject", scene)
 
+    def test_scene_descriptors_are_chain_safe(self) -> None:
+        from flowagent.core.hashing import canonical_json
+
+        for name in ("pelican_bicycle", "robot_scooter", "abstract_bounce"):
+            scene = load_scene(ROOT / "config" / "scenes" / f"{name}.json")
+            canonical_json(scene)  # floats would fail the hash chain here
+
     def test_env_file_parser_keeps_names_and_does_not_require_export(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "jev.env"

@@ -160,6 +160,7 @@ def run(
         "verifier_contract": contract,
     }
     scenario = get_scenario("general-research")
+    provider_audit: list[dict[str, Any]] = []
     sandbox = WorkspaceSandbox(output / "workspace")
     sandbox.ensure()
     sandbox.write("verify.py", _build_verify_script(identity_terms))
@@ -179,6 +180,7 @@ def run(
     provider = build_provider(
         "deepseek", scenario=scenario, receipts=receipts, env=env,
     )
+    provider.raw_sink = provider_audit.append
     limits = replace(
         scenario.limits,
         max_calls=max_calls,
@@ -274,6 +276,8 @@ def run(
         "task_status": task.status,
         "elapsed_seconds": round(elapsed, 3),
         "result": result.to_dict(),
+        "journal": list(result.journal),
+        "provider_audit": provider_audit,
         "budget": harness.budget(task).snapshot(),
         "event_counts": dict(Counter(event["type"] for event in events)),
         "successful_tools": dict(tool_counts),
