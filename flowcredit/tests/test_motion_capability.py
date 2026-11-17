@@ -20,6 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from flowagent.capabilities.artifacts import Action  # noqa: E402
+from flowagent.capabilities.checks import CheckContext  # noqa: E402
 from flowagent.capabilities.motion import build_motion_capability  # noqa: E402
 from flowagent.capabilities.runtime import STAGE_ACTION_DENIED  # noqa: E402
 from flowagent.tools.general.sandbox import WorkspaceSandbox  # noqa: E402
@@ -381,6 +382,57 @@ class DeliveryStageTests(unittest.TestCase):
         self.assertEqual(verify_check["required_fixes"][0]["code"], "VERIFICATION_FAILED")
         self.assertEqual(len(verify_calls), 2)
         self.assertEqual(len(proposer.packets), 5)
+
+    def test_6e_a_silent_delivery_round_gets_one_directed_result_retry(self) -> None:
+        runtime, proposer, _ = self.stack.runtime(
+            {"delivery": [None, result_write()]}, probe=fake_pass_probe,
+        )
+        context = CheckContext(
+            store=runtime.store,
+            artifact=runtime.store.snapshot(),
+            manifest=runtime.manifest,
+            stage=runtime.manifest.stage("delivery"),
+            result_written=False,
+        )
+        runtime.checks.record_motion(context, {
+            "status": "pass", "score": 100,
+            "coverage": {"required": [], "covered": [], "uncovered": [],
+                         "complete": True},
+        })
+        result = runtime.run("draw the pelican on a bicycle", start_stage="delivery")
+        self.assertTrue(result.succeeded, result.to_dict())
+        self.assertTrue(runtime.store.result_exists())
+        retries = [item for item in result.journal if item["event"] == "result_write_retry"]
+        self.assertEqual(len(retries), 1)
+        self.assertEqual(retries[0]["repair_ticket"]["code"], "RESULT_MISSING")
+        self.assertEqual(
+            proposer.packets[1]["repair"]["last_ticket"]["suggested_action"],
+            "write_result",
+        )
+        self.assertEqual(result.to_dict()["budget"]["repairs"], 1)
+
+    def test_6f_a_second_silent_delivery_round_fails_closed(self) -> None:
+        runtime, proposer, _ = self.stack.runtime(
+            {"delivery": [None, None]}, probe=fake_pass_probe,
+        )
+        context = CheckContext(
+            store=runtime.store,
+            artifact=runtime.store.snapshot(),
+            manifest=runtime.manifest,
+            stage=runtime.manifest.stage("delivery"),
+            result_written=False,
+        )
+        runtime.checks.record_motion(context, {
+            "status": "pass", "score": 100,
+            "coverage": {"required": [], "covered": [], "uncovered": [],
+                         "complete": True},
+        })
+        result = runtime.run("draw the pelican on a bicycle", start_stage="delivery")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reason, "ARTIFACT_CHECK_FAILED")
+        self.assertFalse(runtime.store.result_exists())
+        retries = [item for item in result.journal if item["event"] == "result_write_retry"]
+        self.assertEqual(len(retries), 1)
 
 
 class ConstraintsPacketTests(unittest.TestCase):

@@ -158,8 +158,32 @@ test("startIntake direct:任务就绪后自动创建运行，不显示聊天线�
   assert.ok(runCall, "就绪后创建运行");
   assert.deepEqual(calls.openLive[0], { id: "run-direct", objective: "写个脚本", template: "full", model: "kimi-k2.6" });
   assert.equal(intake.intake.active, false, "直接开跑后离开 intake");
-  assert.ok(calls.renderMain.some(entry => /正在准备任务/.test(entry.html)), "准备态在任务页");
-  assert.ok(!calls.renderMain.some(entry => /intake-msg/.test(entry.html)), "不渲染聊天气泡");
+  assert.ok(!calls.renderMain.some(entry => /正在准备任务|任务确认/.test(entry.html)), "direct 提交不渲染准备页或确认页");
+  assert.ok(!calls.renderMode.includes("intake"), "direct 提交不切换到 intake 页");
+});
+
+test("startIntake direct:motion 任务无来源也立即创建运行，不出确认页", async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), body: init && init.body ? JSON.parse(init.body) : null });
+    if (String(url).startsWith("/api/intake")) {
+      return { ok: true, json: async () => ({
+        reply: "动效任务已就绪。", thought: "", spec: { mode: "research" }, choices: [],
+        task: {
+          objective: "单文件 HTML/SVG/CSS 动画", template: "general-research",
+          approval: "consequential",
+          spec: { mode: "research", fastProfile: "motion-render" },
+        },
+      }) };
+    }
+    return { ok: true, json: async () => ({ id: "run-motion", template: "general-research" }) };
+  };
+  const { intake, calls } = setup({ fetchImpl, tplKey: "general-research" });
+  intake.startIntake("单文件 HTML/SVG/CSS 动画", null, { direct: true });
+  await new Promise(r => setTimeout(r, 750));
+  assert.ok(seen.some(entry => entry.url === "/api/runs"), "motion 不受 URL 守卫拦截");
+  assert.equal(calls.openLive.length, 1);
+  assert.ok(!calls.renderMain.some(entry => /任务确认/.test(entry.html)), "不出确认页");
 });
 
 test("startIntake direct:open choices 后无来源也自动创建一次运行", async () => {

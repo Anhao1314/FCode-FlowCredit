@@ -167,6 +167,12 @@ _SCRIPT_INTENT = re.compile(r"脚本|script|fibonacci|运行.{0,12}(写|产出)|
 #: A single-file HTML/SVG/CSS animation is a motion task: it is fully specified
 #: and needs no repository exploration. The detector is deliberately narrow so
 #: ordinary HTML cleanup does not silently lose the general toolset.
+#: Research is an explicit user intent, not a composer default. A direct
+#: Work task without declared URLs should run as an open delegation; the
+#: model proposes the plan and the host validates the artifact.
+_RESEARCH_INTENT = re.compile(
+    r"调研|研究|检索|search|research|来源|reference|文献|资料", re.IGNORECASE,
+)
 _MOTION_INTENT = re.compile(
     r"(?:单文件|single[- ]file).{0,24}html|(?:svg|css).{0,24}(?:动画|animation|keyframes)",
     re.IGNORECASE,
@@ -204,16 +210,21 @@ def _general_turn(message: str, spec: dict[str, Any] | None) -> dict[str, Any]:
     whitelist extension are host-side inputs confirmed in the attach panel.
     """
     base = str(message or "").strip()
-    mode = "script" if _SCRIPT_INTENT.search(base) else "research"
     motion = bool(_MOTION_INTENT.search(base))
+    if motion or not _RESEARCH_INTENT.search(base):
+        mode = "open"
+    elif _SCRIPT_INTENT.search(base):
+        mode = "script"
+    else:
+        mode = "research"
     objective = base[:600] or (
         "调研指定的公开主题，把来源摘录与结论写成 research.md 放进工作区"
     )
     approval_label = APPROVALS[_requested_approval(spec)]["label"]
     if motion:
         reply = (
-            "动效任务已就绪：单文件 HTML + SVG + 纯 CSS keyframes；"
-            f"审批档位「{approval_label}」，写入与校验仍过门控与预算。确认后开始。"
+            "动效任务已开跑：单文件 HTML + SVG + 纯 CSS keyframes；"
+            f"审批档位「{approval_label}」，写入与校验仍过门控与预算。"
         )
         thought = "任务模板：动效渲染；短契约、6 个工具、公开验收与几何门后停止。"
     elif mode == "script":

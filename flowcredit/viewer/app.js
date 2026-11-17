@@ -41,7 +41,7 @@ import {
   queuePanelHtml, queueMove, queueMoveTo, queueDropIndex,
 } from "./app/queue-panel.js";
 import { createLiveSessions } from "./app/live-sessions.js";
-import { createIntake } from "./app/intake.js";
+import { createIntake } from "./app/intake.js?v=171";
 import { createSettings } from "./app/settings.js";
 import { createComposerPanel } from "./app/composer-panel.js";
 import { createCommandPalette } from "./app/command-palette.js";
