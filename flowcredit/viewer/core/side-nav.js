@@ -184,8 +184,8 @@ export function projectSectionHtml(projects, options) {
 }
 
 export function runSectionHtml(title, count) {
-  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务"><span data-doodle="plus" aria-hidden="true"></span></button>';
-  return sectionHeadHtml(title || "任务", { key: "tasks", action: add }, count || 0)
+  // 任务入口就是主区 composer；侧栏不再提供第二个“新建任务”入口。
+  return sectionHeadHtml(title || "任务", { key: "tasks" }, count || 0)
     .replace('class="side-count"', 'class="side-count" data-task-count');
 }
 
@@ -321,9 +321,8 @@ export function chatSectionHtml(count) {
   return sectionHeadHtml("对话", { key: "chats" }, count);
 }
 
-/* 任务分组标题（Kimi Work 的 Tasks 段）：标题可折叠 + “＋”直接新建任务。 */
+/* 任务分组标题（Kimi Work 的 Tasks 段）：标题可折叠；任务从主区 composer 发起。 */
 export function taskSectionHtml(count) {
-  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务"><span data-doodle="plus" aria-hidden="true"></span></button>';
-  return sectionHeadHtml("任务", { key: "tasks", action: add }, count || 0)
+  return sectionHeadHtml("任务", { key: "tasks" }, count || 0)
     .replace('class="side-count"', 'class="side-count" data-task-count');
 }

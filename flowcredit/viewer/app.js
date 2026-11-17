@@ -659,18 +659,11 @@ function toggleChatPin(threadId) {
   renderNav();
 }
 
-/* 侧栏动作：与 Kimi 的三个动作一一对应。
-   - 新建任务 = Kimi Work 固定区那一行（图标 addConversation + ⌘K chip）
-   - 新建项目 = Projects 标题右侧的「＋」（网页版叫 create-label）
-   - 段落折叠 = section-title-button 的 chevron（NextSidebarSection 的 collapsible） */
-function newTask() {
-  // 统一侧栏只有一套列表:新建任务 = 新对话(工作模式已退役)。
-  newChat();
-}
-
+/* 侧栏动作：任务从主区 composer 发起；Projects 标题右侧的「＋」负责新建项目；
+   段落折叠 = section-title-button 的 chevron（NextSidebarSection 的 collapsible）。 */
 function quickStartGo(step) {
   if (step === "provider") { if (!settingsOpen) toggleSettingsPage(); return; }
-  if (step === "firstRun") { newTask(); return; }
+  if (step === "firstRun") { newChat(); return; }
   markQuickStart("ledgerSeen");
   renderMode("ledger");
 }
@@ -2764,7 +2757,7 @@ const {
 /* -------------------- MIXED — 命令匹配/执行（不改）+ 菜单渲染 */
 /* Codex 式入口：输入框以 / 开头弹出命令面板，↑↓ 选择，Tab 补全，Enter 执行。 */
 const SLASH_COMMANDS = [
-  { cmd: "/new", desc: "新建任务", run: () => startIntake("") },
+  { cmd: "/new", desc: "新对话", run: () => newChat() },
   { cmd: "/账本", desc: "对话内打开工作区账本卡", run: () => pushWorkspaceCard("ledger") },
   { cmd: "/状态", desc: "对话内查看进行中的运行", run: () => pushWorkspaceCard("status") },
   { cmd: "/定时", desc: "对话内查看定时任务", run: () => pushWorkspaceCard("scheduled") },
@@ -5384,7 +5377,6 @@ function bindGlobalActions() {
       });
       return;
     }
-    if (event.target.closest("[data-new-task]")) { newTask(); return; }
     const sectionToggle = event.target.closest("[data-section-toggle]");
     if (sectionToggle) { toggleSection(sectionToggle); return; }
     if (event.target.closest("[data-quickstart-close]")) { dismissQuickStart(); return; }
