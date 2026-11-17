@@ -197,6 +197,10 @@ export function createIntake(deps) {
     const main = document.getElementById("main");
     if (!intake.active) return;
     refreshModelBudget();
+    // A direct task that needs clarification still has to use the intake shell.
+    if (intake.direct && !document.getElementById("app").classList.contains("intake-mode")) {
+      document.getElementById("app").classList.add("intake-mode");
+    }
 
     /* 通用委托走任务确认，不复刻聊天线程：Work 的主语是任务，不是对话。
        用户原话作为任务引用，clarifier 的追问/选项放在草稿上方；财务问卷
@@ -208,23 +212,10 @@ export function createIntake(deps) {
       /* 直接开跑：提交后的短暂准备态，不显示草稿、不显示对话。就绪后由
          intakeRequest 自动创建运行；只有缺信息（choices）或创建被守卫拦下
          时才停在这里。 */
-      if (intake.direct && !intake.readyTask && !intake.choices.length) {
-        d.renderMain(`<div class="intake intake-work">
-          <div class="intake-head">
-            <div>
-              <div class="intake-kicker"><span data-doodle="list-checks"></span> WORK / 新任务</div>
-              <h1 class="intake-title">${intake.thinking ? "正在准备任务" : "任务已收到"}</h1>
-              <p class="intake-sub">${intake.thinking ? "正在确认执行方式与预算；就绪后立即开始。" : "补充任务信息后继续。"}</p>
-            </div>
-          </div>
-          <div class="intake-work-body">
-            ${taskText ? `<div class="intake-task"><span>任务</span><p>${esc(taskText)}</p></div>` : ""}
-            <p class="intake-work-note${intake.thinking ? " thinking" : ""}">${esc(intake.thinking ? "正在准备任务…" : (lastAgent?.text || "等待补充信息…"))}</p>
-          </div>
-        </div>`, { mode: "intake", scroll: "top" });
-        d.hydrateDoodles(main);
-        return;
-      }
+      // Direct submissions do not get a “新任务” screen. Stay on the current
+      // stage until intakeRequest either opens the run or falls back to the
+      // confirmation page for missing choices.
+      if (intake.direct && !intake.readyTask && !intake.choices.length) return;
 
       const ready = !!intake.readyTask;
       const choices = !ready && !intake.thinking && intake.choices.length
@@ -317,10 +308,15 @@ export function createIntake(deps) {
     intake.snapshots = [];
     intake.returnKey = d.store.key;
     intake.returnLabel = document.getElementById("tb-title").textContent || "当前视图";
-    document.getElementById("app").classList.add("intake-mode");
-    document.getElementById("tb-title").textContent = intake.direct ? "新任务 · 准备中" : "新委托 · 需求确认";
+    // Direct Work submissions stay on the composer until the run is accepted:
+    // no separate “新任务” page, and only an ambiguous task may fall back to
+    // the confirmation UI.
+    if (!intake.direct) document.getElementById("app").classList.add("intake-mode");
+    document.getElementById("tb-title").textContent = intake.direct
+      ? "任务准备中"
+      : "新委托 · 需求确认";
     document.getElementById("tb-chips").innerHTML = intake.direct
-      ? '<span class="chip">新任务</span>'
+      ? ""
       : (intake.origin
         ? `<span class="chip">需求确认</span><span class="chip">含对话上下文 · ${intake.origin.messages.length} 条</span>`
         : '<span class="chip">需求确认</span>');
@@ -344,8 +340,10 @@ export function createIntake(deps) {
     }
     intakeSnapshot();
     intake.messages.push({ role: "user", text: value });
-    if (intake.direct) renderIntake();
-    else d.renderMode("intake");
+    // A ready direct task should never surface the old “新任务” page; leave the
+    // current stage visible until openLive replaces it. If the clarifier needs
+    // choices, intakeRequest will render the confirmation page as a fallback.
+    if (!intake.direct) d.renderMode("intake");
     intakeRequest(value, null);
   }
 
@@ -457,7 +455,9 @@ export function createIntake(deps) {
     const task = intake.readyTask;
     const projectMode = !!d.attach.project.path.trim();
     const researchMode = (task.spec && task.spec.mode) === "research";
-    if (String(task.template) === d.getTplKey() && d.isGeneralTemplate() && !projectMode && researchMode && !d.attach.sources.length) {
+    const motionMode = (task.spec && task.spec.fastProfile) === "motion-render";
+    if (String(task.template) === d.getTplKey() && d.isGeneralTemplate() && !projectMode
+        && researchMode && !motionMode && !d.attach.sources.length) {
       d.toast("调研委托至少需要 1 个来源 URL：点 + 添加（脚本或本地项目可留空）");
       return;
     }

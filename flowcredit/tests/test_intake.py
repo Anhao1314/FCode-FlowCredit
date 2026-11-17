@@ -92,6 +92,7 @@ class IntakeTests(unittest.TestCase):
         turn = clarify(message=prompt, template="general-research")
         self.assertTrue(turn["ready"])
         spec = turn["task"]["spec"]
+        self.assertEqual(spec["mode"], "open")
         self.assertEqual(spec["fastProfile"], "motion-render")
         self.assertEqual(
             spec["toolset"],
@@ -103,8 +104,15 @@ class IntakeTests(unittest.TestCase):
     def test_an_ordinary_general_task_keeps_the_full_toolset(self) -> None:
         turn = clarify(message="帮我整理一下这周的行程", template="general-research")
         spec = turn["task"]["spec"]
+        self.assertEqual(spec["mode"], "open")
         self.assertNotIn("fastProfile", spec)
         self.assertNotIn("toolset", spec)
+
+    def test_explicit_research_keeps_the_source_contract(self) -> None:
+        turn = clarify(
+            message="调研 React 状态管理并写报告", template="general-research",
+        )
+        self.assertEqual(turn["task"]["spec"]["mode"], "research")
 
     def test_an_unknown_tier_falls_back_to_the_default(self) -> None:
         turn = clarify(
