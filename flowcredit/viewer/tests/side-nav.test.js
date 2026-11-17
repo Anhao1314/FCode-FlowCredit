@@ -99,11 +99,12 @@ test("对话行置顶状态写回文案与标志", () => {
   assert.match(pinned, /★/);
 });
 
-test("section 标题与折叠按钮在任务段带上 ＋ 与计数", () => {
+test("section 标题与折叠按钮在任务段只带计数，不再有第二个新建入口", () => {
   const html = runSectionHtml("未归属运行", 4);
   assert.match(html, /data-section-toggle="tasks"/);
   assert.match(html, /data-task-count>4</);
-  assert.match(html, /data-new-task/);
+  assert.doesNotMatch(html, /data-new-task/);
+  assert.doesNotMatch(html, /新建任务/);
   assert.match(chatSectionHtml(2), /data-section-toggle="chats"/);
 });
 
