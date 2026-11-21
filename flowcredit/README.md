@@ -11,7 +11,7 @@
 
   `MODEL PROPOSES · HOST VERIFIES · YOU DECIDE`
 
-  <img src="viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
+  <img src="docs/showcase/work-home.png" alt="FCode Work 控制台" width="100%" />
   <img src="docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
 </div>
 
