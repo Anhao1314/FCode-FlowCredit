@@ -1,0 +1,2 @@
+# Optional lab dependency. The production runtime remains stdlib-only.
+langgraph>=1.0,<2

@@ -18,7 +18,12 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-__all__ = ["load_snapshot", "match_go_dependencies", "compare_versions"]
+__all__ = [
+    "load_snapshot",
+    "match_go_dependencies",
+    "match_dependencies",
+    "compare_versions",
+]
 
 _VERSION = re.compile(
     r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
@@ -67,12 +72,19 @@ def load_snapshot(path: str | Path) -> list[dict[str, Any]]:
     return [item for item in data[:_MAX_RECORDS] if isinstance(item, dict)]
 
 
-def _affected_package(affected: dict[str, Any], package: str) -> bool:
+_ECOSYSTEM_NAMES = {
+    "go": ("Go", "Go Module"),
+    "npm": ("npm",),
+}
+
+
+def _affected_package(affected: dict[str, Any], package: str,
+                      ecosystem: str) -> bool:
     pkg = affected.get("package")
     if not isinstance(pkg, dict):
         return False
     return (
-        pkg.get("ecosystem") in ("Go", "Go Module")
+        pkg.get("ecosystem") in _ECOSYSTEM_NAMES.get(ecosystem, ())
         and str(pkg.get("name") or "") == package
     )
 
@@ -106,17 +118,25 @@ def _in_range(version: str, affected: dict[str, Any]) -> bool:
     return False
 
 
-def match_go_dependencies(
+def match_dependencies(
     dependencies: Iterable[dict[str, Any]],
     records: Iterable[dict[str, Any]],
+    ecosystem: str = "go",
 ) -> list[dict[str, Any]]:
-    """Return deduplicated OSV matches for the supplied dependency rows."""
+    """Return deduplicated OSV matches for the supplied dependency rows.
+
+    ``ecosystem`` selects which OSV ``affected[].package.ecosystem`` values
+    match: ``go`` (Go / Go Module) or ``npm``. Unknown ecosystems never match.
+    """
+    names = _ECOSYSTEM_NAMES.get(str(ecosystem or "go").strip().lower())
+    if not names:
+        raise ValueError(f"unknown ecosystem: {ecosystem!r}")
     matches: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for dep in dependencies:
         if not isinstance(dep, dict):
             continue
-        package = str(dep.get("path") or "")
+        package = str(dep.get("path") or dep.get("name") or "")
         version = str(dep.get("version") or "")
         if not package or not version:
             continue
@@ -127,7 +147,8 @@ def match_go_dependencies(
             if not record_id:
                 continue
             for affected in record.get("affected") or []:
-                if not isinstance(affected, dict) or not _affected_package(affected, package):
+                if not isinstance(affected, dict) or not _affected_package(
+                        affected, package, ecosystem):
                     continue
                 if not _in_range(version, affected):
                     continue
@@ -151,3 +172,11 @@ def match_go_dependencies(
                 if len(matches) >= _MAX_MATCHES:
                     return matches
     return matches
+
+
+def match_go_dependencies(
+    dependencies: Iterable[dict[str, Any]],
+    records: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Backward-compatible delegate: Go ecosystem only."""
+    return match_dependencies(dependencies, records, ecosystem="go")

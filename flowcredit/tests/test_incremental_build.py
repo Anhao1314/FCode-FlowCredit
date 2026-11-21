@@ -204,9 +204,6 @@ class DictMediumTests(unittest.TestCase):
         memory._summarise(record)
         self.assertEqual(calls["n"], 1, "第二次必须命中进程内 dict 介质")
 
-        import flowagent.runtime.loop as loop_mod
-        self.assertFalse(loop_mod.ENABLE_SQLITE_SUMMARY_CACHE,
-                         "SQLite 缓存默认必须关闭")
 
 
 class ImmutabilityTests(unittest.TestCase):

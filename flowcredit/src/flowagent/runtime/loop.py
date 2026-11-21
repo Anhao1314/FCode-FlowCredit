@@ -25,13 +25,13 @@ from ..core.contracts import PLAN_VERSION, AgentError, Task
 from ..core.observation import SourceTrust
 from ..core.plan import Plan
 from ..memory.context import WorkingMemory
-from ..memory.summary_cache import SummaryCache
 from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
 from ..tools.base import Observation
 from .policy import PacketProvider, compile_packet
 from .control import Control, Denial
 from .harness import Harness, TraceObserver
+from .parallel import PARALLEL_READ_TOOLS
 from .plan_extension import validate_additions
 
 #: Denials the model can fix by reading the error: the tool exists and is
@@ -39,16 +39,32 @@ from .plan_extension import validate_additions
 #: an unregistered tool, a scope or effect violation — keeps today's semantics
 #: (a governance event, and the run stops on it).
 REPAIRABLE_DENIALS = ("TOOL_ARGUMENTS_INVALID",)
+#: Execution-time request errors the model can fix by changing arguments. Only
+#: batch fast mode downgrades these to a visible tool_failed + next round; the
+#: one-action contract keeps today's terminal semantics untouched.
+RECOVERABLE_TOOL_ERRORS = frozenset({
+    "SPAWN_REQUEST_INVALID", "READ_RANGE_INVALID", "GREP_PATTERN_INVALID",
+    "TOOL_ARGUMENTS_INVALID", "COMMAND_GIT_FLAG_REFUSED", "COMMAND_FLAG_REFUSED",
+    "COMMAND_NOT_FOUND", "COMMAND_LAUNCH_FAILED", "COMMAND_SHELL_SYNTAX",
+    "COMMAND_INLINE_REFUSED",
+    # Host-guidance errors: the request is legal but the wrong repair mode was
+    # chosen. They are visible tool_failed events and must be handed back to
+    # the model, not promoted to a task-level failure. Bounded by
+    # MAX_PROPOSAL_REPAIRS like schema repairs.
+    "WRITE_SCAFFOLDED_USE_EDIT",
+    "EDIT_TOO_LARGE",
+    "FILE_EXISTS_USE_EDIT",
+    "WRITE_TOO_LARGE_USE_APPEND",
+    "WRITE_MODE_CONFLICT",
+    # 命令超长（>4000 字符的 heredoc 写文件）：喂回让模型改用 write_file
+    # 或拆分——文件工具才是正确通道（真模型 Work run 实测踩过）。
+    # 注意：SANDBOX_PATH_DENIED 刻意不进本集合——越权/逃逸路径必须让
+    # 任务失败（benchmark 的 unauthorized-workspace-path 钉死的治理语义）；
+    # "沙箱根=项目根"的良性路径错位由各工具用 TOOL_ARGUMENTS_INVALID 表达。
+    "TERMINAL_CMD_TOO_LONG",
+})
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
-
-#: P1-1.5 收尾:SQLite summary 缓存**默认关闭**。数据见
-#: work/cache-benchmark/large-payload-report.json:90KB 载荷下单次 detailed
-#: summarize 3.65µs,而单次 SQLite 命中点查 4.71µs——summarizer 早剪枝,
-#: 成本不随载荷增长,任何阈值都无法让 SQLite 点查转正。保留 SummaryCache
-#: 资产(显式传入才启用);进程内 dict 介质已由 P1-2 实现
-#: (WorkingMemory._memo,优先于本缓存)。
-ENABLE_SQLITE_SUMMARY_CACHE = False
 
 __all__ = ["Loop", "NullObserver"]
 
@@ -116,10 +132,6 @@ class Loop:
                                "summary_version", 1)))
             for name in harness.registry.names
         }
-        #: P1-1 增量 summary 缓存:与事件链同库不同表;失败一律 fail-open。
-        #: P1-1.5 收尾:默认关闭(净负,见常量注释);显式开启才注入。
-        self.memory_summary_cache = (
-            SummaryCache(harness.store) if ENABLE_SQLITE_SUMMARY_CACHE else None)
         self.memory_state_fn = (
             memory_state_fn if memory_state_fn is not None else harness.state_fn
         )
@@ -143,6 +155,10 @@ class Loop:
         self.plan_extension = (
             plan_extension if plan_extension is not None else harness.plan_extension
         )
+        #: Narrow motion profiles opt into a stall guard: a pending write plus
+        #: several read/command-only rounds is not progress. The loop steers
+        #: once, then stops instead of spending the whole budget.
+        self.stall_guard = bool(getattr(harness, "stall_guard", False))
 
     def run(self, task_id: str) -> Task:
         task = self.harness.store.load(task_id)
@@ -154,8 +170,15 @@ class Loop:
             recall_holder["memory"] = memory
         pending = self.pending_step(task)
         repairs = 0
+        stalled_rounds = 0
+        stall_signature: tuple[str, ...] | None = None
+        stall_write_baseline = 0
 
         while True:
+            if pending is None and self.stall_guard:
+                exhausted = self._motion_repair_exhausted(memory)
+                if exhausted is not None:
+                    return self._abort(task.id, exhausted)
             if pending is None and self.control is not None:
                 controlled = self.control.before_round(
                     round_no=self._decisions(task) + 1,
@@ -167,6 +190,19 @@ class Loop:
             if pending is None:
                 if plan.is_blocked():
                     return self._stop(task, plan, "PLAN_BLOCKED")
+                settled = self._settle_advisory_plan(
+                    task, plan, self._decisions(task) + 1)
+                if settled is not None:
+                    task, plan = settled
+                    round_no = self._decisions(task) + 1
+                    try:
+                        verified = self._verify_result_set(task.id, plan)
+                        sources = self._check_evidence(task, verified, round_no)
+                        task, obligation = self._verify_obligation(
+                            task, verified, plan, round_no)
+                    except AgentError as error:
+                        return self._abort(task.id, error)
+                    return self._succeed(task, verified, plan, obligation, sources)
                 if plan.is_complete() or plan.next_open() is None:
                     # A plan the domain opened to the model is not finished just
                     # because the steps it currently holds are: the model may
@@ -186,10 +222,12 @@ class Loop:
 
             budget_snapshot = self.harness.budget(task).snapshot()
 
+            preapproved = False
             if pending is not None:
                 # A reconciled round: the proposal is already approved and paid
                 # for. Execute it; do not ask the model again.
-                step = pending
+                preapproved = self.harness.store.events(task.id)[-1]["type"] == "approval_granted"
+                steps = [pending]
                 pending = None
                 round_no = task.model.attempts
                 self.observer.round_start(round_no, budget_snapshot, plan)
@@ -255,9 +293,55 @@ class Loop:
                             "latency_ms": proposal.latency_ms,
                         })
                     self.observer.proposal(round_no, proposal)
-                    step = proposal.plan["steps"][0]
+                    steps = self._round_steps(proposal)
                 else:
                     context = memory.build(round_no, budget_snapshot, plan)
+                    if self.stall_guard:
+                        pending_writes = [
+                            todo.id for todo in plan.todos
+                            if todo.status in ("pending", "active")
+                            and todo.tool in ("write_file", "edit_file")
+                        ]
+                        signature = tuple(sorted(pending_writes))
+                        write_count = sum(
+                            1 for record in memory.records
+                            if getattr(record, "tool", "") in ("write_file", "edit_file")
+                        )
+                        if not pending_writes:
+                            stalled_rounds = 0
+                            stall_signature = signature
+                            stall_write_baseline = write_count
+                        elif signature != stall_signature:
+                            # A newly pending write gets its own progress window;
+                            # writes completed for an earlier todo do not count.
+                            stall_signature = signature
+                            stall_write_baseline = write_count
+                            stalled_rounds = 1
+                        elif write_count > stall_write_baseline:
+                            stall_write_baseline = write_count
+                            stalled_rounds = 0
+                        else:
+                            stalled_rounds += 1
+                        if stalled_rounds >= 4:
+                            return self._abort(
+                                task.id,
+                                AgentError(
+                                    "NO_PROGRESS",
+                                    "four rounds passed with the same write todo pending; "
+                                    "the model kept reading or running commands instead of writing",
+                                ),
+                            )
+                        if stalled_rounds >= 2:
+                            context["progress_guard"] = {
+                                "reason": "a write todo is pending and no new write has happened since it became pending",
+                                "rounds_without_write": stalled_rounds,
+                                "pending_writes": pending_writes[:4],
+                                "instruction": (
+                                    "Do not read more files or run verification first. "
+                                    "The next proposal must be write_file or edit_file "
+                                    "for one pending write todo."
+                                ),
+                            }
                     try:
                         task, proposal = self.harness.propose(task, context)
                     except AgentError as error:
@@ -271,7 +355,7 @@ class Loop:
                     # accepted todos are on the chain — so this round's action
                     # and every later round both see the same durable plan.
                     task, plan = self._extend_plan(task, plan, round_no, memory)
-                    step = proposal.plan["steps"][0]
+                    steps = self._round_steps(proposal)
 
             if memory.pending_compaction is not None:
                 task = self.harness.record(
@@ -286,9 +370,17 @@ class Loop:
                 )
                 memory.pending_pin_overflow = None
 
-            decision = self.harness.gate(task, step)
-            self.observer.gate(round_no, decision)
-            if not decision.allowed:
+            # Preflight the whole batch before dispatching anything: a schema error in
+            # action 3 must not leave actions 1-2 already executed. Approvals stay
+            # per action below (fast runs use approval=off, so they do not pause).
+            rejected = False
+            decisions = []
+            for step in steps:
+                decision = self.harness.gate(task, step)
+                self.observer.gate(round_no, decision)
+                if decision.allowed:
+                    decisions.append(decision)
+                    continue
                 if decision.code in REPAIRABLE_DENIALS and repairs < MAX_PROPOSAL_REPAIRS:
                     # Nothing was dispatched, nothing is unknown: the proposal
                     # did not fit the tool's schema. Handing the error back is
@@ -307,54 +399,237 @@ class Loop:
                     memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
                         "tool": step["tool"], "code": decision.code, "message": decision.reason,
                     }]
-                    continue
+                    rejected = True
+                    break
                 return self._deny(task, decision, plan)
+            if rejected:
+                continue
 
-            if self.control is not None:
-                approval = self.control.before_tool(
-                    round_no=round_no,
-                    task=task,
-                    step=step,
-                    decision=decision,
-                )
-                task = approval.task
-                if not approval.allowed:
-                    if approval.terminated:
+            completed_without_result = False
+            batch_recover = False
+            parallel_reads = (
+                self.harness.max_steps > 1
+                and len(steps) > 1
+                and all(step["tool"] in PARALLEL_READ_TOOLS for step in steps)
+            )
+
+            if parallel_reads:
+                # Approvals are resolved before dispatch; the handlers then run
+                # concurrently, but every chain/plan/memory commit stays in the
+                # proposal's original order below.
+                for step, decision in zip(steps, decisions):
+                    task, outcome, denial = self._before_tool(task, step, decision, round_no, preapproved=preapproved)
+                    if outcome == "terminal":
                         self.observer.terminal(task, None)
                         return task
-                    return self._deny(
-                        task,
-                        Denial(
-                            tool=step["tool"],
-                            code=approval.code or "OPERATOR_DENIED",
-                            reason=approval.reason or "operator denied the call",
-                        ),
-                        plan,
-                    )
-
-            try:
-                task, observation = self.harness.execute(task, step, round_no=round_no)
-            except AgentError as error:
-                return self._abort(task_id, error)
-
-            memory.record(round_no, observation,
-                          source_trust=trust_for_tool(observation.tool))
-            plan = self.planner.advance(plan, observation) if self.planner else plan
-            task = self._persist_plan(task, plan, round_no)
-
-            self.observer.observation(round_no, observation)
-            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-
-            if observation.tool == "report_blocked":
-                return self._reported_blocked(task, plan, observation)
-            if observation.tool in self.result_tools and plan.is_complete():
+                    if outcome == "deny":
+                        return self._deny(task, denial, plan)
                 try:
-                    verified = self._verify_result_set(task.id, plan)
-                    sources = self._check_evidence(task, verified, round_no)
-                    task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                    task, outcomes = self.harness.execute_read_batch(
+                        task, steps, round_no=round_no,
+                    )
                 except AgentError as error:
-                    return self._abort(task.id, error)
-                return self._succeed(task, verified, plan, obligation, sources)
+                    return self._abort(task_id, error)
+
+                errors = [error for _, _, error in outcomes if error is not None]
+                fatal = next(
+                    (error for error in errors if error.code not in RECOVERABLE_TOOL_ERRORS),
+                    None,
+                )
+                blocked_observation = None
+                for step, observation, error in outcomes:
+                    if error is not None:
+                        task, _terminal = self.harness.finish_batch_error(
+                            task, step, error, round_no=round_no,
+                        )
+                        continue
+                    task = self.harness.finish_batch_success(
+                        task, step, observation, round_no=round_no,
+                    )
+                    memory.record(round_no, observation,
+                                  source_trust=trust_for_tool(observation.tool))
+                    plan = self.planner.advance(plan, observation) if self.planner else plan
+                    task = self._persist_plan(task, plan, round_no)
+                    self.observer.observation(round_no, observation)
+                    # A sibling failure owns the round's outcome: commit the
+                    # successful reads for the record, but do not declare
+                    # success/blocked/completion until recovery is decided.
+                    if errors:
+                        continue
+                    if observation.tool == "report_blocked":
+                        blocked_observation = observation
+
+                if fatal is not None:
+                    return self._abort(task_id, fatal)
+                if errors:
+                    first = errors[0]
+                    memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
+                        "tool": next(
+                            step["tool"] for step, _, error in outcomes
+                            if error is first
+                        ),
+                        "code": first.code,
+                        "message": first.message,
+                    }]
+                    task = self.harness.store.load(task_id)
+                    task.failure = None
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    continue
+                if blocked_observation is not None:
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._reported_blocked(task, plan, blocked_observation)
+                if plan.is_blocked():
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._stop(task, plan, "PLAN_BLOCKED")
+                if plan.is_complete():
+                    # The batch may complete the plan on a step that is not
+                    # itself a result tool. Verify whenever the plan *contains*
+                    # a result obligation, not only when the last action is one.
+                    if any(todo.tool in self.result_tools for todo in plan.todos):
+                        try:
+                            verified = self._verify_result_set(task.id, plan)
+                            sources = self._check_evidence(task, verified, round_no)
+                            task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                        except AgentError as error:
+                            return self._abort(task.id, error)
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        return self._succeed(task, verified, plan, obligation, sources)
+                    completed_without_result = True
+                self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                if completed_without_result:
+                    continue
+                continue
+
+            for step, decision in zip(steps, decisions):
+                task, outcome, denial = self._before_tool(task, step, decision, round_no, preapproved=preapproved)
+                if outcome == "terminal":
+                    self.observer.terminal(task, None)
+                    return task
+                if outcome == "deny":
+                    return self._deny(task, denial, plan)
+
+                try:
+                    task, observation = self.harness.execute(task, step, round_no=round_no)
+                except AgentError as error:
+                    if (
+                        error.code in RECOVERABLE_TOOL_ERRORS
+                        and repairs < MAX_PROPOSAL_REPAIRS
+                    ):
+                        # The tool call itself was malformed (a 600-char spawn
+                        # objective, a bad regex/range) or chose the wrong
+                        # repair mode (scaffold write, oversized edit). The
+                        # harness has already committed tool_failed; hand the
+                        # error back in context and let the model fix it next
+                        # round instead of killing the whole run. Bounded by
+                        # the same repair budget as proposal-shape repairs —
+                        # this used to be fast-mode-only, but real-model runs
+                        # (DeepSeek Work run 2026-11-20) showed a single
+                        # recoverable denial aborting the whole task in
+                        # normal mode, contradicting the recoverable-set
+                        # contract: these are host-guidance errors, and the
+                        # jail/approval gates stay the security boundary.
+                        repairs += 1
+                        memory.rejected_proposals = list(memory.rejected_proposals or []) + [{
+                            "tool": step["tool"], "code": error.code,
+                            "message": error.message,
+                        }]
+                        # execute() committed tool_failed before raising; the
+                        # loop still holds the pre-execution snapshot. Reload the
+                        # durable task and clear the transient failure so the
+                        # next proposal starts from the committed sequence.
+                        task = self.harness.store.load(task_id)
+                        task.failure = None
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        batch_recover = True
+                        break
+                    return self._abort(task_id, error)
+
+                memory.record(round_no, observation,
+                              source_trust=trust_for_tool(observation.tool))
+                plan = self.planner.advance(plan, observation) if self.planner else plan
+                task = self._persist_plan(task, plan, round_no)
+
+                self.observer.observation(round_no, observation)
+
+                if observation.tool == "report_blocked":
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._reported_blocked(task, plan, observation)
+                if plan.is_blocked():
+                    self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                    return self._stop(task, plan, "PLAN_BLOCKED")
+                if plan.is_complete():
+                    # The batch may complete the plan on a step that is not
+                    # itself a result tool. Verify whenever the plan *contains*
+                    # a result obligation, not only when the last action is one.
+                    if any(todo.tool in self.result_tools for todo in plan.todos):
+                        try:
+                            verified = self._verify_result_set(task.id, plan)
+                            sources = self._check_evidence(task, verified, round_no)
+                            task, obligation = self._verify_obligation(task, verified, plan, round_no)
+                        except AgentError as error:
+                            return self._abort(task.id, error)
+                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                        return self._succeed(task, verified, plan, obligation, sources)
+                    # No result obligation: stop consuming the rest of the batch
+                    # and let the top-of-loop completion check end the task.
+                    completed_without_result = True
+                    break
+
+            if batch_recover:
+                continue
+            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+            if completed_without_result:
+                continue
+
+    # ----------------------------------------------------------- repair budget
+
+    #: A motion run may inspect the artifact a few times while repairing it.
+    #: Beyond this many failed quality observations, further rounds are not
+    #: evidence of progress; stop with a concrete failure instead of spending
+    #: the whole token budget.
+    MAX_MOTION_QUALITY_FAILURES = 5
+    #: The same failure fingerprint three times means the model is looping over
+    #: one broken invariant.
+    MAX_MOTION_REPEATED_FINGERPRINT = 3
+
+    def _motion_repair_exhausted(self, memory: Any) -> AgentError | None:
+        records = [
+            record for record in getattr(memory, "records", [])
+            if getattr(record, "tool", "") == "motion_check"
+            and isinstance(getattr(record, "result", None), dict)
+        ]
+        last_pass = -1
+        for index, record in enumerate(records):
+            result = record.result
+            coverage = result.get("coverage") or {}
+            if result.get("status") == "pass" and coverage.get("complete"):
+                last_pass = index
+        failures = records[last_pass + 1:]
+        failed = [
+            record.result for record in failures
+            if record.result.get("status") in ("fail", "unverified")
+        ]
+        if len(failed) >= self.MAX_MOTION_QUALITY_FAILURES:
+            return AgentError(
+                "REPAIR_BUDGET_EXCEEDED",
+                f"motion quality failed {len(failed)} times after the last passing check; "
+                "the repair budget is exhausted",
+            )
+        fingerprints: dict[tuple[str, ...], int] = {}
+        for result in failed:
+            coverage = result.get("coverage") or {}
+            fingerprint = tuple(
+                [str(item) for item in (coverage.get("uncovered") or [])]
+                + [str(item) for item in (result.get("issues") or [])]
+            )
+            fingerprints[fingerprint] = fingerprints.get(fingerprint, 0) + 1
+            if fingerprints[fingerprint] >= self.MAX_MOTION_REPEATED_FINGERPRINT:
+                return AgentError(
+                    "NO_PROGRESS",
+                    "the same motion-quality failure repeated "
+                    f"{fingerprints[fingerprint]} times; the model is not converging",
+                )
+        return None
 
     # ----------------------------------------------------------- plan extension
 
@@ -394,13 +669,19 @@ class Loop:
         if not extension.present:
             return task, plan
 
-        if not extension.ok:
+        # Partial acceptance: a plan proposal is not all-or-nothing. The model
+        # often includes "write the report" — which the blueprint's own result
+        # todo already covers — and losing the three valid todos over that one
+        # duplicate would teach the model to stop planning at all. Rejections
+        # are recorded (and reach the next context); acceptances still enter.
+        if extension.rejected:
             task = self.harness.record(task, "control_rejected", {
                 "round": round_no,
                 "kind": "plan_extension",
                 "by": "model",
                 "reason": extension.reason[:200],
                 "rejected": [dict(item) for item in extension.rejected],
+                "accepted_ids": [todo.id for todo in extension.accepted],
                 "plan_revision": plan.revision,
             })
             memory.rejected_proposals = list(memory.rejected_proposals or []) + [
@@ -411,7 +692,8 @@ class Loop:
                 }
                 for item in extension.rejected
             ][-3:]
-            return task, plan
+            if not extension.accepted:
+                return task, plan
 
         # Addition only: nothing is dropped here, so ``revise``'s ``reason``
         # (which explains an abandonment) has nothing to describe.
@@ -424,6 +706,73 @@ class Loop:
             "todo_id": extension.accepted[0].id,
             "added": extension.added_ids(),
             "note": "模型提议新增步骤",
+            "plan": revised.to_dict(),
+        })
+        return task, revised
+
+    # ------------------------------------------------- advisory plan settlement
+
+    def _model_added_ids(self, task: Task) -> set[str]:
+        """Todo ids the model itself put on the plan (accepted extensions)."""
+        added: set[str] = set()
+        for event in self.harness.store.events(task.id):
+            if event.get("type") != "plan_steered":
+                continue
+            detail = (event.get("payload") or {}).get("detail") or {}
+            if detail.get("by") != "model":
+                continue
+            added.update(str(item) for item in (detail.get("added") or []))
+        return added
+
+    def _settle_advisory_plan(
+        self, task: Task, plan: Plan, round_no: int,
+    ) -> tuple[Task, Plan] | None:
+        """Close leftover model-added steps once the answer is delivered.
+
+        The blueprint's result todo is the answer obligation; a ``submit_plan``
+        extension is steering. A model that over-plans ("also read X, also run
+        Y") and then delivers a verified result must not strand its own run at
+        the round limit waiting for steps it no longer intends to take. The host
+        abandons *only* todos the model itself added — never a blueprint step —
+        and records the drop on the chain. Nothing is marked done: the trace
+        shows a verified result plus explicitly dropped advice, which is the
+        honest reading.
+
+        Returns ``(task, revised_plan)`` when it acted, else ``None``.
+        """
+        # Strict single-step plans keep the pinned contract: a step the model
+        # promised and never took fails the run even when an artifact exists
+        # (test_plan_extension J). Only the fast/batch profiles — where the plan
+        # is explicitly a model-managed checklist — settle leftovers this way.
+        if not (getattr(self.harness, "max_steps", 1) > 1
+                or getattr(self.harness, "plan_tool", False)):
+            return None
+        open_todos = [todo for todo in plan.todos
+                      if todo.status in ("pending", "active")]
+        if not open_todos:
+            return None
+        added = self._model_added_ids(task)
+        if not added or any(todo.id not in added for todo in open_todos):
+            return None
+        result_todos = [todo for todo in plan.todos if todo.tool in self.result_tools]
+        if not result_todos:
+            return None
+        # Only after the answer obligation is met; otherwise the result step is
+        # still real work the model has to finish.
+        if any(todo.required and todo.status != "done" for todo in result_todos):
+            return None
+        dropped = [todo.id for todo in open_todos]
+        reason = "结果已交付并通过校验；模型自加的剩余步骤是建议，不再构成完成条件"
+        revised = plan.revise(drop=tuple(dropped), reason=reason)
+        task.plan_state = revised.to_dict()
+        task = self.harness.record(task, "plan_steered", {
+            "round": round_no,
+            "action": "settle_advisory",
+            "by": "host",
+            "todo_id": dropped[0],
+            "dropped": dropped,
+            "note": "结果交付后结算模型自加的剩余步骤",
+            "reason": reason,
             "plan": revised.to_dict(),
         })
         return task, revised
@@ -447,8 +796,13 @@ class Loop:
         otherwise would just move the false confidence one level down.
 
         A citation that cannot be resolved is different from a claim with no
-        citation. The first asserts support that is not there and fails the run;
-        the second is merely unverified, and is labelled as such.
+        citation. The first asserts support that is not there; the second is
+        merely unverified. Neither is allowed to turn a **verified artifact**
+        into a failed run: the artifact and the report are different outputs.
+        An unresolved citation marks the report as ``unresolved``, keeps the
+        verified artifact deliverable, and makes the warning explicit in the
+        result. (A structurally malformed evidence block is still rejected as a
+        malformed proposal before this point.)
         """
         references = list((task.model.proposal or {}).get("evidence") or [])
         if not references:
@@ -490,11 +844,18 @@ class Loop:
             "semantic_truth": "not-verified",
         })
         if unresolved:
-            raise AgentError(
-                "EVIDENCE_REFERENCE_UNRESOLVED",
-                "the artifact cites sources that are not in the durable history: "
-                + "; ".join(f"{item['path']} ({item['tool']})" for item in unresolved),
+            note = (
+                "the artifact passed independent verification, but "
+                f"{len(unresolved)} cited source(s) are not in the durable history; "
+                "treat those claims as unverified"
             )
+            return {
+                "status": "unresolved",
+                "references": resolved,
+                "unresolved": unresolved,
+                "semantic_truth": "not-verified",
+                "note": note,
+            }
         return {
             "status": "resolved",
             "references": resolved,
@@ -743,9 +1104,16 @@ class Loop:
             conversation=conversation,
             instruction=self.memory_instruction,
             prompt_profile=self.memory_prompt_profile,
-            summary_cache=self.memory_summary_cache,
             summarizer_config=self.memory_summarizer_config,
+            # Batch rounds carry up to 4 observations each; the default 24k
+            # budget folds them away after ~2 rounds, which is what sent the
+            # fast model back to re-read the same files. Double it for fast.
+            observation_budget=48_000 if getattr(self.harness, "max_steps", 1) > 1 else 24_000,
         )
+        # Policy config is part of the frozen delegation, so it is re-derived
+        # here rather than trusted from process state. Counters rebuild from the
+        # chain: a resumed run must not exceed max_calls or call twice in one
+        # round just because the process restarted.
         for event in self.harness.store.events(task.id):
             if event["type"] == "memory_recalled":
                 detail = event["payload"].get("detail") or {}
@@ -808,14 +1176,74 @@ class Loop:
             )
         return base
 
+    def _round_steps(self, proposal: Proposal) -> list[dict[str, Any]]:
+        """Actions this round is allowed to execute.
+
+        The historical contract is one; a batch profile (``general-fast``)
+        executes every validated step in order. The bound comes from the same
+        prompt profile the parser used, so the two cannot drift.
+        """
+        steps = [dict(step) for step in (proposal.plan.get("steps") or [])]
+        if getattr(self.harness, "max_steps", 1) <= 1:
+            return steps[:1]
+        return steps[: self.harness.max_steps]
+
     def pending_step(self, task: Task) -> dict[str, Any] | None:
-        """Return an approved-but-unexecuted step, if reconciliation left one."""
+        """Return an approved-but-unexecuted step from a recoverable boundary."""
         if task.model.status != "validated" or not task.model.proposal:
             return None
         events = self.harness.store.events(task.id)
-        if not events or events[-1]["type"] != "model_reconciled":
+        if not events:
+            return None
+        if events[-1]["type"] == "approval_granted":
+            if task.status != "running":
+                raise AgentError("RECOVERY_INVALID", "an approved continuation is not running")
+            requested = events[-2] if len(events) > 1 else {}
+            request_payload = (requested.get("payload") or {}).get("detail") or {}
+            if requested.get("type") != "approval_requested":
+                raise AgentError("RECOVERY_INVALID", "approval grant has no matching request")
+            for step in task.model.proposal["steps"]:
+                if (
+                    step["tool"] == request_payload.get("tool")
+                    and (step.get("arguments") or {}) == (request_payload.get("arguments") or {})
+                ):
+                    return step
+            raise AgentError(
+                "RECOVERY_INVALID", "the approved step does not match the validated proposal",
+            )
+        if events[-1]["type"] != "model_reconciled":
             return None
         return task.model.proposal["steps"][0]
+
+    def resume_operator_approval(self, task: Task, gate, step: dict[str, Any]) -> Task:
+        """Continue after a restored approval gate was resolved by its control."""
+        if gate.allowed:
+            return self.run(task.id)
+        memory = self.restore(task)
+        plan = self.rebuild_plan(task, memory)
+        return self._deny(
+            task,
+            Denial(tool=step["tool"], code=gate.code, reason=gate.reason),
+            plan,
+        )
+
+    def resume_operator_question(self, task: Task, observation: Observation) -> Task:
+        """Complete the one already-started ask, then take the next model round."""
+        proposal = task.model.proposal or {}
+        steps = proposal.get("steps") or []
+        if (
+            len(steps) != 1
+            or steps[0].get("tool") != "ask_operator"
+            or (steps[0].get("arguments") or {}) != observation.arguments
+            or observation.result.get("asked") != observation.arguments.get("question")
+        ):
+            raise AgentError(
+                "RECOVERY_INVALID", "the answer does not match the single validated question",
+            )
+        task = self.harness.complete_started_tool(
+            task, observation, round_no=task.model.attempts,
+        )
+        return self.run(task.id)
 
     # --------------------------------------------------------------- terminals
 
@@ -996,6 +1424,9 @@ class Loop:
         # exactly how "the file was written" became "the work was correct".
         result["source_links"] = (sources or {}).get("status", "not-declared")
         result["sources"] = list((sources or {}).get("references") or [])
+        result["evidence_unresolved"] = [
+            dict(item) for item in ((sources or {}).get("unresolved") or [])
+        ]
         result["semantic_truth"] = (sources or {}).get("semantic_truth", "not-verified")
         if sources and sources.get("note"):
             result["truth_note"] = sources["note"]
@@ -1007,6 +1438,36 @@ class Loop:
         task = self.harness.finalize(task, "succeeded", result=result, event="task_succeeded")
         self.observer.terminal(task, result)
         return task
+
+    def _before_tool(self, task: Task, step: dict[str, Any], decision: Any,
+                     round_no: int, *, preapproved: bool = False) -> tuple[Task, str, Any]:
+        """Resolve the operator gate before dispatch.
+
+        Returns ``(task, outcome, denial)`` where outcome is ``""`` (allowed),
+        ``"terminal"`` (the operator stopped the run) or ``"deny"``.
+        """
+        if preapproved:
+            # Set only for the exact step reconstructed from approval_granted.
+            # Asking again would create a second approval for the same action.
+            return task, "", None
+        if self.control is None:
+            return task, "", None
+        approval = self.control.before_tool(
+            round_no=round_no,
+            task=task,
+            step=step,
+            decision=decision,
+        )
+        task = approval.task
+        if approval.allowed:
+            return task, "", None
+        if approval.terminated:
+            return task, "terminal", None
+        return task, "deny", Denial(
+            tool=step["tool"],
+            code=approval.code or "OPERATOR_DENIED",
+            reason=approval.reason or "operator denied the call",
+        )
 
     def _deny(self, task: Task, decision: Any, plan: Plan) -> Task:
         task = self.harness.finalize(

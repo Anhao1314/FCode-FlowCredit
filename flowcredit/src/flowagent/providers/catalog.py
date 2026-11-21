@@ -7,37 +7,110 @@ presets (kimi, deepseek) and every prefix the host declared in
 configuration is complete, with honest availability — an incomplete entry
 appears too, marked unavailable with the exact environment variable that is
 missing. Nothing here can invent a provider that was not configured, and
-nothing hides one that failed to load.
+nothing hides one that failed to load — except a provider the host explicitly
+disabled in ``FCODE_DISABLED_PROVIDERS``.
 """
 
 from __future__ import annotations
 
 import os
+import time
+import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..chat_config import default_chat_config_path, load_chat_config
+from ..chat_config import default_chat_config_path, is_custom_provider_key, load_chat_config
 from .deepseek_config import load_deepseek_settings
 from .kimi import load_kimi_settings
 from .openai_compat import (
+    COMPAT_PROVIDERS_ENV,
     CompatSettings,
     GENERIC_COMPAT_DEFAULTS,
+    PriceSnapshot,
     declared_compat_prefixes,
     load_compat_settings,
 )
 
 __all__ = [
+    "DISABLED_PROVIDERS_ENV",
     "PROVIDER_PRESETS",
     "compat_settings_for",
+    "disabled_providers",
     "merged_env",
     "provider_catalog",
     "resolved_provider_env",
     "settings_as_env",
 ]
 
+#: Comma-separated provider keys the host wants removed from the menu and from
+#: run creation. A deployment that standardises on one vendor uses this instead
+#: of deleting presets: the preset code and its tests stay, the operator chooses
+#: what is offered. Disabled is stronger than unavailable — an unavailable
+#: provider is listed with a reason, a disabled one does not exist.
+DISABLED_PROVIDERS_ENV = "FCODE_DISABLED_PROVIDERS"
+
+
+def disabled_providers(env: Mapping[str, str] | None = None) -> set[str]:
+    """Provider keys the host explicitly disabled (lowercase)."""
+    source = os.environ if env is None else env
+    raw = source.get(DISABLED_PROVIDERS_ENV, "")
+    return {
+        item.strip().lower()
+        for item in str(raw).split(",")
+        if item.strip()
+    }
+
+_LOCAL_PROBE_CACHE: dict[str, tuple[float, bool]] = {}
+
+
+def probe_local_endpoint(endpoint: str) -> bool:
+    """Shared local availability probe, cached for 60 seconds."""
+    now = time.monotonic()
+    cached = _LOCAL_PROBE_CACHE.get(endpoint)
+    if cached is not None and now - cached[0] < 60.0:
+        return cached[1]
+    root = endpoint.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3]
+    ok = False
+    for path in ("/api/tags", "/v1/models"):
+        try:
+            request = urllib.request.Request(root + path, method="GET")
+            with urllib.request.urlopen(request, timeout=0.5) as response:
+                ok = response.status == 200
+                break
+        except Exception:  # noqa: BLE001 — an unreachable endpoint is unavailable
+            ok = False
+    _LOCAL_PROBE_CACHE[endpoint] = (now, ok)
+    return ok
+
+
 #: Settings-page field names → the preset environment names the engine reads.
 #: One settings page configures both surfaces: a key typed in the app must be
 #: able to start a *delegation*, not just a conversation.
+def _capability_env_fields(prefix: str) -> dict[str, str]:
+    return {
+        "completion_field": f"{prefix}_COMPLETION_FIELD",
+        "temperature_mode": f"{prefix}_TEMPERATURE_MODE",
+        "json_mode": f"{prefix}_JSON_MODE",
+        "stream": f"{prefix}_STREAM",
+        "supports_tools": f"{prefix}_SUPPORTS_TOOLS",
+        "supports_parallel_tools": f"{prefix}_SUPPORTS_PARALLEL_TOOLS",
+        "supports_reasoning": f"{prefix}_SUPPORTS_REASONING",
+        "reasoning_field": f"{prefix}_REASONING_FIELD",
+        "max_context_tokens": f"{prefix}_MAX_CONTEXT_TOKENS",
+        "max_output_tokens": f"{prefix}_MAX_OUTPUT_TOKENS",
+        "supports_effort": f"{prefix}_SUPPORTS_EFFORT",
+    }
+
+
+def _env_flag(source: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = str(source.get(name, "")).strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 _SETTINGS_ENV_FIELDS: dict[str, dict[str, str]] = {
     "kimi": {
         "api_key": "KIMI_API_KEY",
@@ -48,6 +121,7 @@ _SETTINGS_ENV_FIELDS: dict[str, dict[str, str]] = {
         "price_source": "KIMI_PRICE_SOURCE",
         "min_interval_seconds": "KIMI_MIN_CALL_INTERVAL_SECONDS",
         "max_completion_tokens": "KIMI_MAX_COMPLETION_TOKENS",
+        **_capability_env_fields("KIMI"),
     },
     "deepseek": {
         "api_key": "DEEPSEEK_API_KEY",
@@ -56,21 +130,50 @@ _SETTINGS_ENV_FIELDS: dict[str, dict[str, str]] = {
         "output_price_microusd_per_mtok": "DEEPSEEK_OUTPUT_PRICE_MICROUSD_PER_MTOK",
         "price_as_of": "DEEPSEEK_PRICE_AS_OF",
         "price_source": "DEEPSEEK_PRICE_SOURCE",
+        **_capability_env_fields("DEEPSEEK"),
     },
 }
 
 
 def settings_as_env(providers: Mapping[str, Any] | None) -> dict[str, str]:
-    """The settings page's provider values, written as preset env names.
+    """Translate the single settings document into provider engine values.
 
-    ``base_url`` is deliberately absent from the table: cloud endpoints may not
-    be redirected from the settings page (an exfiltration path), so a settings
-    value can never move where a key is sent.
+    Built-in cloud endpoints still cannot be redirected from settings. Custom
+    endpoints are an explicit operator trust decision and carry their own
+    prefix, base URL and optional key; local uses the existing FCODE_LOCAL names.
     """
     out: dict[str, str] = {}
-    for key, values in (providers or {}).items():
-        fields = _SETTINGS_ENV_FIELDS.get(str(key).lower())
-        if not fields or not isinstance(values, Mapping):
+    declared: list[str] = []
+    for raw_key, values in (providers or {}).items():
+        key = str(raw_key).strip().lower()
+        if not isinstance(values, Mapping):
+            continue
+        fields = _SETTINGS_ENV_FIELDS.get(key)
+        if key == "local":
+            fields = {
+                "api_key": "FCODE_LOCAL_API_KEY",
+                "model": "FCODE_LOCAL_MODEL",
+                "base_url": "FCODE_LOCAL_ENDPOINT",
+                "max_completion_tokens": "FCODE_LOCAL_MAX_COMPLETION_TOKENS",
+                **_capability_env_fields("FCODE_LOCAL"),
+            }
+        elif fields is None and is_custom_provider_key(key):
+            prefix = key.upper()
+            fields = {
+                "label": f"{prefix}_LABEL",
+                "api_key": f"{prefix}_API_KEY",
+                "model": f"{prefix}_MODEL",
+                "base_url": f"{prefix}_BASE_URL",
+                "input_price_microusd_per_mtok": f"{prefix}_INPUT_PRICE_MICROUSD_PER_MTOK",
+                "output_price_microusd_per_mtok": f"{prefix}_OUTPUT_PRICE_MICROUSD_PER_MTOK",
+                "price_as_of": f"{prefix}_PRICE_AS_OF",
+                "price_source": f"{prefix}_PRICE_SOURCE",
+                "min_interval_seconds": f"{prefix}_MIN_CALL_INTERVAL_SECONDS",
+                "max_completion_tokens": f"{prefix}_MAX_COMPLETION_TOKENS",
+                **_capability_env_fields(prefix),
+            }
+            declared.append(prefix)
+        if not fields:
             continue
         for field, env_name in fields.items():
             value = values.get(field)
@@ -79,6 +182,8 @@ def settings_as_env(providers: Mapping[str, Any] | None) -> dict[str, str]:
             text = str(value).strip()
             if text:
                 out[env_name] = text
+    if declared:
+        out[COMPAT_PROVIDERS_ENV] = ",".join(dict.fromkeys(declared))
     return out
 
 
@@ -102,6 +207,16 @@ def merged_env(
         text = str(value).strip()
         if text:
             base[name] = text
+    # Endpoint declarations are additive: an environment-declared gateway must
+    # not hide a different gateway saved in the settings page.
+    declarations = [
+        item.strip().upper()
+        for owner in ((settings_env or {}).get(COMPAT_PROVIDERS_ENV, ""), source.get(COMPAT_PROVIDERS_ENV, ""))
+        for item in str(owner).split(",")
+        if item.strip()
+    ]
+    if declarations:
+        base[COMPAT_PROVIDERS_ENV] = ",".join(dict.fromkeys(declarations))
     return base
 
 
@@ -221,7 +336,9 @@ def provider_catalog(
 
     try:
         settings = compat_settings_for("deepseek", env=source)
-        entries.append(_entry_from_settings("deepseek", "DeepSeek 云端", settings))
+        if settings is not None:
+            entries.append(_entry_from_settings(
+                "deepseek", "DeepSeek 云端", settings))
     except ValueError as error:
         entries.append(_unavailable(
             "deepseek", "DeepSeek 云端", source.get("DEEPSEEK_MODEL", "").strip() or "deepseek-chat",
@@ -243,16 +360,51 @@ def provider_catalog(
             continue
         entries.append(_entry_from_settings(key, label, settings))
 
-    return entries
+    disabled = disabled_providers(source)
+    return [entry for entry in entries if entry["key"] not in disabled]
 
 
 def compat_settings_for(key: str, *, env: Mapping[str, str] | None = None) -> CompatSettings | None:
     """Load the settings a configured provider key names, or ``None``.
 
     The console and the factory use this to construct exactly the provider
-    the operator selected — never a fallback.
+    the operator selected — never a fallback. A host-disabled key resolves to
+    ``None`` here too, so a stale run spec cannot resurrect it after the menu
+    stopped offering it.
     """
     source = os.environ if env is None else env
+    if str(key).strip().lower() in disabled_providers(source):
+        return None
+    if key == "local":
+        endpoint = str(source.get("FCODE_LOCAL_ENDPOINT", "")).strip().rstrip("/")
+        if not endpoint:
+            return None
+        return CompatSettings(
+            label="local",
+            api_key_env="FCODE_LOCAL_API_KEY",
+            api_key=str(source.get("FCODE_LOCAL_API_KEY", "")).strip(),
+            base_url=endpoint,
+            model=str(source.get("FCODE_LOCAL_MODEL", "")).strip() or "fcode-qwen3-4b",
+            price=PriceSnapshot(0, 0, "not-applicable", "local-not-billed"),
+            timeout=float(source.get("FCODE_LOCAL_TIMEOUT_SECONDS", "120")),
+            max_completion_tokens=int(source.get("FCODE_LOCAL_MAX_COMPLETION_TOKENS", "2048")),
+            completion_field=str(source.get("FCODE_LOCAL_COMPLETION_FIELD", "max_tokens")),
+            temperature_mode=str(source.get("FCODE_LOCAL_TEMPERATURE_MODE", "send-configured")),
+            json_mode=_env_flag(source, "FCODE_LOCAL_JSON_MODE", True),
+            stream=_env_flag(source, "FCODE_LOCAL_STREAM", True),
+            supports_tools=_env_flag(source, "FCODE_LOCAL_SUPPORTS_TOOLS", False),
+            supports_parallel_tools=_env_flag(
+                source, "FCODE_LOCAL_SUPPORTS_PARALLEL_TOOLS", False),
+            supports_reasoning=_env_flag(
+                source, "FCODE_LOCAL_SUPPORTS_REASONING", False),
+            reasoning_field=str(source.get(
+                "FCODE_LOCAL_REASONING_FIELD", "reasoning_content")),
+            max_context_tokens=int(source.get(
+                "FCODE_LOCAL_MAX_CONTEXT_TOKENS", "131072")),
+            max_output_tokens=int(source.get(
+                "FCODE_LOCAL_MAX_OUTPUT_TOKENS", "0")),
+            require_https=False,
+        )
     if key == "kimi":
         return load_kimi_settings(env=source)
     if key == "deepseek":
@@ -273,6 +425,7 @@ def compat_settings_for(key: str, *, env: Mapping[str, str] | None = None) -> Co
     for prefix in declared_compat_prefixes(source):
         if prefix.lower() == key:
             return load_compat_settings(
-                prefix, env=source, label=key, defaults=GENERIC_COMPAT_DEFAULTS
+                prefix, env=source, label=source.get(f"{prefix}_LABEL", "").strip() or key,
+                defaults=GENERIC_COMPAT_DEFAULTS,
             )
     return None

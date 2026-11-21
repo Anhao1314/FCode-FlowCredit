@@ -444,6 +444,42 @@ class ChatSettingsTests(unittest.TestCase):
             self.service.update_config(default_model="not-a-model")
         self.assertEqual(error.exception.code, "CHAT_CONFIG_INVALID")
 
+    def test_provider_capability_fields_roundtrip(self) -> None:
+        self.service.update_config(provider="kimi", values={
+            "api_key": "sk-test-1234567890",
+            "model": "kimi-k2.6",
+            "input_price_microusd_per_mtok": "950000",
+            "output_price_microusd_per_mtok": "4000000",
+            "price_as_of": "2026-10-25",
+            "price_source": "moonshot-cn-published",
+            "completion_field": "max_tokens",
+            "temperature_mode": "omit-unless-pinned",
+            "json_mode": "0",
+            "supports_tools": "0",
+            "supports_parallel_tools": "1",
+            "supports_reasoning": "1",
+            "reasoning_field": "reasoning_content",
+            "max_context_tokens": "131072",
+            "max_output_tokens": "4096",
+        })
+        config = resolve_chat_provider(
+            "kimi", self.service._overrides_for("kimi"))
+        self.assertEqual(config.completion_field, "max_tokens")
+        self.assertEqual(config.temperature_mode, "omit-unless-pinned")
+        self.assertFalse(config.json_mode)
+        self.assertFalse(config.supports_tools)
+        self.assertTrue(config.supports_parallel_tools)
+        self.assertTrue(config.supports_reasoning)
+        self.assertEqual(config.max_context_tokens, 131072)
+        self.assertEqual(config.max_output_tokens, 4096)
+
+    def test_provider_connection_check_is_bounded_and_structured(self) -> None:
+        ok = self.service.test_provider("mock")
+        self.assertTrue(ok["ok"])
+        missing = self.service.test_provider("kimi")
+        self.assertFalse(missing["ok"])
+        self.assertIn("code", missing)
+
     def test_environment_beats_stored_settings(self) -> None:
         with mock.patch.dict(os.environ, {
             "KIMI_API_KEY": "env-key",
@@ -502,6 +538,12 @@ class ChatSettingsTests(unittest.TestCase):
             ({"input_price_microusd_per_mtok": "abc"}, "integer"),
             ({"min_interval_seconds": "-1"}, "0..3600"),
             ({"max_completion_tokens": "999999"}, "1..32768"),
+            ({"completion_field": "max_tokens_v2"}, "max_tokens"),
+            ({"temperature_mode": "always"}, "temperature_mode"),
+            ({"json_mode": "yes"}, "0 or 1"),
+            ({"max_context_tokens": "10"}, "1024..10000000"),
+            ({"max_output_tokens": "-1"}, "0..1000000"),
+            ({"reasoning_field": "bad field"}, "identifier"),
             ({"nope": "1"}, "unknown field"),
         ]
         for values, needle in cases:
@@ -524,6 +566,80 @@ class ChatSettingsTests(unittest.TestCase):
         self.assertEqual(fresh.default_model(), "mock")
         models = {item["key"]: item for item in fresh.chat_models()}
         self.assertTrue(models["mock"]["available"])
+
+
+class ChatWorkspaceFileTests(unittest.TestCase):
+    """The + menu's workspace reference: read-only, bounded, text-only."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = pathlib.Path(self._tmp.name) / "workspace"
+        (self.root / "src").mkdir(parents=True)
+        (self.root / "src" / "app.js").write_text("console.log('ok')\n", encoding="utf-8")
+        (self.root / ".env").write_text("API_KEY=secret\n", encoding="utf-8")
+        (self.root / "big.txt").write_text("x" * (64 * 1024 + 1), encoding="utf-8")
+        (self.root / "weird.txt").write_text("a\u0000b", encoding="utf-8")
+        (self.root / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        self.service = ChatService(
+            pathlib.Path(self._tmp.name) / "chat.sqlite",
+            workspace_root=self.root,
+        )
+        self.addCleanup(self.service.close)
+
+    def test_reads_one_text_file(self) -> None:
+        result = self.service.read_workspace_file("src/app.js")
+        self.assertEqual(result["name"], "app.js")
+        self.assertEqual(result["path"], "src/app.js")
+        self.assertEqual(result["text"], "console.log('ok')\n")
+        self.assertEqual(len(result["sha256"]), 64)
+
+    def test_escape_and_absolute_paths_are_refused(self) -> None:
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("../outside.txt")
+        self.assertEqual(error.exception.code, "SANDBOX_PATH_DENIED")
+        with self.assertRaises(AgentError):
+            self.service.read_workspace_file("/etc/passwd")
+
+    def test_sensitive_binary_and_oversized_files_are_refused(self) -> None:
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file(".env")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_DENIED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("image.png")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_UNSUPPORTED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("weird.txt")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_UNSUPPORTED")
+        with self.assertRaises(AgentError) as error:
+            self.service.read_workspace_file("big.txt")
+        self.assertEqual(error.exception.code, "CHAT_ATTACHMENT_INVALID")
+
+    def test_workspace_file_search_ranks_names_and_hides_secrets(self) -> None:
+        (self.root / "src" / "app_test.js").write_text("test\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# readme\n", encoding="utf-8")
+        result = self.service.list_workspace_files("app")
+        self.assertEqual(result["files"][0]["path"], "src/app.js")
+        self.assertEqual(result["files"][0]["name"], "app.js")
+        paths = [item["path"] for item in result["files"]]
+        self.assertIn("src/app_test.js", paths)
+        self.assertNotIn(".env", paths)
+        self.assertNotIn("image.png", paths)
+        exact = self.service.list_workspace_files("app.js")
+        self.assertEqual([item["path"] for item in exact["files"]], ["src/app.js"])
+        broad = self.service.list_workspace_files("", limit=2)
+        self.assertEqual(len(broad["files"]), 2)
+        self.assertGreaterEqual(broad["total"], 2)
+
+    def test_chat_without_workspace_says_so(self) -> None:
+        service = ChatService(pathlib.Path(self._tmp.name) / "plain.sqlite")
+        self.addCleanup(service.close)
+        with self.assertRaises(AgentError) as error:
+            service.read_workspace_file("src/app.js")
+        self.assertEqual(error.exception.code, "CHAT_WORKSPACE_UNAVAILABLE")
+        with self.assertRaises(AgentError) as error:
+            service.list_workspace_files("app")
+        self.assertEqual(error.exception.code, "CHAT_WORKSPACE_UNAVAILABLE")
 
 
 if __name__ == "__main__":

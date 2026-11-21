@@ -132,26 +132,36 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
     # VIBE scan: code-quality patterns for both adapters
     from .rea.vibe import scan_code_quality
+    from .rea.web import scan_web_surface
     from .rea.facts import _json_safe
     vibe_facts = _json_safe(scan_code_quality(target_copy))
+    # web 面事实（v11 web 规则的数据面）：只对含 HTML 的快照目录产生行。
+    web_facts = _json_safe(scan_web_surface(target_copy))
 
     # Write vibe facts so rea_fact_evidence scenario can read them during replay.
     # For REA audits the adapter already wrote facts.json to the snapshot; for
     # repo audits we write it to the target copy here.
-    vibe_facts_doc = {"host": {"vibe_scan": vibe_facts}}
+    vibe_facts_doc = {"host": {"vibe_scan": vibe_facts, "web_scan": web_facts}}
     if rea_snapshot is None:
         facts_file = target_copy / "facts.json"
         facts_file.write_text(json.dumps(
             {"schema_version": "fcode.rea-facts/v1",
              "target": {"identity": str(target)},
-             "host": {"vibe_scan": vibe_facts}},
+             "host": {"vibe_scan": vibe_facts, "web_scan": web_facts}},
             ensure_ascii=False, sort_keys=True), encoding="utf-8")
         control_file = target_copy / "control-facts.json"
         neutralized = json.loads(json.dumps(vibe_facts, default=str))
+        neutralized_web = json.loads(json.dumps(web_facts, default=str))
+        for key in ("third_party_scripts", "missing_sri", "inline_event_handlers",
+                    "eval_usage", "sourcemap_refs", "missing_security_headers",
+                    "runtime_third_party_origins", "runtime_console_errors"):
+            neutralized_web[key] = []
         # 负对照：把每类 VIBE 事实清零——oracle 若"总是报"会在这里露馅。
         for key in ("god_files", "todo_hotspots", "literal_sprawl",
                     "constant_conflicts", "duplicate_functions",
-                    "placeholder_stubs", "ai_residue"):
+                    "placeholder_stubs", "ai_residue",
+                    "import_cycles", "complex_functions",
+                    "secrets_in_source", "unpinned_dependencies"):
             neutralized[key] = []
         for issue in neutralized.get("issue_files", []):
             if isinstance(issue, dict) and "issues" in issue:
@@ -162,7 +172,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         control_file.write_text(json.dumps(
             {"schema_version": "fcode.rea-facts/v1",
              "target": {"identity": str(target)},
-             "host": {"vibe_scan": neutralized}},
+             "host": {"vibe_scan": neutralized, "web_scan": neutralized_web}},
             ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
     if rea_snapshot is not None:
@@ -223,27 +233,40 @@ def cmd_audit(args: argparse.Namespace) -> int:
         (out_dir / f"{record['poc_id']}.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    from .episodes import (
+        EpisodeStore, finding_identity, regression as compute_regression,
+    )
     ledgers = session.ledgers()
     cand_by_id = {c["candidate_id"]: c for c in ledgers["candidates"]}
-    findings = [
-        {
-            "finding_id": f["finding_id"],
-            "root_cause_group": cand_by_id.get(f["candidate_id"], {}).get(
-                "root_cause_group", f["candidate_id"]),
-            "category": cand_by_id.get(f["candidate_id"], {}).get("category", ""),
-            "severity": cand_by_id.get(f["candidate_id"], {}).get("severity", "info"),
-            "poc_refs": [f["poc_id"]],
-        }
-        for f in ledgers["findings"]
-    ]
+    findings = []
+    for finding in ledgers["findings"]:
+        candidate = cand_by_id.get(finding["candidate_id"], {})
+        root_cause_group = candidate.get(
+            "root_cause_group", finding["candidate_id"])
+        category = candidate.get("category", "")
+        evidence = candidate.get("evidence") or []
+        identity = finding_identity(category, root_cause_group, evidence)
+        findings.append({
+            "finding_id": finding["finding_id"],
+            "root_cause_group": root_cause_group,
+            "category": category,
+            "severity": candidate.get("severity", "info"),
+            "poc_refs": [finding["poc_id"]],
+            # v2 稳定身份:exact 识别同一位置;semantic 在文件移动时仍能
+            # 认出同一根因;legacy 让旧 episode 的 v1 指纹可一次性过渡。
+            **identity,
+        })
 
     # L3 情景投影:会话收尾自动入册;同靶时间线上算回归(known/new/fixed/regressed)。
-    from .episodes import EpisodeStore, regression as compute_regression
+    # 时间线按 target identity(路径)而不是 manifest 哈希:修复会改哈希,
+    # 而那正是需要基线的时刻。manifest 哈希仍是内容版本,留在 episode 里。
     episodes_db = Path(args.episodes_db).resolve() if args.episodes_db \
         else DEFAULT_RULES.parent / "work" / "audit" / "episodes.sqlite"
     episode_store = EpisodeStore(episodes_db)
-    prior = episode_store.prior_episode(target_ref["manifest_sha256"], audit_id)
-    current_episode = episode_store.close_episode(
+    timeline = [e for e in episode_store.episodes_for_identity(str(target))
+                if e["audit_id"] != audit_id]
+    prior = timeline[-1] if timeline else None
+    episode_store.close_episode(
         bundle={"audit_id": audit_id, "target": {"manifest_sha256": manifest_sha256,
                                                  "identity": str(target)},
                 "authorization": {"granted_at": now_iso},
@@ -256,8 +279,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
     prior_findings = prior["findings"] if prior else []
     # 无 prior 情景(首次审计)不产生回归判断——判定是 CLI 的职责,
     # 纯函数只对给定两方诚实(prior 空=干净靶子,发现即 new)。
-    regression = compute_regression(prior_findings, findings) if prior else {
-        "known": [], "new": [], "fixed": [], "regressed": []}
+    regression = compute_regression(
+        prior_findings, findings,
+        earlier=[e["findings"] for e in timeline[:-1]]) if prior else {
+            "known": [], "new": [], "fixed": [], "regressed": []}
     (out_dir / "regression.json").write_text(
         json.dumps({
             "prior_audit_id": (prior or {}).get("audit_id"),
@@ -283,6 +308,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
         },
         poc_records=poc_records,
         findings=findings,
+        regression=(
+            {"prior_audit_id": prior["audit_id"],
+             "prior_manifest_sha256": prior["target_hash"],
+             **{key: len(value) for key, value in regression.items()}}
+            if prior else None),
         uncovered_surfaces=[
             {"surface": "dynamic probing (message/HTTP/behavior)",
              "reason": "this bundle records static REA facts; separate isolated runtime observation is retained outside the bundle and is not full dynamic probing"},

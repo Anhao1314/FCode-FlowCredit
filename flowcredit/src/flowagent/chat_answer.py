@@ -476,7 +476,7 @@ class AnswerStream:
         return summary
 
     def _complete(self) -> dict[str, Any]:
-        from .chat import CHAT_VERSION, parse_action_block
+        from .chat_protocol import CHAT_VERSION, parse_action_block
 
         raw_text = "".join(self.text_parts)
         usage = self._aggregate_usage()
@@ -485,7 +485,9 @@ class AnswerStream:
             actual_cost = sum(int(item.get("cost_microusd") or 0) for item in self.round_usages)
         else:
             actual_cost = self.accounting.settle_cost(self.config, usage)
-        text, action = parse_action_block(raw_text)
+        text, action = parse_action_block(
+            raw_text, block=getattr(self.service, "action_block", "fcode_action"),
+        )
         receipt_ref = self.service.receipts.issue(
             intent={
                 "thread_id": self.thread_id,

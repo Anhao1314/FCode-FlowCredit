@@ -42,8 +42,11 @@ GRANT_BLOCK = """        if tool in self._remembered:
                 "approval_granted",
                 {"round": round_no, "tool": tool, "by": "operator-rule", "scope": "run"},
             )
-            return self.ToolControl(task=task, allowed=True)
+            return task, None
 """
+#: prepare_approval 的放行分支（TOOL_LINE 会先在 approval_required 里出现，
+#: 直接 replace(…,1) 会把 step_key 插错方法——用这个方法级锚点）。
+PREPARE_FAST_PATH = "        if not self.approval_required(round_no=round_no, task=task, step=step):"
 TOOL_LINE = '        tool = step["tool"]'
 
 
@@ -73,9 +76,11 @@ def make_clean_control(workdir: pathlib.Path) -> pathlib.Path:
     Plus a decoy file that still trips the static trigger."""
     copy, runtime, text = _copy_and_read(workdir)
     assert REMEMBER_CHECK in text and REMEMBER_ADD in text, "anchor strings drifted"
+    assert PREPARE_FAST_PATH in text, "prepare fast-path anchor drifted"
     text = text.replace(
-        TOOL_LINE,
-        TOOL_LINE + '\n        step_key = json.dumps(step.get("arguments") or {}, sort_keys=True)',
+        PREPARE_FAST_PATH,
+        '        step_key = json.dumps(step.get("arguments") or {}, sort_keys=True)\n'
+        + PREPARE_FAST_PATH,
         1,
     )
     text = text.replace(
@@ -146,7 +151,7 @@ def make_structural_variant(workdir: pathlib.Path) -> pathlib.Path:
         "                \"approval_granted\",\n"
         "                {\"round\": round_no, \"tool\": tool, \"by\": \"operator-rule\", \"scope\": \"run\"},\n"
         "            )\n"
-        "            return self.ToolControl(task=task, allowed=True)\n"
+        "            return task, None\n"
         "        return None\n\n"
     )
     text = text.replace(marker, helper + marker, 1)
@@ -198,8 +203,11 @@ class NegativeControlTests(unittest.TestCase):
                             "the decoy candidate must still be replayed, not skipped")
             for ref in bundle["poc_evidence_refs"]:
                 record = json.loads((out / f"{ref}.json").read_text(encoding="utf-8"))
-                if record["category"].startswith("VIBE"):
-                    continue  # VIBE findings are quality observations, not security false positives
+                if record["category"].startswith(("VIBE", "WEB")):
+                    # VIBE = 代码卫生观察；WEB = web 姿态观察（内联事件/第三方源/
+                    # 缺失头…）。两者都不是 AGI 类的安全假阳性——这里只断言
+                    # decoy/安全问题必须被 oracle 清除。
+                    continue
                 self.assertEqual(record["replay"]["outcome"], "not_reproduced",
                                  "the decoy must be cleared by the host oracle")
 

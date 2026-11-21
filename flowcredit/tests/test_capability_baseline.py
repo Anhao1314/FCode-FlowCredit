@@ -156,6 +156,13 @@ class RunCommandPolicyTests(unittest.TestCase):
         self._denied("cat", ["a | b"], "COMMAND_SHELL_SYNTAX")
         self._denied("cat", ["a > /etc/passwd"], "COMMAND_SHELL_SYNTAX")
         self._denied("grep", ["$(whoami)", "file"], "COMMAND_SHELL_SYNTAX")
+        self._denied("grep", ["a;b", "file"], "COMMAND_SHELL_SYNTAX")
+
+    def test_grep_pattern_pipe_is_ere_alternation_not_shell(self) -> None:
+        """grep 模式里的 | 是 ERE 交替:execve 传参无 shell,该放行(真踩过)。"""
+        self.sandbox.write("sample.txt", "alpha\nbeta\n")
+        rule, argv = CommandPolicy().resolve("grep", ["-E", "alpha|beta", "sample.txt"], self.sandbox)
+        self.assertIn("alpha|beta", argv)
 
     def test_git_network_and_rewrite_subcommands_are_refused(self) -> None:
         self._denied("git", ["push", "origin", "main"], "COMMAND_GIT_SUBCOMMAND_REFUSED")
@@ -535,11 +542,11 @@ class CommandConfigTests(unittest.TestCase):
             path = pathlib.Path(tmp) / "commands.json"
             path.write_text(json.dumps({
                 "commands": [
-                    {"program": "ruff", "readonly": True, "argPolicy": "free"},
+                    {"program": "shellcheck", "readonly": True, "argPolicy": "free"},
                 ]
             }), encoding="utf-8")
             policy = load_command_config(path)
-        self.assertFalse(policy.classify("ruff", []))
+        self.assertFalse(policy.classify("shellcheck", []))
         self.assertTrue(policy.classify("python3", ["x.py"]), "defaults survive")
 
             # a config may not weaken a built-in rule

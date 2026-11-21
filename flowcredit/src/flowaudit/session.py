@@ -82,6 +82,37 @@ class AuditSession:
         self._commit(_PRUNED, {"candidate_id": candidate_id,
                                "reason": reason[:300], "actor": actor})
 
+    def propose_model_candidate(self, *, surface: str, hypothesis: str,
+                                evidence_refs: list[str], attack_scenario: str,
+                                verification_plan: str, severity_guess: str,
+                                knowledge_based: bool,
+                                actor: str = "model-shadow") -> str:
+        """语义候选（探员）落链：挖与判分离在事件层成立。
+
+        actor 必须如实标注为 model 系身份；候选没有 replay receipt，
+        晋升双闸门天然拒绝——shadow 模式下它永远停留在候选账本里，
+        不会变成 finding，也不会写进 audit-bundle.json。
+        """
+        if not str(actor).startswith("model"):
+            raise AgentError(
+                "MODEL_ACTOR_REQUIRED",
+                "semantic candidates must carry a model-* actor",
+            )
+        candidate_id = f"C-{self._next_candidate():04d}"
+        self._commit(_CANDIDATE, {
+            "candidate_id": candidate_id,
+            "actor": actor,
+            "source": "semantic-hunter",
+            "surface": str(surface or "")[:120],
+            "hypothesis": str(hypothesis or "")[:600],
+            "evidence_refs": [str(r)[:160] for r in (evidence_refs or [])[:8]],
+            "attack_scenario": str(attack_scenario or "")[:400],
+            "verification_plan": str(verification_plan or "")[:400],
+            "severity_guess": str(severity_guess or "")[:16],
+            "knowledge_based": bool(knowledge_based),
+        })
+        return candidate_id
+
     def promote_finding(self, candidate_id: str, *, poc_id: str,
                         receipt_ref: str, actor: str,
                         finding_id: str | None = None) -> str:

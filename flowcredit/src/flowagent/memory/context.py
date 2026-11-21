@@ -69,6 +69,40 @@ def _clip(value: str) -> str:
             + value[-DEFAULT_SUMMARY_TAIL:])
 
 
+#: Cache-friendly ordering for non-frozen general contexts. The provider sees
+#: stable contract/tool fields first, append-only observations next, and
+#: per-round bookkeeping last. Finance contexts never take this path.
+_CACHE_CONTEXT_ORDER = (
+    "prompt_profile",
+    "instruction",
+    "tools",
+    "objective",
+    "conversation",
+    "prior_cases",
+    "observations",
+    "observation_index",
+    "plan",
+    "state",
+    "operator_messages",
+    "rejected_proposals",
+    "budget",
+    "round",
+    "intent",
+)
+
+
+def _cache_ordered_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Reorder a general context without changing its JSON content."""
+    ordered: dict[str, Any] = {}
+    for key in _CACHE_CONTEXT_ORDER:
+        if key in context:
+            ordered[key] = context[key]
+    for key, value in context.items():
+        if key not in ordered:
+            ordered[key] = value
+    return ordered
+
+
 def _compact(value: Any, depth: int) -> Any:
     """P0-1 的结构化压缩:深度内保留一层键值/列表首项,超出折叠为键名/计数。"""
     if value is None or isinstance(value, (int, float, bool)):
@@ -259,9 +293,6 @@ class WorkingMemory:
     #: P0-3 pinned 全量自身超预算时置位;loop 落 context_pin_overflow
     #: 事件(fail-open 仅限此情形:证据完整性优先于预算)。
     pending_pin_overflow: dict[str, Any] | None = None
-    #: P1-1 增量 summary 缓存(SummaryCache|None)。None = 不缓存(默认,
-    #: 语义与改动前完全一致)。缓存异常一律 fail-open 回退实时 summarize。
-    summary_cache: Any = None
     #: P1-2 行构造增量化的已准备产物:每条记录只构造一次行(含全量行、
     #: 摘要行、索引行与字符数),以及 pinned/非 pinned 的累计量与前缀和。
     _prepared: list[dict[str, Any]] = field(default_factory=list)
@@ -354,6 +385,27 @@ class WorkingMemory:
             "arguments": dict(record.arguments),
             "summary": self._summarise(record),
         }
+
+    # ------------------------------------------------------- policy-head views
+
+    def observation_stats(self) -> dict[str, Any]:
+        """Read-only observation-budget snapshot for the policy head."""
+        self._prepare_rows()
+        return {
+            "records": len(self.records),
+            "observation_chars": self._pinned_chars + self._np_chars,
+            "budget_chars": self.observation_budget,
+            "folded_through": self.folded_through,
+            "pinned": len(self._pinned_rows),
+            "non_pinned": len(self._np_rows),
+        }
+
+    def budget_pressure(self) -> float:
+        """Fraction of the observation budget currently in use."""
+        stats = self.observation_stats()
+        return stats["observation_chars"] / max(1, int(stats["budget_chars"]))
+
+
 
     def build(
         self,
@@ -487,6 +539,12 @@ class WorkingMemory:
                 }
                 for hit in self.prior_cases[:3]
             ]
+        if self.prompt_profile:
+            # Non-frozen general profiles render with insertion order so the
+            # provider sees stable contract/tool fields before per-round
+            # bookkeeping. Finance contexts keep legacy insertion and canonical
+            # sorted rendering to protect the SFT golden hash.
+            return _cache_ordered_context(context)
         return context
 
     def _prepare_rows(self) -> None:
@@ -560,9 +618,8 @@ class WorkingMemory:
         The tool's own ``summarize`` contract wins; the shape-based default
         keeps unknown tools honest without the memory layer knowing tool names.
 
-        P1-2 介质顺序:进程内 dict(_memo,默认启用,~0.1µs)→ SQLite
-        summary_cache(默认关闭,显式传入才启用)→ 实时 summarize。
-        所有缓存层都 fail-open:异常时回退实时计算,不中断 loop。
+        P1-2 介质:进程内 dict(_memo,~0.1µs)。SQLite summary_cache 已在
+        P1-1.5 实测净负(2026-11-21 删除);缓存异常回退实时计算。
         """
         policy, version = self.summarizer_config.get(record.tool, ("default", 1))
         args_hash = hashlib.sha256(
@@ -571,15 +628,8 @@ class WorkingMemory:
         cached = self._memo.get(key)
         if cached is not None:
             return cached
-        if self.summary_cache is not None:
-            external = self.summary_cache.get(key)
-            if external is not None:
-                self._memo[key] = external
-                return external
         summarizer = self.summarizers.get(record.tool)
         product = (summarizer(record.result) if summarizer is not None
                    else default_summarize(record.result))
         self._memo[key] = product
-        if self.summary_cache is not None:
-            self.summary_cache.put(key, product)
         return product

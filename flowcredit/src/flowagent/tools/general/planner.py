@@ -33,7 +33,9 @@ __all__ = ["GeneralPlanner", "REPORT_PATH", "EXCERPT_CHARS", "GENERAL_MODES"]
 
 #: The delegation modes the general domain understands. ``open`` is the one
 #: whose plan the model may extend; the other two are blueprints and are closed.
-GENERAL_MODES: tuple[str, ...] = ("research", "script", "open")
+#: ``subagent`` 是运行时派生的内部角色模式：只读盘点 + 在**自己的**
+#: 沙箱里写发现笔记（子沙箱与父工作区物理隔离，写入不构成合并问题）。
+GENERAL_MODES: tuple[str, ...] = ("research", "script", "open", "subagent")
 
 REPORT_PATH = "research.md"
 #: Where an open delegation files its artifact when the operator named none.
@@ -146,11 +148,14 @@ class GeneralPlanner:
         report_path: str = REPORT_PATH,
         mode: str = "research",
         script_path: str = "script.py",
+        mock_spawn: list[str] | None = None,
     ) -> None:
         self.sources = list(sources)
         self.report_path = report_path
         self.mode = mode if mode in GENERAL_MODES else "research"
         self.script_path = script_path
+        #: 测试缝：委托 spec 的 mock_spawn_subagents（离线编排 E2E 用）
+        self.mock_spawn = [str(o) for o in (mock_spawn or []) if str(o).strip()]
         self._sections: list[dict[str, Any]] = []
         self._runs: list[dict[str, Any]] = []
         self._edits: list[dict[str, Any]] = []
@@ -158,6 +163,29 @@ class GeneralPlanner:
     def decompose(self, goal: str) -> Plan:
         self._sections = []
         self._runs = []
+        # 离线确定性编排缝（仅测试/E2E 用）：委托 spec 携带
+        # mock_spawn_subagents（子目标列表）时，蓝图先并行扇出再写产物——
+        # 让 spawn_subagents 的完整链路（审批→子运行→join→摘要回传）可以在
+        # 无真实模型的条件下被端到端验证。键由操作者自己的委托带入；
+        # 所有工具调用仍走同一套门禁与审批。
+        scripted = self.mock_spawn
+        if scripted:
+            return Plan(goal=goal, todos=[
+                Todo(
+                    id="ts",
+                    text="并行派只读子代理调查子问题，汇总结论",
+                    tool="spawn_subagents",
+                    done_when="spawned:subagents",
+                    arguments={"objectives": [str(o) for o in scripted][:4]},
+                ),
+                Todo(
+                    id="tw",
+                    text=f"汇总各方发现写入 {self.report_path}",
+                    tool="write_file",
+                    done_when=f"written:{self.report_path}",
+                    arguments={"path": self.report_path, "content": ""},
+                ),
+            ], revision=1)
         if self.mode == "open":
             # The one obligation the host keeps: there must be a verifiable
             # artifact, because that is what "succeeded" is recomputed from. All
@@ -176,6 +204,14 @@ class GeneralPlanner:
         if self.mode == "script":
             self._edits = []
             return Plan(goal=goal, todos=self._script_todos(), revision=1)
+        if self.mode == "subagent":
+            return Plan(goal=goal, todos=[
+                Todo("t1", "盘点工作区文件，确定与子问题相关的信息位置",
+                     "ls_workspace", "listed:workspace", {}),
+                Todo("t2", f"把与子问题相关的发现写进 {self.report_path}",
+                     "write_file", f"written:{self.report_path}",
+                     {"path": self.report_path, "content": ""}),
+            ], revision=1)
         if not self.sources:
             raise ValueError("a research delegation needs at least one source URL")
         todos: list[Todo] = []
@@ -224,9 +260,13 @@ class GeneralPlanner:
             return self._compose_results(updated, observation)
         if observation.tool == "edit_file":
             self._edits.append(dict(observation.arguments))
-            return self._settle_sequential(plan, "edit_file", observation)
+            return self._settle_edit(plan, observation)
         if observation.tool == "write_file":
             return self._settle_write(plan, observation)
+        if observation.tool == "spawn_subagents":
+            return self._settle_sequential(plan, "spawn_subagents", observation)
+        if observation.tool == "ls_workspace":
+            return self._settle_sequential(plan, "ls_workspace", observation)
         return self._settle_by_identity(plan, observation)
 
     # ------------------------------------------------------------------ private
@@ -246,6 +286,31 @@ class GeneralPlanner:
         for todo in plan.todos:
             if todo.tool == tool and todo.status in ("pending", "active"):
                 return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+        return plan
+
+    def _settle_edit(self, plan: Plan, observation: Observation) -> Plan:
+        """Settle an edit only against the artifact and anchor it actually used.
+
+        Several model-added todos may target different sections of one file. Tool
+        order cannot prove which one ran: only an exact declared ``old_text`` can.
+        The single unanchored blueprint edit remains sequential for compatibility;
+        ambiguous unanchored edits stay pending instead of consuming a sibling's
+        intended work.
+        """
+        path = observation.arguments.get("path")
+        old_text = observation.arguments.get("old_text")
+        candidates = [
+            todo for todo in plan.todos
+            if todo.tool == "edit_file"
+            and todo.status in ("pending", "active")
+            and (todo.arguments or {}).get("path") == path
+        ]
+        for todo in candidates:
+            declared = (todo.arguments or {}).get("old_text")
+            if declared is not None and declared == old_text:
+                return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+        if len(candidates) == 1 and candidates[0].arguments.get("old_text") is None:
+            return plan.mark(candidates[0].id, "done", evidence=(observation.result_hash,))
         return plan
 
     def _settle_by_identity(self, plan: Plan, observation: Observation) -> Plan:
@@ -274,10 +339,18 @@ class GeneralPlanner:
     def _settle_write(self, plan: Plan, observation: Observation) -> Plan:
         path = str(observation.arguments.get("path") or "")
         for todo in plan.todos:
-            if todo.tool == "write_file" and todo.arguments.get("path") == path:
-                if todo.status in ("done", "abandoned"):
-                    return plan
-                return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
+            if todo.tool != "write_file":
+                continue
+            declared = (todo.arguments or {}).get("path")
+            # A model-added todo that says "write index.html" in prose but
+            # omits arguments.path is satisfied by the first write; otherwise
+            # None == "index.html" left the todo pending forever and the loop
+            # degenerated into no-op ls_workspace calls.
+            if declared is not None and declared != path:
+                continue
+            if todo.status in ("done", "abandoned"):
+                return plan
+            return plan.mark(todo.id, "done", evidence=(observation.result_hash,))
         return plan
 
     def _compose_report(self, plan: Plan, observation: Observation) -> Plan:

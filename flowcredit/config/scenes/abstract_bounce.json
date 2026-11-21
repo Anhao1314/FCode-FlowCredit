@@ -1,0 +1,20 @@
+{
+  "id": "abstract-bounce",
+  "subject": {
+    "label": "bouncing ball",
+    "description": "simple circular ball bouncing across the scene"
+  },
+  "vehicle": {
+    "label": "ground",
+    "description": "ground line and scrolling background",
+    "support_label": "ground"
+  },
+  "features": {
+    "two_legs": false,
+    "legs_attach": false,
+    "feet_on_support": false
+  },
+  "composition": "bouncing ball with scrolling background",
+  "crop": null,
+  "scale": 1
+}

@@ -164,3 +164,179 @@ class VibeAuditIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# ---------------------------------------------------------------- VIBE-06 / 复杂度
+
+CYCLE_A = '''from helpers_b import helper_b
+
+def entry():
+    return helper_b()
+'''
+
+CYCLE_B = '''from helpers_a import entry
+
+def helper_b():
+    return entry()
+'''
+
+COMPLEX_FUNC = "def tangled(x):\n" + "".join(
+    f"    if x == {i}:\n        x += {i}\n" for i in range(20)
+) + "    return x\n"
+
+
+class ImportCycleAndComplexityTest(unittest.TestCase):
+    def test_import_cycles_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "helpers_a.py").write_text(CYCLE_A, encoding="utf-8")
+            (root / "helpers_b.py").write_text(CYCLE_B, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(len(facts["import_cycles"]), 1)
+        cycle = facts["import_cycles"][0]
+        self.assertEqual(cycle["cycle"], ["helpers_a.py", "helpers_b.py"])
+        self.assertEqual(cycle["size"], 2)
+        self.assertTrue(cycle["edges"], "环内边要带行号作证据")
+
+    def test_no_cycle_for_dag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "a.py").write_text("from b import f\n", encoding="utf-8")
+            (root / "b.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["import_cycles"], [])
+
+    def test_relative_imports_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "pkg").mkdir()
+            (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "pkg" / "x.py").write_text("from . import y\n", encoding="utf-8")
+            (root / "pkg" / "y.py").write_text("from . import x\n", encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(len(facts["import_cycles"]), 1)
+        self.assertEqual(facts["import_cycles"][0]["cycle"], ["pkg/x.py", "pkg/y.py"])
+
+    def test_complex_function_flagged_above_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "logic.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            facts = scan_code_quality(root)
+        rows = facts["complex_functions"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["function"], "tangled")
+        self.assertGreater(rows[0]["complexity"], 15)
+
+    def test_simple_function_not_flagged_and_tests_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "simple.py").write_text("def f(x):\n    return x + 1\n", encoding="utf-8")
+            (root / "test_big.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["complex_functions"], [], "测试文件的复杂度不算生产债")
+
+    def test_new_rules_match_facts_and_controls_zeroed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "target"
+            target.mkdir()
+            (target / "helpers_a.py").write_text(CYCLE_A, encoding="utf-8")
+            (target / "helpers_b.py").write_text(CYCLE_B, encoding="utf-8")
+            (target / "logic.py").write_text(COMPLEX_FUNC, encoding="utf-8")
+            out = pathlib.Path(tmp) / "bundle"
+            rc = cli.main(["audit", str(target), "--out", str(out),
+                           "--operator", "ci-test"])
+            self.assertEqual(rc, 0)
+            bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
+            groups = {f["root_cause_group"] for f in bundle["findings"]}
+            self.assertIn("import-cycle", groups)
+            self.assertIn("complex-function", groups)
+            for finding in bundle["findings"]:
+                if finding["root_cause_group"] not in ("import-cycle", "complex-function"):
+                    continue
+                record = json.loads(
+                    (out / f"{finding['poc_refs'][0]}.json").read_text(encoding="utf-8"))
+                self.assertEqual(record["replay"]["outcome"], "finding")
+                self.assertEqual(record["negative_control"]["result"], "as_expected",
+                                 f"{record['rule_id']} 的负对照必须 as_expected")
+
+
+# ---------------------------------------------------------------- VIBE-07 安全卫生
+
+SECRET_FILE = '''AWS_KEY = "AKIAABCDEFGHIJKLMNOP"
+api_key = "abcdefghijklmnopqrstuvwxyz123456"
+
+PRIVATE = "-----BEGIN RSA PRIVATE KEY-----"
+'''
+
+PINNED_REQ = "requests==2.31.0\nnumpy==1.26.4\n"
+UNPINNED_REQ = "requests\nnumpy==1.26.4\n"
+
+
+class SecurityHygieneTest(unittest.TestCase):
+    def test_secrets_detected_and_masked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "config.py").write_text(SECRET_FILE, encoding="utf-8")
+            facts = scan_code_quality(root)
+        kinds = {row["kind"] for row in facts["secrets_in_source"]}
+        self.assertIn("aws-access-key", kinds)
+        self.assertIn("generic-secret", kinds)
+        self.assertIn("private-key", kinds)
+        raw = json.dumps(facts, ensure_ascii=False)
+        self.assertNotIn("AKIAABCDEFGHIJKLMNOP", raw, "bundle 不能成为二次泄漏源")
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", raw)
+        self.assertIn("…", raw, "掩码保留长度提示")
+
+    def test_test_files_skipped_for_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "test_config.py").write_text(SECRET_FILE, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["secrets_in_source"], [])
+
+    def test_unpinned_requirements_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "requirements.txt").write_text(UNPINNED_REQ, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual([row["package"] for row in facts["unpinned_dependencies"]], ["requests"])
+
+    def test_pinned_requirements_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "requirements.txt").write_text(PINNED_REQ, encoding="utf-8")
+            facts = scan_code_quality(root)
+        self.assertEqual(facts["unpinned_dependencies"], [])
+
+    def test_package_json_star_and_latest_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "package.json").write_text(json.dumps({
+                "dependencies": {"left-pad": "*", "react": "^18.2.0"},
+                "devDependencies": {"tool": "latest", "pinned": "1.2.3"},
+            }), encoding="utf-8")
+            facts = scan_code_quality(root)
+        packages = {row["package"] for row in facts["unpinned_dependencies"]}
+        self.assertEqual(packages, {"left-pad", "tool"})
+
+    def test_new_rules_match_facts_and_controls_zeroed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "target"
+            target.mkdir()
+            (target / "config.py").write_text(SECRET_FILE, encoding="utf-8")
+            (target / "requirements.txt").write_text(UNPINNED_REQ, encoding="utf-8")
+            out = pathlib.Path(tmp) / "bundle"
+            rc = cli.main(["audit", str(target), "--out", str(out),
+                           "--operator", "ci-test"])
+            self.assertEqual(rc, 0)
+            bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
+            groups = {f["root_cause_group"] for f in bundle["findings"]}
+            self.assertIn("hardcoded-secret", groups)
+            self.assertIn("unpinned-dependency", groups)
+            for finding in bundle["findings"]:
+                if finding["root_cause_group"] not in ("hardcoded-secret", "unpinned-dependency"):
+                    continue
+                record = json.loads(
+                    (out / f"{finding['poc_refs'][0]}.json").read_text(encoding="utf-8"))
+                self.assertEqual(record["replay"]["outcome"], "finding")
+                self.assertEqual(record["negative_control"]["result"], "as_expected",
+                                 f"{record['rule_id']} 的负对照必须 as_expected")

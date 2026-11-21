@@ -1,0 +1,21 @@
+{
+  "id": "pelican-bicycle",
+  "subject": {
+    "label": "cartoon pelican",
+    "description": "white/light-yellow bird with a large throat pouch"
+  },
+  "vehicle": {
+    "label": "bicycle",
+    "description": "bicycle with two spoked wheels",
+    "support_label": "pedal"
+  },
+  "features": {
+    "two_legs": true,
+    "legs_attach": true,
+    "feet_on_support": true
+  },
+  "composition": "pelican riding a bicycle",
+  "verify_terms": ["pelican", "bicycle"],
+  "crop": [140, 90, 900, 530],
+  "scale": 2
+}

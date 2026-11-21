@@ -238,6 +238,24 @@ class AuditViewerApiTests(unittest.TestCase):
         self.assertEqual(detail.get("actor"), "operator")
         self.assertTrue(chain["chain_intact"], "处置事件本身不能破坏链")
 
+    def test_disposition_repaired_accepted_and_chained(self) -> None:
+        """「已修复」是修洞闭环的处置档:允许落 bundle 并进签名链。"""
+        import urllib.request
+
+        body = json.dumps({"disposition": "repaired"}).encode()
+        req = urllib.request.Request(
+            f"{self.base}/api/audit/disposition/demo-target-test/F-POC-0001",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req) as res:
+            self.assertEqual(json.loads(res.read())["operator_disposition"], "repaired")
+        with urllib.request.urlopen(f"{self.base}/api/audit/chain/demo-target-test") as res:
+            chain = json.loads(res.read())
+        events = [e for e in chain["events"] if e["type"] == "finding_disposition_set"]
+        detail = events[-1]["payload"].get("detail") or events[-1]["payload"]
+        self.assertEqual(detail.get("disposition"), "repaired")
+        self.assertTrue(chain["chain_intact"])
+
     def test_review_profile_aggregates_audit_dispositions(self) -> None:
         """判断记录页的「审计处置」区段:与 run 判断并列,不并入四类计数。"""
         import urllib.request
@@ -458,10 +476,10 @@ class AuditRunTests(unittest.TestCase):
                 break
             time.sleep(1.0)
         self.assertEqual(outcome["status"], "done", outcome)
-        self.assertEqual(outcome["findings"], 2)
+        self.assertEqual(outcome["findings"], 3)
         with urllib.request.urlopen(f"{self.base}/api/audit/bundles", timeout=10) as res:
             bundles = json.loads(res.read())["bundles"]
-        self.assertTrue(any(b["audit_id"] and b["findings"] == 2 for b in bundles),
+        self.assertTrue(any(b["audit_id"] and b["findings"] == 3 for b in bundles),
                         "the spawned audit must land in the ledger feed")
 
     def test_traversal_target_is_refused_before_spawn(self) -> None:
@@ -470,6 +488,93 @@ class AuditRunTests(unittest.TestCase):
         self.assertIn("escapes", payload.get("error", ""))
         status, payload = self._post("/api/audit/run", {"target": ""})
         self.assertEqual(status, 400)
+
+    def test_gov_manual_run_persists_and_skips_bot_budget(self) -> None:
+        """对话 /挖洞 写入同一条运行流：source=console，且不计 Bot 预算。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/runs",
+                                     {"target": "fixtures/demo-target"})
+        self.assertEqual(status, 201)
+        run = payload["run"]
+        self.assertEqual(run["source"], "console")
+        self.assertEqual(run["bot_id"], "auditor")
+        run_id = run["run_id"]
+        outcome = None
+        for _ in range(60):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/runs?limit=20", timeout=10) as res:
+                runs = json.loads(res.read())["runs"]
+            outcome = next((item for item in runs if item["run_id"] == run_id), None)
+            if outcome and outcome["status"] not in ("queued", "running"):
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertTrue(outcome["audit_id"])
+        with urllib.request.urlopen(f"{self.base}/api/gov/bots", timeout=10) as res:
+            bots = json.loads(res.read())["bots"]
+        auditor = next(bot for bot in bots if bot["id"] == "auditor")
+        self.assertEqual(auditor["runs_today"], 0, "手动挖洞不占 Bot 预算")
+        self.assertEqual(auditor["last"]["source"], "console")
+
+        status, payload = self._post("/api/gov/runs", {"target": "../outside"})
+        self.assertEqual(status, 400)
+        self.assertIn("escapes", payload.get("error", ""))
+
+    def test_unified_run_endpoint_creates_team_run(self) -> None:
+        """团队派活复用同一入口：带 bot_id 时写 source=team 运行。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/runs", {
+            "bot_id": "auditor", "target": "fixtures/demo-target", "source": "team",
+        })
+        self.assertEqual(status, 201)
+        run = payload["run"]
+        self.assertEqual(run["source"], "team")
+        self.assertEqual(run["trigger"], "manual")
+        run_id = run["run_id"]
+        outcome = None
+        for _ in range(60):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/runs?limit=20", timeout=10) as res:
+                runs = json.loads(res.read())["runs"]
+            outcome = next((item for item in runs if item["run_id"] == run_id), None)
+            if outcome and outcome["status"] not in ("queued", "running"):
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertTrue(outcome["audit_id"])
+        # console 语义只属于无 bot_id 的手动入口
+        status, payload = self._post("/api/gov/runs", {
+            "bot_id": "auditor", "target": "fixtures/demo-target", "source": "console",
+        })
+        self.assertEqual(status, 400)
+
+    def test_swarm_endpoint_fans_out_and_lists_runs(self) -> None:
+        """目标级 fan-out：HTTP 创建蜂群，子 run 独立落账并完成。"""
+        import urllib.request
+        status, payload = self._post("/api/gov/swarms", {
+            "targets": ["fixtures/demo-target", "fixtures/demo-target/mini_agent"],
+            "max_concurrency": 2,
+        })
+        self.assertEqual(status, 201)
+        swarm = payload["swarm"]
+        self.assertEqual(swarm["counts"]["total"], 2)
+        self.assertEqual(len(swarm["runs"]), 2)
+        self.assertTrue(all(run["source"] == "swarm" for run in swarm["runs"]))
+        swarm_id = swarm["id"]
+        outcome = None
+        for _ in range(90):
+            with urllib.request.urlopen(
+                    f"{self.base}/api/gov/swarms?limit=5", timeout=10) as res:
+                swarms = json.loads(res.read())["swarms"]
+            outcome = next((item for item in swarms if item["id"] == swarm_id), None)
+            if outcome and outcome["status"] != "running":
+                break
+            time.sleep(1.0)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["status"], "done", outcome)
+        self.assertEqual(outcome["counts"]["done"], 2)
 
 
 if __name__ == "__main__":

@@ -370,6 +370,17 @@ _ORACLE_POC = {
     ("rea_fact_evidence", "RULE-VIBE05-001"): _oracle_rea_vibe_generic,
     ("rea_fact_evidence", "RULE-VIBE05-002"): _oracle_rea_vibe_generic,
     ("rea_fact_evidence", "RULE-VIBE05-003"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE06-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-003"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE07-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE07-002"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB01-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB02-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB03-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB04-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB05-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB06-001"): _oracle_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB07-001"): _oracle_rea_vibe_generic,
 }
 _ORACLE_CONTROL = {
     "fcode02_remember_scope": _control_fcode02,
@@ -392,6 +403,17 @@ _ORACLE_CONTROL = {
     ("rea_fact_evidence", "RULE-VIBE05-002"): _control_rea_vibe_generic,
     ("rea_fact_evidence", "RULE-VIBE05-003"): _control_rea_vibe_generic,
     ("rea_fact_evidence", "RULE-VIBE04-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE06-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE01-003"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE07-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-VIBE07-002"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB01-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB02-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB03-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB04-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB05-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB06-001"): _control_rea_vibe_generic,
+    ("rea_fact_evidence", "RULE-WEB07-001"): _control_rea_vibe_generic,
 }
 
 

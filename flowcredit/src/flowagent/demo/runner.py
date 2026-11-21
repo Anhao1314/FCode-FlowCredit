@@ -27,7 +27,7 @@ from ..providers.base import Provider
 from ..providers.mock import MockProvider
 from ..runtime.budget import BudgetLimits
 from ..runtime.harness import Harness
-from ..runtime.loop import Loop
+from ..runtime.engine import build_loop
 from ..tools.registry import ToolRegistry
 from ..tools.general.sandbox import WorkspaceSandbox
 from ..trajectory.exporter import export_trace, verify_trace
@@ -155,8 +155,10 @@ def build_stack(
     # input. The reference workload ignores it; the general world reads it.
     world_kwargs: dict[str, Any] = {}
     if module.key == "general-work":
-        # The sandbox sits next to the chain it feeds, so files survive a restart.
-        world_kwargs["sandbox"] = WorkspaceSandbox(db_path.parent / "workspace")
+        # Keep the sandbox next to the chain it feeds so files survive a restart,
+        # but scope it to that chain. A shared work/demo/workspace lets one
+        # scenario's leftover files change the next scenario's verification.
+        world_kwargs["sandbox"] = WorkspaceSandbox(db_path.with_suffix(".workspace"))
     world = module.create_world(
         partial=scenario.partial_corpus, spec=spec or {}, **world_kwargs,
     )
@@ -398,7 +400,7 @@ def run_scenario(
             limits=limits,
         )
     else:
-        task = Loop(
+        task = build_loop(
             stack.harness,
             planner=stack.planner,
             max_rounds=scenario.max_rounds,
@@ -416,7 +418,7 @@ def run_scenario(
             task = stack.harness.reconcile(task, ref)
             reconciled = True
             renderer.event("RECONCILED", f"签名收据匹配 round {task.model.attempts}，继续执行", colour=Renderer.GREEN)
-            task = Loop(
+            task = build_loop(
                 stack.harness,
                 planner=stack.planner,
                 max_rounds=scenario.max_rounds,
@@ -546,7 +548,7 @@ def _run_crash(
         renderer.event("WARNING", f"worker 未按预期崩溃：{completed.stderr.strip()[:120]}", colour=Renderer.YELLOW)
 
     resumed = stack.store.load(task.id)
-    memory = Loop(
+    memory = build_loop(
         stack.harness,
         planner=stack.planner,
         result_tools=stack.module.result_tools,
@@ -559,7 +561,7 @@ def _run_crash(
         colour=Renderer.GREEN,
     )
 
-    task = Loop(
+    task = build_loop(
         stack.harness,
         planner=stack.planner,
         max_rounds=scenario.max_rounds,
@@ -605,7 +607,9 @@ def run_all(
     if provider_name != "mock" and max_total_cost is None:
         raise ValueError("an external provider batch requires --max-total-cost")
 
-    keys = list(SCENARIOS)
+    # Internal roles are spawned by a parent run; they are not operator-facing
+    # delegations and their standalone proposal is expected to be denied.
+    keys = [key for key, scenario in SCENARIOS.items() if not scenario.internal]
     per_task_cap = limits.max_cost_microusd if limits is not None else SCENARIOS[keys[0]].limits.max_cost_microusd
     worst_case = len(keys) * per_task_cap
     print(

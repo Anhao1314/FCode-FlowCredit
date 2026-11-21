@@ -49,6 +49,19 @@ class ConsoleBudgetTests(unittest.TestCase):
             _scaled_budget_for_prices(limits, self.price, 8_192)
         self.assertIn("14192", str(caught.exception))
 
+    def test_a_free_custom_endpoint_is_bounded_by_tokens_not_by_cost(self) -> None:
+        """零价格端点不能除零：成本不约束容量，token 顶仍然生效。"""
+        free = SimpleNamespace(
+            input_microusd_per_mtok=0,
+            output_microusd_per_mtok=0,
+        )
+        budget = _scaled_budget_for_prices(self.limits, free, 8_192)
+        self.assertEqual(budget["max_cost_microusd"], 80_000, "硬成本上限不被抬高")
+        self.assertEqual(budget["max_calls"], 7, "100k token 顶只容得下 7 次 14,192-token 预留")
+        tight = BudgetLimits(12, 8, 80_000, 20_000)
+        capped = _scaled_budget_for_prices(tight, free, 8_192)
+        self.assertEqual(capped["max_calls"], 1, "免费端点仍受 token 顶约束")
+
     def test_general_work_default_starts_a_real_kimi_run(self) -> None:
         price = SimpleNamespace(
             input_microusd_per_mtok=950_000,

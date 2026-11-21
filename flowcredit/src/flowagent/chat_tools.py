@@ -1,7 +1,8 @@
 """对话内工具循环的治理层（Agentic Chat · Phase 1+2）。
 
 与 run 相同的纪律，换成对话的上下文：
-- **只读工具**（`ls_workspace` / `read_file`）在所有档位可直接执行；
+- **只读工具**（`ls_workspace` / `search_codebase` / `read_file` /
+  `grep_workspace` / `find_files` / `git_status`）在所有档位可直接执行；
 - **写工具**（`write_file` / `edit_file` / `run_command`）需要逐调用审批——
   审批通道由 `chat_answer` 通过 ChatService 的 pending 注册表实现；拒绝/
   超时都是可见事件。写入会提交到工作区 git（每次写一个 commit，可回退）。
@@ -23,6 +24,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .core.contracts import AgentError
+from .providers.tool_schema import to_openai_tools
 from .runtime.budget import Budget
 from .runtime.permissions import Permissions
 from .tools.general.commands import CommandPolicy
@@ -45,9 +47,10 @@ __all__ = [
 ]
 
 #: 只读工具：任何档位直接执行。
-READ_TOOLS = ("ls_workspace", "read_file")
+READ_TOOLS = ("ls_workspace", "search_codebase", "read_file",
+              "grep_workspace", "find_files", "git_status", "browser_inspect")
 #: 写工具：需要逐调用审批（APPROVAL_TOOLS 与 run 侧同集）。
-WRITE_TOOLS = ("write_file", "edit_file", "run_command")
+WRITE_TOOLS = ("write_file", "edit_file", "run_command", "terminal")
 #: 网络读取：逐调用审批（按域记住）。
 NETWORK_TOOLS = ("fetch_url",)
 #: Phase 1 名字保留：旧调用点用它表示"注册表允许的全部工具"。
@@ -84,48 +87,6 @@ def build_chat_permissions(registry: ToolRegistry) -> Permissions:
         grant={"allowed_tools": list(allowed)},
         allowed_effects=("read", "write", "network"),
     )
-
-
-_KIND_MAP = {
-    "string": "string",
-    "integer": "integer",
-    "number": "number",
-    "boolean": "boolean",
-    "array": "array",
-}
-
-
-def to_openai_tools(registry: ToolRegistry) -> list[dict[str, Any]]:
-    """ToolSpec → OpenAI tools 数组（function calling 的请求形状）。"""
-    tools: list[dict[str, Any]] = []
-    for name in registry.names:
-        spec = registry.get(name)
-        properties: dict[str, Any] = {}
-        required: list[str] = []
-        for param in spec.params:
-            schema = param.to_schema()
-            schema.pop("required", None)
-            schema.pop("nullable", None)
-            schema["type"] = _KIND_MAP.get(str(schema.get("type")), "string")
-            if param.enum is not None:
-                schema["enum"] = list(param.enum)
-            properties[param.name] = schema
-            if param.required:
-                required.append(param.name)
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.summary,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                    "additionalProperties": False,
-                },
-            },
-        })
-    return tools
 
 
 def run_command_verdict(ctx, parsed: dict[str, Any]) -> dict[str, Any]:

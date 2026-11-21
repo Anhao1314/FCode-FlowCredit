@@ -157,13 +157,21 @@ def validate_additions(
         else:
             rejected.append(refusal)
 
-    if rejected:
-        # All or nothing: a partially applied extension is not auditable.
+    if rejected and not accepted:
+        # Nothing survived: hand the whole request back with the reasons.
         return PlanExtension(
             rejected=rejected,
             reason="; ".join(sorted({item["message"] for item in rejected})),
         )
-    return PlanExtension(accepted=accepted)
+    # Partial acceptance: the caller records exactly which ids entered
+    # (plan_steered) and which were refused with reasons (control_rejected) —
+    # more precise than dropping valid todos because a sibling duplicated the
+    # plan's own result step. The chain still shows both lists verbatim.
+    return PlanExtension(
+        accepted=accepted,
+        rejected=rejected,
+        reason="; ".join(sorted({item["message"] for item in rejected})),
+    )
 
 
 def _refuse(
@@ -186,12 +194,14 @@ def _refuse(
             "PLAN_ADDITION_CONTROL_TOOL_REFUSED",
             f"{tool!r} declares a stop, not a step; propose it as the round's action instead",
         )
-    # One gate for registration, task scope, host grant, effect class and the
-    # tool's own argument schema — the same decision the step will face at
-    # dispatch. Scope is checked here so a todo the run may not perform never
-    # enters the plan at all.
+    # Plan-time gate: registration, task scope, host grant and effect class —
+    # "may this run ever call this tool". Argument *schema* is deliberately not
+    # enforced here: a plan todo's arguments are settlement hints (which file,
+    # which command), not the execution payload — a "write the report" todo
+    # cannot know `content` at planning time. The real dispatch re-gates the
+    # step with its full arguments, so nothing bypasses the schema.
     decision = permissions.gate(tool, entry["arguments"])
-    if not decision.allowed:
+    if not decision.allowed and decision.code != "TOOL_ARGUMENTS_INVALID":
         return no(decision.code, f"{tool!r} is not available to this run: {decision.reason}")
 
     existing = {todo.id for todo in plan.todos} | {todo.id for todo in accepted}

@@ -43,6 +43,12 @@ class ProjectWorkspaceTests(unittest.TestCase):
         self.sandbox.write(PROJECT_REPORT_PATH, "fixed\n")
         (self.sandbox.root / "__pycache__").mkdir()
         (self.sandbox.root / "__pycache__" / "app.pyc").write_bytes(b"generated")
+        shell_cache = self.sandbox.root / ".shell-home" / "Library" / "Caches"
+        shell_cache.mkdir(parents=True)
+        (shell_cache / "run.cpython-39.pyc").write_bytes(b"generated")
+        listed = {item["path"] for item in self.sandbox.ls()}
+        self.assertNotIn(".shell-home/Library/Caches/run.cpython-39.pyc", listed)
+        self.assertNotIn("__pycache__/app.pyc", listed)
         delivery = project_delivery(self.sandbox, metadata)
         self.assertEqual({item["path"] for item in delivery["filesChanged"]}, {"app.py", "new_test.py"})
         self.assertIn("-    return 41", delivery["patch"])
@@ -50,6 +56,7 @@ class ProjectWorkspaceTests(unittest.TestCase):
         self.assertIn("new_test.py", delivery["patch"])
         self.assertNotIn(PROJECT_REPORT_PATH, delivery["patch"])
         self.assertNotIn("__pycache__", delivery["patch"])
+        self.assertNotIn(".shell-home", delivery["patch"])
         self.assertEqual(hashlib.sha256((self.source / "app.py").read_bytes()).hexdigest(), original)
         self.assertFalse((self.source / "new_test.py").exists())
 
@@ -76,6 +83,13 @@ class ProjectWorkspaceTests(unittest.TestCase):
             import_project(self.source, WorkspaceSandbox(self.root / "small"), max_bytes=1)
         with self.assertRaisesRegex(AgentError, "contain one another"):
             import_project(self.source, WorkspaceSandbox(self.source / "run"))
+        # 排除子树内的嵌套是安全的（修复本仓库自身:工作区在 work/runs 下）
+        nested = import_project(
+            self.source, WorkspaceSandbox(self.source / "work" / "runs" / "r1" / "workspace"))
+        self.assertEqual(nested["source"], str(self.source.resolve()))
+        self.assertNotIn("work", {entry["path"] for entry in
+                                  WorkspaceSandbox(self.source / "work" / "runs" / "r1" / "workspace").ls()},
+                         "排除目录不得被拷进副本")
         empty = self.root / "empty"
         empty.mkdir()
         with self.assertRaisesRegex(AgentError, "no importable files"):

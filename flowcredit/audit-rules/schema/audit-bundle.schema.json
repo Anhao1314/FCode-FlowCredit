@@ -203,7 +203,16 @@
               "VIBE-02",
               "VIBE-03",
               "VIBE-04",
-              "VIBE-05"
+              "VIBE-05",
+              "VIBE-06",
+              "VIBE-07",
+              "WEB-01",
+              "WEB-02",
+              "WEB-03",
+              "WEB-04",
+              "WEB-05",
+              "WEB-06",
+              "WEB-07"
             ]
           },
           "severity": {
@@ -228,7 +237,65 @@
               "false_positive_disputed",
               "wont_fix"
             ]
+          },
+          "fingerprint": {
+            "description": "Stable per-instance identity (v2 exact): root cause, normalized evidence path set and semantic anchors. Line numbers, snippets, counts and timestamps are excluded. Two findings from the same rule at different sites remain distinct.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "semantic_fingerprint": {
+            "description": "v2 root-cause identity without evidence paths; recognizes the same defect after a file move.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "legacy_fingerprint": {
+            "description": "v1 path-set fingerprint retained for one-time compatibility with older episodes.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "fingerprint_version": {
+            "description": "Identity algorithm version; 2 adds semantic anchors and file-move matching.",
+            "type": "integer",
+            "minimum": 1
           }
+        }
+      }
+    },
+    "regression": {
+      "description": "Derived comparison against the previous audit of the same target identity. Present only when a baseline exists; counts match regression.json, which carries the full buckets.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prior_audit_id",
+        "prior_manifest_sha256",
+        "known",
+        "new",
+        "fixed",
+        "regressed"
+      ],
+      "properties": {
+        "prior_audit_id": {
+          "type": "string"
+        },
+        "prior_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "known": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fixed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "regressed": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

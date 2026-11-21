@@ -317,7 +317,9 @@ def _neutralise(facts: dict[str, Any]) -> dict[str, Any]:
     if isinstance(vibe, dict):
         for key in ("god_files", "todo_hotspots", "literal_sprawl",
                     "constant_conflicts", "duplicate_functions",
-                    "placeholder_stubs", "ai_residue"):
+                    "placeholder_stubs", "ai_residue",
+                    "import_cycles", "complex_functions",
+                    "secrets_in_source", "unpinned_dependencies"):
             vibe[key] = []
         for issue in vibe.get("issue_files") or []:
             if isinstance(issue, dict) and isinstance(issue.get("issues"), dict):
@@ -448,14 +450,29 @@ def prepare(
         fmt = str(nr.get("format") or "")
         arch = str(nr.get("architecture") or "")
     else:
-        evidence = run_evidence(
-            "analyze_javascript_application", root,
-            binary=binary, timeout=timeout,
-        )
-        evidence_items.append(evidence)
-        nr = evidence.evidence.get("normalized_result") or {}
-        artifact_sha256 = str(nr.get("root_artifact_sha256") or "")
-        fmt = str(nr.get("format") or "directory")
+        try:
+            evidence = run_evidence(
+                "analyze_javascript_application", root,
+                binary=binary, timeout=timeout,
+            )
+        except AgentError as error:
+            if error.code != "REA_OUTPUT_TOO_LARGE":
+                raise
+            # 多页快照会把整棵 JS 资产树带进来，REA 的 JS 图输出可能超过
+            # 传输闸。降级为"该面未覆盖"并留下原因；本地 vibe/web 事实面
+            # 仍由扫描器独立产出，规则照常裁决，不因一个面超限白死。
+            evidence = None
+            uncovered.append({
+                "surface": "JavaScript application graph",
+                "reason": f"{error.code}: {error.message}",
+            })
+        if evidence is not None:
+            evidence_items.append(evidence)
+            nr = evidence.evidence.get("normalized_result") or {}
+            artifact_sha256 = str(nr.get("root_artifact_sha256") or "")
+            fmt = str(nr.get("format") or "directory")
+        else:
+            fmt = "directory"
 
     go_facts: dict[str, Any] = {}
     for item in evidence_items:

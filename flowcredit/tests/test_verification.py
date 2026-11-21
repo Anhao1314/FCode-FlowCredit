@@ -748,8 +748,14 @@ class EvidenceLabelTests(unittest.TestCase):
         verify_trace(recorder.build(harness.store.load(final.id)))
         stack.close()
 
-    def test_a_claim_citing_a_source_that_does_not_exist_fails_the_run(self) -> None:
-        """A citation asserts support. Asserting support that is not there fails."""
+    def test_a_claim_citing_a_source_that_does_not_exist_warns_but_keeps_the_artifact(self) -> None:
+        """A false citation must not discard a verified artifact.
+
+        The artifact and the report are different outputs. A citation that
+        cannot be resolved marks the report ``unresolved`` and keeps the
+        verified artifact deliverable with an explicit warning; it does not
+        turn a passing verification into a failed run.
+        """
         stack = Stack(self._tmp.name, spec_with(None))
         rounds = [
             (step("ls_workspace", {}), [add("u_list", "ls_workspace")]),
@@ -760,9 +766,12 @@ class EvidenceLabelTests(unittest.TestCase):
         ]
         provider, harness, recorder, final = stack.run(rounds, max_rounds=6)
         events = stack.events(harness, final)
-        self.assertEqual(final.status, "failed")
-        self.assertEqual(final.failure["code"], "EVIDENCE_REFERENCE_UNRESOLVED")
-        self.assertNotIn("task_succeeded", [e["type"] for e in events])
+        self.assertEqual(final.status, "succeeded", final.failure)
+        self.assertEqual(final.result["source_links"], "unresolved")
+        self.assertEqual(len(final.result["evidence_unresolved"]), 1)
+        self.assertEqual(final.result["evidence_unresolved"][0]["path"], "deploy.sh")
+        self.assertIn("passed independent verification", final.result["truth_note"])
+        self.assertIn("task_succeeded", [e["type"] for e in events])
         checked = [e for e in events if e["type"] == "evidence_checked"]
         self.assertEqual(len(checked), 1)
         detail = checked[0]["payload"]["detail"]
@@ -811,8 +820,9 @@ class EvidenceLabelTests(unittest.TestCase):
                    "path": "stats.py", "sha256": "c" * 64}]),
         ]
         provider, harness, recorder, final = stack.run(rounds, max_rounds=8)
-        self.assertEqual(final.status, "failed")
-        self.assertEqual(final.failure["code"], "EVIDENCE_REFERENCE_UNRESOLVED")
+        self.assertEqual(final.status, "succeeded", final.failure)
+        self.assertEqual(final.result["source_links"], "unresolved")
+        self.assertEqual(len(final.result["evidence_unresolved"]), 1)
         stack.close()
 
     def test_malformed_evidence_is_refused_as_a_malformed_proposal(self) -> None:

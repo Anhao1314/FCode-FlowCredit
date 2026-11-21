@@ -9,7 +9,10 @@ rules:
 * prices are host-reviewed and mandatory (zeros for a free local endpoint —
   the budget machinery stays honest even when money is not involved);
 * budget is reserved from a conservative upper bound before dispatch;
-* transport failure is an unknown outcome — no retry, no mock fallback;
+* transport failure is an unknown outcome — no retry, no mock fallback.
+  The single narrow exception is a disconnect before *any* response byte
+  arrived: no request can have been answered, so one re-send is safe and is
+  recorded as ``transport_retries`` on the receipt;
 * calls are paced apart when the host sets an interval.
 
 This module is the general engine. ``kimi`` and ``deepseek`` are preset
@@ -38,9 +41,12 @@ Knobs the presets and generic entries differ on:
 
 from __future__ import annotations
 
+import hashlib
+import http.client
 import json
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -49,6 +55,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..core.contracts import PLAN_VERSION, AgentError
+from ..core.numbers import NumberNormalizationError, normalize_json_numbers
 from ..pacing import pace_key, reserve_slot
 from .base import Proposal
 from .prompt import (
@@ -84,6 +91,44 @@ def _ceil_div(value: int, divisor: int) -> int:
 #: Host-declared generic prefixes, comma-separated in this environment
 #: variable. Each prefix names its own ``{PREFIX}_*`` configuration set.
 COMPAT_PROVIDERS_ENV = "FCODE_OPENAI_COMPAT_PROVIDERS"
+
+#: The fast profile's plan-proposal "tool". It never executes: the provider
+#: intercepts the call and converts it into the JSON contract's ``additions``,
+#: so the existing plan governance (validate → plan_steered → settle by
+#: identity) applies unchanged. Todos without arguments settle on the first
+#: observation of their tool — that is the lenient path the general planner
+#: already gives identity-settled todos.
+SUBMIT_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "submit_plan",
+        "description": (
+            "Submit this run's 3-5 step plan once at the start. Each todo is "
+            "{text, tool, arguments?}; read/grep todos should omit arguments so "
+            "any call of that tool marks them done. Not executed directly."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "description": "what this step does"},
+                            "tool": {"type": "string", "description": "tool that performs it"},
+                            "arguments": {"type": "object", "description": "optional; omit for read/grep todos"},
+                        },
+                        "required": ["text", "tool"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["todos"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 #: Defaults for host-declared generic entries. ``require_https`` is False so
 #: a local server (LM Studio, Ollama's OpenAI shim on 127.0.0.1) can be
@@ -285,6 +330,13 @@ class CompatSettings:
     require_https: bool = True
     receipt_detail: str = "full"
     supports_effort: bool = False
+    stream: bool = False
+    supports_tools: bool = True
+    supports_parallel_tools: bool = False
+    supports_reasoning: bool = False
+    reasoning_field: str = "reasoning_content"
+    max_context_tokens: int = 200_000
+    max_output_tokens: int = 0
 
     def redacted(self) -> dict[str, Any]:
         return {
@@ -297,6 +349,16 @@ class CompatSettings:
             "reasoningEffort": self.reasoning_effort,
             "temperature": self.temperature,
             "minCallIntervalSeconds": self.min_call_interval_seconds,
+            "stream": self.stream,
+            "completionField": self.completion_field,
+            "temperatureMode": self.temperature_mode,
+            "jsonMode": self.json_mode,
+            "supportsTools": self.supports_tools,
+            "supportsParallelTools": self.supports_parallel_tools,
+            "supportsReasoning": self.supports_reasoning,
+            "reasoningField": self.reasoning_field,
+            "maxContextTokens": self.max_context_tokens,
+            "maxOutputTokens": self.max_output_tokens,
             "price": {
                 "inputMicrousdPerMtok": self.price.input_microusd_per_mtok,
                 "outputMicrousdPerMtok": self.price.output_microusd_per_mtok,
@@ -331,6 +393,10 @@ def _optional_float(env: Mapping[str, str], name: str) -> float | None:
         return float(value)
     except ValueError as error:
         raise ValueError(f"{name} must be a number") from error
+
+
+def _settings_bool(value: Any) -> bool:
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def load_compat_settings(
@@ -433,6 +499,47 @@ def load_compat_settings(
         resolve("supports_effort", f"{p}_SUPPORTS_EFFORT", "1" if reasoning_effort else "0", str)
     ).strip().lower() in ("1", "true", "yes", "on")
 
+    stream = str(
+        resolve("stream", f"{p}_STREAM", "1" if preset.get("stream") else "0", str)
+    ).strip().lower() in ("1", "true", "yes", "on")
+
+    completion_field = str(
+        resolve("completion_field", f"{p}_COMPLETION_FIELD",
+                preset.get("completion_field", "max_completion_tokens"), str)
+    )
+    if completion_field not in ("max_tokens", "max_completion_tokens"):
+        raise ValueError(
+            f"{p}_COMPLETION_FIELD must be max_tokens or max_completion_tokens"
+        )
+    temperature_mode = str(
+        resolve("temperature_mode", f"{p}_TEMPERATURE_MODE",
+                preset.get("temperature_mode", "send-configured"), str)
+    )
+    if temperature_mode not in (
+            "send-configured", "omit-unless-pinned", "pin-zero"):
+        raise ValueError(
+            f"{p}_TEMPERATURE_MODE must be send-configured, "
+            "omit-unless-pinned or pin-zero"
+        )
+    json_mode = bool(resolve(
+        "json_mode", f"{p}_JSON_MODE", bool(preset.get("json_mode", True)), _settings_bool))
+    supports_tools = bool(resolve(
+        "supports_tools", f"{p}_SUPPORTS_TOOLS", True, _settings_bool))
+    supports_parallel_tools = bool(resolve(
+        "supports_parallel_tools", f"{p}_SUPPORTS_PARALLEL_TOOLS", False, _settings_bool))
+    supports_reasoning = bool(resolve(
+        "supports_reasoning", f"{p}_SUPPORTS_REASONING", False, _settings_bool))
+    reasoning_field = str(resolve(
+        "reasoning_field", f"{p}_REASONING_FIELD", "reasoning_content", str))
+    max_context_tokens = int(resolve(
+        "max_context_tokens", f"{p}_MAX_CONTEXT_TOKENS", 200_000, int))
+    if max_context_tokens < 1_024:
+        raise ValueError(f"{p}_MAX_CONTEXT_TOKENS must be at least 1024")
+    max_output_tokens = int(resolve(
+        "max_output_tokens", f"{p}_MAX_OUTPUT_TOKENS", 0, int))
+    if max_output_tokens < 0:
+        raise ValueError(f"{p}_MAX_OUTPUT_TOKENS must not be negative")
+
     return CompatSettings(
         label=label,
         api_key_env=f"{p}_API_KEY",
@@ -451,20 +558,119 @@ def load_compat_settings(
         reasoning_effort=reasoning_effort or None,
         temperature=temperature,
         min_call_interval_seconds=float(interval),
-        completion_field=str(preset.get("completion_field", "max_completion_tokens")),
-        temperature_mode=str(preset.get("temperature_mode", "send-configured")),
-        json_mode=bool(preset.get("json_mode", True)),
+        completion_field=completion_field,
+        temperature_mode=temperature_mode,
+        json_mode=json_mode,
         require_https=require_https,
         receipt_detail=str(preset.get("receipt_detail", "full")),
         supports_effort=supports_effort,
+        stream=stream,
+        supports_tools=supports_tools,
+        supports_parallel_tools=supports_parallel_tools,
+        supports_reasoning=supports_reasoning,
+        reasoning_field=reasoning_field,
+        max_context_tokens=max_context_tokens,
+        max_output_tokens=max_output_tokens,
     )
 
 
 # ------------------------------------------------------------------- client
 
+#: One re-send at most, and only when the peer closed before sending a single
+#: response byte. Anything else could already be a billed, executed call: an
+#: HTTP status, a timeout, half a body or a bad JSON document all mean bytes
+#: crossed the wire, and re-sending them would risk double billing.
+MAX_ZERO_BYTE_TRANSPORT_RETRIES = 1
+
+#: Runtime annotations we fold into the usage dict ourselves. ``_has_usage``
+#: must ignore them: a reply whose only "usage" is our own bookkeeping did not
+#: report billable tokens and stays ``usage_missing``.
+_USAGE_ANNOTATION_KEYS = frozenset({
+    "transport_retries",
+    "stream",
+    "stream_chunks",
+    "stream_first_chunk_ms",
+    "stream_digest",
+    "finish_reason",
+})
+
+
+def _zero_byte_disconnect(error: BaseException) -> bool:
+    """True only for a disconnect that delivered no response bytes at all.
+
+    ``urllib`` wraps some transport errors in ``URLError.reason``; unwrap that
+    chain rather than matching the wrapper. ``IncompleteRead`` is retryable
+    only when ``partial`` is empty — a partial body is evidence the provider
+    answered, which makes a re-send a second, separately billed call.
+    """
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, http.client.RemoteDisconnected):
+            return True
+        if isinstance(current, http.client.IncompleteRead):
+            return not current.partial
+        current = getattr(current, "reason", None) or getattr(current, "__cause__", None)
+    return False
+
+
+def _parse_sse_line(raw_line: bytes, digest: "hashlib._Hash") -> dict[str, Any] | None:
+    """One SSE line → one parsed event, feeding the receipt digest.
+
+    Every ``data:`` payload is folded into the rolling sha256 before parsing,
+    so the digest commits to exactly what arrived over the wire — including
+    events too malformed to parse. Heartbeats (``:`` comments), blanks and
+    the ``[DONE]`` sentinel carry no payload and parse to None.
+    """
+    line = raw_line.decode("utf-8", errors="replace").strip()
+    if not line or line.startswith(":"):
+        return None
+    if not line.startswith("data:"):
+        return None
+    payload = line[5:].strip()
+    if not payload or payload == "[DONE]":
+        return None
+    digest.update(payload.encode("utf-8"))
+    try:
+        value = json.loads(payload)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _accumulate_tool_fragments(
+    fragments: Any,
+    tool_calls: dict[int, dict[str, str]],
+) -> None:
+    """Fold streamed tool-call fragments into index-keyed slots.
+
+    OpenAI streams a call as an id/name header fragment followed by argument
+    chunks; the same index accumulates, never duplicates. Execution stays
+    impossible until the assembled arguments parse as complete JSON.
+    """
+    if not isinstance(fragments, list):
+        return
+    for fragment in fragments:
+        if not isinstance(fragment, dict):
+            continue
+        index = fragment.get("index")
+        slot = tool_calls.setdefault(
+            index if isinstance(index, int) else 0,
+            {"id": "", "name": "", "arguments": ""},
+        )
+        if isinstance(fragment.get("id"), str) and fragment["id"]:
+            slot["id"] = fragment["id"]
+        function = fragment.get("function") or {}
+        if isinstance(function, dict):
+            if isinstance(function.get("name"), str) and function["name"]:
+                slot["name"] = function["name"]
+            if isinstance(function.get("arguments"), str):
+                slot["arguments"] += function["arguments"]
+
 
 class CompatClient:
-    """One HTTP transport for one endpoint; nothing here retries or falls back."""
+    """One HTTP transport for one endpoint; no fallback, one narrow re-send."""
 
     def __init__(
         self,
@@ -481,6 +687,7 @@ class CompatClient:
         reasoning_effort: str | None = None,
         json_mode: bool = True,
         require_https: bool = True,
+        stream: bool = False,
     ) -> None:
         if not isinstance(api_key, str):
             raise ValueError(f"{label} API key is missing")
@@ -503,17 +710,43 @@ class CompatClient:
         self.temperature = temperature
         self.reasoning_effort = reasoning_effort or ""
         self.json_mode = json_mode
+        self.stream = bool(stream)
 
-    def chat(self, system: str, user: str) -> tuple[str, dict[str, Any], str]:
+    def _build_body(
+        self,
+        system: str,
+        user: str,
+        *,
+        tools: list[dict[str, Any]] | None,
+        tool_choice: str | None,
+        max_completion_tokens: int | None,
+        reasoning_effort: str | None,
+        json_mode: bool | None,
+        stream: bool,
+    ) -> dict[str, Any]:
+        """The wire body for one call. Identical bytes for the buffered path.
+
+        The streaming path adds ``stream_options`` so usage survives the
+        stream: without it the endpoint may omit the usage chunk entirely and
+        the budget ledger would lose its actual-cost settlement.
+        """
+        budget = (
+            self.max_completion_tokens if max_completion_tokens is None
+            else max_completion_tokens
+        )
+        if budget <= 0:
+            raise ValueError("max_completion_tokens override must be positive")
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            self.completion_field: self.max_completion_tokens,
-            "stream": False,
+            self.completion_field: budget,
+            "stream": stream,
         }
+        if stream:
+            body["stream_options"] = {"include_usage": True}
         if self.temperature_mode == "pin-zero":
             body["temperature"] = 0
         elif self.temperature_mode == "omit-unless-pinned":
@@ -523,61 +756,321 @@ class CompatClient:
                 body["temperature"] = self.temperature
         else:  # send-configured: deterministic by default
             body["temperature"] = 0 if self.temperature is None else self.temperature
-        if self.json_mode:
+        if tools:
+            # Native function calling replaces the JSON reply contract. Sending
+            # response_format alongside tools is rejected by some endpoints and
+            # redundant everywhere: the tool schema already constrains the shape.
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice or "auto"
+        elif self.json_mode if json_mode is None else json_mode:
             body["response_format"] = {"type": "json_object"}
-        if self.reasoning_effort:
-            body["reasoning_effort"] = self.reasoning_effort
+        effort = reasoning_effort if reasoning_effort is not None else self.reasoning_effort
+        if effort:
+            body["reasoning_effort"] = effort
+        return body
 
+    def _request(self, body: dict[str, Any], *, stream: bool) -> urllib.request.Request:
         headers = {
             "Content-Type": "application/json",
             "User-Agent": "fcode-runtime/1",
+            "Accept": "text/event-stream" if stream else "application/json",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        request = urllib.request.Request(
+        return urllib.request.Request(
             self.base_url + "/chat/completions",
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             method="POST",
             headers=headers,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as error:
-            detail = error.read().decode("utf-8", errors="replace")[:200]
-            code = "MODEL_AUTH_FAILED" if error.code in (401, 403) else "MODEL_CALL_FAILED"
-            raise AgentError(code, f"{self.label} HTTP {error.code}: {detail}") from error
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} transport: {error}") from error
-        except ValueError as error:
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned non-JSON") from error
+
+    def _post(
+        self,
+        system: str,
+        user: str,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        body = self._build_body(
+            system, user, tools=tools, tool_choice=tool_choice,
+            max_completion_tokens=max_completion_tokens,
+            reasoning_effort=reasoning_effort, json_mode=json_mode,
+            stream=self.stream,
+        )
+        if self.stream:
+            return self._post_stream(body)
+        request = self._request(body, stream=False)
+        transport_retries = 0
+        while True:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")[:200]
+                code = "MODEL_AUTH_FAILED" if error.code in (401, 403) else "MODEL_CALL_FAILED"
+                raise AgentError(code, f"{self.label} HTTP {error.code}: {detail}") from error
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+                # A 0-byte disconnect is the only case where the provider cannot
+                # have produced an answer. Everything else (timeouts included)
+                # still resolves to MODEL_CALL_FAILED so the caller lands in
+                # recovery_required instead of silently re-billing the round.
+                if (
+                    transport_retries < MAX_ZERO_BYTE_TRANSPORT_RETRIES
+                    and _zero_byte_disconnect(error)
+                ):
+                    transport_retries += 1
+                    continue
+                raise AgentError("MODEL_CALL_FAILED", f"{self.label} transport: {error}") from error
+            except ValueError as error:
+                raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned non-JSON") from error
 
         choices = payload.get("choices") or []
         if not choices:
             raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned no choices")
         message = choices[0].get("message") or {}
-        content = message.get("content") or ""
-        if not isinstance(content, str) or not content.strip():
-            # A reasoning model whose completion budget ran out during the
-            # reasoning channel returns reasoning_content and no content. That
-            # is not "no answer": it is a budget that was too small, and the
-            # operator can fix exactly one number.
-            reasoning = str(message.get("reasoning_content") or "")
-            if reasoning.strip():
+        usage = dict(payload.get("usage") or {})
+        if transport_retries:
+            usage["transport_retries"] = transport_retries
+        return message, usage, str(payload.get("id") or "")
+
+    # ------------------------------------------------------------- streaming
+
+    def _post_stream(
+        self,
+        body: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        """One SSE dispatch; returns the same shape as the buffered ``_post``.
+
+        The buffered mode asks the endpoint to hold the whole completion until
+        generation finishes; a long single-file artifact then races the
+        provider's own response-time budget and loses with 0 body bytes read.
+        Streaming keeps bytes flowing, and turns a disconnect from an opaque
+        0-byte failure into an auditable prefix: how many deltas arrived, how
+        much content and how much tool-call argument they carried.
+
+        Discipline:
+
+        * nothing executes mid-stream — deltas accumulate into one message and
+          only the assembled ``tool_calls`` (complete JSON arguments) leave
+          this method;
+        * a disconnect before the first complete ``data:`` delta is the same
+          provably-unanswered case as the 0-byte rule: one re-send, recorded;
+        * a disconnect after one or more deltas is an unknown outcome — the
+          provider may have finished and billed the generation — so it is
+          never re-sent here; it raises with the partial prefix in details;
+        * usage comes from the terminal usage chunk; when the endpoint omits
+          it the annotations alone never count as reported usage.
+        """
+        request = self._request(body, stream=True)
+        transport_retries = 0
+        while True:
+            deltas = 0
+            raw_bytes = 0
+            digest = hashlib.sha256()
+            started = time.monotonic()
+            first_chunk_ms: int | None = None
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls: dict[int, dict[str, str]] = {}
+            usage: dict[str, Any] = {}
+            request_id = ""
+            finish_reason = ""
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    for raw_line in response:
+                        raw_bytes += len(raw_line)
+                        item = _parse_sse_line(raw_line, digest)
+                        if item is None:
+                            continue
+                        deltas += 1
+                        if first_chunk_ms is None:
+                            first_chunk_ms = int((time.monotonic() - started) * 1000)
+                        if not request_id:
+                            request_id = str(item.get("id") or "")
+                        if isinstance(item.get("usage"), dict) and item["usage"]:
+                            usage = dict(item["usage"])
+                        for choice in item.get("choices") or []:
+                            if not isinstance(choice, dict):
+                                continue
+                            delta = choice.get("delta") or {}
+                            if not isinstance(delta, dict):
+                                continue
+                            piece = delta.get("content")
+                            if isinstance(piece, str) and piece:
+                                content_parts.append(piece)
+                            piece = delta.get("reasoning_content")
+                            if isinstance(piece, str) and piece:
+                                reasoning_parts.append(piece)
+                            _accumulate_tool_fragments(delta.get("tool_calls"), tool_calls)
+                            finish = choice.get("finish_reason")
+                            if finish:
+                                finish_reason = str(finish)
+                break
+            except urllib.error.HTTPError as error:
+                detail = error.read().decode("utf-8", errors="replace")[:200]
+                code = "MODEL_AUTH_FAILED" if error.code in (401, 403) else "MODEL_CALL_FAILED"
+                raise AgentError(code, f"{self.label} HTTP {error.code}: {detail}") from error
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+                if (
+                    deltas == 0
+                    and transport_retries < MAX_ZERO_BYTE_TRANSPORT_RETRIES
+                    and _zero_byte_disconnect(error)
+                ):
+                    # No complete delta arrived: the provider cannot have
+                    # produced an answer, so one re-send is safe and recorded.
+                    transport_retries += 1
+                    continue
+                details: dict[str, Any] = {
+                    "stream_partial": deltas > 0,
+                    "stream_chunks": deltas,
+                    "stream_raw_bytes": raw_bytes,
+                    "stream_digest": digest.hexdigest(),
+                    "stream_content_chars": sum(len(part) for part in content_parts),
+                    "stream_reasoning_chars": sum(len(part) for part in reasoning_parts),
+                    "stream_argument_chars": sum(
+                        len(slot["arguments"]) for slot in tool_calls.values()
+                    ),
+                }
                 raise AgentError(
                     "MODEL_CALL_FAILED",
-                    f"{self.label} 的补全预算被推理占满"
-                    f"（reasoning {len(reasoning)} 字，content 为空）；"
-                    f"把 {self.label.upper()}_MAX_COMPLETION_TOKENS 调大后重试",
-                )
-            raise AgentError("MODEL_CALL_FAILED", f"{self.label} returned empty content")
-        return content, dict(payload.get("usage") or {}), str(payload.get("id") or "")
+                    f"{self.label} stream transport: {error}",
+                    details=details,
+                ) from error
+
+        message: dict[str, Any] = {
+            "content": "".join(content_parts),
+            "reasoning_content": "".join(reasoning_parts),
+        }
+        completed = [
+            {
+                "id": slot["id"] or f"call_{index}",
+                "type": "function",
+                "function": {"name": slot["name"], "arguments": slot["arguments"]},
+            }
+            for index, slot in sorted(tool_calls.items())
+            if slot["name"]
+        ]
+        if completed:
+            message["tool_calls"] = completed
+        usage.update({
+            "stream": True,
+            "stream_chunks": deltas,
+            "stream_first_chunk_ms": first_chunk_ms if first_chunk_ms is not None else 0,
+            "stream_digest": digest.hexdigest(),
+            "finish_reason": finish_reason,
+        })
+        if transport_retries:
+            usage["transport_retries"] = transport_retries
+        if deltas > 0 and not finish_reason:
+            # A clean socket EOF mid-stream is indistinguishable from a normal
+            # end unless the server said why it finished. No finish_reason
+            # means the generation was cut: nothing here may execute, and the
+            # outcome is unknown (the provider may bill the partial prefix),
+            # so this is never re-sent from the transport layer.
+            raise AgentError(
+                "MODEL_CALL_FAILED",
+                f"{self.label} stream ended without finish_reason (truncated)",
+                details={
+                    "stream_partial": True,
+                    "stream_chunks": deltas,
+                    "stream_raw_bytes": raw_bytes,
+                    "stream_digest": digest.hexdigest(),
+                    "stream_content_chars": sum(len(part) for part in content_parts),
+                    "stream_reasoning_chars": sum(len(part) for part in reasoning_parts),
+                    "stream_argument_chars": sum(
+                        len(slot["arguments"]) for slot in tool_calls.values()
+                    ),
+                },
+            )
+        return message, usage, request_id
+
+    def _empty_content_error(self, message: dict[str, Any]) -> AgentError:
+        # A reasoning model whose completion budget ran out during the reasoning
+        # channel returns reasoning_content and no content. That is not "no
+        # answer": it is a budget that was too small, and the operator can fix
+        # exactly one number.
+        reasoning = str(message.get("reasoning_content") or "")
+        if reasoning.strip():
+            env_name = getattr(
+                self, "max_completion_env",
+                f"{self.label.upper()}_MAX_COMPLETION_TOKENS",
+            )
+            return AgentError(
+                "BUDGET_EXHAUSTED_REASONING",
+                f"{self.label} 的补全预算被推理占满"
+                f"（reasoning {len(reasoning)} 字，content 为空）；"
+                f"把 {env_name} 调大后重试",
+                details={
+                    "failure_kind": "BUDGET_EXHAUSTED_REASONING",
+                    "reasoning_chars": len(reasoning),
+                    "max_completion_tokens": int(
+                        getattr(self, "max_completion_tokens", 0) or 0
+                    ),
+                },
+            )
+        return AgentError(
+            "EMPTY_CONTENT",
+            f"{self.label} returned empty content",
+            details={"failure_kind": "EMPTY_CONTENT"},
+        )
+
+    def chat(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
+    ) -> tuple[str, dict[str, Any], str]:
+        message, usage, request_id = self._post(
+            system, user, max_completion_tokens=max_completion_tokens,
+            reasoning_effort=reasoning_effort,
+            json_mode=json_mode,
+        )
+        content = message.get("content") or ""
+        if not isinstance(content, str) or not content.strip():
+            raise self._empty_content_error(message)
+        return content, usage, request_id
+
+    def chat_with_tools(
+        self,
+        system: str,
+        user: str,
+        *,
+        tools: list[dict[str, Any]],
+        tool_choice: str | None = "auto",
+        max_completion_tokens: int | None = None,
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any], str]:
+        """One native-tool dispatch. Returns ``(content, tool_calls, usage, id)``.
+
+        Empty content with populated ``tool_calls`` is the normal shape for a
+        function-calling reply; empty both ways keeps the honest budget/failure
+        error instead of pretending a tool call happened.
+        """
+        message, usage, request_id = self._post(
+            system, user, tools=tools, tool_choice=tool_choice,
+            max_completion_tokens=max_completion_tokens,
+        )
+        content = message.get("content") if isinstance(message.get("content"), str) else ""
+        calls = message.get("tool_calls") or []
+        if not isinstance(calls, list):
+            calls = []
+        if not calls and not content.strip():
+            raise self._empty_content_error(message)
+        return content, list(calls), usage, request_id
 
 
 # ------------------------------------------------------------------ provider
 
 
 def _cached_tokens(usage: dict[str, Any]) -> int:
+    """Extract OpenAI-style cached input tokens, normalized to zero."""
     details = usage.get("prompt_tokens_details") or {}
     try:
         return max(0, int(details.get("cached_tokens") or 0))
@@ -585,11 +1078,76 @@ def _cached_tokens(usage: dict[str, Any]) -> int:
         return 0
 
 
+def _provider_cached_tokens(usage: dict[str, Any]) -> int:
+    """Read either OpenAI-style details or DeepSeek-style cache-hit tokens."""
+    return max(_cached_tokens(usage),
+               max(0, int(usage.get("prompt_cache_hit_tokens") or 0)))
+
+
+def _prompt_prefix_stats(previous: str | None, current: str) -> dict[str, Any]:
+    """Measure how much of this request repeats the previous request prefix.
+
+    The ratio is reported in integer basis points, never as a float: these
+    fields travel inside a receipt, and a receipt is committed into the task
+    body where ``canonical_json`` rejects floats by design.
+    """
+    if not previous or not current:
+        return {"prompt_prefix_chars": 0, "prompt_prefix_bp": 0}
+    limit = min(len(previous), len(current))
+    common = 0
+    while common < limit and previous[common] == current[common]:
+        common += 1
+    return {
+        "prompt_prefix_chars": common,
+        # Basis points over the current request: how much of what we are
+        # sending now the provider could plausibly have cached previously.
+        "prompt_prefix_bp": int(round(
+            common / max(1, len(current)) * 10_000)),
+    }
+
+
+def _has_usage(usage: dict[str, Any]) -> bool:
+    """True when the endpoint actually reported a usage block.
+
+    ``transport_retries`` and the streaming annotations are runtime bookkeeping,
+    not provider usage. A reply with no usage chunk must still be labelled
+    ``usage_missing`` even when we had to re-send it once or streamed it —
+    otherwise the annotation would silently turn an unknown bill into a zero
+    bill.
+    """
+    return any(key not in _USAGE_ANNOTATION_KEYS for key in usage)
+
+
 def _usage_tokens(usage: dict[str, Any]) -> tuple[int, int, int]:
     prompt = int(usage.get("prompt_tokens") or 0)
     completion = int(usage.get("completion_tokens") or 0)
     total = int(usage.get("total_tokens") or (prompt + completion))
     return prompt, completion, total
+    prompt = int(usage.get("prompt_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or 0)
+    total = int(usage.get("total_tokens") or (prompt + completion))
+    return prompt, completion, total
+
+
+def _stream_metadata(usage: dict[str, Any]) -> dict[str, Any]:
+    """The receipt-facing view of one streamed call.
+
+    Integers and strings only: receipt metadata is committed into chain event
+    bodies where ``canonical_json`` rejects floats. Absent on buffered calls,
+    so an old receipt and a new one can always be told apart.
+    """
+    if not usage.get("stream"):
+        return {}
+    metadata: dict[str, Any] = {
+        "stream": True,
+        "stream_chunks": int(usage.get("stream_chunks") or 0),
+        "stream_first_chunk_ms": int(usage.get("stream_first_chunk_ms") or 0),
+        "stream_digest": str(usage.get("stream_digest") or ""),
+    }
+    finish_reason = str(usage.get("finish_reason") or "")
+    if finish_reason:
+        metadata["finish_reason"] = finish_reason
+    return metadata
 
 
 class OpenAICompatProvider:
@@ -620,6 +1178,13 @@ class OpenAICompatProvider:
         json_mode: bool = True,
         require_https: bool = True,
         receipt_detail: str = "full",
+        stream: bool = False,
+        supports_tools: bool = True,
+        supports_parallel_tools: bool = False,
+        supports_reasoning: bool = False,
+        reasoning_field: str = "reasoning_content",
+        max_context_tokens: int = 200_000,
+        max_output_tokens: int = 0,
         max_prompt_tokens: int | None = None,
         calibration_path: Path | None = None,
         issue_receipt: IssueReceipt | None = None,
@@ -641,6 +1206,7 @@ class OpenAICompatProvider:
             reasoning_effort=reasoning_effort,
             json_mode=json_mode,
             require_https=require_https,
+            stream=stream,
         )
         self.model = model
         self.price = price
@@ -655,6 +1221,18 @@ class OpenAICompatProvider:
         self.raw_sink = raw_sink
         self.calibration_reports: list[dict[str, Any]] = []
         self.receipt_detail = receipt_detail
+        self.supports_tools = bool(supports_tools)
+        self.supports_parallel_tools = bool(supports_parallel_tools)
+        self.supports_reasoning = bool(supports_reasoning)
+        self.reasoning_field = str(reasoning_field or "reasoning_content")
+        self.max_context_tokens = int(max_context_tokens)
+        self.max_output_tokens = int(max_output_tokens)
+        #: Previous rendered request for cache observability. This is process/
+        #: provider-local; it never enters the event chain as content.
+        self._last_prompt_key: str | None = None
+        #: Native function-calling schemas, attached by the runtime that owns
+        #: the registry. Empty keeps the JSON-proposal contract.
+        self.native_tool_schemas: list[dict[str, Any]] = []
         # Fixed pre-dispatch reservation (the deepseek preset contract):
         # reserved once from the configured prompt ceiling, not per prompt.
         self.max_prompt_tokens = max_prompt_tokens
@@ -689,6 +1267,13 @@ class OpenAICompatProvider:
             json_mode=settings.json_mode,
             require_https=settings.require_https,
             receipt_detail=settings.receipt_detail,
+            stream=settings.stream,
+            supports_tools=settings.supports_tools,
+            supports_parallel_tools=settings.supports_parallel_tools,
+            supports_reasoning=settings.supports_reasoning,
+            reasoning_field=settings.reasoning_field,
+            max_context_tokens=settings.max_context_tokens,
+            max_output_tokens=settings.max_output_tokens,
             calibration_path=calibration_path,
             issue_receipt=issue_receipt,
             raw_sink=raw_sink,
@@ -698,14 +1283,100 @@ class OpenAICompatProvider:
     def price_snapshot(self) -> PriceSnapshot:
         return self.price
 
+    def set_native_tools(self, tools: list[dict[str, Any]]) -> None:
+        """Attach registry schemas; called once by the owning Harness."""
+        self.native_tool_schemas = list(tools or [])
+
+    def _tool_schema_tokens(self) -> int:
+        if not self.native_tool_schemas:
+            return 0
+        chars = len(json.dumps(self.native_tool_schemas, ensure_ascii=False))
+        return max(1, chars // 4)
+
     def reserve(self, context: dict[str, Any]) -> tuple[int, int]:
         system, user = render_prompt(context)
-        prompt_tokens = self.calibration.estimate(system, user)
+        prompt_tokens = self.calibration.estimate(system, user) + self._tool_schema_tokens()
+        completion = self._completion_budget(context) or self.max_completion_tokens
         return (
-            prompt_tokens + self.max_completion_tokens,
+            prompt_tokens + completion,
             _micro(prompt_tokens, self.price.input_microusd_per_mtok)
-            + _micro(self.max_completion_tokens, self.price.output_microusd_per_mtok),
+            + _micro(completion, self.price.output_microusd_per_mtok),
         )
+
+    def _completion_budget(self, context: dict[str, Any]) -> int | None:
+        """One bounded budget increase for a reasoning-exhausted retry.
+
+        DeepSeek's thinking mode rejects ``tool_choice=required``, so forcing a
+        tool call is not a portable downgrade. The retry instead gets a larger
+        completion ceiling for this call only; the default and the hard global
+        budget are unchanged.
+        """
+        retry = context.get("retry_feedback") or {}
+        if str(retry.get("code") or "") != "BUDGET_EXHAUSTED_REASONING":
+            return None
+        base = int(self.max_completion_tokens or 0)
+        if context.get("no_reasoning_retry"):
+            # 动效 capability：只给一次有界提升（16k → ≤32k），避免 65k 的
+            # 无限思考回流；再失败就 surface 给 runtime 转修复票据。
+            return min(32_768, max(16_384, base * 2))
+        return min(131_072, max(65_536, base * 2))
+
+    def complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
+        json_mode: bool | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """One raw auxiliary completion (memory policy head, judges).
+
+        Deliberately outside the proposal contract: no plan parsing, no receipt
+        issuance, no tool schema. The caller only needs the text and an
+        attributable cost record, so the metadata mirrors the fields a receipt
+        carries without pretending this call produced a proposal.
+
+        ``reasoning_effort`` lets a bounded classification call opt out of the
+        provider's chain-of-thought budget. The override is only sent when the
+        provider is configured for reasoning at all, so a non-reasoning
+        endpoint never receives an unknown field.
+        """
+        started = time.monotonic()
+        content, usage, request_id = self.client.chat(
+            system, user, max_completion_tokens=max_tokens,
+            # Only reasoning-configured endpoints get the override; a plain
+            # chat endpoint would reject the field.
+            reasoning_effort=(reasoning_effort if self.reasoning_effort else None),
+            json_mode=json_mode,
+        )
+        latency_ms = int((time.monotonic() - started) * 1000)
+        prompt_tokens, completion_tokens, total_tokens = _usage_tokens(usage)
+        cached_tokens = _provider_cached_tokens(usage)
+        return content, {
+            "provider": self.label,
+            "model": self.model,
+            "request_id": request_id,
+            "latency_ms": latency_ms,
+            "max_completion_tokens": (
+                max_tokens if max_tokens is not None
+                else self.client.max_completion_tokens
+            ),
+            "usage_prompt_tokens": prompt_tokens,
+            "usage_completion_tokens": completion_tokens,
+            "usage_total_tokens": total_tokens,
+            "cached_tokens": cached_tokens,
+            # Basis points, not a float: this metadata is committed inside a
+            # chain event and canonical_json rejects floats by design.
+            "cache_hit_bp": (
+                int(round(cached_tokens / prompt_tokens * 10_000))
+                if prompt_tokens else 0
+            ),
+            "cost_microusd": self.price.cost(usage) if _has_usage(usage) else 0,
+            "usage_missing": not _has_usage(usage),
+            "transport_retries": int(usage.get("transport_retries") or 0),
+            **_stream_metadata(usage),
+        }
 
     def _pace(self) -> None:
         """Reserve a dispatch slot on the endpoint's shared rate limiter.
@@ -723,56 +1394,253 @@ class OpenAICompatProvider:
         if wait > 0:
             time.sleep(wait)
 
+    def _steps_from_tool_calls(
+        self,
+        calls: list[dict[str, Any]],
+        max_steps: int,
+        request_id: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
+        """Map native ``tool_calls`` onto plan steps, preserving call order.
+
+        A ``submit_plan`` call is not a step: it is the fast profile's plan
+        proposal, converted into the JSON contract's ``additions`` entries so
+        the existing host-side plan governance (validate → plan_steered →
+        settle-by-identity) applies unchanged.
+
+        A malformed arguments blob is a model failure the paid retry can fix, so
+        it raises PROPOSAL_MALFORMED rather than executing a guessed call. Calls
+        beyond the batch bound are dropped and counted; the loop cannot execute
+        what the profile did not promise to execute.
+
+        Integral floats in arguments are normalized to ints before the step is
+        built (returned as the fourth value); fractional numbers raise. The
+        normalization happens here, before any plan hash is taken.
+        """
+        steps: list[dict[str, Any]] = []
+        additions: list[dict[str, Any]] = []
+        dropped = 0
+        normalized_numbers = 0
+        for index, call in enumerate(calls):
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function") or {}
+            name = str(function.get("name") or "").strip()
+            raw_arguments = function.get("arguments")
+            if isinstance(raw_arguments, str):
+                try:
+                    arguments = json.loads(raw_arguments) if raw_arguments.strip() else {}
+                except ValueError as error:
+                    raise AgentError(
+                        "PROPOSAL_MALFORMED",
+                        f"tool call arguments are not JSON: {raw_arguments[:120]!r}",
+                        details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                    ) from error
+            elif isinstance(raw_arguments, dict):
+                arguments = dict(raw_arguments)
+            else:
+                arguments = {}
+            try:
+                arguments, count = normalize_json_numbers(arguments)
+                normalized_numbers += count
+            except NumberNormalizationError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"tool call {name or '<unnamed>'}: {error}",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                ) from error
+            if not name:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    "tool call is missing a function name",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                )
+            if name == "submit_plan":
+                additions.extend(self._additions_from_submit_plan(arguments, request_id))
+                continue
+            if len(steps) >= max_steps:
+                dropped += 1
+                continue
+            call_id = str(call.get("id") or "")
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", call_id):
+                call_id = f"call-{index + 1}"
+            steps.append({"id": call_id, "tool": name, "arguments": arguments})
+        if not steps and not additions:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "native reply carried no usable tool calls",
+                details={"raw_tool_calls": calls[:4], "request_id": request_id},
+            )
+        if additions:
+            try:
+                additions, count = normalize_json_numbers(additions)
+                normalized_numbers += count
+            except NumberNormalizationError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan arguments: {error}",
+                    details={"raw_tool_calls": calls[:4], "request_id": request_id},
+                ) from error
+        return steps, additions, dropped, normalized_numbers
+
+    def _additions_from_submit_plan(
+        self, arguments: dict[str, Any], request_id: str,
+    ) -> list[dict[str, Any]]:
+        """Convert one submit_plan call into plan-addition entries.
+
+        ``done_when`` is host-generated (`done:<id>`): settlement for these
+        todos is by tool identity, not by the predicate sentence, so asking the
+        model to author one is friction without governance value.
+        """
+        todos = arguments.get("todos") if isinstance(arguments, dict) else None
+        if not isinstance(todos, list) or not todos:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "submit_plan needs a non-empty todos list",
+                details={"request_id": request_id},
+            )
+        if len(todos) > 8:
+            raise AgentError(
+                "PROPOSAL_MALFORMED",
+                "submit_plan carries at most 8 todos",
+                details={"request_id": request_id},
+            )
+        entries: list[dict[str, Any]] = []
+        for index, raw in enumerate(todos):
+            if not isinstance(raw, dict):
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan todos[{index}] must be an object",
+                    details={"request_id": request_id},
+                )
+            text = str(raw.get("text") or "").strip()
+            tool = str(raw.get("tool") or "").strip()
+            if not text or not tool:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"submit_plan todos[{index}] needs non-empty text and tool",
+                    details={"request_id": request_id},
+                )
+            todo_id = str(raw.get("id") or "")
+            if not re.fullmatch(r"[a-z][a-z0-9_-]{0,39}", todo_id):
+                todo_id = f"m{index + 1}"
+            todo_arguments = raw.get("arguments")
+            entries.append({
+                "id": todo_id,
+                "text": text[:400],
+                "tool": tool,
+                "done_when": f"done:{todo_id}",
+                "arguments": todo_arguments if isinstance(todo_arguments, dict) else {},
+            })
+        return entries
+
     def propose(self, context: dict[str, Any]) -> Proposal:
         profile = prompt_profile_for(context)
         system, user = render_prompt(context)
         chars = len(system) + len(user)
-        reserved_prompt_tokens = self.calibration.estimate(system, user)
+        reserved_prompt_tokens = self.calibration.estimate(system, user) + self._tool_schema_tokens()
+        # Cache observability: compare the full rendered request against this
+        # provider's previous request. Tool schemas are not included because
+        # they are stable for the whole run; user/system drift is the risk.
+        prompt_key = f"{system}\n\x1e{user}"
+        prefix_stats = _prompt_prefix_stats(self._last_prompt_key, prompt_key)
+        self._last_prompt_key = prompt_key
+        use_native = bool(profile.native_tools and self.native_tool_schemas)
         self._pace()
         started = time.monotonic()
-        content, usage, request_id = self.client.chat(system, user)
+        tool_calls: list[dict[str, Any]] | None = None
+        completion_override = self._completion_budget(context)
+        if use_native:
+            content, tool_calls, usage, request_id = self.client.chat_with_tools(
+                system, user, tools=self.native_tool_schemas,
+                max_completion_tokens=completion_override,
+            )
+        else:
+            content, usage, request_id = self.client.chat(
+                system, user, max_completion_tokens=completion_override,
+            )
         latency_ms = int((time.monotonic() - started) * 1000)
 
         if self.raw_sink is not None:
-            self.raw_sink(
-                {
-                    "round": context.get("round"),
-                    "provider": self.label,
-                    "model": self.model,
-                    "request_id": request_id,
-                    "content": content,
-                    "usage": dict(usage),
-                }
-            )
+            raw = {
+                "round": context.get("round"),
+                "provider": self.label,
+                "model": self.model,
+                "request_id": request_id,
+                "content": content,
+                "usage": dict(usage),
+            }
+            if tool_calls is not None:
+                raw["tool_calls"] = tool_calls
+            self.raw_sink(raw)
 
-        try:
-            data = parse_proposal_text(content)
-        except ValueError as error:
-            raise AgentError(
-                "PROPOSAL_MALFORMED",
-                f"{error}: {content[:120]!r}",
-                details={"raw_content": content, "request_id": request_id},
-            ) from error
+        dropped_tool_calls = 0
+        normalized_numbers = 0
+        if use_native:
+            (
+                steps, plan_additions, dropped_tool_calls,
+                normalized_numbers,
+            ) = self._steps_from_tool_calls(
+                tool_calls or [], profile.max_steps, request_id,
+            )
+            data: dict[str, Any] = {"version": PLAN_VERSION, "steps": steps}
+            if plan_additions:
+                data["additions"] = plan_additions
+        else:
+            try:
+                data = parse_proposal_text(content, max_steps=profile.max_steps)
+                # A model writing 30.0 for an integer field said 30. Normalize
+                # before validation so no float can reach canonical_json; a
+                # fractional value raises and becomes a paid, retryable error.
+                data, normalized_numbers = normalize_json_numbers(data)
+            except ValueError as error:
+                raise AgentError(
+                    "PROPOSAL_MALFORMED",
+                    f"{error}: {content[:120]!r}",
+                    details={"raw_content": content, "request_id": request_id},
+                ) from error
 
         prompt_tokens, _, total_tokens = _usage_tokens(usage)
         plan = build_proposal_plan(data)
 
+        # Integer, never a ratio: receipt metadata is committed on-chain and
+        # canonical_json rejects floats. Absent from the raw usage block means 0.
+        transport_retries = int(usage.get("transport_retries") or 0)
+        cached_tokens = _provider_cached_tokens(usage)
         metadata: dict[str, Any] = {
             "prompt_version": profile.version,
             "billing": "external",
             "provider_request_id": request_id,
             "price_as_of": self.price.as_of,
             "price_source": self.price.source,
+            "native_tools": use_native,
+            "completion_tokens_override": int(completion_override or 0),
+            "transport_retries": transport_retries,
+            **prefix_stats,
+            **_stream_metadata(usage),
         }
+        if _has_usage(usage):
+            metadata.update({
+                "usage_prompt_tokens": prompt_tokens,
+                "cached_tokens": cached_tokens,
+                # Basis points: receipt metadata is committed on-chain.
+                "cache_hit_bp": int(round(
+                    cached_tokens / prompt_tokens * 10_000
+                )) if prompt_tokens else 0,
+            })
+        if dropped_tool_calls:
+            metadata["dropped_tool_calls"] = dropped_tool_calls
+        if normalized_numbers:
+            metadata["normalized_numbers"] = normalized_numbers
         if self.receipt_detail == "full":
             metadata.update({
                 "input_microusd_per_mtok": self.price.input_microusd_per_mtok,
                 "output_microusd_per_mtok": self.price.output_microusd_per_mtok,
                 "reasoning_effort": self.reasoning_effort,
-                "temperature": self.temperature,
+                "temperature_bp": (
+                    int(round(self.temperature * 10_000))
+                    if self.temperature is not None else None
+                ),
                 "reserved_prompt_tokens": reserved_prompt_tokens,
-                "usage_prompt_tokens": prompt_tokens,
-                "cached_tokens": _cached_tokens(usage),
                 "cache_billing": self.price.billing,
                 "raw_content": content,
             })
@@ -783,7 +1651,7 @@ class OpenAICompatProvider:
             )
             self.calibration_reports.append(calibration_report)
             metadata["calibration"] = calibration_report
-        if not usage:
+        if not _has_usage(usage):
             metadata["usage_missing"] = True
 
         receipt_ref = ""
@@ -799,6 +1667,7 @@ class OpenAICompatProvider:
                         "tokens": total_tokens,
                         "cost_microusd": self.price.cost(usage),
                         "request_id": request_id,
+                        "transport_retries": transport_retries,
                     },
                 )
                 metadata["hmac_receipt_ref"] = receipt_ref

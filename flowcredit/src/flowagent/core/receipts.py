@@ -116,5 +116,34 @@ class ReceiptStore:
             raise AgentError("MODEL_RECEIPT_UNTRUSTED", "receipt signature does not match this store")
         return payload
 
+    def find_intent(self, task_id: str, round_no: int) -> str:
+        """Find the verified receipt for exactly one dispatched model call.
+
+        Used by the operator's unknown-result recovery: before re-issuing a
+        round we must know whether a signed receipt for *that* round already
+        exists. Matching is exact on ``intent.task_id`` and ``intent.round`` —
+        no nearest-round, no same-task fallback, because a receipt for a
+        different call is not evidence about this one.
+
+        Every row goes through :meth:`load`, so a forged or corrupted receipt
+        cannot be used. Such a row is skipped rather than aborting the scan:
+        one bad receipt must not block the operator from recovering a run.
+        Returns ``""`` when there is no verified match.
+        """
+        rows = self._store._conn.execute(
+            "SELECT ref FROM receipt ORDER BY at ASC, ref ASC"
+        ).fetchall()
+        for row in rows:
+            ref = row["ref"]
+            try:
+                payload = self.load(ref)
+            except (AgentError, ValueError, TypeError, KeyError, sqlite3.DatabaseError):
+                # Unverifiable payload: skip, never trust, never fail the scan.
+                continue
+            intent = payload.get("intent") or {}
+            if intent.get("task_id") == task_id and intent.get("round") == round_no:
+                return ref
+        return ""
+
     def count(self) -> int:
         return int(self._store._conn.execute("SELECT COUNT(*) AS n FROM receipt").fetchone()["n"])

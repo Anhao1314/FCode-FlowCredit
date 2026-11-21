@@ -24,10 +24,12 @@ one chat surface.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -43,7 +45,7 @@ from .chat_config import (
     MAX_TEXT,
     ChatProviderConfig,
     _env_int,
-    _peek_model,
+    is_custom_provider_key,
     load_chat_config,
     redact_chat_config,
     resolve_chat_provider,
@@ -62,6 +64,17 @@ from .core.store import TaskStore, utc_now
 from .pacing import pace_key, reserve_slot
 from .runtime.budget import Budget, BudgetLimits
 
+
+from .chat_protocol import (  # noqa: F401 - re-exported protocol helpers
+    CHAT_VERSION,
+    _ACTION_BLOCK,
+    ACTION_MODES,
+    _ACTION_MAX_BYTES,
+    _ACTION_MAX_SOURCES,
+    _read_action,
+    parse_action_block,
+)
+
 __all__ = [
     "CHAT_VERSION",
     "CHAT_CONFIG_VERSION",
@@ -76,15 +89,35 @@ __all__ = [
     "parse_sse_data",
 ]
 
-CHAT_VERSION = "flowagent.chat/v1"
+#: Workspace references and attachments share one deny-list: a path picker
+#: must not advertise credentials the text reader would refuse.
+_SENSITIVE_WORKSPACE_NAMES = {
+    "credentials", "credentials.json", "secrets", "secrets.json",
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+}
+_SENSITIVE_WORKSPACE_SUFFIXES = {".pem", ".key", ".p12", ".pfx", ".kdbx", ".pyc"}
+_BINARY_WORKSPACE_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip", ".gz", ".tar",
+    ".exe", ".dll", ".so", ".dylib", ".class", ".woff", ".woff2", ".ttf",
+    ".ico", ".mp4", ".mov", ".mp3",
+}
+_WORKSPACE_LIST_SKIP_DIRS = {
+    ".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "work", "runs",
+}
+
 
 CHAT_SYSTEM_PROMPT = (
     "你是 FCode 里的对话助手。用中文、清楚、简洁地回答。"
-    "你可以调用只读工具查看工作区（ls_workspace 列目录、read_file 读文件），"
-    "基于真实文件内容回答；但你**不能写文件、运行命令或抓取网页**，"
-    "也绝不声称你执行了未通过工具返回的动作。"
-    "如果用户的请求需要写文件、运行命令或抓取网页，"
-    "在回答末尾附一个执行提案块，让界面展示确认卡：\n"
+    "问候、寒暄、探活这类消息直接回答，不调用任何工具；"
+    "工具只在回答当前问题确实需要工作区事实时才用，一次够用就不重复调用。"
+    "你可以调用只读工具查看工作区（ls_workspace 列目录、search_codebase 按语义"
+    "检索代码与文档并返回路径/行号/片段、read_file 读文件、"
+    "grep_workspace 正则搜索内容、find_files 按模式找文件、git_status 查看工作区"
+    "git 状态与提交历史），基于真实文件内容回答。"
+    "写文件/修改文件/运行命令/抓取网页也可以调用，但这些工具每次都要经过操作员审批，"
+    "批准后才会执行；不要在未拿到工具结果时声称已经执行。"
+    "如果任务需要多步执行、预算或独立验证，在回答末尾附一个执行提案块，让界面展示确认卡：\n"
     "```fcode_action\n"
     '{"goal": "把任务写成一句明确的目标（5–600 字）", "mode": "script", '
     '"sources": [], "reason": "为什么需要执行（可选）"}\n'
@@ -96,76 +129,6 @@ CHAT_SYSTEM_PROMPT = (
 )
 
 DEFAULT_CHAT_LIMITS = BudgetLimits(60, 0, 300_000, 200_000)
-
-#: The model's execution proposal travels as a fenced block. Parsing is
-#: deliberately strict and fail-closed: a malformed proposal yields no card
-#: (and the visible text keeps the raw block), because silently repairing it
-#: would put an execution button under something the model did not propose.
-_ACTION_BLOCK = re.compile(r"```fcode_action\s*\n(.*?)\n```", re.DOTALL)
-ACTION_MODES = ("script", "research")
-_ACTION_MAX_BYTES = 2_000
-_ACTION_MAX_SOURCES = 5
-
-
-def _read_action(payload_text: str) -> dict[str, Any] | None:
-    """One candidate block to a proposal, or None if it is not one."""
-    if len(payload_text.encode("utf-8")) > _ACTION_MAX_BYTES:
-        return None
-    try:
-        payload = json.loads(payload_text)
-    except ValueError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    goal = payload.get("goal")
-    if not isinstance(goal, str) or not 5 <= len(goal.strip()) <= 600:
-        return None
-    mode = str(payload.get("mode") or "script").strip().lower()
-    if mode not in ACTION_MODES:
-        return None
-    action: dict[str, Any] = {"goal": goal.strip(), "mode": mode}
-    reason = payload.get("reason")
-    if isinstance(reason, str) and reason.strip():
-        action["reason"] = reason.strip()[:200]
-    sources = payload.get("sources")
-    if isinstance(sources, list):
-        clean: list[str] = []
-        for item in sources:
-            if not isinstance(item, str):
-                continue
-            text = item.strip()
-            if text and text not in clean:
-                clean.append(text)
-        if clean:
-            action["sources"] = clean[:_ACTION_MAX_SOURCES]
-    return action
-
-
-def parse_action_block(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Split one finished answer into (visible_text, action | None).
-
-    The last block that reads as a whole proposal wins: a model may quote the
-    format while explaining it, and a malformed tail (or an earlier draft) must
-    not void a proposal it really made. Every candidate is validated by the
-    same rules — invalid JSON, an out-of-range goal, an unknown mode or an
-    oversized payload simply are not proposals. With no valid block the answer
-    is returned exactly as written, a malformed one included: no silent repair.
-    """
-    raw = str(text or "")
-    action: dict[str, Any] | None = None
-    found = False
-    for candidate in _ACTION_BLOCK.finditer(raw):
-        found = True
-        valid = _read_action(candidate.group(1).strip())
-        if valid is not None:
-            action = valid
-    if not found:
-        return raw, None
-    if action is None:
-        return raw, None
-    # The machinery leaves the bubble: every block goes, whichever one won.
-    visible = _ACTION_BLOCK.sub("", raw).strip()
-    return visible, action
 
 
 def merge_action(
@@ -223,6 +186,10 @@ class ChatService:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = TaskStore(db_path)
         self.receipts = ReceiptStore(self.store)
+        #: 操作员长期记忆：与 chat.sqlite 并排的独立库，零 schema 耦合。
+        from .chat_memory import MemoryStore
+
+        self.memory = MemoryStore(db_path.with_name(f"{db_path.stem}-memory.sqlite"))
         #: 工具沙箱的根（对话可读写的目录）。None 表示不提供工具。
         self._workspace_root = Path(workspace_root) if workspace_root else None
         self._tool_ctx = None
@@ -236,11 +203,9 @@ class ChatService:
         # enter the event chain, traces or logs.
         self._config_path = config_path
         self._config = load_chat_config(config_path)
-        #: When this process read the file. The settings page shows it next to
-        #: the file's mtime, because a key saved by *another* process (or
-        #: before this one started) is invisible here until a restart — the
-        #: confusion that made a configured Kimi look unconfigured.
+        #: The mtime guard makes external saves visible to every surface.
         self._config_loaded_at = time.time()
+        self._config_mtime_ns = self._config_mtime_ns_on_disk()
         # Archiving is a tombstone, not a delete: the event chain and receipts
         # stay verifiable; only the sidebar hides the thread.
         self.store._conn.executescript("""
@@ -349,9 +314,28 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             max_tokens=_env_int("FCODE_CHAT_MAX_TOKENS", DEFAULT_CHAT_LIMITS.max_tokens),
         )
 
+    def _config_mtime_ns_on_disk(self) -> int | None:
+        if not self._config_path:
+            return None
+        try:
+            return self._config_path.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _refresh_config(self) -> None:
+        """Reload an externally changed document before any model resolution."""
+        with self._lock:
+            mtime_ns = self._config_mtime_ns_on_disk()
+            if mtime_ns == self._config_mtime_ns:
+                return
+            self._config = load_chat_config(self._config_path)
+            self._config_mtime_ns = mtime_ns
+            self._config_loaded_at = time.time()
+
     def _overrides_for(self, model: str | None) -> dict[str, Any]:
+        self._refresh_config()
         key = (model or "mock").strip().lower()
-        if key not in CONFIGURABLE_PROVIDERS:
+        if key not in CONFIGURABLE_PROVIDERS and not is_custom_provider_key(key):
             return {}
         return (self._config.get("providers") or {}).get(key) or {}
 
@@ -363,17 +347,80 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "model": config.model,
             "remote": config.remote,
             "maxCompletionTokens": config.max_completion_tokens,
+            "completionField": config.completion_field,
+            "supportsTools": config.supports_tools,
+            "supportsParallelTools": config.supports_parallel_tools,
+            "supportsReasoning": config.supports_reasoning,
+            "maxContextTokens": config.max_context_tokens,
+            "maxOutputTokens": config.max_output_tokens,
             "price": {
                 "inputMicrousdPerMtok": config.input_price_microusd_per_mtok,
                 "outputMicrousdPerMtok": config.output_price_microusd_per_mtok,
             },
         }
 
+    def test_provider(self, provider: str | None) -> dict[str, Any]:
+        """One tiny live completion; proves URL/key/model/request shape work.
+
+        This is an operator-initiated connectivity check, not a chat turn: it
+        is not charged to a thread and its output never enters the chain. The
+        completion is capped so a misconfigured endpoint cannot generate a
+        large bill.
+        """
+        key = (provider or "mock").strip().lower()
+        if key == "mock":
+            return {"ok": True, "provider": "mock", "model": "offline-mock",
+                    "reply": "mock", "note": "offline provider needs no network"}
+        try:
+            config = resolve_chat_provider(key, self._overrides_for(key))
+            if not config.remote:
+                raise AgentError(
+                    "CHAT_PROVIDER_UNAVAILABLE",
+                    f"{key} has no remote endpoint",
+                )
+            probe = replace(
+                config,
+                max_completion_tokens=max(1, min(16, config.max_completion_tokens)),
+                timeout_seconds=max(1.0, min(20.0, config.timeout_seconds)),
+            )
+            reply_parts: list[str] = []
+            usage: dict[str, Any] = {}
+            for event in _RemoteProvider(probe).stream([
+                {"role": "user", "content": "Reply with the single word OK."},
+            ]):
+                if not isinstance(event, dict):
+                    continue
+                if isinstance(event.get("delta"), str):
+                    reply_parts.append(event["delta"])
+                if isinstance(event.get("usage"), dict):
+                    usage = dict(event["usage"])
+            return {
+                "ok": True,
+                "provider": key,
+                "model": config.model,
+                "reply": "".join(reply_parts).strip()[:120],
+                "usage": usage,
+                "completion_field": config.completion_field,
+            }
+        except AgentError as error:
+            return {"ok": False, "provider": key, "code": error.code,
+                    "message": error.message}
+        except Exception as error:  # noqa: BLE001 — connectivity errors are data
+            return {
+                "ok": False, "provider": key, "code": "CHAT_TEST_FAILED",
+                "message": f"{type(error).__name__}: {error}",
+            }
+
     def default_model(self) -> str:
-        return str(self._config.get("default_model") or "mock")
+        self._refresh_config()
+        return (
+            os.environ.get("FCODE_DEFAULT_RUN_MODEL", "").strip()
+            or str(self._config.get("default_model") or "mock")
+        )
 
     def config_snapshot(self) -> dict[str, Any]:
-        """Redacted settings + model menu, the shape the settings page renders."""
+        """Redacted settings + the shared model menu, for every product surface."""
+        self._refresh_config()
         return {
             "config": redact_chat_config(self._config),
             "models": self.chat_models(),
@@ -382,13 +429,8 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         }
 
     def config_source(self) -> dict[str, Any]:
-        """Where the running process got its provider configuration.
-
-        ``stale`` is the honest part: the file on disk is newer than what this
-        process loaded, so an edit made elsewhere is not in effect yet. Without
-        this the settings page happily showed a key the running server had
-        never read.
-        """
+        """Where the shared provider configuration lives and when it was read."""
+        self._refresh_config()
         loaded_at = float(getattr(self, "_config_loaded_at", 0.0) or 0.0)
         info: dict[str, Any] = {
             "path": str(self._config_path) if self._config_path else "",
@@ -399,42 +441,39 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         if not self._config_path:
             return info
         try:
-            info["fileMtime"] = self._config_path.stat().st_mtime
+            stat = self._config_path.stat()
+            info["fileMtime"] = stat.st_mtime
         except OSError:
             return info
-        info["stale"] = bool(info["fileMtime"] > loaded_at)
+        info["stale"] = bool(stat.st_mtime_ns != self._config_mtime_ns)
         return info
 
     def chat_models(self) -> list[dict[str, Any]]:
-        """The chat model menu: availability judged from overrides + env."""
+        """The exact provider catalog used by Work, governance and schedules."""
+        self._refresh_config()
+        from .providers.catalog import (
+            merged_env,
+            probe_local_endpoint,
+            provider_catalog,
+            settings_as_env,
+        )
+
+        env = merged_env(settings_as_env(self._config.get("providers") or {}))
+        endpoint = env.get("FCODE_LOCAL_ENDPOINT", "").strip() or None
+        entries = provider_catalog(
+            env=env,
+            local_endpoint=endpoint,
+            local_probe=(lambda: probe_local_endpoint(endpoint)) if endpoint else None,
+        )
         models: list[dict[str, Any]] = []
-        labels = {"mock": "离线 Mock", "kimi": "Kimi 云端", "deepseek": "DeepSeek 云端", "local": "本地模型"}
-        for key in CHAT_PROVIDER_KEYS:
-            overrides = self._overrides_for(key)
-            try:
-                config = resolve_chat_provider(key, overrides)
-                models.append({
-                    "key": key,
-                    "label": labels[key],
-                    "model": config.model,
-                    "available": True,
-                    "reason": "",
-                    "remote": config.remote,
-                    "price": {
-                        "inputMicrousdPerMtok": config.input_price_microusd_per_mtok,
-                        "outputMicrousdPerMtok": config.output_price_microusd_per_mtok,
-                    } if config.remote else None,
-                })
-            except AgentError as error:
-                models.append({
-                    "key": key,
-                    "label": labels[key],
-                    "model": _peek_model(key, overrides),
-                    "available": False,
-                    "reason": error.message,
-                    "remote": key != "mock",
-                    "price": None,
-                })
+        for entry in entries:
+            item = dict(entry, remote=entry["key"] != "mock")
+            if not item["available"]:
+                try:
+                    resolve_chat_provider(item["key"], self._overrides_for(item["key"]))
+                except AgentError as error:
+                    item["reason"] = error.message
+            models.append(item)
         return models
 
     def update_config(
@@ -443,6 +482,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         provider: str | None = None,
         values: dict[str, Any] | None = None,
         default_model: str | None = None,
+        delete_provider: bool = False,
     ) -> dict[str, Any]:
         """Validate and persist settings overrides; empty string clears a field.
 
@@ -450,13 +490,20 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
         file is the only place the API key is written — never the chain, traces
         or logs — and it lives outside the repository.
         """
-        if provider is not None and provider not in CONFIGURABLE_PROVIDERS:
+        provider = provider.strip().lower() if provider is not None else None
+        custom_provider = is_custom_provider_key(provider)
+        if provider is not None and provider not in CONFIGURABLE_PROVIDERS and not custom_provider:
             raise AgentError(
                 "CHAT_CONFIG_INVALID",
-                f"provider must be one of {', '.join(CONFIGURABLE_PROVIDERS)}",
+                "provider must be a built-in or an ASCII alphanumeric custom key",
             )
+        if delete_provider and provider is None:
+            raise AgentError("CHAT_CONFIG_INVALID", "delete_provider requires provider")
         clean: dict[str, str] = {}
-        if provider is not None:
+        if provider is not None and not delete_provider:
+            # A delete carries no fields to validate; requiring ``values``
+            # here would make the settings page's delete call impossible
+            # without a payload the operation never reads.
             allowed = {
                 "api_key", "model",
                 "input_price_microusd_per_mtok", "output_price_microusd_per_mtok",
@@ -464,13 +511,21 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 # Prices without the date they were read are a guess; the
                 # settings page collects both, for chat and for delegations.
                 "price_as_of", "price_source",
+                # Provider request-shape capabilities. These are what make
+                # "OpenAI-compatible" actually compatible across vendors.
+                "completion_field", "temperature_mode", "json_mode", "stream",
+                "supports_tools", "supports_parallel_tools",
+                "supports_reasoning", "supports_effort", "reasoning_field",
+                "max_context_tokens", "max_output_tokens",
             }
             # Endpoint overrides for the cloud providers are an exfiltration
             # path (a stolen settings write could redirect the stored key).
             # Their base URL stays host/env-configured; only local endpoints
             # are editable from the UI.
-            if provider == "local":
+            if provider == "local" or custom_provider:
                 allowed.add("base_url")
+            if custom_provider:
+                allowed.update({"label", "supports_effort"})
             if not isinstance(values, dict):
                 raise AgentError("CHAT_CONFIG_INVALID", "values must be an object")
             for name, raw in values.items():
@@ -484,6 +539,50 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     raise AgentError("CHAT_CONFIG_INVALID", "api key is too long")
                 if name == "model" and len(text) > 120:
                     raise AgentError("CHAT_CONFIG_INVALID", "model name is too long")
+                if name == "label" and len(text) > 80:
+                    raise AgentError("CHAT_CONFIG_INVALID", "provider label is too long")
+                if name in ("json_mode", "stream", "supports_tools",
+                            "supports_parallel_tools", "supports_reasoning",
+                            "supports_effort") and text not in ("0", "1"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID", f"{name} must be 0 or 1")
+                if name == "completion_field" and text not in (
+                        "max_tokens", "max_completion_tokens"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "completion_field must be max_tokens or max_completion_tokens",
+                    )
+                if name == "temperature_mode" and text not in (
+                        "send-configured", "omit-unless-pinned", "pin-zero"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "temperature_mode must be send-configured, "
+                        "omit-unless-pinned or pin-zero",
+                    )
+                if name == "reasoning_field" and (
+                        len(text) > 40 or not text.replace("_", "").isalnum()):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "reasoning_field must be an identifier of at most 40 characters",
+                    )
+                if name in ("max_context_tokens", "max_output_tokens"):
+                    try:
+                        tokens = int(text)
+                    except ValueError:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID", f"{name} must be an integer")
+                    if name == "max_context_tokens" and not 1_024 <= tokens <= 10_000_000:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID",
+                            "max_context_tokens must be 1024..10000000",
+                        )
+                    if name == "max_output_tokens" and not 0 <= tokens <= 1_000_000:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID",
+                            "max_output_tokens must be 0..1000000",
+                        )
+                    clean[name] = str(tokens)
+                    continue
                 if name == "base_url" and not text.startswith(("http://", "https://")):
                     raise AgentError("CHAT_CONFIG_INVALID", "base url must start with http(s)://")
                 if name in ("input_price_microusd_per_mtok", "output_price_microusd_per_mtok"):
@@ -491,8 +590,9 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                         price = int(text)
                     except ValueError:
                         raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be an integer")
-                    if price <= 0:
-                        raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be positive")
+                    if price < 0 or (price == 0 and not custom_provider):
+                        rule = "non-negative" if custom_provider else "positive"
+                        raise AgentError("CHAT_CONFIG_INVALID", f"{name} must be {rule}")
                     clean[name] = str(price)
                     continue
                 if name == "min_interval_seconds":
@@ -515,30 +615,41 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     continue
                 clean[name] = text
         with self._lock:
+            self._refresh_config()
             providers = dict(self._config.get("providers") or {})
             if provider is not None:
-                block = dict(providers.get(provider) or {})
-                for name, value in clean.items():
-                    if value == "":
-                        block.pop(name, None)
-                    else:
-                        block[name] = value
-                if block:
-                    providers[provider] = block
-                else:
+                if delete_provider:
                     providers.pop(provider, None)
+                else:
+                    block = dict(providers.get(provider) or {})
+                    for name, value in clean.items():
+                        if value == "":
+                            block.pop(name, None)
+                        else:
+                            block[name] = value
+                    if block:
+                        providers[provider] = block
+                    else:
+                        providers.pop(provider, None)
             config = {"version": CHAT_CONFIG_VERSION, "providers": providers}
             if default_model is not None:
-                if default_model not in CHAT_PROVIDER_KEYS:
-                    raise AgentError("CHAT_CONFIG_INVALID", f"default model must be one of {', '.join(CHAT_PROVIDER_KEYS)}")
-                config["default_model"] = default_model
+                normalized_default = default_model.strip().lower()
+                known = set(CHAT_PROVIDER_KEYS) | set(providers) | {
+                    item["key"] for item in self.chat_models()
+                }
+                if delete_provider:
+                    known.discard(provider)
+                if normalized_default not in known:
+                    raise AgentError("CHAT_CONFIG_INVALID", "default model must be in the shared catalog")
+                config["default_model"] = normalized_default
+            elif delete_provider and self._config.get("default_model") == provider:
+                config["default_model"] = "mock"
             elif self._config.get("default_model"):
                 config["default_model"] = self._config["default_model"]
             self._config = config
             save_chat_config(self._config_path, config)
-            # Saving is reading: this process now holds the newest copy, so the
-            # freshness line the settings page shows goes quiet by itself.
             self._config_loaded_at = time.time()
+            self._config_mtime_ns = self._config_mtime_ns_on_disk()
         return self.config_snapshot()
 
     def _thread_exists(self, thread_id: str) -> bool:
@@ -569,6 +680,61 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             if error.code == "TASK_NOT_FOUND":
                 raise AgentError("CHAT_THREAD_NOT_FOUND", f"no chat thread {thread_id!r}")
             raise
+
+    def post_explanation(
+        self,
+        thread_id: str,
+        *,
+        text: str,
+        model: str = "",
+        tokens: int = 0,
+        cost_microusd: int = 0,
+        title: str = "",
+        finding_id: str = "",
+        audit_id: str = "",
+        kind: str = "explain",
+        candidate_count: int = 0,
+    ) -> dict[str, Any]:
+        """把一条宿主生成的解读写进对话线程（输出在对话里，不伪造轮次）。
+
+        与 ``send`` 的差别：没有用户输入、没有模型轮次记账——解读的预算
+        与收据由调用方（解释层）负责，这里只把已成文的事实追加进线程链，
+        让操作员在对话流里读到它。thread_id 为空时新建线程（title 作标题）。
+        ``finding_id``/``audit_id``/``kind``/``candidate_count`` 进 ``explain``
+        元数据：前端据此渲染结构化卡片（解读/探员候选），文本本身保持干净。
+        """
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            raise AgentError("CHAT_EXPLAIN_EMPTY", "解读文本为空，拒绝写入对话")
+        if thread_id:
+            task = self._load_task(thread_id)
+        else:
+            task = self._create_thread(title)
+        message_id = f"a-{secrets.token_hex(6)}"
+        explain = {
+            "finding_id": str(finding_id or ""),
+            "audit_id": str(audit_id or ""),
+            "kind": str(kind or "explain"),
+            "candidate_count": max(0, int(candidate_count or 0)),
+        }
+        detail = {
+            "id": message_id,
+            "user_id": "",
+            "text": clean_text,
+            "reasoning": "",
+            "status": "ok",
+            "usage": {
+                "total_tokens": max(0, int(tokens or 0)),
+                "cost_microusd": max(0, int(cost_microusd or 0)),
+            },
+            "receipt_ref": "",
+            "provider": "",
+            "model": str(model or ""),
+            "error": {},
+            "explain": explain,
+        }
+        task = self._append(task, "chat_assistant", detail)
+        return {"thread_id": task.id, "message_id": message_id}
 
     def _append(self, task: Task, event: str, detail: dict[str, Any]) -> Task:
         with self._lock:
@@ -626,6 +792,9 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     message["blocks"] = list(detail["blocks"])
                 if isinstance(detail.get("tool_calls"), list) and detail["tool_calls"]:
                     message["tool_calls"] = list(detail["tool_calls"])
+                # 解读卡元数据：前端据此渲染结构化卡片，正文保持干净。
+                if isinstance(detail.get("explain"), dict) and detail["explain"]:
+                    message["explain"] = dict(detail["explain"])
                 messages.append(message)
                 by_id[message["id"]] = message
             elif kind == "chat_run_started":
@@ -867,6 +1036,133 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "chain_head": events[-1]["hash"] if events else "",
         }
 
+    def read_workspace_file(self, path: str) -> dict[str, Any]:
+        """Read one text file from the chat workspace for an attachment.
+
+        This is the same read-only jail the chat tools use, with the attachment
+        limits applied before the text can enter a message. Credentials and
+        binary files are refused here rather than becoming prompt content.
+        """
+        if self._workspace_root is None:
+            raise AgentError(
+                "CHAT_WORKSPACE_UNAVAILABLE",
+                "this chat has no workspace; start the console with --repo to enable it",
+            )
+        from .tools.general.sandbox import WorkspaceSandbox
+
+        result = WorkspaceSandbox(self._workspace_root).read(path)
+        relative = str(result["path"])
+        name = Path(relative).name
+        parts = [part.lower() for part in Path(relative).parts]
+        suffix = Path(relative).suffix.lower()
+        if any(part == ".env" or part.startswith(".env.") for part in parts) \
+                or any(part in _SENSITIVE_WORKSPACE_NAMES for part in parts) \
+                or suffix in _SENSITIVE_WORKSPACE_SUFFIXES:
+            raise AgentError(
+                "CHAT_ATTACHMENT_DENIED",
+                "credential-like files are not added to chat context",
+            )
+        if suffix in _BINARY_WORKSPACE_SUFFIXES:
+            raise AgentError(
+                "CHAT_ATTACHMENT_UNSUPPORTED",
+                "only text files can be attached to chat",
+            )
+        if int(result["bytes"]) > MAX_ATTACHMENT_BYTES:
+            raise AgentError(
+                "CHAT_ATTACHMENT_INVALID",
+                f"{name} is larger than {MAX_ATTACHMENT_BYTES // 1024} KiB",
+            )
+        text = str(result["content"])
+        if "\x00" in text:
+            raise AgentError(
+                "CHAT_ATTACHMENT_UNSUPPORTED",
+                f"{name} is not a text file",
+            )
+        return {
+            "name": name,
+            "path": relative,
+            "text": text,
+            "bytes": int(result["bytes"]),
+            "sha256": str(result["sha256"]),
+        }
+
+    def list_workspace_files(self, query: str = "", limit: int = 20) -> dict[str, Any]:
+        """Search relative paths for the composer's ``@`` reference.
+
+        The list is intentionally metadata-only: it never reads file content,
+        never follows symlinks, and hides the same credential/binary names the
+        attachment reader refuses. Ranking prefers a basename match, then a
+        path match, then shallow paths, so typing ``@app`` finds ``src/app.js``
+        before unrelated files.
+        """
+        if self._workspace_root is None:
+            raise AgentError(
+                "CHAT_WORKSPACE_UNAVAILABLE",
+                "this chat has no workspace; start the console with --repo to enable it",
+            )
+        root = self._workspace_root
+        needle = str(query or "").strip().lower()
+        try:
+            wanted = int(limit)
+        except (TypeError, ValueError):
+            wanted = 20
+        wanted = max(1, min(wanted, 50))
+
+        candidates: list[str] = []
+        truncated = False
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(
+                name for name in dirnames
+                if name not in _WORKSPACE_LIST_SKIP_DIRS and not name.startswith(".")
+            )
+            for name in sorted(filenames):
+                lowered = name.lower()
+                suffix = Path(name).suffix.lower()
+                if lowered == ".env" or lowered.startswith(".env.") \
+                        or lowered in _SENSITIVE_WORKSPACE_NAMES \
+                        or suffix in _SENSITIVE_WORKSPACE_SUFFIXES \
+                        or suffix in _BINARY_WORKSPACE_SUFFIXES:
+                    continue
+                path = Path(dirpath) / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                candidates.append(path.relative_to(root).as_posix())
+                if len(candidates) >= 5_000:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        def score(relative: str) -> tuple[int, int, int, str]:
+            name = Path(relative).name.lower()
+            low = relative.lower()
+            if not needle:
+                rank = 0
+            elif name == needle:
+                rank = 0
+            elif name.startswith(needle):
+                rank = 1
+            elif needle in name:
+                rank = 2
+            elif low.startswith(needle):
+                rank = 3
+            elif needle in low:
+                rank = 4
+            else:
+                rank = 99
+            return (rank, relative.count("/"), len(relative), relative)
+
+        matched = [item for item in candidates if score(item)[0] < 99]
+        matched.sort(key=score)
+        return {
+            "files": [
+                {"path": relative, "name": Path(relative).name}
+                for relative in matched[:wanted]
+            ],
+            "total": len(matched),
+            "truncated": truncated,
+        }
+
     # ------------------------------------------------------------- validation
 
     @staticmethod
@@ -911,9 +1207,25 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             )
         return "".join(parts)
 
+    def _ingest_memory(self, text: str, thread: Any) -> None:
+        """Promote durable operator preferences after the user event lands.
+
+        Failure is silent: memory is augmentation, never a reason to fail a
+        turn. Extraction only sees this operator-authored text.
+        """
+        try:
+            self.memory.ingest(text, source=f"chat:{getattr(thread, 'id', '')}")
+        except Exception:  # noqa: BLE001 — memory must not break chat
+            pass
+
     def _prompt_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
         active = self._replay(thread_id)[-MAX_HISTORY_MESSAGES:]
+        query = next(
+            (message["text"] for message in reversed(active) if message["role"] == "user"),
+            "",
+        )
+        system = CHAT_SYSTEM_PROMPT + self.memory.context_block(query=query)
+        messages = [{"role": "system", "content": system}]
         # 只给最近一条带工具历史的 assistant 回填 tool_calls/tool 消息：
         # 更早的轮次只留最终文本，避免上下文被历史工具输出撑爆。
         last_tool_assistant = next(
@@ -995,6 +1307,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "model": str(model or "mock"),
         }
         thread = self._append(thread, "chat_user", detail)
+        self._ingest_memory(clean_text, thread)
         user_message = {
             "id": message_id,
             "role": "user",
@@ -1040,6 +1353,7 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 "target_id": message_id,
                 "message": new_user,
             })
+        self._ingest_memory(clean_text, thread)
         user_message = {
             "id": new_user["id"],
             "role": "user",

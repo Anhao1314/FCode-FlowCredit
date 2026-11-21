@@ -19,6 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from flowagent.core.contracts import AgentError, Task  # noqa: E402
+from flowagent.core.plan import Plan, Todo  # noqa: E402
 from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
 from flowagent.demo.fixtures import get_scenario  # noqa: E402
@@ -103,6 +104,75 @@ class SandboxJailTests(unittest.TestCase):
 
     def test_git_metadata_is_not_addressable(self) -> None:
         self._denied(".git/config")
+        self._denied("sub/.git/config")
+
+    def test_repo_map_returns_paths_and_top_level_symbols(self) -> None:
+        from flowagent.tools.general.tools import build_general_tools
+
+        self.sandbox.ensure()
+        root = pathlib.Path(self._tmp.name) / "ws"
+        (root / "src").mkdir()
+        (root / "src" / "a.py").write_text(
+            "def alpha():\n    pass\n\nclass Beta:\n    pass\n", encoding="utf-8")
+        (root / "README.md").write_text("hello\n", encoding="utf-8")
+        tool = next(spec for spec in build_general_tools(self.sandbox, None)
+                    if spec.name == "repo_map")
+        result = tool.handler({"max_files": 50})
+        by_path = {item["path"]: item for item in result["files"]}
+        self.assertIn("src/a.py", by_path)
+        self.assertIn("README.md", by_path)
+        self.assertEqual(by_path["src/a.py"]["symbols"], ["def alpha:1", "class Beta:4"])
+        # import 边：模块名:行号，修依赖类问题第一眼就看得到
+        (root / "src" / "a.py").write_text(
+            "import json\nfrom pathlib import Path\n\ndef alpha():\n    pass\n",
+            encoding="utf-8")
+        result = tool.handler({"max_files": 50})
+        by_path = {item["path"]: item for item in result["files"]}
+        self.assertEqual(by_path["src/a.py"]["imports"],
+                         ["json:1", "pathlib:2"])
+        self.assertEqual(result["imports"], 2)
+        self.assertEqual(result["count"], len(result["files"]))
+        self.assertFalse(result["truncated"])
+        # 观察摘要必须带结构进上下文：path · sym · imp 一行一个文件
+        from flowagent.tools.general.summaries import summarize_repo_map
+        summary = summarize_repo_map(result)
+        self.assertTrue(any("alpha" in line and "imp: json" in line
+                            for line in summary["tree"]))
+
+    def test_tool_schema_can_be_filtered_to_the_grant(self) -> None:
+        from flowagent.providers.tool_schema import to_openai_tools
+        from flowagent.tools.general.tools import build_general_tools
+        from flowagent.tools.registry import ToolRegistry
+
+        registry = ToolRegistry(build_general_tools(self.sandbox, None))
+        names = [item["function"]["name"] for item in to_openai_tools(
+            registry, allowed={"read_file"})]
+        self.assertEqual(names, ["read_file"], "未授权的 terminal 不能被广告给模型")
+
+    def test_read_file_raw_keeps_a_usable_slice(self) -> None:
+        from flowagent.tools.general.summaries import summarize_read_file_raw
+
+        long = summarize_read_file_raw({
+            "path": "a.py", "content": "x" * 5_000, "sha256": "s", "bytes": 5_000,
+        })
+        self.assertEqual(len(long["content"]), 3_500)
+        self.assertTrue(long["truncated"])
+        short = summarize_read_file_raw({
+            "path": "b.py", "content": "def f(): pass\n", "sha256": "s", "bytes": 14,
+        })
+        self.assertEqual(short["content"], "def f(): pass\n")
+        self.assertFalse(short["truncated"])
+
+    def test_git_prefixed_regular_files_are_readable(self) -> None:
+        """回归：子串判断 ".git" 会把 .gitignore/.gitattributes 也拒掉，
+        模型的全仓 grep 会在第一份清单文件上整轮失败。"""
+        self.sandbox.ensure()
+        root = pathlib.Path(self._tmp.name) / "ws"
+        (root / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+        (root / "sub").mkdir()
+        (root / "sub" / ".gitattributes").write_text("* text=auto\n", encoding="utf-8")
+        self.assertEqual(self.sandbox.read(".gitignore")["content"], "__pycache__/\n")
+        self.assertTrue(self.sandbox.read("sub/.gitattributes")["content"].startswith("* text=auto"))
 
     def test_symlink_escape_is_refused(self) -> None:
         self.sandbox.ensure()
@@ -278,6 +348,38 @@ class GeneralToolContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def test_read_file_range_slices_with_its_own_hash(self) -> None:
+        self.sandbox.write("lines.txt", "\n".join(f"line {i}" for i in range(1, 11)) + "\n")
+        obs = self.registry.execute("read_file", {"path": "lines.txt", "offset": 3, "limit": 4})
+        rec = obs.result
+        self.assertEqual(rec["content"], "line 3\nline 4\nline 5\nline 6")
+        self.assertEqual((rec["start_line"], rec["end_line"], rec["total_lines"]), (3, 6, 10))
+        import hashlib
+        self.assertEqual(rec["sha256"], hashlib.sha256(rec["content"].encode()).hexdigest(),
+                         "切片的 sha256 是切片自身的哈希")
+        self.assertEqual(len(rec["file_sha256"]), 64, "整文件哈希另存")
+        # 无区间读取保持原形状
+        full = self.registry.execute("read_file", {"path": "lines.txt"}).result
+        self.assertNotIn("start_line", full)
+
+    def test_read_file_range_rejects_bad_bounds(self) -> None:
+        self.sandbox.write("lines.txt", "a\nb\n")
+        # 门级 schema 先拦（min/max/kind）
+        for args in (
+            {"path": "lines.txt", "offset": 0},
+            {"path": "lines.txt", "limit": 0},
+            {"path": "lines.txt", "limit": 401},
+            {"path": "lines.txt", "offset": "x"},
+        ):
+            with self.subTest(args=args), self.assertRaises(AgentError) as ctx:
+                self.registry.execute("read_file", args)
+            self.assertEqual(ctx.exception.code, "TOOL_ARGUMENTS_INVALID")
+        # handler 自身也兜底（纵深防御:直接调 handler 的部署）
+        spec = self.registry.get("read_file")
+        with self.assertRaises(AgentError) as ctx:
+            spec.handler({"path": "lines.txt", "offset": 0, "limit": 5})
+        self.assertEqual(ctx.exception.code, "READ_RANGE_INVALID")
+
     def test_registration_order_is_pinned(self) -> None:
         self.assertEqual(tuple(self.registry.names), GENERAL_TOOLS)
         effects = {spec.name: spec.effect for spec in
@@ -344,6 +446,23 @@ class GeneralPlannerTests(unittest.TestCase):
             {"path": "research.md", "content": write.arguments["content"]},
             {"computed": True, "sha256_after": "cd" * 32, "path": "research.md"}))
         self.assertEqual(done.todos[-1].status, "done")
+
+    def test_a_model_added_write_todo_without_a_path_settles_on_a_write(self) -> None:
+        """submit_plan may say "写 index.html" without a path in arguments.
+
+        The old _settle_write compared None == "index.html" and left the todo
+        pending forever; the run then looped on no-op ls_workspace calls.
+        """
+        planner = GeneralPlanner([])
+        plan = Plan(goal="write a page", todos=[
+            Todo(id="m1", text="write index.html", tool="write_file", done_when="done:m1"),
+        ])
+        settled = planner.advance(plan, self._observation(
+            "write_file", {"path": "index.html", "content": "<html></html>"},
+            {"computed": True, "sha256_after": "ef" * 32, "path": "index.html"},
+        ))
+        self.assertEqual(settled.todos[0].status, "done")
+        self.assertTrue(settled.is_complete())
 
 
 class GeneralRunTests(unittest.TestCase):

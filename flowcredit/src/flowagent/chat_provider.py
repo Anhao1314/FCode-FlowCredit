@@ -119,14 +119,24 @@ class _MockProvider:
             "在模型菜单里选择 Kimi / DeepSeek，或配置对应的 API 环境变量后，"
             "同一段对话会交给真实模型回答。"
         )
-        scripted = (os.environ.get("FCODE_CHAT_MOCK_ACTION") or "").strip()
+        system_text = " ".join(
+            str(message.get("content") or "")
+            for message in messages if message.get("role") == "system"
+        )
+        governance = "gov_action" in system_text
+        scripted = (
+            os.environ.get("FCODE_CHAT_MOCK_GOV_ACTION")
+            if governance else os.environ.get("FCODE_CHAT_MOCK_ACTION")
+        ) or ""
+        scripted = scripted.strip()
         if scripted:
             try:
                 payload = json.loads(scripted)
             except ValueError:
                 payload = None
             if isinstance(payload, dict):
-                text += "\n\n```fcode_action\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
+                block = "gov_action" if governance else "fcode_action"
+                text += f"\n\n```{block}\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
         delay = float(os.environ.get("FCODE_CHAT_MOCK_DELAY", "0.012") or 0)
         for index in range(0, len(text), 8):
             if delay:

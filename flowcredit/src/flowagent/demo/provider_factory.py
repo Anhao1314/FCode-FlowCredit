@@ -134,9 +134,12 @@ def build_provider(
             fail_at_call=scenario.fail_at_call,
         )
     if provider_name == "local":
+        configured_max = str(env.get("FCODE_LOCAL_MAX_COMPLETION_TOKENS", "")).strip()
         return LocalProvider(
-            base_url=endpoint or "http://127.0.0.1:11434/v1",
-            model=model or "fcode-qwen3-4b",
+            base_url=endpoint or env.get("FCODE_LOCAL_ENDPOINT") or "http://127.0.0.1:11434/v1",
+            model=model or env.get("FCODE_LOCAL_MODEL") or "fcode-qwen3-4b",
+            api_key=env.get("FCODE_LOCAL_API_KEY") or "local",
+            max_tokens=int(configured_max) if configured_max.isdigit() and int(configured_max) > 0 else 512,
             timeout=timeout if timeout is not None else 900.0,
             json_mode=json_mode,
             structured=structured,
@@ -164,12 +167,23 @@ def build_provider(
         )
         return FaultInjectionProvider(provider) if scenario.key == "tool-denied" else provider
     if provider_name == "deepseek":
+        # 补全预算同时被 reasoning 与 content 消耗。deepseek-flash 这类推理
+        # 模型在 8192 下仍可能"reasoning 写满、content 为空"；默认给 32768，
+        # 操作员可用 DEEPSEEK_MAX_TOKENS 覆盖。DEEPSEEK_MAX_COMPLETION_TOKENS
+        # is accepted as an alias because the provider's own error message used
+        # to name it while the factory only read the shorter name.
+        configured = str(
+            env.get("DEEPSEEK_MAX_TOKENS")
+            or env.get("DEEPSEEK_MAX_COMPLETION_TOKENS")
+            or ""
+        ).strip()
+        max_tokens = int(configured) if configured.isdigit() and int(configured) > 0 else 32768
         settings = load_deepseek_settings(
             env=env,
             model=model,
             base_url=endpoint,
             timeout=timeout,
-            max_tokens=256,
+            max_tokens=max_tokens,
         )
         provider = settings.provider()
         return FaultInjectionProvider(provider) if scenario.key == "tool-denied" else provider
@@ -182,6 +196,7 @@ def build_provider(
         settings = load_compat_settings(
             prefix,
             env=env,
+            label=env.get(f"{prefix}_LABEL", "").strip() or provider_name,
             defaults=GENERIC_COMPAT_DEFAULTS,
             overrides={"reasoning_effort": reasoning_effort} if reasoning_effort else None,
         )

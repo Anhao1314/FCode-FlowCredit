@@ -25,7 +25,12 @@ from flowaudit import cli  # noqa: E402
 from flowaudit.rea import facts as facts_mod  # noqa: E402
 from flowaudit.rea.client import run_evidence  # noqa: E402
 from flowaudit.rea.macho import parse_macho  # noqa: E402
-from flowaudit.rea.osv import compare_versions, load_snapshot, match_go_dependencies  # noqa: E402
+from flowaudit.rea.osv import (  # noqa: E402
+    compare_versions,
+    load_snapshot,
+    match_dependencies,
+    match_go_dependencies,
+)
 from flowaudit.rea.sidecars import scan_sidecar  # noqa: E402
 from flowaudit.rea.strings import scan_runtime_installers  # noqa: E402
 from flowaudit.targets import rea as rea_adapter  # noqa: E402
@@ -300,6 +305,27 @@ class ReaOsvTests(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["osv_id"], "OSV-2026-0001")
         self.assertEqual(matches[0]["fixed_versions"], ["v1.0.0"])
+
+    def test_npm_ecosystem_matches_by_name_and_semver_range(self) -> None:
+        records = [{
+            "id": "GHSA-npm-fixture",
+            "affected": [{
+                "package": {"ecosystem": "npm", "name": "left-pad"},
+                "ranges": [{"type": "SEMVER", "events": [
+                    {"introduced": "0"}, {"fixed": "1.3.0"}]}],
+            }],
+        }]
+        deps = [{"name": "left-pad", "version": "1.2.3"},
+                {"name": "left-pad", "version": "1.3.0"}]
+        matches = match_dependencies(deps, records, ecosystem="npm")
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["dependency"], "left-pad")
+        self.assertEqual(matches[0]["version"], "1.2.3")
+        self.assertEqual(matches[0]["fixed_versions"], ["1.3.0"])
+        # Go 记录不吃 npm 依赖，反之亦然；未知生态直接拒绝
+        self.assertEqual(match_dependencies(deps, records, ecosystem="go"), [])
+        with self.assertRaises(ValueError):
+            match_dependencies(deps, records, ecosystem="pypi")
 
     def test_osv_rule_fixture_and_control(self) -> None:
         ruleset = engine.load_ruleset(ROOT / "audit-rules")

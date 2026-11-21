@@ -24,6 +24,7 @@ from flowagent.core.receipts import ReceiptStore  # noqa: E402
 from flowagent.core.store import TaskStore  # noqa: E402
 from flowagent.demo.fixtures import get_scenario  # noqa: E402
 from flowagent.providers.catalog import (  # noqa: E402
+    compat_settings_for,
     merged_env,
     provider_catalog,
     settings_as_env,
@@ -91,8 +92,74 @@ class SettingsOverlayTests(unittest.TestCase):
         merged = merged_env({"KIMI_API_KEY": "settings-key"}, env={"KIMI_API_KEY": "env-key"})
         self.assertEqual(merged["KIMI_API_KEY"], "env-key")
 
-    def test_unknown_providers_are_ignored(self) -> None:
-        self.assertEqual(settings_as_env({"ollama": {"api_key": "x"}}), {})
+    def test_custom_provider_settings_join_the_shared_catalog(self) -> None:
+        overlay = settings_as_env({"ollama": {
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+        }})
+        self.assertIn("OLLAMA", overlay["FCODE_OPENAI_COMPAT_PROVIDERS"].split(","))
+        self.assertEqual(overlay["OLLAMA_BASE_URL"], "http://127.0.0.1:11434/v1")
+        entry = find(provider_catalog(settings_env=overlay, env={}), "ollama")
+        self.assertTrue(entry["available"], entry["reason"])
+        self.assertEqual(entry["label"], "本机 Ollama")
+        self.assertEqual(entry["price"]["inputMicrousdPerMtok"], 0)
+
+    def test_capability_fields_reach_both_engines(self) -> None:
+        overlay = settings_as_env({"glm": {
+            "label": "GLM",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "model": "glm-test",
+            "input_price_microusd_per_mtok": "1000",
+            "output_price_microusd_per_mtok": "2000",
+            "price_as_of": "2026-11-19",
+            "price_source": "operator-declared",
+            "completion_field": "max_tokens",
+            "temperature_mode": "omit-unless-pinned",
+            "json_mode": "0",
+            "stream": "1",
+            "supports_tools": "0",
+            "supports_parallel_tools": "1",
+            "supports_reasoning": "1",
+            "reasoning_field": "reasoning_content",
+            "max_context_tokens": "131072",
+            "max_output_tokens": "4096",
+        }})
+        self.assertEqual(overlay["GLM_COMPLETION_FIELD"], "max_tokens")
+        self.assertEqual(overlay["GLM_MAX_CONTEXT_TOKENS"], "131072")
+        settings = compat_settings_for("glm", env=overlay)
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings.completion_field, "max_tokens")
+        self.assertEqual(settings.temperature_mode, "omit-unless-pinned")
+        self.assertFalse(settings.json_mode)
+        self.assertFalse(settings.supports_tools)
+        self.assertTrue(settings.supports_parallel_tools)
+        self.assertTrue(settings.supports_reasoning)
+        self.assertEqual(settings.max_context_tokens, 131072)
+        self.assertEqual(settings.max_output_tokens, 4096)
+
+    def test_local_capability_overrides_are_honored(self) -> None:
+        settings = compat_settings_for("local", env={
+            "FCODE_LOCAL_ENDPOINT": "http://127.0.0.1:11434/v1",
+            "FCODE_LOCAL_MODEL": "qwen3-local",
+            "FCODE_LOCAL_COMPLETION_FIELD": "max_tokens",
+            "FCODE_LOCAL_TEMPERATURE_MODE": "omit-unless-pinned",
+            "FCODE_LOCAL_JSON_MODE": "0",
+            "FCODE_LOCAL_SUPPORTS_TOOLS": "1",
+            "FCODE_LOCAL_MAX_CONTEXT_TOKENS": "65536",
+        })
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings.temperature_mode, "omit-unless-pinned")
+        self.assertFalse(settings.json_mode)
+        self.assertTrue(settings.supports_tools)
+        self.assertEqual(settings.max_context_tokens, 65536)
+
+    def test_invalid_custom_provider_keys_are_ignored(self) -> None:
+        self.assertEqual(settings_as_env({"bad-key": {"api_key": "x"}}), {})
         self.assertEqual(settings_as_env(None), {})
 
 
@@ -124,6 +191,37 @@ class DelegationCatalogTests(unittest.TestCase):
         entry = find(provider_catalog(env={}), "kimi")
         self.assertFalse(entry["available"])
         self.assertIn("Host 配置不完整", entry["reason"])
+
+    def test_local_settings_can_construct_the_governance_completion_provider(self) -> None:
+        settings = compat_settings_for("local", env={
+            "FCODE_LOCAL_ENDPOINT": "http://127.0.0.1:11434/v1",
+            "FCODE_LOCAL_MODEL": "qwen3-local",
+        })
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings.base_url, "http://127.0.0.1:11434/v1")
+        self.assertEqual(settings.model, "qwen3-local")
+        self.assertEqual(settings.price.input_microusd_per_mtok, 0)
+
+
+class DisabledProviderTests(unittest.TestCase):
+    """A host can remove a preset without deleting code or its tests."""
+
+    def test_disabled_provider_is_absent_and_unresolvable(self) -> None:
+        overlay = settings_as_env({"kimi": KIMI_SETTINGS})
+        env = {"FCODE_DISABLED_PROVIDERS": "kimi"}
+        keys = [
+            entry["key"]
+            for entry in provider_catalog(settings_env=overlay, env=env)
+        ]
+        self.assertNotIn("kimi", keys)
+        self.assertIn("deepseek", keys)
+        self.assertIsNone(compat_settings_for("kimi", env={**overlay, **env}))
+
+    def test_disable_list_is_case_insensitive_and_comma_separated(self) -> None:
+        env = {"FCODE_DISABLED_PROVIDERS": " Kimi , deepseek "}
+        keys = [entry["key"] for entry in provider_catalog(env=env)]
+        self.assertNotIn("kimi", keys)
+        self.assertNotIn("deepseek", keys)
 
 
 class BothSurfacesAgreeTests(unittest.TestCase):
@@ -173,6 +271,56 @@ class BothSurfacesAgreeTests(unittest.TestCase):
         for reason in (chat["reason"], delegation["reason"]):
             self.assertIn("KIMI_PRICE_AS_OF", reason)
 
+    def test_a_custom_endpoint_is_shared_by_chat_and_delegation(self) -> None:
+        service = self.service()
+        snapshot = service.update_config(provider="ollama", values={
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "api_key": "custom-secret",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+            "supports_effort": "1",
+        })
+        chat = find(snapshot["models"], "ollama")
+        delegation = find(provider_catalog(
+            settings_env=settings_as_env(service._config["providers"]), env={},
+        ), "ollama")
+        self.assertTrue(chat["available"], chat["reason"])
+        self.assertTrue(delegation["available"], delegation["reason"])
+        self.assertEqual(chat["model"], delegation["model"])
+        self.assertNotIn("custom-secret", json.dumps(snapshot["config"]))
+        self.assertTrue(snapshot["default"] == "mock")
+
+    def test_deleting_a_custom_provider_needs_no_values_and_falls_back_the_default(self) -> None:
+        """The settings page deletes with {provider, delete_provider} only.
+
+        Requiring ``values`` on the delete path made that call impossible:
+        the page has nothing to save, and the operation never reads fields.
+        Deleting the current default must also fall back to ``mock`` — an
+        operator removing an endpoint cannot leave a dangling default.
+        """
+        service = self.service()
+        service.update_config(provider="ollama", values={
+            "label": "本机 Ollama",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "qwen3-8b",
+            "input_price_microusd_per_mtok": "0",
+            "output_price_microusd_per_mtok": "0",
+            "price_as_of": "2026-11-14",
+            "price_source": "local-not-billed",
+        })
+        snapshot = service.update_config(default_model="ollama")
+        self.assertEqual(snapshot["default"], "ollama")
+
+        deleted = service.update_config(provider="ollama", delete_provider=True)
+        self.assertNotIn("ollama", deleted["config"]["providers"])
+        self.assertEqual(deleted["config"]["default_model"], "mock")
+        self.assertEqual(deleted["default"], "mock")
+        self.assertNotIn("ollama", [entry["key"] for entry in deleted["models"]])
+
     def test_the_snapshot_reports_where_the_configuration_came_from(self) -> None:
         service = self.service()
         self.save(service, {})
@@ -181,15 +329,19 @@ class BothSurfacesAgreeTests(unittest.TestCase):
         self.assertGreater(source["fileMtime"], 0)
         self.assertFalse(source["stale"])
 
-    def test_a_newer_file_on_disk_is_reported_as_stale(self) -> None:
-        """The running process holding an older copy is exactly the confusion
-        that made a configured Kimi look unconfigured."""
+    def test_a_newer_file_on_disk_is_reloaded_by_chat(self) -> None:
+        """Every surface observes the same saved default without a restart."""
+        from flowagent.chat_config import CHAT_CONFIG_VERSION, save_chat_config
+
         service = self.service()
         config_path = self.root / "chat-config.json"
-        service.update_config(provider="kimi", values=KIMI_SETTINGS)
-        # Another process writes the file after this one loaded it.
+        service.update_config(default_model="mock")
+        save_chat_config(config_path, {
+            "version": CHAT_CONFIG_VERSION, "providers": {}, "default_model": "kimi",
+        })
         os.utime(config_path, (service.config_source()["fileMtime"] + 30,) * 2)
-        self.assertTrue(service.config_source()["stale"])
+        self.assertEqual(service.default_model(), "kimi")
+        self.assertFalse(service.config_source()["stale"])
 
 
 class DelegationConstructionTests(unittest.TestCase):
@@ -233,6 +385,38 @@ class DelegationConstructionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.build(env=merged_env(overlay, env={}))
 
+    def test_deepseek_gets_reasoning_headroom_and_env_override(self) -> None:
+        """回归：补全预算太小会被 reasoning 吃光，content 为空整轮判死。"""
+        from flowagent.demo.provider_factory import build_provider
+
+        base = {
+            "DEEPSEEK_API_KEY": "sk-test-deepseek",
+            "DEEPSEEK_INPUT_PRICE_MICROUSD_PER_MTOK": "300000",
+            "DEEPSEEK_OUTPUT_PRICE_MICROUSD_PER_MTOK": "1200000",
+            "DEEPSEEK_PRICE_AS_OF": "2026-11-09",
+        }
+        provider = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store), env=base,
+        )
+        self.assertEqual(provider.max_completion_tokens, 32768)
+        tuned = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store),
+            env={**base, "DEEPSEEK_MAX_TOKENS": "12000"},
+        )
+        self.assertEqual(tuned.max_completion_tokens, 12000)
+        alias = build_provider(
+            "deepseek", scenario=get_scenario("full"),
+            receipts=ReceiptStore(self.store),
+            env={**base, "DEEPSEEK_MAX_COMPLETION_TOKENS": "12001"},
+        )
+        self.assertEqual(alias.max_completion_tokens, 12001)
+        # The error names the variable the factory actually reads.
+        error = provider.client._empty_content_error({"reasoning_content": "x" * 20})
+        self.assertIn("DEEPSEEK_MAX_TOKENS", error.message)
+        self.assertNotIn("DEEPSEEK_MAX_COMPLETION_TOKENS", error.message)
+
 
 class ConsoleWiringTests(unittest.TestCase):
     """The console's own resolution path uses the settings overlay."""
@@ -261,6 +445,13 @@ class ConsoleWiringTests(unittest.TestCase):
         manager._settings_env = settings_as_env({"kimi": KIMI_SETTINGS})
         key, effort = manager.resolve_model("kimi", "medium")
         self.assertEqual((key, effort), ("kimi", "medium"))
+
+    def test_default_model_is_shared_and_environment_remains_authoritative(self) -> None:
+        manager = self.manager_module.RunManager(None, "", 0.0, runs_dir=self.runs)
+        manager.chat = type("Chat", (), {"default_model": lambda self: "kimi"})()
+        self.assertEqual(manager.default_model(), "kimi")
+        with mock.patch.dict(os.environ, {"FCODE_DEFAULT_RUN_MODEL": "deepseek"}):
+            self.assertEqual(manager.default_model(), "deepseek")
 
     def test_resolve_model_refuses_an_incomplete_provider_with_its_reason(self) -> None:
         manager = self.manager_module.RunManager(None, "", 0.0, runs_dir=self.runs)
