@@ -244,7 +244,14 @@ export function createChatUI(deps) {
     };
     show("chain-badge", !on);
     show("rail-toggle", !on);
-    show("approval-btn", !on);
+    // Chat and Work share the same approval contract.  Keeping this control
+    // visible in reopened threads lets the next message carry the chosen mode.
+    show("approval-btn", true);
+    const approvalButton = document.getElementById("approval-btn");
+    if (approvalButton) approvalButton.title = on
+      ? "当前对话权限：从下一条消息开始生效"
+      : "审批档位：只在需要你确认的地方暂停（对新任务生效）";
+    d.renderApprovalMenu?.();
     show("fast-btn", !on);
     // The same + is the add-content menu in both modes; Work's menu then
     // routes to the context/settings detail sheet. It is never hidden by the
@@ -619,7 +626,10 @@ export function createChatUI(deps) {
       renderChat({ forceBottom: true });
       return;
     }
-    await streamChat("/api/chat/send", { threadId, text, attachments, model });
+    await streamChat("/api/chat/send", {
+      threadId, text, attachments, model,
+      approval: d.getApprovalMode ? d.getApprovalMode() : "consequential",
+    });
   }
 
   async function streamChat(url, payload) {

@@ -18,6 +18,7 @@ export function createMarketplace(deps) {
     }, state.plugins);
     const grid = document.getElementById("mkt-grid");
     if (grid) grid.innerHTML = pluginGridHtml(state.plugins, view);
+    d.hydrateDoodles?.(host);
   }
 
   function paintResults() {
@@ -25,6 +26,7 @@ export function createMarketplace(deps) {
     if (!grid) return;
     const visible = filterPlugins(state.plugins, view);
     grid.innerHTML = pluginGridHtml(state.plugins, view);
+    d.hydrateDoodles?.(grid);
     const count = document.getElementById("mkt-count");
     if (count) count.textContent = `${visible.length} / ${state.plugins.length}`;
   }

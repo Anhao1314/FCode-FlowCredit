@@ -6,11 +6,15 @@
 <meta name="color-scheme" content="light">
 <title>FCode · 本机 Agent 工作区</title>
 <link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
-<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=81">
+<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=82">
     <link rel="stylesheet" href="design.css?v=93">
 <link rel="stylesheet" href="desktop.css?v=9">
 <link rel="stylesheet" href="chat.css?v=11">
     <link rel="stylesheet" href="thread.css?v=38">
+    <link rel="stylesheet" href="codex.css?v=2">
+    <link rel="stylesheet" href="catalog.css?v=1">
+    <link rel="stylesheet" href="governance.css?v=1">
+    <link rel="stylesheet" href="settings.css?v=1">
 </head>
 <body>
 <div class="shell app rail-hidden" id="app">
@@ -147,7 +151,7 @@
         <footer class="composer-wrap">
           <div class="composer">
             <div class="composer-box" id="composer-box">
-              <div class="tpl-menu approval-menu" id="approval-menu" hidden></div>
+              <div class="tpl-menu approval-menu" id="approval-menu" role="menu" aria-label="权限档位" hidden></div>
               <!-- S1 Chat/Work 分态：两个菜单各归各渲染器（chat-config → chat /
                    composer-panel → work），不再共用一个节点按 chat.active 覆写 -->
               <div class="tpl-menu model-menu" id="chat-model-menu" hidden></div>
@@ -164,7 +168,8 @@
                   <svg class="i plus-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
                   <svg class="i close-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
                 </button>
-                <button class="c-btn" id="approval-btn" title="审批档位：只在需要你确认的地方暂停（对新任务生效）">
+                <button class="c-btn" id="approval-btn" type="button" title="审批档位：只在需要你确认的地方暂停（对新任务生效）"
+                  aria-haspopup="menu" aria-controls="approval-menu" aria-expanded="false">
                   <span data-doodle="key"></span>
                   <span id="approval-label">关键审批</span>
                   <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg>
@@ -244,13 +249,25 @@
         </div>
       </header>
       <div class="setpage-body">
-        <nav class="setpage-nav" id="settings-nav" aria-label="设置章节">
-          <button type="button" class="active" data-set-section="appearance"><span class="n">01</span><span>外观与动效</span></button>
-          <button type="button" data-set-section="delegation"><span class="n">02</span><span>委托默认</span></button>
-          <button type="button" data-set-section="model"><span class="n">03</span><span>模型与工具</span></button>
-          <button type="button" data-set-section="memory"><span class="n">04</span><span>记忆与产物</span></button>
-          <button type="button" data-set-section="notify"><span class="n">05</span><span>通知与快捷键</span></button>
-          <button type="button" data-set-section="about"><span class="n">06</span><span>安全与关于</span></button>
+        <nav class="setpage-nav" id="settings-nav" aria-label="设置章节" role="tablist">
+          <button id="settings-tab-appearance" type="button" class="active" data-set-section="appearance" role="tab" aria-selected="true" aria-controls="set-appearance">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h3M11 17h9M14 4v6M7 14v6"/></svg><span>外观与动效</span>
+          </button>
+          <button id="settings-tab-delegation" type="button" data-set-section="delegation" role="tab" aria-selected="false" aria-controls="set-delegation" tabindex="-1">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v5M5 20v-5h14v5M5 15v-3h14v3M12 9v3"/></svg><span>委托默认</span>
+          </button>
+          <button id="settings-tab-model" type="button" data-set-section="model" role="tab" aria-selected="false" aria-controls="set-model" tabindex="-1">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4M9 9h6v6H9z"/></svg><span>模型与工具</span>
+          </button>
+          <button id="settings-tab-memory" type="button" data-set-section="memory" role="tab" aria-selected="false" aria-controls="set-memory" tabindex="-1">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/></svg><span>记忆与产物</span>
+          </button>
+          <button id="settings-tab-notify" type="button" data-set-section="notify" role="tab" aria-selected="false" aria-controls="set-notify" tabindex="-1">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V9a6 6 0 0 1 12 0v7l2 2H4zM10 21h4"/></svg><span>通知与快捷键</span>
+          </button>
+          <button id="settings-tab-about" type="button" data-set-section="about" role="tab" aria-selected="false" aria-controls="set-about" tabindex="-1">
+            <svg class="set-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3 8-8 10-5-2-8-5-8-10V6z"/><path d="M8 12l2.5 2.5L16 9"/></svg><span>安全与关于</span>
+          </button>
         </nav>
         <div class="setpage-content" id="settings-content">
           <section class="set-section" id="set-appearance" data-set-panel="appearance">
@@ -262,7 +279,7 @@
                 <button class="set-switch" id="settings-motion" type="button" role="switch" aria-checked="true" aria-label="界面动效"><span></span></button>
               </div>
               <div class="set-row">
-                <span class="set-row-text"><b>主题</b><small>月之暗面 · 明亮工作区与黑白像素细节</small></span>
+                <span class="set-row-text"><b>主题</b><small>浅色 · 明亮工作区与清晰中性色层级</small></span>
                 <span class="set-value">浅色</span>
               </div>
               <div class="set-row">
@@ -393,13 +410,14 @@
 
 <div class="palette" id="palette" hidden>
   <div class="palette-scrim" data-palette-close></div>
-  <div class="palette-box" role="dialog" aria-label="命令面板">
-    <input class="palette-input" id="palette-input" placeholder="输入命令，或搜索运行与场景…" autocomplete="off" spellcheck="false">
-    <div class="palette-list" id="palette-list"></div>
+  <div class="palette-box" role="dialog" aria-label="命令面板" aria-modal="true">
+    <input class="palette-input" id="palette-input" placeholder="输入命令，或搜索运行与场景…" autocomplete="off" spellcheck="false"
+      role="combobox" aria-autocomplete="list" aria-controls="palette-list" aria-expanded="false">
+    <div class="palette-list" id="palette-list" role="listbox" aria-label="命令与运行"></div>
     <div class="palette-foot"><span>↑↓ 选择</span><span>↵ 执行</span><span>esc 关闭</span><div class="grow"></div><span>⌘K 面板 · ⌘, 设置 · ⌘. 停止 · 审批 ⌘↵ 允许 / ⌘⌫ 拒绝</span></div>
   </div>
 </div>
-<div class="toast" id="toast" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
 <div class="report-layer" id="report-layer" hidden>
   <div class="report-scrim" data-report-close></div>
@@ -418,6 +436,6 @@
 <script src="report.js?v=58"></script>
 <script src="icons-doodle.js?v=54"></script>
   <script src="brand/seal-icons.js"></script>
-  <script src="app.js?v=172" type="module"></script>
+  <script src="app.js?v=174" type="module"></script>
 </body>
 </html>

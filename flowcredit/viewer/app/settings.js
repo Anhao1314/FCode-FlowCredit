@@ -125,13 +125,23 @@ export function createSettings(deps) {
     syncSettings();
   }
 
-  function activateSettingsSection(name, behavior = d.getMotionOn() ? "smooth" : "auto") {
+  function activateSettingsSection(name) {
+    const section = document.getElementById(`set-${name}`);
+    if (!section) return;
     settingsSection = name;
     for (const button of document.querySelectorAll("#settings-nav [data-set-section]")) {
-      button.classList.toggle("active", button.dataset.setSection === name);
+      const active = button.dataset.setSection === name;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+      button.tabIndex = active ? 0 : -1;
     }
-    const section = document.getElementById(`set-${name}`);
-    if (section) section.scrollIntoView({ block: "start", behavior });
+    for (const panel of document.querySelectorAll("#settings-content [data-set-panel]")) {
+      const active = panel === section;
+      panel.hidden = !active;
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("aria-labelledby", `settings-tab-${panel.dataset.setPanel}`);
+    }
+    document.getElementById("settings-content").scrollTop = 0;
   }
 
   function openSettingsPage() {
@@ -292,6 +302,21 @@ export function createSettings(deps) {
         d.deleteChatConfigProvider(deleteProvider.dataset.chatcfgDelete);
         return;
       }
+    });
+    document.getElementById("settings-nav").addEventListener("keydown", event => {
+      const current = event.target.closest("[data-set-section]");
+      if (!current) return;
+      const tabs = [...document.querySelectorAll("#settings-nav [data-set-section]")];
+      const index = tabs.indexOf(current);
+      let next = -1;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = tabs.length - 1;
+      if (next < 0) return;
+      event.preventDefault();
+      activateSettingsSection(tabs[next].dataset.setSection);
+      tabs[next].focus({ preventScroll: true });
     });
   }
 

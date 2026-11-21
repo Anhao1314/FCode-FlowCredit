@@ -16,7 +16,7 @@
   ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)
 
   <img src="flowcredit/docs/showcase/work-home.png" alt="FCode Work 控制台" width="100%" />
-  <img src="flowcredit/docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
+  <img src="flowcredit/docs/showcase/governance-team.png" alt="治理团队：角色、待办与运行频道" width="100%" />
 </div>
 
 ---

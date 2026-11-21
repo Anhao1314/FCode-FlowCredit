@@ -12,7 +12,7 @@
   `MODEL PROPOSES · HOST VERIFIES · YOU DECIDE`
 
   <img src="docs/showcase/work-home.png" alt="FCode Work 控制台" width="100%" />
-  <img src="docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
+  <img src="docs/showcase/governance-team.png" alt="治理团队：角色、待办与运行频道" width="100%" />
 </div>
 
 ---
@@ -118,8 +118,6 @@ Web 目标走治理化链路，不在 CLI 里直接抓 URL：
 
 真实站点验证：3 页受控覆盖、28 个静态资产、4 个运行时第三方 origin，产出 4 条发现——两条 medium 为缺失 5/6 安全响应头与运行时直连 Web3Modal / WalletConnect 等外部服务；所有发现都有 probe/control 双跑、负对照与重放收据。
 
-<img src="docs/showcase/audit-evidence.png" alt="审计发现：严重度、指纹、证据面板与处置" width="100%" />
-
 ### 一条线程，看清工作
 
 Work 把执行过程组织成 **项目 → 运行 → 状态／计划 → 工具与审批 → 最终回复**，不再用互相割裂的卡片拼接进度：
@@ -142,7 +140,7 @@ Work 把执行过程组织成 **项目 → 运行 → 状态／计划 → 工具
 
 完整设计见 [治理上下文与记忆核心](docs/gov-memory.md)。
 
-<img src="docs/showcase/gov-memory.png" alt="治理对话：制度注入与双轨回答" width="100%" />
+<img src="docs/showcase/governance-console.png" alt="治理台：命令、运行结果与操作员边界" width="100%" />
 
 真实模型接入与 Provider 配置见 [Kimi 接入说明](docs/kimi.md)。密钥只放在本机环境或本地配置中，不要提交到仓库。
 

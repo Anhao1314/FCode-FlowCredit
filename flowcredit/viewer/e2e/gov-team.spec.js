@@ -32,19 +32,24 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
   await expect(page.locator("#gov-team-summary")).toContainText("常驻角色");
   await expect(page.locator("#gov-team-summary")).toContainText("Phase C");
-  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state]')).toHaveCount(3);
-  // 头像不是静态图案：眨眼/呼吸持续在跑（与对话区同一张实时脸）
-  await expect.poll(async () => page.locator('#gov-team-roster .ai-avatar').first()
-    .locator('.ai-eye').first().evaluate(el => getComputedStyle(el).animationName)).toBe("ai-avatar-blink");
+  await expect(page.locator('#gov-team-roster .gov-agent-avatar[data-ai-state]')).toHaveCount(3);
+  await expect(page.locator('#gov-team-roster [data-agent-role="auditor"]')).toHaveCount(1);
+  await expect(page.locator('#gov-team-roster [data-agent-role="verifier"]')).toHaveCount(1);
+  await expect(page.locator('#gov-team-roster [data-agent-role="analyst"]')).toHaveCount(1);
+  await expect(page.locator('#gov-team-roster .gov-agent-symbol')).toHaveCount(3);
+  await expect(page.locator('#gov-team-roster .ai-eye')).toHaveCount(0);
   await expect(page.locator(".composer-wrap")).toBeHidden();
 
   // 审计员：目标路径 → 团队频道出现运行消息并完成
   await page.locator("#gov-bot-select").selectOption("auditor");
   await page.locator("#gov-bot-target").fill("fixtures/demo-target");
   await page.locator("#gov-bot-dispatch button[type=submit]").click();
-  // 实时状态：派活后花名册头像立即进入 thinking（扫视 + 呼吸环）
-  await expect(page.locator('#gov-team-roster .ai-avatar[data-ai-state="thinking"]').first())
-    .toBeVisible({ timeout: 15_000 });
+  // 实时状态：角色符号不变，状态灯与呼吸环进入 thinking。
+  const activeAvatar = page.locator('#gov-team-roster .gov-agent-avatar[data-ai-state="thinking"]').first();
+  await expect(activeAvatar).toBeVisible({ timeout: 15_000 });
+  await expect(activeAvatar.locator(".gov-agent-symbol")).toBeVisible();
+  await expect(activeAvatar.locator(".gov-agent-status-dot")).toBeVisible();
+  await expect(activeAvatar.locator(".ai-avatar-ring")).toBeVisible();
   const auditorMessage = page.locator("#gov-team-channel .gov-bot-message", { hasText: "审计员" }).last();
   await expect(auditorMessage).toBeVisible({ timeout: 15_000 });
   await expect(auditorMessage).toContainText("完成", { timeout: 90_000 });
@@ -80,4 +85,53 @@ test("治理团队:审计员扫描、复核员验链、消息回工作台", asyn
   await expect(page.locator("#main")).toHaveAttribute("data-view", "gov");
   await expect(page.locator("#gov-summary .gov-target-head")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator("#gov-findings-list [data-gov-finding]").first()).toBeVisible();
+});
+
+test("子代理详情与工作台不残留团队频道上下文", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator('#zone-switch [data-zone="gov"]').click();
+  await page.locator('[data-gov-mode="team"]').click();
+  await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
+  await expect(page.locator("#gov-team-channel")).toBeVisible();
+
+  await page.locator('.gov-bot-card[data-bot-id="auditor"] [data-gov-bot-open]').click();
+  await expect(page.locator("#gov-bot-detail-host .gov-bot-detail-head")).toBeVisible();
+  await expect(page.locator(".rail")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator(".rail-kicker")).toHaveText("任务详情");
+  await expect(page.locator("#gov-team-channel")).toHaveCount(0);
+
+  await page.locator("[data-gov-bot-back]").click();
+  await expect(page.locator("#gov-team-channel")).toBeVisible();
+  await page.locator('[data-gov-mode="workbench"]').click();
+  await expect(page.locator("#gov-summary .gov-target-head")).toBeVisible();
+  await expect(page.locator(".rail")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#gov-team-channel")).toHaveCount(0);
+});
+
+test("治理团队:900px 与 375px 抽屉导航、频道与控制台无横向溢出", async ({ page }) => {
+  for (const width of [900, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.waitForSelector('body[data-booted="1"]');
+    await page.locator("#workspace-menu").click();
+    await page.locator('#zone-switch [data-zone="gov"]').click();
+    await expect(page.locator(".sidebar")).toHaveAttribute("aria-hidden", "true");
+
+    await page.locator("#workspace-menu").click();
+    await page.locator('[data-gov-mode="team"]').click();
+    await expect(page.locator(".sidebar")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.locator("#gov-team-roster .gov-bot-card")).toHaveCount(3);
+    await expect(page.locator("#gov-team-channel")).toBeVisible();
+    await page.locator(".rail-close").click();
+    await expect(page.locator(".rail")).toHaveAttribute("aria-hidden", "true");
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+    await page.locator("#workspace-menu").click();
+    await page.locator('[data-gov-mode="dialog"]').click();
+    await expect(page.locator(".sidebar")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.locator("#gov-dialog-stream .gov-dialog-intro")).toBeVisible();
+    await expect(page.locator("#composer-ta")).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
 });

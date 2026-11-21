@@ -44,3 +44,46 @@ test("设置页:开合与审批档位渲染", async ({ page }) => {
   await page.locator("#settings-back").click();
   await expect(page.locator("#settings-page")).toBeHidden();
 });
+
+test("设置页:单章节切换、键盘导航与窄屏布局", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator("#settings-btn, #settings-mobile").first().click();
+  await expect(page.locator("#set-appearance")).toBeVisible();
+  await expect(page.locator("#set-model")).toBeHidden();
+  await expect(page.locator("#settings-content .set-section:visible")).toHaveCount(1);
+
+  const delegation = page.locator("#settings-tab-delegation");
+  await delegation.click();
+  await expect(page.locator("#set-delegation")).toBeVisible();
+  await expect(page.locator("#set-appearance")).toBeHidden();
+  await expect(delegation).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-set-approval="all"]').click();
+  await expect(page.locator('[data-set-approval="all"]')).toHaveAttribute("aria-checked", "true");
+
+  await delegation.focus();
+  await delegation.press("ArrowRight");
+  await expect(page.locator("#set-model")).toBeVisible();
+  await expect(page.locator("#set-delegation")).toBeHidden();
+  await expect(page.locator("#settings-tab-model")).toBeFocused();
+  await expect(page.locator("#chatcfg")).toBeVisible();
+
+  await page.locator("#settings-tab-memory").click();
+  await expect(page.locator("#set-memory")).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 800 });
+  await expect(page.locator("#settings-done")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.locator("#settings-tab-notify").click();
+  await expect(page.locator("#set-notify")).toBeVisible();
+  await expect(page.locator("#set-model")).toBeHidden();
+  await expect(page.locator("#settings-content .set-section:visible")).toHaveCount(1);
+  for (const width of [768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.locator("#settings-done").click();
+  await expect(page.locator("#settings-page")).toBeHidden();
+  expect(errors).toEqual([]);
+});

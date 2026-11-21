@@ -689,6 +689,7 @@ export async function init({ fetchImpl = fetch, root = document, host = null,
 
 export function createAuditSurface(deps) {
   const d = deps;
+  let renderEpoch = 0;
 
   function writeAuditHash(dir) {
     const next = dir ? `#/audit/${dir}` : "#/audit";
@@ -706,6 +707,7 @@ export function createAuditSurface(deps) {
   }
 
   async function renderAudit() {
+    const epoch = ++renderEpoch;
     d.beforeEnter();
     d.setChrome();
     // 发现账本收进右上 rail：进审计台自动展开（用户可随时 × 收起）。
@@ -719,8 +721,10 @@ export function createAuditSurface(deps) {
       onSelect: (dir) => writeAuditHash(dir),
       fetchImpl: d.fetchImpl || fetch,
     });
-    // deep link(#/audit/<dir>):包列表就绪后点击对应条目;期间用户切走则放弃。
-    if (d.getMode() !== "audit" || !preselect) return;
+    // deep link(#/audit/<dir>):包列表就绪后点击对应条目;期间用户切走、
+    // 再次导航或 hash 已变化则放弃,防止过期请求重新选中旧包。
+    if (epoch !== renderEpoch || d.getMode() !== "audit" || !preselect
+        || auditHashTarget(location.hash) !== preselect) return;
     const item = document.querySelector(
       `#at-bundles .at-bitem[data-dir="${CSS.escape(preselect)}"]`);
     if (item) item.click();

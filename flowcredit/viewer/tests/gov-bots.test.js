@@ -7,6 +7,7 @@ import {
   govBotDispatchHtml, govBotRunHtml, govBotChannelHtml,
   govBotRoutineFormHtml, govBotRoutinesHtml,
   govBotSettingsFormHtml, govBotSkillsHtml, govBotDetailHtml, govTriageBlock,
+  govAgentAvatarHtml, govHomeCrewHtml,
 } from "../core/gov-bots.js";
 
 const bots = [
@@ -56,10 +57,13 @@ test("团队摘要:角色数、执行中、待批准、运行数与 Phase C 标�
 test("Bot 卡片:头像、职责、运行态、最近目标与派活入口", () => {
   const html = govBotCardHtml(bots[0]);
   assert.match(html, /data-bot-id="auditor"/);
-  assert.match(html, /class="ai-avatar ai-avatar--thinking is-thinking"/);
+  assert.match(html, /class="ai-avatar ai-avatar--thinking is-thinking gov-agent-avatar gov-agent-avatar--auditor"/);
   assert.match(html, /data-ai-state="thinking"/);
   assert.match(html, /aria-label="审计员"/);
-  assert.match(html, /aria-label="审计员"/);
+  assert.match(html, /data-agent-role="auditor"/);
+  assert.match(html, /gov-agent-symbol--auditor/);
+  assert.match(html, /gov-agent-status-dot/);
+  assert.doesNotMatch(html, /ai-eye/);
   assert.match(html, /REA Auditor/);
   assert.match(html, /执行中/);
   assert.match(html, /demo-target/);
@@ -71,6 +75,35 @@ test("Bot 卡片:头像、职责、运行态、最近目标与派活入口", () 
   assert.match(idle, /最近/);
   assert.match(idle, /完成/);
   assert.doesNotMatch(idle, /正在执行/);
+});
+
+test("子代理角色符号:三种职责、状态与身份转义", () => {
+  for (const bot of bots) {
+    const html = govAgentAvatarHtml("ok", 32, bot);
+    assert.match(html, new RegExp(`data-agent-role="${bot.id}"`));
+    assert.match(html, new RegExp(`gov-agent-symbol--${bot.id}`));
+    assert.match(html, /data-ai-state="ok"/);
+    assert.match(html, /gov-agent-status-dot/);
+    assert.doesNotMatch(html, /ai-eye/);
+  }
+  const escaped = govAgentAvatarHtml("unknown", 32, { id: "unknown", name: '<img>' });
+  assert.match(escaped, /data-ai-state="idle"/);
+  assert.match(escaped, /data-agent-role="auditor"/);
+  assert.equal(escaped.includes('<img>'), false);
+  assert.match(escaped, /&lt;img&gt;/);
+});
+
+test("治理首页角色编组:保留三种动画角色且不伪造运行态", () => {
+  const html = govHomeCrewHtml();
+  assert.equal((html.match(/class="gov-home-agent"/g) || []).length, 3);
+  assert.equal((html.match(/data-ai-state="idle"/g) || []).length, 3);
+  for (const role of ["auditor", "verifier", "analyst"]) {
+    assert.match(html, new RegExp(`data-agent-role="${role}"`));
+  }
+  assert.match(html, /审计员/);
+  assert.match(html, /复核员/);
+  assert.match(html, /分析员/);
+  assert.doesNotMatch(html, /is-thinking|ai-avatar-ring/);
 });
 
 test("花名册空态不伪造 Bot", () => {
@@ -159,7 +192,7 @@ test("排程列表:身份头像、下次触发、启停与删除", () => {
   }];
   const html = govBotRoutinesHtml(withRoutine);
   assert.match(html, /data-routine-id="rt-1"/);
-  assert.match(html, /class="ai-avatar ai-avatar--idle"/);
+  assert.match(html, /class="ai-avatar ai-avatar--idle gov-agent-avatar gov-agent-avatar--auditor"/);
   assert.match(html, /data-ai-state="idle"/);
   assert.match(html, /fixtures\/demo-target/);
   assert.match(html, /每天 09:00/);
@@ -257,7 +290,7 @@ test("Bot 详情:动画头像、职责、设置、技能、排程与最近运行
   const html = govBotDetailHtml(bot, [{
     run_id: "rp", bot_id: "auditor", target: "demo", status: "pending", trigger: "routine",
   }]);
-  assert.match(html, /class="ai-avatar ai-avatar--pending"/);
+  assert.match(html, /class="ai-avatar ai-avatar--pending gov-agent-avatar gov-agent-avatar--auditor"/);
   assert.match(html, /data-ai-state="pending"/);
   assert.match(html, /ai-avatar-ring is-pending/);
   assert.match(html, /职责与权限/);

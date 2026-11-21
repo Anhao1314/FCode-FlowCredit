@@ -32,6 +32,7 @@ test("设置页:自定义端点新增→目录出现→两步删除", async ({ p
   await page.waitForSelector('body[data-booted="1"]');
   await page.locator("#user-btn").click();
   await page.locator("#foot-menu").getByText("设置", { exact: true }).click();
+  await page.locator('[data-set-section="model"]').click();
   await expect(page.locator('#chatcfg-cards [data-chatcfg-card="kimi"]')).toBeVisible({ timeout: 15_000 });
 
   // 新增：表单只填必填项（价格审计字段已有默认值 0 / not-applicable / operator-declared）

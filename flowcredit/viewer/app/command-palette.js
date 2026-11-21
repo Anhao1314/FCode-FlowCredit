@@ -14,6 +14,7 @@ export function createCommandPalette(deps) {
 
   let palItems = [];
   let palActive = 0;
+  let paletteReturnFocus = null;
 
   function setAllRounds(open) {
     for (const el of document.querySelectorAll(".th-item.th-tool")) {
@@ -88,10 +89,11 @@ export function createCommandPalette(deps) {
     let lastGroup = "";
     palItems.forEach((item, index) => {
       if (item.group !== lastGroup) {
-        html += `<div class="pal-group">${esc(item.group)}</div>`;
+        html += `<div class="pal-group" role="presentation">${esc(item.group)}</div>`;
         lastGroup = item.group;
       }
-      html += `<button class="pal-item${index === palActive ? " active" : ""}" data-idx="${index}">
+      html += `<button type="button" class="pal-item${index === palActive ? " active" : ""}"
+        id="palette-option-${index}" role="option" aria-selected="${index === palActive}" tabindex="-1" data-idx="${index}">
         <span class="pal-ic">${esc(item.ic || "")}</span>
         <span class="pal-label">${esc(item.label)}</span>
         ${item.hint ? `<span class="pal-hint">${esc(item.hint)}</span>` : ""}
@@ -104,17 +106,26 @@ export function createCommandPalette(deps) {
   function highlightPalette() {
     const list = document.getElementById("palette-list");
     for (const button of list.querySelectorAll(".pal-item")) {
-      button.classList.toggle("active", Number(button.dataset.idx) === palActive);
+      const selected = Number(button.dataset.idx) === palActive;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
     }
     const active = list.querySelector(".pal-item.active");
-    if (active) active.scrollIntoView({ block: "nearest" });
+    const input = document.getElementById("palette-input");
+    if (active) {
+      input.setAttribute("aria-activedescendant", active.id);
+      active.scrollIntoView({ block: "nearest" });
+    } else input.removeAttribute("aria-activedescendant");
   }
 
   function openPalette() {
     const overlay = document.getElementById("palette");
     if (!overlay) return;
-    overlay.hidden = false;
     const input = document.getElementById("palette-input");
+    if (!overlay.hidden) { input.focus(); return; }
+    paletteReturnFocus = document.activeElement;
+    overlay.hidden = false;
+    input.setAttribute("aria-expanded", "true");
     input.value = "";
     palActive = 0;
     renderPalette();
@@ -123,7 +134,20 @@ export function createCommandPalette(deps) {
 
   function closePalette() {
     const overlay = document.getElementById("palette");
-    if (overlay) overlay.hidden = true;
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    const input = document.getElementById("palette-input");
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    const returnFocus = paletteReturnFocus;
+    paletteReturnFocus = null;
+    if (returnFocus && returnFocus.isConnected !== false && typeof returnFocus.focus === "function") {
+      /* Restore after the hidden dialog's native focus cleanup. A following
+         palette action runs in the next timer and may intentionally move focus. */
+      setTimeout(() => {
+        if (overlay.hidden && returnFocus.isConnected !== false) returnFocus.focus({ preventScroll: true });
+      }, 0);
+    }
   }
 
   function togglePalette() {

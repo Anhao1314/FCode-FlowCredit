@@ -7,7 +7,7 @@ test("Work 落地渲染:任务舞台 + 模型徽章 + 侧栏导航", async ({ pa
   await page.waitForSelector('body[data-booted="1"]');
   await expect(page.locator("#main")).toHaveAttribute("data-view", "empty");
   await expect(page.locator("#chain-badge")).toContainText("无进行中的运行");
-  await expect(page.locator(".moonshot-title")).toContainText("Build your");
+  await expect(page.locator(".moonshot-title")).toContainText("今天想");
   await expect(page.locator("#chat-projects")).toContainText("项目");
   // 模型徽章来自 paintModelBadge(新 composer-panel 模块):全新档案的
   // 默认模型可能落在云端条目或离线 mock,断言"有可读徽章"而非具体值
@@ -49,8 +49,42 @@ test("⌘K 命令面板:开合、过滤、键盘导航", async ({ page }) => {
 
 test("Escape 关闭命令面板", async ({ page }) => {
   await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator("#side-search").focus();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.locator("#palette")).toBeVisible();
+  const input = page.locator("#palette-input");
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute("aria-expanded", "true");
+  await expect(input).toHaveAttribute("aria-activedescendant", "palette-option-0");
+  await expect(page.locator("#palette-option-0")).toHaveAttribute("aria-selected", "true");
+  await input.press("Tab");
+  await expect(input).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#palette")).toBeHidden();
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#side-search")).toBeFocused();
+});
+
+test("窄屏事件面板管理焦点，输入态 Escape 也能关闭", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  const rail = page.locator("#task-rail");
+  await page.locator("#rail-toggle").click();
+  await expect(rail).toHaveAttribute("aria-modal", "true");
+  await expect(page.locator(".rail-close")).toBeFocused();
+  await page.locator("#composer-ta").focus();
+  await page.keyboard.press("Escape");
+  await expect(rail).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#rail-toggle")).toBeFocused();
+});
+
+test("桌面事件面板保持非模态", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  await page.locator("#rail-toggle").click();
+  await expect(page.locator("#task-rail")).not.toHaveAttribute("aria-modal", "true");
+  await expect(page.locator("#task-rail")).toHaveAttribute("aria-hidden", "false");
 });
