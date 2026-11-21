@@ -47,8 +47,8 @@ EXPECTED = {
     ),
 }
 
-CHAT_SHA256 = "bac45dbfd2af50025aa7e71ea2a461fc11b084f0d3e0141307205eae19a362f8"
-CHAT_BYTES = 1223
+CHAT_SHA256 = "570ee165c5822832bd83265f481916af6d9204945d71b7d3b62e11024cbca8af"
+CHAT_BYTES = 1400
 
 
 class PromptSnapshotTests(unittest.TestCase):

@@ -99,6 +99,17 @@ class AuditService:
                     "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
                     "regression": bundle.get("regression"),
                 })
+        # Newest first: directory names are target-first, so plain glob order
+        # is alphabetical by target, not by audit date. The chat snapshot takes
+        # the head, and callers expect "recent" to mean recent. Ties (including
+        # undated dirs) keep the old alphabetical order.
+        def date_key(entry: dict) -> str:
+            haystack = f"{entry.get('dir') or ''} {entry.get('audit_id') or ''}"
+            match = re.search(r"(\d{4}-\d{2}-\d{2})", haystack)
+            return match.group(1) if match else ""
+
+        bundles.sort(key=lambda entry: str(entry.get("dir") or ""))
+        bundles.sort(key=date_key, reverse=True)
         return {"bundles": bundles}
 
     def bundle(self, name: str) -> dict | tuple[dict, int]:
@@ -108,9 +119,19 @@ class AuditService:
         if not path.exists():
             return {"error": "not found"}, 404
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            bundle = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"error": "unreadable bundle"}, 500
+        # P1：外部刀的第二证据面（external-scanners.json 与 bundle 同目录、
+        # 不进 bundle 哈希）——缺文件不添键，绝不伪造扫描结果。
+        external = self._within(name, "external-scanners.json")
+        if external is not None and external.exists():
+            try:
+                bundle["external_scanners"] = json.loads(
+                    external.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                bundle["external_scanners"] = {"error": "unreadable"}
+        return bundle
 
     def evidence(self, name: str, poc_id: str) -> dict | tuple[dict, int]:
         if not _AUDIT_POC_RE.match(poc_id or ""):
@@ -251,6 +272,51 @@ class AuditService:
             return {"error": f"cannot read session: {error}"}, 500
 
     # ------------------------------------------------------------- disposition
+
+    def record_model_candidates(self, name: str,
+                                candidates: list[dict]) -> list[str]:
+        """Append semantic (model) candidates to the audit session chain.
+
+        The viewer never touches ``flowaudit.session`` directly (zone
+        isolation): it passes structured candidate rows and this service owns
+        the chain write. Shadow candidates carry ``actor=model-shadow`` and no
+        replay receipt, so the promotion gate can never turn them into
+        findings — the candidates live on the chain, not in the bundle.
+        """
+        if self.root is None or not _AUDIT_DIR_RE.match(name or ""):
+            raise ValueError("not found")
+        audit_dir = (self.root / name).resolve()
+        if self.root.resolve() not in audit_dir.parents:
+            raise ValueError("not found")
+        db_path = audit_dir / "session.sqlite"
+        if not db_path.exists():
+            raise ValueError("bundle has no audit session chain; hunt unavailable")
+        bundle = self.bundle(name)
+        if isinstance(bundle, tuple):
+            raise ValueError("bundle unreadable")
+        audit_id = str(bundle.get("audit_id") or name)
+        src = Path(__file__).resolve().parents[1] / "src"
+        if str(src) not in sys.path and (src / "flowaudit" / "__init__.py").exists():
+            sys.path.insert(0, str(src))
+        from flowagent.core.store import TaskStore
+        from flowaudit.session import AuditSession
+
+        session = AuditSession.attach(TaskStore(db_path), f"audit-{audit_id}")
+        ids: list[str] = []
+        for item in candidates or []:
+            if not isinstance(item, dict):
+                continue
+            ids.append(session.propose_model_candidate(
+                surface=str(item.get("surface") or ""),
+                hypothesis=str(item.get("hypothesis") or ""),
+                evidence_refs=[str(r) for r in item.get("evidence_refs") or []],
+                attack_scenario=str(item.get("attack_scenario") or ""),
+                verification_plan=str(item.get("verification_plan") or ""),
+                severity_guess=str(item.get("severity_guess") or ""),
+                knowledge_based=bool(item.get("knowledge_based")),
+                actor="model-shadow",
+            ))
+        return ids
 
     def disposition(self, name: str, finding_id: str,
                     disposition: str) -> dict | tuple[dict, int]:

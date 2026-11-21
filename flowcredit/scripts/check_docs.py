@@ -43,9 +43,9 @@ STALE = (
     "targets/repo.py` | **唯一",
 )
 REQUIRED = {
-    ROOT.parent / "README.md": ("--adapter rea", "audit.html"),
-    ROOT / "README.md": ("--adapter rea", "audit.html"),
-    ROOT / "viewer" / "README.md": ("/api/audit/bundles", "/api/audit/rea/", "audit.html"),
+    ROOT.parent / "README.md": ("--adapter rea", "#/audit"),
+    ROOT / "README.md": ("--adapter rea", "#/audit"),
+    ROOT / "viewer" / "README.md": ("/api/audit/bundles", "/api/audit/rea/", "#/audit"),
 }
 
 

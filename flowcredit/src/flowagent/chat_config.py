@@ -111,6 +111,18 @@ class ChatProviderConfig:
     #: ``tool_calls`` deltas. False means the chat loop falls back to the
     #: historical text-only turn (no tools offered, no execution).
     supports_tools: bool = False
+    #: Parallel tool calls and reasoning deltas are transport capabilities the
+    #: chat loop reads directly; a provider that does not advertise them keeps
+    #: the conservative single-call, text-only shape.
+    supports_parallel_tools: bool = False
+    supports_reasoning: bool = False
+    reasoning_field: str = "reasoning_content"
+    supports_effort: bool = False
+    temperature_mode: str = "send-configured"
+    json_mode: bool = True
+    stream: bool = True
+    max_context_tokens: int = 200_000
+    max_output_tokens: int = 0
     #: When the prices above were read, and from where. Mandatory for the same
     #: reason the delegation presets demand it: an undated price turns the
     #: budget ceiling into a guess. One settings page, one contract.

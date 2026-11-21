@@ -23,6 +23,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 from console_scheduler import describe_next, is_due, parse_hhmm
@@ -320,6 +321,25 @@ class GovBotService:
             ).fetchall()
         return {row["run_id"]: dict(row) for row in rows}
 
+    def explanations_for_audit(self, audit_dir: str) -> list[dict]:
+        """一个审计包的解读层：包级 `audit:<dir>` + 发现级 `audit:<dir>:<fid>`。
+
+        目录名被 `_AUDIT_DIR_RE` 约束（小写字母数字点连字符），不含 LIKE
+        通配符，前缀匹配是精确的。这些记录与 bot run 解读（`bot-*`）空间
+        不重叠，团队频道的 explanations_map 不受影响。
+        """
+        clean = str(audit_dir or "").strip()
+        if not clean:
+            return []
+        prefix = f"audit:{clean}"
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM bot_explanations WHERE run_id=? OR run_id LIKE ?"
+                " ORDER BY created DESC, rowid DESC",
+                (prefix, prefix + ":%"),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     # ------------------------------------------------------- settings / skills
 
     def get_settings(self, bot_id: str) -> dict:
@@ -580,9 +600,14 @@ class GovBotService:
                 continue
 
     def _has_running(self, bot_id: str) -> bool:
+        # A pending run is an unresolved operator decision, not an idle slot.
+        # Counting only queued/running let every daily schedule enqueue another
+        # pending approval while the previous one was still waiting, producing
+        # an ever-growing approval queue that silently consumed the bot budget.
         with self._lock:
             row = self._db.execute(
-                "SELECT 1 FROM bot_runs WHERE bot_id=? AND status IN ('queued','running') LIMIT 1",
+                "SELECT 1 FROM bot_runs WHERE bot_id=?"
+                " AND status IN ('pending','queued','running') LIMIT 1",
                 (bot_id,),
             ).fetchone()
         return row is not None
@@ -972,6 +997,27 @@ class GovBotService:
                      *, job_id: str | None = None,
                      target_md: str | None = None,
                      osv_snapshot: str | None = None) -> None:
+        # P1：URL 靶子治理化——宿主先做快照（robots 检查/同源枚举/响应头事实/
+        # 溯源入链），再审计快照目录。快照失败如实 failed，不起半成品审计。
+        snapshot_dir: str | None = None
+        if str(target).startswith(("http://", "https://")):
+            try:
+                from web_snapshot import snapshot_url
+
+                parsed_host = urlsplit(target).netloc.replace(":", "-")
+                snapshot_path = Path(self.audit.repo) / "workspace-general" / "web" / parsed_host
+                provenance = snapshot_url(target, snapshot_path)
+                snapshot_dir = str(snapshot_path)
+                target = snapshot_dir
+                # target_md 的契约是"仓库相对的描述文件路径"——PROVENANCE.md
+                # 就是治理化快照的 target descriptor（随 audit job 入链）；
+                # 传内联文本会撞 "target descriptor not found"（实测踩过）。
+                target_md = f"workspace-general/web/{parsed_host}/PROVENANCE.md"
+                self._update(run_id, target=target)
+            except Exception as error:  # noqa: BLE001 — 快照失败是审计失败的事实
+                self._finish(run_id, status="failed",
+                             error=f"snapshot failed: {type(error).__name__}: {error}"[:200])
+                return
         job_id = job_id or self.audit.start_run(
             target, target_md=target_md, osv_snapshot=osv_snapshot)
         self._update(run_id, job_id=job_id)
@@ -988,6 +1034,37 @@ class GovBotService:
                     findings=int(job.get("findings") or 0),
                     evidence=int(job.get("evidence") or 0),
                 )
+                # 静止加密（opt-in）：审计完成后目标内容加密归档、明文删除；
+                # 审计包/证据元数据保持可读——验证不需要解密全文。
+                if snapshot_dir:
+                    try:
+                        from audit_privacy import encrypt_dir, encryption_enabled, prune_archives
+
+                        if encryption_enabled():
+                            from pathlib import Path as _SnapshotPath
+
+                            site = _SnapshotPath(snapshot_dir).name
+                            encrypt_dir(
+                                snapshot_dir,
+                                archive_name=f"{site}-{audit_id}.tar.enc",
+                            )
+                            prune_archives(snapshot_dir, keep=5)
+                    except Exception as error:  # noqa: BLE001 — 加密失败要可见
+                        self._update(run_id, error=f"encrypt degraded: {error}"[:160])
+                # 外部刀（第二证据面）：只对快照类靶子跑，结果落审计目录旁
+                # （external-scanners.json，不进 bundle 哈希）；缺刀如实降级。
+                if snapshot_dir:
+                    try:
+                        from web_scanners import run_scanners
+
+                        results = run_scanners(snapshot_dir)
+                        results["snapshot_dir"] = snapshot_dir
+                        audit_dir = Path(getattr(self.audit, "root") or "") / str(audit_id)
+                        audit_dir.mkdir(parents=True, exist_ok=True)
+                        (audit_dir / "external-scanners.json").write_text(
+                            json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+                    except Exception as error:  # noqa: BLE001 — 刀失败如实降级
+                        self._update(run_id, error=f"external scanners degraded: {error}"[:160])
                 # 审计已完成才做 triage：它是完成后的跟进提议，不阻塞审计终态。
                 self._after_audit(run_id, audit_id)
                 return

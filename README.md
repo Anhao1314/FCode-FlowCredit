@@ -16,6 +16,7 @@
   ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)
 
   <img src="flowcredit/viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
+  <img src="flowcredit/docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
 </div>
 
 ---
@@ -109,6 +110,8 @@ python3 audit.py audit /Applications/EvoX.app \
 
 审计台读取 `work/audit/<audit_id>/` 的 bundle 与 PoC Evidence，不执行目标。启动 Work 控制台后从侧栏「审计台」进入（`#/audit`；旧 `/audit.html` 链接会 302 到新入口）。
 
+网站目标走治理团队（`/挖洞 <url>`）：先做治理化快照（robots、响应头、溯源），再审计快照目录；规则集 v11 的 WEB-01–WEB-07 覆盖第三方脚本、SRI、内联事件、`eval`、sourcemap、安全响应头与运行时第三方源。治理对话另有制度层（`GOVERNANCE.md`）、分段快照、压缩与四个只读 JIT 工具，详见 [治理上下文与记忆核心](flowcredit/docs/gov-memory.md)。
+
 审计台与方法见 [审计方法论](flowcredit/docs/audit-methodology.md)、[REA 证据融合](flowcredit/docs/integration-rea.md) 和 [能力图谱](flowcredit/docs/capability-map.md)。
 
 ## 快速开始
@@ -152,12 +155,12 @@ bash desktop/build.sh
 ## 验证，而不是感觉
 
 ```bash
-python3 -m unittest discover -s tests -q       # 1,406 Python tests
+python3 -m unittest discover -s tests -q       # 1,476 Python tests
 node --test viewer/tests/*.test.js              # 418 frontend tests
 python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
 ```
 
-当前完整回归：**1,406 项 Python 测试、418 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
+当前完整回归：**1,476 项 Python 测试、418 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
 测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 
