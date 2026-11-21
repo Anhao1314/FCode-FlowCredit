@@ -197,3 +197,35 @@ python3.12 -m unittest discover -s tests -v
 3. 把 per-role budget 从 lab ledger 提升为 runtime 的 `budget_scope`；
 4. 单链父任务 + `agent_role` 事件（可选，需核心改动）；
 5. 更多 finance 任务和 Reviewer 规则，再谈统计意义。
+
+## 6. LangGraph 三 Agent 试点（独立 lab）
+
+`labs/langgraph_swarm/` 是一个**框架实践**，不接生产 `GovBotService`：
+
+```text
+START -> Auditor -> Approval --(approved)--> Planner -> Verifier -> END
+                       |
+                       +--(rejected)--> END
+```
+
+- 用 LangGraph 1.x `StateGraph` + `interrupt()` + `MemorySaver`。
+- Auditor 跑真实离线审计 CLI；Planner 产出确定性 repair brief；Verifier 复算 handoff 链。
+- 每次 handoff 有独立的 `prev_handoff_hash` 链，manifest 另有 SHA-256 `prev_hash` 链；
+  LangGraph checkpoint 只恢复控制流，不作为证据源。
+- 批准/拒绝后恢复不会重跑 Auditor（测试断言 auditor 调用次数仍为 1）。
+
+运行：
+
+```bash
+uv venv --python 3.12 .venv-langgraph
+uv pip install --python .venv-langgraph/bin/python -r labs/langgraph_swarm/requirements.txt
+.venv-langgraph/bin/python -m labs.langgraph_swarm.cli \
+  --target fixtures/demo-target --auto-approve
+```
+
+本次实跑结果：`status=verified`，3 findings，ruleset v10，6 条 manifest 记录，
+handoff 链完整。4 个 lab 测试全过；主仓库的 stdlib gate 在 LangGraph 缺失时跳过它们。
+
+边界：这是一个**可暂停/恢复的图编排试点**，不是 LLM 自主协作，也不是生产多 Agent
+替换。下一步才是把 handoff/approval 事件接进 FCode 的回执链，并比较 LangGraph 与
+Microsoft Agent Framework 的审批语义。

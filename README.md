@@ -12,7 +12,7 @@
   [![CI](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml/badge.svg)](https://github.com/Anhao1314/FCode-FlowCredit/actions/workflows/python.yml)
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-  <img src="flowcredit/viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
+  <img src="flowcredit/docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
 </div>
 
 ---
@@ -21,8 +21,8 @@
 
 - **问题**:agent 应用爆发式增长,而它们有一个传统软件没有的攻击面——**不可信内容会变成指令**。现有评测工具给出分数,却不给出能被第三方重新执行的证据。
 - **做法**:一个治理级 Runtime 之上(哈希链事件日志、权限门控、预算、SIGKILL 崩溃恢复,全部 stdlib-only),构建审计域 `flowaudit`:AGI 九类漏洞分类法、规则即数据、PoC 在受限子进程中重放、**宿主侧 oracle 判定**、负对照必带、审计包可独立复核。
-- **证据**:它审计了自己的仓库——端到端挖出 1 个真实缺陷(审批记忆参数无关免审批,带正反对照重放),7 个自体缺陷归档为 ground truth;一份 49 条意见的外部对抗评审被逐条裁决并合入契约(`docs/design-reviews/`)。
-- **状态**:Sprint 2 + REA 集成 MVP(2026-11)。**791 项 Python 测试 + 183 项前端测试全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
+- **证据**:它审计了自己的仓库——确认 AGI 类真实缺陷(含审批记忆参数绕过,带正反对照重放),其余 VIBE 发现按规则集如实报告;7 个自体缺陷归档为 ground truth;一份 49 条意见的外部对抗评审被逐条裁决并合入契约(`docs/design-reviews/`)。
+- **状态**:Sprint 2 + REA + Web 解剖 P1–P3 + 治理记忆核心(2026-11)。**1,599 项 Python 测试 + 445 项前端测试 + 40 个端到端场景全绿**(CI 在 Ubuntu/macOS × Python 3.11/3.13 上重新推导)。
 
 ## 它和评分工具的区别
 
@@ -46,7 +46,8 @@ cd FCode-FlowCredit/flowcredit
 
 python audit.py audit fixtures/demo-target
 # → 30 秒看到审计器工作:内置漏洞样例应用 MiniAgent,
-#   2 条发现(审批记忆绕过 AGI-02 / 明文密钥 AGI-03),每条附可重放证据
+#   3 条发现(审批记忆绕过 AGI-02 / 明文密钥 AGI-03 / 通用密钥扫描 VIBE-07),
+#   每条附可重放证据
 
 python demo.py all                      # 8 个治理场景,全部离线
 python audit.py audit .                 # 进阶:让审计器审计本仓库自己
@@ -56,13 +57,15 @@ python audit.py audit /Applications/EvoX.app \
   --adapter rea --declared-features "microphone"
 ```
 
-打开 Work / Chat / 审计台:
+打开 Work / Chat / 审计库:
 
 ```bash
 python viewer/server.py --repo . --port 8642
 # Work / Chat: http://127.0.0.1:8642/
-# 审计台:      http://127.0.0.1:8642/audit.html
+# 审计库:      http://127.0.0.1:8642/#/audit (旧 /audit.html 302 到此处)
 ```
+
+网站目标走治理团队（`/挖洞 <url>`）：先做治理化快照（robots、响应头、溯源），再审计快照目录；不在 CLI 里直接抓 URL。
 
 真实模型接入见 [Kimi 配置](flowcredit/docs/kimi.md);密钥只存本机环境,不进仓库。
 
@@ -84,19 +87,21 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 1. **发现 = PoC 重放通过**,宿主 oracle 执行,模型与 operator 的意见都只是输入;
 2. **FAIL 不是"不存在"**——`not_reproduced / invalid_poc / not_vulnerable_under_scope` 三值如实区分;
 3. **目标内容永远不可信**——包括 Analyst 读完它之后写下的每一行 PoC(能力清单 + 宿主校验,越界即中止);
-4. **审计器每天用自己的 19 任务基准自检**——标尺必须先证明自己没坏。
+4. **审计器每次 CI 用自己的 19 任务基准自检**——标尺必须先证明自己没坏。
 
 ## 审计产品状态(诚实版)
 
-- **已交付**:AGI 分类法 v1、审计方法论、被测试钉死的证据 Schema、垂直切片(见"证据")、外部评审裁决记录、审计台 UI(`viewer/audit.html` + 只读 `/api/audit/*`)、REA 制品证据适配器(`--adapter rea`:Go 构建信息 / bundle 解剖 / entitlements 对照 / sidecar 源码事实 / Mach-O 加载链 / 离线 OSV)、扁平 schema MCP wrapper、真实 REA CI lane。
+- **已交付**:AGI 分类法 v1、审计方法论、被测试钉死的证据 Schema、垂直切片(见"证据")、外部评审裁决记录、审计库 UI(`#/audit`，操作员处置写入 bundle 与签名链)、规则集 v11(30 条活跃规则：AGI 10 / VIBE 13 / WEB 7)、Web 解剖 P1–P3(治理化快照、运行时证据、外部扫描器、部署锚点、可选加密留存)、治理制度/记忆核心(分段快照、压缩、只读 JIT 工具)、REA 制品证据适配器(`--adapter rea`:Go 构建信息 / bundle 解剖 / entitlements 对照 / sidecar 源码事实 / Mach-O 加载链 / 离线 OSV)、扁平 schema MCP wrapper、真实 REA CI lane。
 - **Ground truth**:`fixtures/fcode-self/` 记录本仓库 7 个已确认缺陷(含 file:line 证据),划分为 dev 集(01/02/06)与**盲测集**(04/07,不进任何规则与示例)。**用自己当第一个靶子是刻意的。**
-- **尚未实现**:动态探针全量、Jev 决策模型 shadow 接线、容器级沙箱、REA sidecar JS 图、真实干净对照、CVE/OSV 情报。审计台 UI 已交付,不再是设计稿;本文档不提前声称未落地的能力存在。
+- **尚未实现**:动态探针全量、容器级沙箱、REA sidecar JS 图、真实干净对照、实时 CVE 情报源与可达性分析。审计库已交付，不再是设计稿;本文档不提前声称未落地的能力存在。
 
 ## 诚实的边界
 
 - 治理较强的**单 Agent Runtime**,不是多 Agent 集群(多 agent 在 labs/)。
 - 本地工具约束是**应用层**的;重放隔离是"审计钩子 + env 剥离 + 临时副本"强度,不是 OS 级沙箱,容器层在路线图。
 - 审计分类法覆盖**已知模式**,报告会明示未覆盖面;发现面向修复,不面向武器化。
+- Web 审计只覆盖客户端快照:robots 与反自动化挑战可能阻断,服务端行为、鉴权绕过与动态利用不在覆盖内;外部扫描器、Playwright 与加密归档依赖可选外部工具,缺失时如实降级。
+- 治理记忆只收操作员文本与确定性投影;模型不写长期记忆,只调用只读检索工具。
 - 在线模型评测保持 `NOT_RUN` 直至操作者明确授权;双 API 已冒烟(deepseek-flash / jev-1.14.0)。
 - Chat 回答有事件链与收据,不代表每个回答都经过领域 verifier 验证。
 
@@ -117,6 +122,7 @@ Audit event chain ← Receipt ← Gated execution (budget / approval)
 | **外部设计评审裁决记录** | [design-reviews](flowcredit/docs/design-reviews/) |
 | 任务基准、指标与证据 | [runtime-benchmark](flowcredit/docs/runtime-benchmark.md) |
 | 上下文与记忆 | [context-management](flowcredit/docs/context-management.md) |
+| 治理上下文与记忆核心 | [gov-memory](flowcredit/docs/gov-memory.md) |
 | 技术债与重构记录 | [refactor-evaluation](flowcredit/docs/refactor-evaluation.md) |
 
 ### 文档同步约定

@@ -38,23 +38,59 @@ jobs:
       - name: Run the versioned offline Runtime task benchmark
         run: PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/ci
 
+      - name: Audit the repository with the shipped ruleset (no silent regressions)
+        run: PYTHONPATH=src python -m flowaudit.cli audit . --out work/gate/audit-self --operator ci
+
       - name: Smoke-test the zero-configuration entry point
         run: python demo.py --list
 
       - name: Check that verification left tracked files unchanged
         run: git diff --exit-code -- .
 
+  e2e:
+    name: Browser E2E (offline deterministic)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Playwright browsers (with system deps)
+        working-directory: viewer
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser E2E suite
+        working-directory: viewer
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: viewer/playwright-report/
+          retention-days: 7
+
   all-checks-passed:
     name: All checks passed
-    needs: [verify]
+    needs: [verify, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require every matrix job to succeed
+      - name: Require every job to succeed
         env:
           VERIFY_RESULT: ${{ needs.verify.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
-          if [ "$VERIFY_RESULT" != "success" ]; then
-            echo "Verification matrix result: $VERIFY_RESULT"
-            exit 1
-          fi
+          for result in "$VERIFY_RESULT" "$E2E_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "Job result: $result"
+              exit 1
+            fi
+          done

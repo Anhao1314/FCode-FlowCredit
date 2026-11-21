@@ -91,8 +91,9 @@ python audit.py audit /Applications/EvoX.app \
 `--declared-features` 显式传逗号分隔列表；两者同时存在时显式列表优先。
 
 `--rea-bin` 省略时读取 `REA_BIN`，再退回 `PATH` 上的 `rea`。重复审计同一
-制品会得到相同的 `manifest_sha256`，`episodes.sqlite` 会按目标哈希做
-known/new/fixed/regressed 回归。
+路径的制品会沿用同一条情景时间线（按 target identity，而不是会随内容变化的
+`manifest_sha256`），产出 known/new/fixed/regressed 回归；清单哈希只作为
+内容版本留档。
 
 支持的目标类型：
 

@@ -124,12 +124,12 @@ core  →  tools / providers  →  runtime  →  demo
 | `flowaudit/` | 33 | 5,235 | 审计产品域：分类法 / PoC / 适配器 / 报告 | 只依赖 flowagent，反方向有 AST 测试 |
 | `demo/` | 13 | 2,801 | 装配 + 8 场景 + 终端渲染 | **唯一装配点** |
 | `benchmark/` | 8 | 1,304 | 19 任务评测 | 适配器只喂提案 |
-| `sft/` | 6 | 1,173 | trace → 训练数据 / 策略评测 | 依赖 demo（违规） |
+| `sft/` | 6 | 1,176 | trace → 训练数据 / 策略评测 | 依赖 demo（违规） |
 | `trajectory/` | 3 | 261 | 录制、导出、独立重校验 | 观察者，不参与决策 |
 | 包根平铺 | 10 | 2,479 | chat* / intake / pacing / review* | **缺归属层**（见 §8） |
 | **合计** | **~149** | **29,392** | | |
 
-外围：`tests/` 87 个文件、18,528 行、791 个测试；`viewer/` Python 3,902 行 + JS 14,576 行（含 183 个前端测试）；`docs/` 38 篇。
+外围：`tests/` 91 个文件、18,900 行、1,227 个测试；`viewer/` Python 3,902 行 + JS 15,800 行（含 391 个前端测试）；`docs/` 42 篇。
 
 ---
 
@@ -209,7 +209,6 @@ core  →  tools / providers  →  runtime  →  demo
 | `cases.py` | 450 | "以前做过什么"——终态 trace 变成可搜索案例簿 |
 | `facts.py` | 289 | "我们曾经相信什么"——双时态，更正靠追加 |
 | `artifacts.py` | 226 | "现在存在什么、谁产出的"——跨任务工件事实层 |
-| `summary_cache.py` | 88 | 增量摘要缓存；度量后默认关闭（点查比重算更慢） |
 
 ### 4.6 `domains/`
 
@@ -258,7 +257,7 @@ core  →  tools / providers  →  runtime  →  demo
 
 **前端（14,392 行）：**
 
-`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 183 项。
+`app.js` 5,903 行仍是主入口（作者自己的重构文档承认"部分解决"）；`app/*.js` 是拆出来的视图模块（chat-ui / task-thread / review / run-evidence 等），`core/*.js` 是 15 个零依赖组件（SSE 状态、键盘、run-card、侧栏等），`audit/audit-view.js` 承载审计台，`tests/` 368 项。
 
 ---
 
@@ -457,8 +456,8 @@ flowagent（内核） ← flowaudit（产品域） ← audit-rules / fixtures（
 
 ```bash
 cd flowcredit
-python3.12 -m unittest discover -s tests -q     # 791 tests, OK
-node --test viewer/tests/*.test.js              # 183 pass
+python3.12 -m unittest discover -s tests -q     # 1227 tests, OK
+node --test viewer/tests/*.test.js              # 391 pass
 python3.12 demo.py all                          # 8 场景全过
 python3.12 audit.py audit fixtures/demo-target
 PYTHONPATH=src python3.12 -m flowagent.benchmark --output /tmp/bench

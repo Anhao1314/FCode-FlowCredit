@@ -12,6 +12,7 @@
   `MODEL PROPOSES · HOST VERIFIES · YOU DECIDE`
 
   <img src="viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
+  <img src="docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
 </div>
 
 ---
@@ -48,7 +49,7 @@ FCode 更关心另一组问题：它读了哪些证据，调用了什么工具�
 | --- | --- | --- |
 | **大脑 / Brain** | Provider 抽象；支持 mock、本地与 OpenAI 兼容模型；模型输出动作提议 | 模型能力不等于任务已被验证 |
 | **规划 / Planning** | 目标分解、todo、轮次循环、计划跳过与提前、失败停止 | 当前以单 Agent 的计划执行为主 |
-| **记忆 / Memory** | SQLite 事件日志、上下文重建、运行历史、断点续跑 | 不是无限记忆，也不等于跨任务知识系统 |
+| **记忆 / Memory** | SQLite 事件日志、操作员长期记忆与相关召回、上下文重建、运行历史、断点续跑 | 不是无限记忆，也不等于跨任务知识系统 |
 | **工具 / Tools** | 封闭注册表、参数校验、权限门控、预算控制、签名收据 | 受限命令不是操作系统级沙箱 |
 
 ```text
@@ -84,15 +85,15 @@ python demo.py
 python viewer/server.py --repo . --port 8642
 ```
 
-打开 `http://127.0.0.1:8642/`。控制台包含 Work、Chat、任务与运行历史、审批、轨迹回放和运行控制。
+打开 `http://127.0.0.1:8642/`。默认落在 **Work 工作台**：项目、运行看板与待处理事项；Chat、任务历史、审批、轨迹回放和运行控制仍在同一壳内。
 
-### 打开审计台
+### 打开审计库（原审计台）
 
 同一服务提供只读的发现账本：
 
 ```bash
 python audit.py audit fixtures/demo-target
-# 浏览器打开 http://127.0.0.1:8642/ → 侧栏「审计台」(或直接 #/audit)
+# 浏览器打开 http://127.0.0.1:8642/ → Governance → 侧栏「审计库」(或直接 #/audit；旧 /audit.html 链接 302 到 #/audit)
 ```
 
 制品审计（没有源码的 `.app` / 二进制 / JS 树）用 REA 证据：
@@ -102,18 +103,48 @@ python audit.py audit /Applications/EvoX.app \
   --adapter rea --declared-features "microphone"
 ```
 
-审计台读取 `work/audit/<audit_id>/` 的 bundle 与 PoC Evidence，不执行目标；
+审计库读取 `work/audit/<audit_id>/` 的 bundle 与 PoC Evidence，不执行目标；
 方法见 [REA 制品证据融合](docs/integration-rea.md)。
+
+### 解剖一个网站时，实际发生了什么
+
+Web 目标不是「抓个首页跑规则」，而是一条治理化链路：
+
+- **治理化快照**：先按 robots 与同源策略抓取，记录出处（UA、出口、robots 判定、页面覆盖与跳过原因）；资产带哈希，部署锚点只存哈希与计数，便于下次直接 diff。
+- **运行时证据**：可选的 Playwright 观察面记录真实发起的第三方 origin、控制台错误、同源链接与存储键名（不取值）；挑战页（403/429/captcha）如实记为证据，不破解。
+- **规则集 v11**：新增 `WEB-01`–`WEB-07` 七类规则，覆盖第三方脚本、SRI、内联事件、`eval`、sourcemap、安全响应头、运行时第三方源。
+- **隐私与留存**：中性 UA / 可选出口代理 / 浏览器级请求头；审计目录可整体 AES-256 加密归档（`*.tar.enc`），版本化保留策略默认保留 5 份。
+- **受控覆盖**：同源子页面按上限与节流抓取，跳过原因（敏感前缀 / robots / 页面上限 / 挑战）逐条记录。
+
+以一个真实站点为例：3 页受控覆盖、28 个静态资产、4 个运行时第三方 origin，规则集产出 4 条发现——两条 medium 分别是缺失 5/6 安全响应头，以及运行时直接连接 Web3Modal / WalletConnect 等外部服务；两条 low 是代码卫生类噪音。所有发现都有 probe/control 双跑、负对照与重放收据。
+
+<img src="docs/showcase/audit-evidence.png" alt="审计发现：严重度、指纹、证据面板与处置" width="100%" />
 
 ### 一条线程，看清工作
 
-Work 把执行过程组织成 **任务 → 状态／计划 → 工具与审批 → 最终回复**，不再用互相割裂的卡片拼接进度：
+Work 把执行过程组织成 **项目 → 运行 → 状态／计划 → 工具与审批 → 最终回复**，不再用互相割裂的卡片拼接进度：
+
+- **项目是服务端实体**：目录、验证命令与归档状态持久化在 `projects.sqlite`；项目与运行都在侧栏导航，项目行展开即见其运行，主区只显示选中的任务/对话线程。
 
 - **同一事实，两种视图**：实时运行与历史重开共用统一线程投影；普通项目和完整研究使用相同的阅读结构。
 - **结果可以展开核对**：工具默认保持一行摘要，展开后查看参数、命令、真实 diff、原始输出与签名收据。diff 来自沙箱的实际前后内容，不由前端推测。
 - **审批属于具体一轮**：提交后只禁用当前审批并显示等待状态，下一轮审批不会被旧状态卡住；`?run=` 与 `?trace=` 深链始终进入 Work。
 - **项目交付保持隔离**：普通项目在独立副本中执行，交付 `FCODE_RESULT.md`，通过独立验证后可切换执行、变更和文件视图。
+- **动效交付带确定性质量门**：单文件 HTML/SVG 动画在 0/300/600/900 ms 采样，检查脚-支撑面距离（≤25 px，支撑面可以是 `.pedal`/`.deck`/`.support`）、腿/轮包围盒、`.hip` 髋锚点、腿长与腿端点；报告带 `coverage`，缺失测量显示「质量未验证」而不是 100 分。contact sheet、覆盖项和具体 issues 直接出现在最终回复，不依赖模型自述。
 - **Chat 连续对话不串线**：流式回答按线程与世代隔离；完成或停止后立即发送下一条，不会被旧回读覆盖，分页与归档也不会带回失效列表。
+
+### 治理团队怎么记住上下文
+
+治理对话不是每轮把全部历史塞给模型：
+
+- **制度层**：`GOVERNANCE.md` 按用户 → 项目 → 本机三层加载，`@path` 导入最多 4 跳，合并文本哈希随每轮 `chat_context` 事件入链；
+- **工作记忆**：快照按角色 / 待批准 / 最近运行 / 最近审计 / 最近计划 / 最近判断六段分配预算，最新优先、整行裁剪，不做尾部截断；
+- **压缩**：线程超过阈值时调用九段式摘要器，`chat_compact` 记录摘要哈希与 usage，下一轮重新注入；
+- **按需检索**：四个只读工具 `list_audits` / `read_audit` / `read_run` / `read_memory`，结果带 `result_hash` 与不可信标记入链；模型不能写长期记忆。
+
+完整设计见 [治理上下文与记忆核心](docs/gov-memory.md)。
+
+<img src="docs/showcase/gov-memory.png" alt="治理对话：制度注入与双轨回答" width="100%" />
 
 真实模型接入与 Provider 配置见 [Kimi 接入说明](docs/kimi.md)。密钥只放在本机环境或本地配置中，不要提交到仓库。
 
@@ -162,7 +193,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**791 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、183 项前端测试、8 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**1,599 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、445 项前端测试、40 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -172,8 +203,16 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 
 - FCode 当前是治理较强的**单 Agent Runtime**，不是产品级多 Agent 集群。
 - 本地工具与命令有应用层约束，但不构成操作系统级安全沙箱。
-- REA 制品审计当前只覆盖静态事实（Go 构建信息 / bundle 解剖 / entitlements）；sidecar JS 图、动态探针与 CVE 情报仍在路线图。
+- Web 审计只覆盖客户端快照：robots 与反自动化挑战可能阻断，服务端行为、鉴权绕过与动态利用不在覆盖内；`retire`、`gitleaks`、Playwright、`openssl` 都是可选外部依赖，缺失时如实降级。
+- 外部扫描器结果会合并进 bundle API，但审计库暂未渲染；`webcrack` 仍是实验性工具，不自动运行。
+- 审计目录加密需显式开启（`FCODE_AUDIT_ENCRYPT=1`），默认不加密；加密归档默认保留 5 份。
+- REA 制品审计覆盖静态事实（Go 构建信息 / bundle 解剖 / entitlements / sidecar 静态扫描）；完整 sidecar JS 图与动态探针仍在路线图。
 - Chat 附件目前以文本注入为主，不等于完整多模态理解管线。
+- `search_codebase` 是 BM25 倒排检索，不是向量语义检索；首次检索会懒构建索引（本仓库约 0.8s），之后只读快照，运行中新建的文件要用 `grep_workspace`/`read_file` 查看。
+- Fast 批量只读工具在原生 `Loop` 中并发派发；写/网络/终端仍串行，LangGraph 引擎保持顺序步骤节点。
+- `browser_inspect` 只打开 `127.0.0.1 / localhost / ::1` 预览，依赖可选的 Playwright sidecar；外部 URL、文件 URL 与非本机子资源一律拒绝。
+- `browser_act`（click/fill/press）是 write effect，按 Work 当前审批档位执行；Fast/自动运行不额外暂停，Governance 负责审计与人工复核。每次保留操作前/后截图、操作后 DOM、DOM 文本 diff 和截图变化摘要。
+- 同一工作区的浏览器检查/交互复用一条持久 Chromium 会话（空闲 5 分钟回收）；像素级截图比例依赖可选的 Pillow，缺失时退化为哈希/尺寸变化。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复只覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用；通用任务仍受模型能力与可验证性限制。
 
@@ -192,6 +231,15 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [上下文管理](docs/context-management.md) | 记忆、压缩与事件重建 |
 | [多 Agent 实验](docs/multi-agent-lab.md) | 多 Agent 方向的边界与探索 |
 | [视觉系统](docs/design-system.md) | 黑白、留白、轨道与证据语言 |
+| [Work 模式](docs/work-mode.md) | 项目实体、运行看板与待处理队列的当前边界 |
+| [治理对话](docs/gov-chat.md) | 正常模型对话 + `gov_action` 提案确认；模型不进裁决 |
+| [治理上下文与记忆核心](docs/gov-memory.md) | 制度文件、分段快照、压缩与只读 JIT 工具 |
+| [治理解释层](docs/gov-explainer.md) | 模型解释确定性证据（非裁决）的边界与 API |
+| [审计员 triage](docs/gov-triage.md) | 模型只提议跟进优先级；影子/受控两档，复扫需批准 |
+| [Jev 视觉 critic](docs/jev-visual-critic.md) | 用图像型 System One 给动效做 advisory 第二意见，不接终态 |
+| [治理运行流](docs/gov-runs.md) | 对话/团队/定时共用一条运行流：来源、预算与审批语义 |
+| [目标级蜂群](docs/gov-swarm.md) | 多目标 fan-out：宿主并发调度、取消/重试与运行图 |
+| [Fixer 修复通道](docs/gov-fixes.md) | 补丁隔离验证、人工批准、写回与自动复扫 |
 | [桌面设计](docs/desktop-design.md) | Work 控制台的结构与交互 |
 | [重构评估](docs/refactor-evaluation.md) | 技术债、模块边界与演进记录 |
 
@@ -211,6 +259,7 @@ src/flowaudit/  审计域：AGI 分类法、规则、受限重放、REA 制品�
 viewer/        Work / Chat / Audit 控制台、SSE、Trace 回放
   core/        前端纯函数与交互状态
   tests/       前端回归测试
+GOVERNANCE.md  治理制度（操作员维护，逐轮注入）
 desktop/       桌面应用入口与构建脚本
 tests/         Python 单元、集成与端到端测试
 docs/          架构、设计、能力与评估文档
