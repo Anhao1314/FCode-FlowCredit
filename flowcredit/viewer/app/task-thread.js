@@ -93,12 +93,24 @@ const TOOL_GLYPH = {
   list_documents: "folder", ls_workspace: "folder",
   fetch_url: "globe", collect_source: "globe", fetch_source: "globe",
   search_corpus: "search", search_cases: "search", query_facts: "search", read_case: "file",
-  search_codebase: "search", grep_workspace: "search", repo_map: "folder",
+  search_codebase: "search", grep_workspace: "search", repo_map: "folder", find_files: "search",
   calculate_margin: "calc", normalize_units: "table", reconcile_basis: "branch",
-  check_restatement: "branch", run_command: "terminal", working_paper_append: "file",
-  write_document: "file", read_slice: "file", report_blocked: "shield",
-  verify: "check", motion_check: "play",
+  check_restatement: "branch", run_command: "terminal", terminal: "terminal",
+  working_paper_append: "file", write_document: "file", read_slice: "file", report_blocked: "shield",
+  verify: "check", motion_check: "play", git_status: "branch",
+  browser_inspect: "globe", browser_act: "globe", spawn_subagents: "branch",
   ask_operator: "message", ingest_file: "file",
+};
+
+const TOOL_ACTION = {
+  read_document: "读取文件", read_file: "读取文件", read_file_raw: "读取文件", read_slice: "读取文件",
+  write_file: "写入文件", edit_file: "修改文件", write_document: "写入文档", working_paper_append: "更新工作底稿",
+  list_documents: "查看文件", ls_workspace: "查看工作区", repo_map: "梳理项目", find_files: "查找文件",
+  search_codebase: "搜索代码", grep_workspace: "搜索工作区", search_corpus: "搜索资料", search_cases: "搜索案例",
+  run_command: "运行命令", terminal: "运行命令", git_status: "检查版本状态", motion_check: "检查动态效果",
+  fetch_url: "获取网页", fetch_source: "获取来源", collect_source: "收集来源",
+  browser_inspect: "检查页面", browser_act: "操作浏览器", verify: "运行验证",
+  ask_operator: "向你提问", report_blocked: "报告受阻", spawn_subagents: "分派子任务",
 };
 
 function icon(name, cls = "th-glyph") {
@@ -108,6 +120,20 @@ function icon(name, cls = "th-glyph") {
 
 function glyphForTool(tool) {
   return icon(TOOL_GLYPH[tool] || "terminal");
+}
+
+function toolTarget(args = {}) {
+  const value = args.path ?? args.file ?? args.command ?? args.url ?? args.query ?? args.pattern ?? args.name ?? "";
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+}
+
+export function toolAction(tool, args = {}) {
+  const raw = String(tool || "");
+  return {
+    label: raw === "独立校验" ? "独立校验" : (TOOL_ACTION[raw] || "调用工具"),
+    target: toolTarget(args),
+  };
 }
 
 /* ------------------------------------------------------------- 纯投影工具 */
@@ -182,6 +208,11 @@ export function toolOutcome(round, ann = {}, live = {}) {
   }
   if (!observation) {
     const finished = !!(live.finished || (live.trace && live.trace.terminal));
+    // A proposal plus an allowed decision is already an active invocation. The
+    // approval gate is rendered separately, so a pending gate stays "waiting".
+    if (!finished && live.running && !live.pending) {
+      return { status: "running", denied: false, code: "", message: "工具已启动，等待真实返回" };
+    }
     if (!finished) return { status: "waiting", denied: false, code: "", message: "等待工具返回" };
     const terminal = terminalKind(live.terminal || {});
     if (terminal === "stopped") return { status: "stopped", denied: false, code: "STOPPED_BY_OPERATOR", message: "运行在工具返回前被停止" };
@@ -312,13 +343,14 @@ export function threadStatus(trace, live = {}) {
   const pending = live.pending || null;
   if (pending) {
     const question = pending.kind === "question";
+    const action = toolAction(pending.tool, pending.arguments);
     return {
       state: "waiting",
       label: question ? "等待你的回答" : "等待你的授权",
       tone: "warn",
       detail: question
-        ? `第 ${pending.round || "?"} 轮 · 模型提出了一个问题`
-        : `第 ${pending.round || "?"} 轮 · ${pending.tool || "工具调用"} 需要确认`,
+        ? "回答后会从当前步骤继续"
+        : `${action.label}${action.target ? ` ${action.target}` : ""} · 授权后继续`,
     };
   }
   const kind = terminalKind(terminal);
@@ -341,14 +373,15 @@ export function threadStatus(trace, live = {}) {
   }
   if (live.running) {
     const lastRound = rounds[rounds.length - 1];
-    const waitingTool = lastRound && lastRound.proposal && !lastRound.observation
+    const activeTool = lastRound && lastRound.proposal && !lastRound.observation
       && (lastRound.decision || {}).allowed !== false;
-    if (!rounds.length) return { state: "running", label: "正在准备", tone: "live", detail: "还没有第一个轮次" };
-    if (waitingTool) {
-      const tool = (((lastRound.proposal || {}).steps || [])[0] || {}).tool || "";
-      return { state: "running", label: "正在执行", tone: "live", detail: `第 ${lastRound.index} 轮${tool ? " · " + tool : ""}` };
+    if (!rounds.length) return { state: "running", label: "正在准备任务", tone: "live", detail: "等待第一条执行计划" };
+    if (activeTool) {
+      const step = ((lastRound.proposal || {}).steps || [])[0] || {};
+      const action = toolAction(step.tool, step.arguments);
+      return { state: "running", label: `正在${action.label}`, tone: "live", detail: action.target };
     }
-    return { state: "running", label: "运行中", tone: "live", detail: `已完成 ${rounds.length} 轮` };
+    return { state: "running", label: "正在规划下一步", tone: "live", detail: `已完成 ${rounds.length} 轮` };
   }
   return { state: "unknown", label: "状态未知", tone: "warn", detail: live.error || "没有终态记录" };
 }
@@ -394,6 +427,7 @@ export function projectTaskThread(trace, live = {}, options = {}) {
 
   const status = threadStatus(source, Object.assign({}, live, { terminal }));
   const elapsed = elapsedLabel(events, terminal, live.now);
+  const startedAt = Date.parse(String((events[0] || {}).at || ""));
   const budget = lastBudget(source);
   const plan = lastPlan(source);
   items.push({
@@ -404,6 +438,8 @@ export function projectTaskThread(trace, live = {}, options = {}) {
     tone: status.tone,
     detail: status.detail,
     elapsed,
+    startedAt: Number.isFinite(startedAt) ? startedAt : null,
+    live: !!live.running && !terminal.status,
     rounds: rounds.length,
     events: events.length,
     budget: budget ? {
@@ -427,6 +463,7 @@ export function projectTaskThread(trace, live = {}, options = {}) {
       todos,
       done: todos.filter(todo => todo.status === "done").length,
       total: todos.length,
+      open: !terminal.status || !!options.planEditing,
       editing: !!options.planEditing,
       failed: !!terminal.status && terminal.status !== "succeeded",
       confirmId: options.planConfirm || null,
@@ -523,6 +560,8 @@ export function projectTaskThread(trace, live = {}, options = {}) {
       const tool = (observation && observation.tool) || decision.tool || step.tool || "";
       const args = (observation && observation.arguments) || step.arguments || {};
       const outcome = toolOutcome(round, ann, {
+        running: !!live.running && !terminal.status,
+        pending,
         finished: live.finished || !!terminal.status,
         terminal,
       });
@@ -654,16 +693,17 @@ export function projectTaskThread(trace, live = {}, options = {}) {
     });
   }
 
-  // 终态运行都把工具调用收进摘要：工具返回成功不代表计划或产物已验收。
-  if (terminal.status === "succeeded" || terminal.status === "failed") {
+  // 完成后把活动收进提示词与回答之间；耗时与步骤数都来自链上记录。
+  if (terminal.status) {
     const firstTool = items.findIndex(item => item.kind === "tool");
     const toolCount = items.filter(item => item.kind === "tool").length;
     if (firstTool >= 0) {
-      const failed = terminal.status === "failed";
+      const timing = elapsed ? `工作了 ${elapsed} · ` : "";
       items.splice(firstTool, 0, {
         kind: "process", key: "process", count: toolCount, collapsed: true,
-        label: failed ? "执行摘要" : "执行过程",
-        countLabel: failed ? `${toolCount} 次调用` : `${toolCount} 个工具`,
+        label: "工作过程",
+        countLabel: `${timing}${toolCount} 个步骤`,
+        elapsed,
       });
     }
   }
@@ -771,6 +811,15 @@ function toolBodyHtml(item, ctx) {
   if (command) sections.push(`<pre class="th-code" aria-label="命令">${esc(command)}</pre>`);
   const args = argsLine(item.args);
   if (args) sections.push(`<div class="th-args">${args}</div>`);
+  const result = (item.observation || {}).result || {};
+  const readableContent = ["read_file", "read_file_raw", "read_document", "read_slice"].includes(item.tool)
+    ? result.content : "";
+  const output = result.output ?? result.stdout ?? result.stderr ?? readableContent ?? "";
+  if (output !== "" && output !== null && output !== undefined) {
+    const text = String(output);
+    const clipped = text.length > 16000;
+    sections.push(`<pre class="th-output" data-tool-output aria-label="工具输出">${esc(clipped ? `${text.slice(0, 16000)}\n… 输出过长，已在界面截断` : text)}</pre>`);
+  }
   const files = filesOf(item);
   if (files) {
     sections.push(`<div class="th-files">${files.map(file => `<div class="th-file"><span class="s">${esc(file.status)}</span><span class="p">${esc(file.path)}</span>${file.additions !== null ? `<span class="n">+${num(file.additions)} / −${num(file.removals || 0)}</span>` : ""}</div>`).join("")}</div>`);
@@ -821,21 +870,25 @@ function toolBodyHtml(item, ctx) {
 
 function toolItemHtml(item, ctx) {
   const body = toolBodyHtml(item, ctx);
-  const open = item.status === "waiting" || item.status === "running" ? "true" : "false";
-  const summary = item.summary && item.status !== "waiting" ? item.summary : (item.message || "");
+  const active = item.status === "waiting" || item.status === "running";
+  const open = active ? "true" : "false";
+  const action = toolAction(item.tool, item.args);
+  const summary = action.target || item.summary || (!active ? item.message : "");
   const plan = item.planUpdate ? `<div class="th-plan-delta"><div class="th-plan-delta-head">计划更新 · rev ${esc(item.planUpdate.fromRevision)} → ${esc(item.planUpdate.revision)}</div>${item.planUpdate.rows.filter(row => row.changed).map(row => `<div class="th-plan-delta-row ${esc(row.status)}"><span>${PLAN_GLYPH[row.status] || "○"}</span><span>${esc(row.text)}</span><span class="tag">${row.added ? "新增" : "修订"}</span></div>`).join("")}</div>` : "";
   return `<article class="th-item th-tool ${esc(item.status)}" data-thread-key="${esc(item.key)}" data-open="${open}" data-thread-item="tool">
     <button type="button" class="th-tool-head" data-thread-toggle aria-expanded="${open}">
       <span class="th-ic ${esc(item.status)}">${glyphForTool(item.tool)}</span>
-      <span class="th-tool-name">${esc(item.tool)}</span>
+      <span class="th-tool-name">${esc(action.label)}</span>
       ${summary ? `<span class="th-tool-summary">${esc(summary)}</span>` : ""}
       <span class="grow"></span>
       ${item.code && item.status !== "succeeded" ? `<code class="th-tool-code">${esc(item.code)}</code>` : ""}
+      ${item.status === "running" ? '<span class="th-live-spinner" aria-hidden="true"></span>' : ""}
       ${badge(item.tone, item.label)}
       <span class="th-chev" aria-hidden="true">▾</span>
     </button>
     <div class="th-tool-body">
-      <div class="th-tool-meta"><span class="th-round-no">第 ${esc(item.index)} 轮</span>${item.receipt && item.receipt.tokens !== undefined ? `<span>· ${num(item.receipt.tokens)} tokens</span>` : ""}${item.receipt && item.receipt.cost_microusd !== undefined ? `<span>· ${num(item.receipt.cost_microusd)} µUSD</span>` : ""}</div>
+      <div class="th-tool-meta"><code class="th-tool-raw">${esc(item.tool)}</code><span class="th-round-no">第 ${esc(item.index)} 轮</span>${item.receipt && item.receipt.tokens !== undefined ? `<span>· ${num(item.receipt.tokens)} tokens</span>` : ""}${item.receipt && item.receipt.cost_microusd !== undefined ? `<span>· ${num(item.receipt.cost_microusd)} µUSD</span>` : ""}</div>
+      ${active && item.message ? `<p class="th-note th-tool-live-note">${esc(item.message)}</p>` : ""}
       ${body || `<p class="th-note">这次调用没有返回可展示的细节。</p>`}
       ${plan}
     </div>
@@ -845,7 +898,7 @@ function toolItemHtml(item, ctx) {
 function planItemHtml(item) {
   const editing = item.editing;
   const pending = Math.max(0, Number(item.total || 0) - Number(item.done || 0));
-  return `<details class="th-item th-plan${editing ? " editing" : ""}" data-thread-key="plan" data-thread-item="plan"${editing ? " open" : ""}>
+  return `<details class="th-item th-plan${editing ? " editing" : ""}" data-thread-key="plan" data-thread-item="plan"${item.open || editing ? " open" : ""}>
     <summary class="th-plan-head">
       <span class="th-ic">${icon("plan")}</span>
       <span class="th-plan-title">${item.failed ? "计划记录 · 未验收" : "计划"}</span>
@@ -883,9 +936,8 @@ function statusItemHtml(item) {
     facts.push(`预算 ${num(budget.calls)}${budget.maxCalls ? "/" + num(budget.maxCalls) : ""} calls`);
     facts.push(`${num(budget.cost)}${budget.maxCost ? "/" + num(budget.maxCost) : ""} µUSD`);
   }
-  // 失败码/未知原因还留在状态行；轮次、事件数、工具名都退到执行过程，
-  // 状态行只做一件事：这一段处理了多久、结果是什么。
-  const detail = item.state === "failed" || item.state === "unknown" ? item.detail : "";
+  // 当前目标与失败原因留在主行；轮次、事件数退到运行详情。
+  const detail = item.state === "succeeded" ? "" : item.detail;
   const budgetBlock = showBudget
     ? `<details class="th-budget" data-keep="budget"><summary>预算与用量</summary>${item.budgetHtml || `<div class="th-budget-rows">${[
       ["calls", budget.calls, budget.maxCalls],
@@ -903,7 +955,7 @@ function statusItemHtml(item) {
       <div class="th-status-line">
         <span class="th-status-dot" aria-hidden="true"></span>
         <span class="th-status-label">${esc(item.label)}</span>
-        ${item.elapsed ? `<span class="th-status-elapsed">${esc(item.elapsed)}</span>` : ""}
+        ${item.elapsed ? `<span class="th-status-elapsed" data-thread-clock data-started-at="${esc(item.startedAt)}" data-live="${item.live ? "1" : "0"}" aria-live="off">${esc(item.elapsed)}</span>` : ""}
         ${detail ? `<span class="th-status-detail">${esc(detail)}</span>` : ""}
         <span class="grow"></span>
         <button type="button" class="th-mini" data-rail-open>运行详情</button>

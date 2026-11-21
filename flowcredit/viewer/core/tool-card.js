@@ -7,11 +7,17 @@
    - {type:"tool", call_id, name, arguments, round, status,
       result?, result_hash?, trust?, error?}
    渲染保持"证据优先"：工具名与参数直接可见，结果放在展开体里；
-   status 三态（running/ok/error）是唯一的状态来源，不写形容词。 */
+   status 是唯一的状态来源；标签只翻译状态，不补写服务端未确认的结果。 */
 
 import { esc, safeUrl } from "./format.js";
 
-const STATE_LABEL = { running: "运行中", ok: "完成", error: "失败" };
+const STATE_LABEL = {
+  running: "运行中",
+  ok: "完成",
+  error: "失败",
+  awaiting: "等待审批",
+  cancelled: "已取消",
+};
 
 function parseArguments(text) {
   if (!text) return null;
@@ -122,7 +128,7 @@ function approvalHtml(block) {
         data-tool-allow="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">允许</button>
       <button class="chat-act" type="button"
         data-tool-remember="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">允许并不再询问（本回合）</button>
-      <button class="chat-act" type="button"
+      <button class="chat-act danger" type="button"
         data-tool-deny="${esc(block.call_id || "")}" data-tool-approval="${esc(approval.approval_id || "")}">拒绝</button>
     </div>
   </div>`;
@@ -130,7 +136,7 @@ function approvalHtml(block) {
 
 export function toolCardHtml(block) {
   const status = block.status || "running";
-  const label = STATE_LABEL[status] || status;
+  const label = STATE_LABEL[status] || "状态未知";
   const args = toolArgsSummary(block.name, block.arguments);
   const body = resultText(block);
   const meta = [

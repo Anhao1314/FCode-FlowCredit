@@ -96,6 +96,7 @@ export function createSidebar(deps) {
       if (signature !== govHistSig || host.textContent.includes("读取审计记录")) {
         govHistSig = signature;
         host.innerHTML = govHistorySectionHtml(bundles);
+        d.hydrateDoodles?.(host);
         paintSections();
       }
     } catch {

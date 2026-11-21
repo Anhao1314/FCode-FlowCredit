@@ -8,7 +8,7 @@ import { createLatestGate, createRunsPoller, settleLatest } from "./core/latest.
 import { resolveModelLabel, traceModelLabel } from "./core/model-label.js";
 import { connectionPresentation, initialConnection, reduceConnection } from "./core/sse-status.js";
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
-import { composerMode } from "./core/composer-mode.js";
+import { composerMode, isDirectConversation } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
@@ -20,7 +20,7 @@ import {
 } from "./core/gov-workbench.js";
 import {
   govBotSummaryHtml, govBotRosterHtml, govBotDispatchHtml, govBotChannelHtml,
-  govBotRoutineFormHtml, govBotRoutinesHtml, govBotDetailHtml,
+  govBotRoutineFormHtml, govBotRoutinesHtml, govBotDetailHtml, govHomeCrewHtml,
 } from "./core/gov-bots.js";
 import { applyChromeState } from "./core/chrome.js";
 import { createReviewUI } from "./app/review.js";
@@ -386,8 +386,8 @@ function clearProjectContext() {
 }
 
 function newWorkThread() {
-  // Work 的新线程 = 任务舞台，不是聊天：chat.active=false 让 composer
-  // 走 sendTask → intake → /api/runs；审批/模型/Fast 仍由 Work chrome 显示。
+  // Work 的新线程从统一输入舞台开始：sendTask 分流纯对话与任务。
+  // 任务仍走 intake → /api/runs；审批/模型/Fast 仍由 Work chrome 显示。
   viewGate.begin();
   if (intake.active) closeIntake(false);
   if (settingsOpen) closeSettingsPage(false);
@@ -479,7 +479,7 @@ function renderMain(html, { mode = "run", scroll = null } = {}) {
 /* 治理视图的 composer 瘦身（零模型承诺要看得见）：
    隐藏模型徽章 / 审批按钮 / 附件按钮,placeholder 换成治理命令用法。
    离开治理视图时只恢复模型徽章——审批/附件由 paintChatChrome 按语境
-   统一恢复(chat 隐藏、其余显示),避免两个画家互相打架。 */
+   统一恢复（Chat 与 Work 都显示权限，Fast 仍只属于 Work），避免两个画家互相打架。 */
 const GOV_PLACEHOLDER = "输入治理命令：/挖洞 <target> · /判断 · /链 <audit_id>";
 
 function paintGovChrome(gov) {
@@ -1206,8 +1206,28 @@ function setChainBadge(check) {
 
 function setMobileNavigation(open) {
   const app = document.getElementById("app");
-  app.classList.toggle("mobile-nav-open", !!open);
-  document.getElementById("workspace-menu")?.setAttribute("aria-expanded", String(!!open));
+  const sidebar = document.querySelector(".sidebar");
+  const workspace = document.getElementById("workspace");
+  const trigger = document.getElementById("workspace-menu");
+  const mobile = innerWidth <= 900;
+  const wasOpen = app.classList.contains("mobile-nav-open");
+  const next = mobile && !!open;
+  app.classList.toggle("mobile-nav-open", next);
+  trigger?.setAttribute("aria-expanded", String(next));
+  if (sidebar) {
+    sidebar.inert = mobile && !next;
+    sidebar.setAttribute("aria-hidden", String(mobile && !next));
+    if (next) {
+      sidebar.setAttribute("role", "dialog");
+      sidebar.setAttribute("aria-modal", "true");
+    } else {
+      sidebar.removeAttribute("role");
+      sidebar.removeAttribute("aria-modal");
+    }
+  }
+  if (workspace) workspace.inert = next;
+  if (next && !wasOpen) document.getElementById("sidebar-toggle")?.focus({ preventScroll: true });
+  else if (!next && wasOpen) trigger?.focus({ preventScroll: true });
 }
 
 /* RENDER LAYER — 纯 UI 开关：侧栏折叠与证据浮层不接触运行状态。 */
@@ -1926,6 +1946,14 @@ async function sendTask() {
     toast("回放模式：用 python3 viewer/server.py 启动后才能派任务");
     return;
   }
+  if (isDirectConversation(text)) {
+    // 纯对话不能创建 Run。复用真实 chat 流生成回答，而不是在前端伪造一句回复。
+    newChat();
+    const chatInput = document.getElementById("composer-ta");
+    chatInput.value = text;
+    autosize(chatInput);
+    return sendChatFromComposer();
+  }
   ta.value = "";
   autosize(ta);
   // Work 的任务提交直接开跑（Kimi 式）：clarifier 在后台准备，就绪即创建运行；
@@ -1936,10 +1964,23 @@ async function sendTask() {
 async function stopRun() {
   const s = activeSession();
   if (!s || !s.running) return;
-  document.getElementById("run-chip-text").textContent = "正在停止…";
+  const chip = document.getElementById("run-chip-text");
+  chip.textContent = "正在停止…";
   try {
-    await fetch(`/api/runs/${encodeURIComponent(s.id)}/stop`, { method: "POST" });
-  } catch { /* the stream will settle it */ }
+    const response = await fetch(`/api/runs/${encodeURIComponent(s.id)}/stop`, { method: "POST" });
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const payload = await response.json();
+        detail = payload.error?.message || payload.error || payload.detail || "";
+      } catch { /* A non-JSON error response still has a useful HTTP status. */ }
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
+    toast("停止请求已发送，等待运行流确认");
+  } catch (error) {
+    if (s.running) chip.textContent = "运行中";
+    toast(`停止失败：${error.message || "网络错误"}`);
+  }
 }
 
 
@@ -2044,7 +2085,9 @@ function renderApprovalMenu() {
     <span class="apv-copy"><span class="t">${esc(title)}</span><span class="d">${esc(desc)}</span></span>
     ${selected ? `<span class="apv-check">${ICON.check}</span>` : ""}
   </button>`;
-  }).join("") + `<div class="tpl-note">审批只发生在轮次边界，不打断工具执行；拒绝会终止运行并写入签名链。档位对新任务生效。</div>`;
+  }).join("") + `<div class="tpl-note">${chat.active
+    ? "当前对话从下一条消息起使用此档位；正在生成的回答不变。只读操作始终可用，权限门控与预算仍然生效。"
+    : "审批只发生在轮次边界，不打断工具执行；拒绝会终止运行并写入签名链。档位对新任务生效。"}</div>`;
 }
 
 /* 审批菜单默认向上；舞台态 composer 偏上时上方放不下，改向下展开。
@@ -2902,15 +2945,15 @@ function govActive() {
   return document.getElementById("main")?.dataset.view === "gov";
 }
 
-/* 对话流条目：操作员右对齐气泡（与 Work 一致，不画用户头像），
-   控制台左侧印章头像 + 卡片体。 */
+/* 治理台是命令控制台，不冒充聊天：操作员命令用提示符回显，响应以
+   FCode 终端标记开头。作业状态、结果与操作仍由原有事实卡负责。 */
 function govUserEntryHtml(text) {
-  return `<div class="gov-entry user"><span class="gov-echo">${esc(text)}</span></div>`;
+  return `<div class="gov-entry user"><span class="gov-command-prompt" aria-hidden="true">›</span><span class="gov-echo">${esc(text)}</span></div>`;
 }
 
 function govConsoleEntryHtml(html) {
   if (!html) return "";
-  return `<div class="gov-entry console">${aiAvatarHtml("idle", 28)}<div class="gov-entry-body">${html}</div></div>`;
+  return `<div class="gov-entry console"><span class="gov-console-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 9l3 3-3 3M13 15h3"/></svg></span><div class="gov-entry-body">${html}</div></div>`;
 }
 
 function govRunTargetLabel(target) {
@@ -2951,17 +2994,23 @@ function govRecentRunsHtml() {
 }
 
 function govDialogIntroHtml() {
-  return govConsoleEntryHtml(`<div class="gov-dialog-intro">
-    <b>治理对话</b>
-    <p>用命令发起离线审计、验证签名链或查看操作员判断。模型不进环。</p>
-    <div class="gov-start" aria-label="治理命令">
-      <button class="gov-cmd" type="button" data-gov-fill="/挖洞 "><span class="gov-cmd-key">/挖洞</span> <span class="gov-cmd-arg">&lt;target&gt;</span></button>
-      <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span></button>
-      <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span> <span class="gov-cmd-arg">&lt;audit_id&gt;</span></button>
+  return `<section class="gov-home" aria-labelledby="gov-home-title">
+    <div class="gov-dialog-intro">
+      <div class="gov-home-hero">
+        ${govHomeCrewHtml()}
+        <p class="gov-home-kicker"><span aria-hidden="true"></span>本机治理 · 确定性执行</p>
+        <h1 class="gov-home-title" id="gov-home-title">今天要审计什么？</h1>
+        <p class="gov-home-lede">输入目标路径发起离线审计，或验证已有证据链。三个治理角色随时待命，模型不进入判定环。</p>
+      </div>
+      <div class="gov-start" aria-label="治理命令">
+        <button class="gov-cmd" type="button" data-gov-fill="/挖洞 "><span class="gov-cmd-key">/挖洞</span><span class="gov-cmd-arg">&lt;target&gt;</span><span class="gov-cmd-desc">扫描目标</span></button>
+        <button class="gov-cmd" type="button" data-gov-fill="/判断"><span class="gov-cmd-key">/判断</span><span class="gov-cmd-desc">查看记录</span></button>
+        <button class="gov-cmd" type="button" data-gov-fill="/链 "><span class="gov-cmd-key">/链</span><span class="gov-cmd-arg">&lt;audit_id&gt;</span><span class="gov-cmd-desc">验证证据</span></button>
+      </div>
+      <p class="gov-dialog-hint">高级：/挖洞 &lt;target&gt; --target-md &lt;descriptor&gt; --osv-snapshot &lt;json&gt;</p>
+      ${govRecentRunsHtml()}
     </div>
-    <p class="gov-dialog-hint">高级：/挖洞 &lt;target&gt; --target-md &lt;descriptor&gt; --osv-snapshot &lt;json&gt;</p>
-    ${govRecentRunsHtml()}
-  </div>`);
+  </section>`;
 }
 
 function paintGovDialog(scroll = false) {
@@ -2975,6 +3024,7 @@ function paintGovDialog(scroll = false) {
     }
     return govConsoleEntryHtml(entry.html || "");
   }).join("");
+  host.closest(".gov-dlg")?.classList.toggle("is-home", !rows);
   host.innerHTML = rows || govDialogIntroHtml();
   hydrateDoodles(host);
   if (scroll) {
@@ -3753,6 +3803,9 @@ function renderGovBotDetail() {
   document.getElementById("tb-chips").innerHTML = "";
   setFoot("治理台 · 详情", "");
   renderMain(`<div class="gov-bot-detail-page" id="gov-bot-detail-host"></div>`, { mode: "gov" });
+  // 详情是独立任务上下文；关闭团队频道，避免 rail 标题已切到“任务详情”
+  // 却仍残留频道空态或上一条运行消息。
+  if (railOpen) setChromeState({ rail: false });
   paintGovBotDetail();
   const epoch = viewGate.sequence;
   loadGovBotDetail().then(() => {
@@ -3892,6 +3945,7 @@ async function deleteGovSkill(skillId) {
 function setRailMode(mode) {
   const rail = document.querySelector(".rail");
   if (!rail || rail.dataset.railMode === mode) return;
+  const previousMode = rail.dataset.railMode;
   rail.dataset.railMode = mode;
   const kicker = rail.querySelector(".rail-kicker");
   if (kicker) kicker.textContent = mode === "channel" ? "团队频道"
@@ -3900,6 +3954,11 @@ function setRailMode(mode) {
         : mode === "files" ? "项目文件" : "任务详情";
   const tabs = document.getElementById("rail-tabs");
   if (tabs) tabs.hidden = mode !== "trace";
+  // 频道不是通用任务详情。离开团队立即回到真实空态，不把旧 Work trace
+  // 或频道消息带进治理详情；即使用户再次手动打开 rail，上下文也一致。
+  if (previousMode === "channel" && mode === "trace") {
+    renderRail(null, { ok: false, reason: "" });
+  }
 }
 
 function renderGovTeam() {
@@ -3965,6 +4024,7 @@ function renderGovDialog() {
     </header>
     <div id="gov-dialog-stream" class="gov-dialog-stream" aria-live="polite"></div>
   </div>`, { mode: "gov" });
+  if (railOpen) setChromeState({ rail: false });
   // 对话面需要输入框；工作台面由 renderMain 保持隐藏。
   const composerWrap = document.querySelector(".composer-wrap");
   if (composerWrap) composerWrap.hidden = false;
@@ -4016,6 +4076,7 @@ async function renderGovWorkbench() {
     </div>
     <section id="gov-activity" class="gov-wb-activity" aria-label="审计作业与链验证" hidden></section>
   </div>`, { mode: "gov" });
+  if (railOpen) setChromeState({ rail: false });
   paintGovWorkbench();
   paintGovActivity();
   const epoch = viewGate.sequence;
@@ -4316,7 +4377,7 @@ const {
 });
 
 const { renderMarketplace } = createMarketplace({
-  renderMain, setFoot, toast,
+  renderMain, setFoot, toast, hydrateDoodles,
   getViewGateSequence: () => viewGate.sequence,
   fetchImpl: (...args) => fetch(...args),
 });
@@ -4399,7 +4460,8 @@ const {
   chatCardHtml: (...args) => chatCardHtml(...args),
   nearMainBottom, scrollMainBottom, hydrateDoodles, parseSseFrame, renderMarkdown,
   copyText, startIntake, threadOrigin, adoptDefaultChatModel, loadChatModels,
-  paintCtxRing,
+  paintCtxRing, renderApprovalMenu,
+  getApprovalMode: () => approvalMode,
   getHealth: () => health,
   getChatThreads: () => chatThreads,
   setChatThreads: value => { chatThreads = value; },
@@ -4860,7 +4922,32 @@ function bindComposer() {
     event.stopPropagation();
     closeModelMenus();
     apvMenu.hidden = !apvMenu.hidden;
-    if (!apvMenu.hidden) placeApprovalMenu();
+    apvBtn.setAttribute("aria-expanded", apvMenu.hidden ? "false" : "true");
+    if (!apvMenu.hidden) {
+      placeApprovalMenu();
+      apvMenu.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+    }
+  });
+  apvMenu.addEventListener("keydown", event => {
+    const items = [...apvMenu.querySelectorAll("[data-approval-mode]")];
+    const index = items.indexOf(document.activeElement);
+    let next = -1;
+    if (event.key === "ArrowDown") next = (index + 1 + items.length) % items.length;
+    if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next >= 0 && items[next]) {
+      event.preventDefault();
+      items[next].focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      apvMenu.hidden = true;
+      apvBtn.setAttribute("aria-expanded", "false");
+      apvBtn.focus({ preventScroll: true });
+    }
   });
   const fastBtn = document.getElementById("fast-btn");
   fastBtn?.addEventListener("click", () => {
@@ -4876,6 +4963,7 @@ function bindComposer() {
   plusBtn.addEventListener("click", event => {
     event.stopPropagation();
     apvMenu.hidden = true;
+    apvBtn.setAttribute("aria-expanded", "false");
     closeModelMenus();
     closeWorkspaceMention();
     if (attach.open) {
@@ -5093,6 +5181,7 @@ function bindGlobalActions() {
   const attachPanel = document.getElementById("attach-panel");
   document.addEventListener("click", event => {
     if (!apvMenu.hidden && !apvBtn.contains(event.target) && !apvMenu.contains(event.target)) apvMenu.hidden = true;
+    apvBtn.setAttribute("aria-expanded", apvMenu.hidden ? "false" : "true");
     for (const menu of [chatModelMenu, workModelMenu]) {
       if (!menu.hidden && !modelBtn.contains(event.target) && !menu.contains(event.target)) menu.hidden = true;
     }
@@ -5179,6 +5268,7 @@ function bindGlobalActions() {
     if (govMode) {
       const next = ["dialog", "team", "workbench"].includes(govMode.dataset.govMode)
         ? govMode.dataset.govMode : "dialog";
+      if (govMode.closest(".sidebar")) setMobileNavigation(false);
       showGovSurface(next);
       return;
     }
@@ -5484,6 +5574,7 @@ function bindNavigation() {
     else if (event.key === "ArrowUp") { event.preventDefault(); paletteNav(-1); }
     else if (event.key === "Enter") { event.preventDefault(); runPaletteItem(activeIndex()); }
     else if (event.key === "Escape") { event.preventDefault(); closePalette(); }
+    else if (event.key === "Tab") { event.preventDefault(); palInput.focus(); }
   });
   document.getElementById("palette").addEventListener("click", event => {
     if (event.target.closest("[data-palette-close]")) { closePalette(); return; }
@@ -5502,8 +5593,11 @@ function bindNavigation() {
     const changed = button.dataset.approvalMode !== approvalMode;
     setApprovalMode(button.dataset.approvalMode);
     document.getElementById("approval-menu").hidden = true;
+    document.getElementById("approval-btn").setAttribute("aria-expanded", "false");
+    document.getElementById("approval-btn").focus({ preventScroll: true });
     const s = activeSession();
-    if (changed && s && s.running) toast("已切换 · 下一个任务生效");
+    if (changed && chat.active) toast(`权限已切换为${approvalTitle()} · 下一条消息生效`);
+    else if (changed && s && s.running) toast("已切换 · 下一个任务生效");
   });
   // 运行行出现在两处（主列表 + 置顶段），事件委托绑在侧栏容器上
   const sidebarContainer = document.querySelector(".sidebar");
@@ -5870,7 +5964,14 @@ async function handleProjectControls(event) {
 }
 
 function bindMainInteractions() {
-  document.getElementById("main").addEventListener("click", async event => {
+  const mainInteractionRoot = document.getElementById("main");
+  mainInteractionRoot.addEventListener("click", async event => {
+    // 只记录真实点击；默认 open 触发的原生 toggle 事件不能冒充用户操作。
+    const planHead = event.target.closest(".th-plan-head");
+    if (planHead && !event.target.closest("button")) {
+      const plan = planHead.closest('[data-thread-item="plan"]');
+      if (plan) plan.dataset.user = "1";
+    }
     const processToggle = event.target.closest("[data-process-toggle]");
     if (processToggle) {
       const thread = document.getElementById("thread");
@@ -6174,6 +6275,16 @@ function bindShell() {
   const app = document.getElementById("app");
   setChromeState({ rail: railOpen });
   bindWorkspaceNavigation({ openPalette, setMobileNavigation });
+  setMobileNavigation(false);
+  let mobileNavigation = innerWidth <= 900;
+  window.addEventListener("resize", () => {
+    const mobile = innerWidth <= 900;
+    if (mobile !== mobileNavigation) {
+      mobileNavigation = mobile;
+      setMobileNavigation(false);
+    }
+    if (railOpen) setChromeState({ rail: true });
+  });
   bindLatestScroll();
   document.getElementById("sidebar-toggle").addEventListener("click", () => {
     if (innerWidth <= 900) setMobileNavigation(false);
@@ -6228,6 +6339,19 @@ function bindShell() {
   document.addEventListener("keydown", e => {
     const mod = e.metaKey || e.ctrlKey;
     const s = activeSession();
+    if (e.key === "Tab" && railOpen && innerWidth <= 1180 && document.getElementById("palette").hidden) {
+      const rail = document.getElementById("task-rail");
+      const focusable = [...rail.querySelectorAll("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])")]
+        .filter(element => !element.disabled && element.getClientRects().length);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (first && (!rail.contains(active) || (e.shiftKey && active === first) || (!e.shiftKey && active === last))) {
+        e.preventDefault();
+        (e.shiftKey && rail.contains(active) ? last : first).focus();
+        return;
+      }
+    }
     if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); togglePalette(); return; }
     if (mod && e.key.toLowerCase() === "n") {
       // 主行动随区换内容（Kimi 式分区按钮槽）：Work=新聊天线程，
@@ -6290,6 +6414,7 @@ function bindShell() {
       }
     }
     if (e.key === "Escape") {
+      if (e.isComposing || e.keyCode === 229) return;
       if (app.classList.contains("mobile-nav-open")) { setMobileNavigation(false); return; }
       const reportLayer = document.getElementById("report-layer");
       if (reportLayer && !reportLayer.hidden) { closeReport(); return; }
@@ -6304,7 +6429,12 @@ function bindShell() {
       const menu = document.getElementById("tpl-menu");
       if (menu && !menu.hidden) { menu.hidden = true; return; }
       const approval = document.getElementById("approval-menu");
-      if (approval && !approval.hidden) { approval.hidden = true; return; }
+      if (approval && !approval.hidden) {
+        approval.hidden = true;
+        document.getElementById("approval-btn")?.setAttribute("aria-expanded", "false");
+        document.getElementById("approval-btn")?.focus({ preventScroll: true });
+        return;
+      }
       const modelMenus = ["chat-model-menu", "work-model-menu"]
         .map(id => document.getElementById(id)).filter(menu => menu && !menu.hidden);
       if (modelMenus.length) { modelMenus.forEach(menu => { menu.hidden = true; }); return; }
@@ -6313,7 +6443,7 @@ function bindShell() {
       if (addMenu && !addMenu.hidden) { closeAddMenu(); return; }
       if (attach.open) { closeAttachDetail(attach.fromMenu); return; }
       if (settingsOpen) { closeSettingsPage(true); return; }
-      if (!typing && innerWidth <= 1100 && railOpen) closeRailPanel();
+      if (innerWidth <= 1180 && railOpen) closeRailPanel();
       return;
     }
     if (typing || mod) return;

@@ -39,6 +39,23 @@ test("错误工具卡:显示错误码与消息", () => {
   assert.match(html, /失败/);
 });
 
+test("等待审批与取消状态使用明确中文，未知状态不暴露枚举", () => {
+  const awaiting = toolCardHtml({ type: "tool", call_id: "wait", name: "write_file",
+    arguments: '{"path":"x"}', status: "awaiting", approval: { mode: "all", preview: {} } });
+  assert.match(awaiting, /等待审批/);
+  assert.match(awaiting, /chat-act danger/);
+  assert.match(awaiting, /data-tool-deny="wait"/);
+
+  const cancelled = toolCardHtml({ type: "tool", call_id: "stop", name: "shell",
+    arguments: "{}", status: "cancelled" });
+  assert.match(cancelled, /已取消/);
+
+  const unknown = toolCardHtml({ type: "tool", call_id: "other", name: "shell",
+    arguments: "{}", status: "unexpected_enum" });
+  assert.match(unknown, /状态未知/);
+  assert.doesNotMatch(unknown, />unexpected_enum</);
+});
+
 test("browser_act 展示操作前/后两张截图", () => {
   const html = toolCardHtml({
     type: "tool", call_id: "c5", name: "browser_act",

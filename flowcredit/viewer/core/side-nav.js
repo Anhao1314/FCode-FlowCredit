@@ -90,7 +90,10 @@ function revealHtml(inner) {
 
 /* 置顶分组：Kimi 只在真的置顶过东西时才渲染这一段（pinned-list 为空即不出现）。 */
 function sectionHeadHtml(label, extra, count) {
+  const icons = { pinned: "pin", projects: "folder", tasks: "clipboard-list", chats: "message", govhist: "receipt" };
+  const icon = icons[extra.key];
   return '<div class="side-section">'
+    + (icon ? '<span class="side-section-icon" data-doodle="' + icon + '" aria-hidden="true"></span>' : "")
     + '<button class="section-title-button" type="button" data-section-toggle="' + esc(extra.key) + '" aria-expanded="true">'
     + "<span>" + esc(label) + '</span><span class="chev" aria-hidden="true">▾</span></button>'
     + '<span class="side-count">' + num(count || 0) + "</span>"

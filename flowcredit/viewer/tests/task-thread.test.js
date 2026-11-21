@@ -78,26 +78,26 @@ test("a running trace projects user → status → tool with stable keys", () =>
   assert.equal(items[0].key, "user:objective");
   assert.equal(items[1].key, "status");
   assert.equal(items[2].key, "tool:1");
-  assert.equal(items[2].status, "waiting");
+  assert.equal(items[2].status, "running");
   assert.equal(items[1].state, "running");
   assert.equal(meta.status, "running");
 });
 
-test("terminal runs fold tools behind one summary; failed calls do not read as task completion", () => {
+test("terminal runs fold tools behind one timed summary; failed calls do not read as task completion", () => {
   const succeeded = projectTaskThread(trace(), {}).items;
   const process = succeeded.find(item => item.kind === "process");
   assert.ok(process, "succeeded runs get a process toggle");
   assert.equal(process.count, 1);
-  assert.equal(process.label, "执行过程");
-  assert.equal(process.countLabel, "1 个工具");
+  assert.equal(process.label, "工作过程");
+  assert.equal(process.countLabel, "工作了 0s · 1 个步骤");
   assert.equal(succeeded.find(item => item.kind === "tool").label, "完成");
   assert.ok(kinds(succeeded).indexOf("process") < kinds(succeeded).indexOf("tool"));
 
   const failed = projectTaskThread(trace({ terminal: { status: "failed" } }), {}).items;
   const failedProcess = failed.find(item => item.kind === "process");
   assert.ok(failedProcess, "failed runs get the same compact execution entry");
-  assert.equal(failedProcess.label, "执行摘要");
-  assert.equal(failedProcess.countLabel, "1 次调用");
+  assert.equal(failedProcess.label, "工作过程");
+  assert.equal(failedProcess.countLabel, "工作了 0s · 1 个步骤");
   assert.equal(failed.find(item => item.kind === "tool").label, "调用成功");
   assert.match(threadItemHtml(failedProcess), /aria-expanded="false"/);
   assert.ok(kinds(failed).indexOf("process") < kinds(failed).indexOf("tool"));
@@ -565,7 +565,7 @@ test("the status line carries one elapsed figure and drops round/event noise", (
   const status = projectTaskThread(done, {}).items.find(item => item.kind === "status");
   assert.equal(status.elapsed, "1m43s");
   const html = threadItemHtml(status);
-  assert.match(html, /th-status-elapsed">1m43s/);
+  assert.match(html, /data-thread-clock[^>]*data-live="0"[^>]*>1m43s/);
   assert.doesNotMatch(html, /轮 · .*个事件/);
   // Running runs advance against the clock the caller supplies, not the last
   // event: a pending question after 90s still reads as 90s.
@@ -617,9 +617,11 @@ test("a run stopped by the operator reads as stopped, not failed", () => {
   assert.equal(status.label, "已停止");
 });
 
-test("toolOutcome never promotes a missing observation to success", () => {
+test("toolOutcome distinguishes execution and approval waits without inventing success", () => {
   const roundNoObservation = { index: 1, proposal: { steps: [{ tool: "read_file" }] }, decision: { allowed: true } };
   assert.equal(toolOutcome(roundNoObservation, {}, { finished: false }).status, "waiting");
+  assert.equal(toolOutcome(roundNoObservation, {}, { running: true, finished: false }).status, "running");
+  assert.equal(toolOutcome(roundNoObservation, {}, { running: true, pending: { id: "a" }, finished: false }).status, "waiting");
   assert.equal(toolOutcome(roundNoObservation, { unknown: "X" }, { finished: true }).status, "unknown");
   assert.equal(toolOutcome(roundNoObservation, {}, { finished: true, terminal: { status: "stopped" } }).status, "stopped");
   assert.equal(toolOutcome(roundNoObservation, {}, { finished: true, terminal: { status: "failed" } }).status, "failed");
@@ -646,4 +648,48 @@ test("Runtime verification round projects as a host success, not unknown", () =>
   assert.equal(tool.status, "succeeded");
   assert.match(tool.summary, /退出码 0/);
   assert.equal(tool.hostVerification, true);
+});
+
+
+test("an active tool reads as a Chinese action and streams in an open live row", () => {
+  const liveTrace = trace({ terminal: null, rounds: [round(1, { tool: "run_command", args: { command: "npm", args: ["test"] } })] });
+  liveTrace.rounds[0].observation = null;
+  const { items } = projectTaskThread(liveTrace, { running: true });
+  const status = items.find(item => item.kind === "status");
+  const tool = items.find(item => item.kind === "tool");
+  assert.equal(status.label, "正在运行命令");
+  assert.equal(status.detail, "npm");
+  assert.equal(tool.status, "running");
+  const html = threadItemHtml(tool);
+  assert.match(html, /th-tool-name">运行命令</);
+  assert.match(html, /th-tool-summary">npm</);
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /th-live-spinner/);
+  assert.match(html, /th-tool-raw">run_command</, "raw tool identity stays in details");
+});
+
+test("plans open during execution and close by default after the run", () => {
+  const plan = { revision: 1, todos: [
+    { id: "one", text: "读取文件", status: "done", tool: "read_file" },
+    { id: "two", text: "运行测试", status: "active", tool: "run_command" },
+  ] };
+  const runningTrace = trace({ terminal: null, rounds: [round(1, { planAfter: plan })] });
+  const runningPlan = projectTaskThread(runningTrace, { running: true }).items.find(item => item.kind === "plan");
+  assert.match(threadItemHtml(runningPlan), /data-thread-item="plan" open/);
+  const donePlan = projectTaskThread(trace({ rounds: [round(1, { planAfter: plan })] }), {}).items.find(item => item.kind === "plan");
+  assert.doesNotMatch(threadItemHtml(donePlan), /data-thread-item="plan" open/);
+});
+
+test("real command output is visible directly and remains escaped", () => {
+  const outputTrace = trace({ rounds: [round(1, {
+    tool: "run_command",
+    args: { command: "npm", args: ["test"] },
+    result: { command: "npm test", exit_code: 0, output: "42 passed\n<script>alert(1)</script>" },
+  })] });
+  const tool = projectTaskThread(outputTrace, {}).items.find(item => item.kind === "tool");
+  const html = threadItemHtml(tool);
+  assert.match(html, /data-tool-output/);
+  assert.match(html, /42 passed/);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;alert/);
 });

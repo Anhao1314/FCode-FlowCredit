@@ -1,6 +1,6 @@
 /* ============================================================ FCode console — tokens + 布局层（样式栈第一加载）
-   加载顺序见 index.html <head>：app.css → desktop.css → design.css →
-   chat.css → kimi.css → moonshot.css → workspace.css。
+   加载顺序见 index.html <head>：app.css → design.css → desktop.css →
+   chat.css → thread.css → codex.css。codex.css 是最终统一呈现层。
    app.css 承担三件事：
    1. :root 设计令牌（本文件顶部）——全站唯一的令牌定义处，任何其他文件只
       允许消费 var(--*)，不得再声明或改写令牌（kimi.css / workspace.css /
@@ -15,96 +15,65 @@
 :root {
   color-scheme: light;
 
-  /* ---- 表面：三层中性白（对齐 Kimi 的 #fbfaf9 / #f5f5f5 / #fff）------------
-     --canvas  页面画布：略暖的近白，与侧栏同色；
-     --panel   面板：中性浅灰，悬停、次级块与分段控件底座；
-     --raised  悬浮/置顶：纯白，卡片、浮层、菜单、当前选中项。 */
-  --canvas: #fbfaf9;
-  --panel: #f5f5f5;
-  --raised: #ffffff;
-  /* 代码 / 输出等嵌入面：与面板同档的中性浅灰阅读井 */
-  --inset: #f5f5f5;
+  /* Codex-aligned neutral console. This is the only design-token source. */
+  --canvas: #f7f7f7;
+  --panel: #f0f0f0;
+  --raised: #fdfdfd;
+  --inset: #f3f3f3;
+  --surface-hover: rgba(0, 0, 0, .045);
+  --surface-selected: rgba(0, 0, 0, .07);
+  --overlay: rgba(0, 0, 0, .24);
 
-  /* ---- 线与圆角 ---------------------------------------------------------------
-     中性 1px 黑 8% 描边；--line-soft 更轻一档（卡内分隔线），--line-strong
-     用于需要比邻居更高一级的边（悬浮层描边、当前项指示）。
-     圆角：控件 10px / 卡片 16px / 胶囊 999px / composer 舞台 20px /
-     菜单浮层 12px（Kimi 的 4/8/10/12/16/20/24 梯度）。 */
-  --line: rgba(0, 0, 0, .08);
-  --line-soft: rgba(0, 0, 0, .05);
-  --line-strong: rgba(0, 0, 0, .14);
-  --radius: 10px;
-  --radius-card: 16px;
+  --line: rgba(0, 0, 0, .10);
+  --line-soft: rgba(0, 0, 0, .065);
+  --line-strong: rgba(0, 0, 0, .18);
+  --radius: 8px;
+  --radius-card: 12px;
   --radius-pill: 999px;
-  --radius-stage: 20px;
+  --radius-stage: 18px;
   --radius-menu: 12px;
-  --shadow-stage: 0 1px 2px rgba(0, 0, 0, .03), 0 10px 32px rgba(0, 0, 0, .045);
+  --shadow-stage: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .05);
+  --shadow-menu: 0 12px 36px rgba(0, 0, 0, .14);
 
-  /* ---- 文字：四档黑 ------------------------------------------------------------
-     --text-1 主文字（结论、标题、正文）：90% 黑；
-     --text-2 次级（说明、元信息标签）；
-     --text-3 弱化（分组标题、占位符、禁用态）；
-     --text-4 最弱（键位提示、序号等装饰文字）。 */
-  --text-1: rgba(0, 0, 0, .90);
-  --text-2: rgba(0, 0, 0, .60);
-  --text-3: rgba(0, 0, 0, .45);
-  --text-4: rgba(0, 0, 0, .30);
+  --text-1: #202020;
+  --text-2: #555555;
+  --text-3: #6b6b6b;
+  --text-4: #737373;
+  --accent: #202020;
+  --accent-hover: #363636;
+  --accent-soft: rgba(0, 0, 0, .06);
+  --accent-line: rgba(0, 0, 0, .28);
+  --text-on-accent: #fdfdfd;
+  --focus-ring: 2px solid rgba(0, 0, 0, .62);
 
-  /* ---- 强调色：全站唯一 --------------------------------------------------------
-     近黑 #111 只允许出现在：主按钮、当前项、焦点环、进行中动画。
-     状态语义（通过 / 拒绝 / 警告）用下面三个语义色，不做装饰。 */
-  --accent: #111;
-  --accent-soft: rgba(0, 0, 0, .055);
-  --accent-line: rgba(0, 0, 0, .24);
-  /* 焦点环基元：design.css / workspace.css 的 :focus-visible 规则消费 */
-  --focus-ring: 2px solid rgba(0, 0, 0, .55);
-
-  /* ---- 语义状态色：只表达状态，配小圆点使用，不做大面积色块 --------------------
-     白底对比度校准的深色档：绿 #15803D（4.6:1）、红 #DC2626（4.5:1）、琥珀
-     #B45309（4.6:1）。原 kimi.css 亮绿/红/橙（#16C456/#FF3849/#FF9500）随其
-     令牌块移除——黑白灰语言下语义色取深不取亮。 */
-  --ok: #15803D;                                /* PASS / 链验证通过 */
-  --ok-soft: rgba(21, 128, 61, .10);
-  --bad: #DC2626;                               /* DENIED / 失败 / 链验证失败 */
-  --bad-soft: rgba(220, 38, 38, .08);
-  --warn: #B45309;                              /* unknown / 警告 / 等待审批 */
-  --warn-soft: rgba(180, 83, 9, .10);
-  /* 过渡别名：kimi.css / workspace.css 的视图规则仍消费 --ok-ink/--bad-ink，
-     映射到同值语义色；后续视图迁移时随消费规则一并清理。 */
+  --ok: #16734a;
+  --ok-soft: rgba(22, 115, 74, .09);
+  --bad: #b42318;
+  --bad-soft: rgba(180, 35, 24, .08);
+  --warn: #8a5a00;
+  --warn-soft: rgba(138, 90, 0, .09);
   --ok-ink: var(--ok);
   --bad-ink: var(--bad);
 
-  /* ---- 字体：系统栈 + 等宽 ------------------------------------------------------
-     界面正文用系统无衬线；所有哈希、时间戳、预算数字用 ui-monospace，
-     数字密集处配 font-variant-numeric: tabular-nums 对齐。 */
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Arial, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-
-  /* ---- 字号四档：14 / 14 / 15 / 18 --------------------------------------------
-     以此前全站最后生效的字阶为准（原 kimi.css:531-536 定稿）：--fs-5 18px 是
-     页面/会话标题（T1），design.css 多处 var(--fs-5) 消费，取 20px 会放大标题。 */
-  --fs-2: 14px;
+  --fs-1: 12px;
+  --fs-2: 13px;
   --fs-3: 14px;
-  --fs-4: 15px;
-  --fs-5: 18px;
+  --fs-4: 16px;
+  --fs-5: 22px;
+  --control-h: 32px;
+  --row-h: 36px;
+  --topbar-h: 52px;
 
-  /* ---- 动效：150ms 交互 / 300ms 淡入，统一缓出曲线 ------------------------------ */
-  --t: 150ms;
-  --t-fade: 300ms;
-  --ease: cubic-bezier(.23, 1, .32, 1);
+  --t: 140ms;
+  --t-fade: 180ms;
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --active: var(--surface-hover);
 
-  /* ---- 旧别名（收缩后仅剩一条，有活跃消费者）--------------------------------
-     --active：app.css/design.css/chat.css 共 50+ 处悬停底色。
-     其余旧别名（--bg/--card/--ink/--paper/--green/
-     --red/--r-card/--space-* 等约 44 条）经精确 grep 确认零消费者，已删除；
-     消费者要么就地改写为正式令牌（--ink-2/3→--text-2/3、--red→--bad、--green→--ok、
-     --ink→--text-1），要么本就无引用。 */
-  --active: rgba(0, 0, 0, .031);
-  /* 结构层尺寸：侧栏 / 图标 rail / 阅读列 / 证据栏（原 workspace.css 覆写值定稿；
-     --sidebar-w 仍被 app.js 侧栏拖宽 setProperty 行内覆写，不受此处影响） */
-  --sidebar-w: 240px;
+  --sidebar-w: 248px;
   --sidebar-rail-w: 56px;
-  --reading-w: 780px;
+  --reading-w: 800px;
   --work-w: 1180px;
   --evidence-w: 380px;
   --motion-fast: var(--t);

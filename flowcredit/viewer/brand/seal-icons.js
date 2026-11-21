@@ -49,7 +49,16 @@
     "ellipsis": S('<circle cx="5.5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.1" fill="currentColor" stroke="none"/>'),
     "check": S('<path d="M5 12.8 10 17.5 19 6.8"/>'),
     "link": S('<rect x="3.5" y="8.5" width="9.5" height="7" rx="2.6"/><rect x="11" y="8.5" width="9.5" height="7" rx="2.6"/>'),
-    "cube": S('<rect x="5" y="5" width="14" height="14" rx="3"/><path d="M5 12h14M12 5v14"/>'),
+    "cube": S('<rect x="4.5" y="4.5" width="15" height="15" rx="4"/><rect x="7.5" y="7.5" width="3.4" height="3.4" rx="1.1"/><rect x="13.1" y="7.5" width="3.4" height="3.4" rx="1.1"/><rect x="7.5" y="13.1" width="3.4" height="3.4" rx="1.1"/><rect x="13.1" y="13.1" width="3.4" height="3.4" rx="1.1" fill="currentColor" stroke="none"/>'),
+
+    /* ---- 分区与插件目录：同一 24 网格，不靠彩色首字母制造差异 ---- */
+    "shield-check": S('<path d="M12 3.8l6.5 2.4v5.2c0 4.1-2.5 7.1-6.5 8.8-4-1.7-6.5-4.7-6.5-8.8V6.2z"/><path d="M8.7 12l2.1 2.1 4.5-4.5"/>'),
+    "folder": S('<path d="M4 8.2V7a2.5 2.5 0 0 1 2.5-2.5h3l2 2h6A2.5 2.5 0 0 1 20 9v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><path d="M4 9h16"/>'),
+    "files": S('<rect x="7.5" y="3.5" width="12" height="14" rx="3"/><path d="M15.5 20.5h-9a3 3 0 0 1-3-3v-8M11 8h5M11 11.5h5"/>'),
+    "terminal": S('<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M7 9l2.5 2.5L7 14M12.5 14h4"/>'),
+    "code": S('<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M10 9l-3 3 3 3M14 9l3 3-3 3"/>'),
+    "wrench": S('<path d="M14.7 5.1a4.3 4.3 0 0 0-5.4 5.4L4.6 15.2a2.5 2.5 0 0 0 3.5 3.5l4.8-4.7a4.3 4.3 0 0 0 5.4-5.4l-2.8 2.8-3.5-3.5z"/><path d="M6.2 16.9h.01"/>'),
+    "users": S('<circle cx="9" cy="8" r="3.2"/><path d="M3.8 19v-1.2A4.8 4.8 0 0 1 8.6 13h.8a4.8 4.8 0 0 1 4.8 4.8V19M15 5.2a3.2 3.2 0 0 1 0 5.7M16.2 13.4a4.8 4.8 0 0 1 4 4.4V19"/>'),
   };
 
   /* 状态符号（带语义色，由调用方决定使用场景） */

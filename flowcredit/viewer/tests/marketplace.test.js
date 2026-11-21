@@ -76,3 +76,19 @@ test("用户可见文本转义", () => {
   assert.match(html, /&lt;img&gt;/);
   assert.match(html, /&lt;script&gt;/);
 });
+
+test("目录徽记覆盖全部分类，未知分类有保守回退", async () => {
+  const { marketplaceCategories, pluginIconName } = await import("../core/marketplace.js");
+  const expected = {
+    "检索": "search", "文件": "files", "执行": "terminal",
+    "开发": "code", "工具": "wrench", "协作": "users",
+  };
+  for (const category of marketplaceCategories().filter(key => key !== "all")) {
+    assert.equal(pluginIconName({ category, kind: "builtin" }), expected[category]);
+  }
+  assert.equal(pluginIconName({ category: "未知", kind: "mcp" }), "cube");
+  assert.equal(pluginIconName({ kind: "builtin" }), "tool");
+  for (const plugin of plugins) {
+    assert.match(pluginCardHtml(plugin), new RegExp(`data-doodle="${pluginIconName(plugin)}"`));
+  }
+});

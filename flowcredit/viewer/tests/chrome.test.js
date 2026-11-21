@@ -62,6 +62,34 @@ test("详情区关闭时移出可访问树并禁止隐藏控件获得焦点", ()
   assert.equal(h.railToggle.attributes["aria-expanded"], "false");
 });
 
+test("窄屏详情区是对话框并管理焦点，桌面详情区不冒充模态", () => {
+  const h = harness();
+  const close = element();
+  close.focusCalls = 0;
+  close.focus = () => { close.focusCalls += 1; };
+  h.railPanel.querySelector = selector => selector === "[data-rail-close]" ? close : null;
+  h.railPanel.removeAttribute = name => { delete h.railPanel.attributes[name]; };
+  h.railToggle.focusCalls = 0;
+  h.railToggle.focus = () => { h.railToggle.focusCalls += 1; };
+  global.window = { innerWidth: 900 };
+  try {
+    applyChromeState(h, { rail: true });
+    assert.equal(h.railPanel.attributes["aria-modal"], "true");
+    assert.equal(h.railPanel.attributes.role, "dialog");
+    assert.equal(close.focusCalls, 1);
+    applyChromeState(h, { rail: false });
+    assert.equal(h.railToggle.focusCalls, 1);
+    assert.equal(h.railPanel.attributes["aria-modal"], undefined);
+
+    global.window.innerWidth = 1440;
+    applyChromeState(h, { rail: true });
+    assert.equal(h.railPanel.attributes["aria-modal"], undefined);
+    assert.equal(h.railPanel.attributes.role, undefined);
+  } finally {
+    delete global.window;
+  }
+});
+
 test("局部更新不改变另一区域的既有状态", () => {
   const h = harness();
   applyChromeState(h, { sidebar: true, rail: true });

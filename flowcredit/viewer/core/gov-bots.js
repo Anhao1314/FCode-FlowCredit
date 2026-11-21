@@ -6,8 +6,37 @@
  */
 
 import { esc, num } from "./format.js";
-import { aiAvatarHtml } from "./ai-avatar.js";
 import { renderMarkdown } from "./chat-format.js";
+
+const AGENT_STATES = new Set(["idle", "thinking", "pending", "ok", "bad"]);
+const AGENT_ROLES = new Set(["auditor", "verifier", "analyst"]);
+
+/* 子代理不是聊天机器人：固定角色符号 + 独立状态灯。保留 ai-avatar 的
+   状态属性作为运行层契约，但视觉完全由治理区自己负责。 */
+export function govAgentAvatarHtml(state = "idle", size = 32, bot = {}) {
+  const key = AGENT_STATES.has(state) ? state : "idle";
+  const role = AGENT_ROLES.has(bot.id) ? bot.id : "auditor";
+  const ring = key === "thinking" || key === "pending";
+  const symbols = {
+    auditor: '<path d="M5 11V5h6M21 5h6v6M27 21v6h-6M11 27H5v-6"/><path class="gov-agent-scan" d="M9 16h14"/><path d="M12 12l8 8M20 12l-8 8" opacity=".35"/>',
+    verifier: '<path d="M16 4l10 4v7c0 7-4 11-10 13C10 26 6 22 6 15V8z"/><path d="M11 16l3.2 3.2L21.5 12"/>',
+    analyst: '<path d="M5 27h22"/><path d="M8 27V18h4v9M14 27V11h4v16M20 27V5h4v22"/>',
+  };
+  return `<span class="ai-avatar ai-avatar--${key}${key === "thinking" ? " is-thinking" : ""} gov-agent-avatar gov-agent-avatar--${role}" style="--ai-avatar-size:${Number(size) || 32}px" role="img" aria-label="${esc(bot.name || "子代理")}" data-ai-state="${key}" data-agent-role="${role}" data-live="1"><svg class="gov-agent-symbol gov-agent-symbol--${role}" viewBox="0 0 32 32" width="${Number(size) || 32}" height="${Number(size) || 32}" aria-hidden="true">${symbols[role]}</svg>${ring ? `<span class="ai-avatar-ring${key === "pending" ? " is-pending" : ""}" aria-hidden="true"></span>` : ""}<span class="gov-agent-status-dot" aria-hidden="true"></span></span>`;
+}
+
+/* 首页角色编组只呈现编制，不借动画伪造运行状态。待机呼吸与扫描线由
+   governance.css 负责，data-ai-state 始终保持 idle。 */
+export function govHomeCrewHtml() {
+  const crew = [
+    { id: "auditor", name: "审计员" },
+    { id: "verifier", name: "复核员" },
+    { id: "analyst", name: "分析员" },
+  ];
+  return `<div class="gov-home-crew" aria-label="治理团队：审计员、复核员、分析员">${crew.map(bot =>
+    `<div class="gov-home-agent">${govAgentAvatarHtml("idle", 44, bot)}<span>${esc(bot.name)}</span></div>`
+  ).join("")}</div>`;
+}
 
 const STATUS_LABEL = {
   queued: "排队",
@@ -95,7 +124,7 @@ export function govBotCardHtml(bot) {
         : `<span class="dim">还没有运行记录</span>`;
   return `<article class="gov-bot-card${status === "running" ? " is-running" : ""}${status === "pending" ? " is-pending" : ""}" data-bot-id="${esc(bot.id)}">
     <header class="gov-bot-card-head">
-      ${aiAvatarHtml(faceState(status), 38, bot.name)}
+      ${govAgentAvatarHtml(faceState(status), 38, bot)}
       <div class="gov-bot-identity">
         <b>${esc(bot.name)}</b>
         <span>${esc(bot.role || "")}</span>
@@ -209,7 +238,7 @@ export function govBotRoutinesHtml(bots) {
       ? ` · ${routine.last_status.startsWith("error:") ? "失败" : botStatusLabel(routine.last_status)}`
       : "";
     return `<div class="gov-routine-row" data-routine-id="${esc(routine.id)}">
-      ${aiAvatarHtml("idle", 30, bot.name)}
+      ${govAgentAvatarHtml("idle", 30, bot)}
       <div class="gov-routine-main">
         <div class="gov-routine-title"><b>${esc(bot.name)}</b><span>·</span>${target}</div>
         <div class="gov-routine-meta">${esc(routine.next || routine.frequency)} · ${last}${esc(lastState)}</div>
@@ -349,7 +378,7 @@ function runRowHtml(bot, run) {
   const state = botStatusLabel(run.status);
   const captured = (bot.skills || []).some(skill => skill.source_run_id === run.run_id);
   return `<div class="gov-bot-run-row" data-run-id="${esc(run.run_id)}">
-    ${aiAvatarHtml(faceState(run.status), 26, bot.name)}
+    ${govAgentAvatarHtml(faceState(run.status), 26, bot)}
     <div class="gov-bot-run-main">
       <div class="gov-bot-run-title"><b>${esc(target)}</b><span>${esc(trigger)}</span><span class="${botStatusClass(run.status)}">${esc(state)}</span></div>
       <div class="gov-bot-run-meta">${esc(formatTime(run.finished_at || run.started_at))}${
@@ -366,7 +395,7 @@ export function govBotDetailHtml(bot, runs = []) {
     : bot.status === "pending" ? "pending" : "idle";
   return `<div class="gov-bot-detail">
     <header class="gov-bot-detail-head">
-      ${aiAvatarHtml(faceState(status), 72, bot.name)}
+      ${govAgentAvatarHtml(faceState(status), 72, bot)}
       <div class="gov-bot-detail-title">
         <p class="eyebrow">GOVERNANCE / BOT</p>
         <h1>${esc(bot.name)}</h1>
@@ -425,11 +454,11 @@ export function govBotRunHtml(bot, run, explanations = {}) {
   const explainByRun = explanations || {};
   const targetText = bot.id === "verifier" || bot.id === "analyst"
     ? (run.audit_id || target) : target;
-  return `<div class="gov-entry user"><span class="gov-echo">${esc(who)} ${
+  return `<div class="gov-entry user"><span class="gov-command-prompt" aria-hidden="true">›</span><span class="gov-echo">${esc(who)} ${
     verb + " " + esc(targetText)
   }</span></div>
   <div class="gov-bot-message" data-gov-run-card="${esc(run.run_id)}">
-    ${aiAvatarHtml(faceState(run.status), 30, bot.name)}
+    ${govAgentAvatarHtml(faceState(run.status), 30, bot)}
     <div class="gov-bot-message-body">
       <header class="gov-bot-message-head">
         <b>${esc(bot.name)}</b><span>${esc(bot.role || "")}</span>

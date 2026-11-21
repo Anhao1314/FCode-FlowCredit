@@ -131,3 +131,25 @@ test("Work：已删除的项目目录在建 run 前拒绝，清绑定并保留�
     if (project) await request.post("/api/projects/archive", { data: { id: project.id } });
   }
 });
+
+test("900px 导航是可聚焦的模态抽屉，关闭后恢复触发按钮", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto("/");
+  await page.waitForSelector('body[data-booted="1"]');
+  const sidebar = page.locator(".sidebar");
+  const trigger = page.locator("#workspace-menu");
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+  await expect(sidebar).toHaveAttribute("inert", "");
+  await trigger.click();
+  await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+  await expect(sidebar).toHaveAttribute("aria-modal", "true");
+  await expect(page.locator("#sidebar-toggle")).toBeFocused();
+  await expect(page.locator("#workspace")).toHaveAttribute("inert", "");
+  await page.locator("#sidebar-toggle").click();
+  await expect(trigger).toBeFocused();
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(page.locator("#workspace")).not.toHaveAttribute("inert", "");
+});

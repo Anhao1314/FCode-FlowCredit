@@ -88,7 +88,7 @@ test("artifactsOf:results 数组过滤出带 path 的条目;单对象回退自�
   assert.deepEqual(surface.artifactsOf({}), []);
 });
 
-test("answerTextFor:项目任务/指标/文件产物/兜底 四路产品语言", () => {
+test("answerTextFor:真实总结优先，其余路径只陈述可验证事实", () => {
   const { surface } = makeSurface();
   assert.match(surface.answerTextFor({
     task: { binding: { spec: { project: { path: "/repo" } } } },
@@ -99,7 +99,10 @@ test("answerTextFor:项目任务/指标/文件产物/兜底 四路产品语言",
     "毛利上升 120bp", "change_bp 走注入的 resultConclusion");
   assert.match(
     surface.answerTextFor({ terminal: { result: { results: [{ path: "a.md" }] } } }),
-    /1 个文件通过 Runtime 文件状态复核/);
+    /已生成 `a\.md`，并通过 Runtime 文件状态复核/);
+  assert.equal(
+    surface.answerTextFor({ terminal: { result: { summary: "真实模型总结" } } }),
+    "真实模型总结");
   assert.match(surface.answerTextFor({ terminal: { result: {} } }), /Runtime 独立校验/);
 });
 
@@ -292,4 +295,36 @@ test("a successful answer hides run actions; a failure keeps them", () => {
   const failed = { terminal: { status: "failed" } };
   assert.match(options.answerActionsHtml(failed), /导出/);
   assert.equal(calls.runActionsHtml, 1);
+});
+
+
+test("general artifacts appear directly below the answer with real file metadata", () => {
+  const { surface } = makeSurface();
+  const html = surface.answerDeliveryFor({
+    terminal: { status: "succeeded", result: {
+      path: "report.md", bytes: 108, commit: "01633b7", sha256: "abc",
+    } },
+  });
+  assert.match(html, /th-artifact-path">report\.md</);
+  assert.match(html, /108 B · 01633b7/);
+  assert.match(html, /文件状态已复核/);
+  assert.equal(surface.answerDeliveryFor({ terminal: { status: "failed", result: { path: "x" } } }), "");
+});
+
+test("carryDisclosure preserves an explicitly toggled plan across patches", () => {
+  const { surface } = makeSurface();
+  const previous = fakeNode("plan", { threadItem: "plan", user: "1" });
+  previous.open = false;
+  const next = fakeNode("plan", { threadItem: "plan" });
+  next.open = true;
+  surface.carryDisclosure(previous, next);
+  assert.equal(next.open, false);
+  assert.equal(next.dataset.user, "1");
+
+  const automatic = fakeNode("plan", { threadItem: "plan" });
+  automatic.open = true;
+  const terminal = fakeNode("plan", { threadItem: "plan" });
+  terminal.open = false;
+  surface.carryDisclosure(automatic, terminal);
+  assert.equal(terminal.open, false, "default running disclosure does not force a terminal plan open");
 });

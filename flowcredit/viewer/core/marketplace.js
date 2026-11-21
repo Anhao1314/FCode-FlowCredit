@@ -8,6 +8,14 @@
 import { esc, num } from "./format.js";
 
 const CATEGORIES = ["all", "检索", "文件", "执行", "开发", "工具", "协作"];
+const CATEGORY_ICONS = {
+  "检索": "search",
+  "文件": "files",
+  "执行": "terminal",
+  "开发": "code",
+  "工具": "wrench",
+  "协作": "users",
+};
 
 const STATUS_LABEL = {
   connected: "已连接",
@@ -19,6 +27,10 @@ const STATUS_LABEL = {
 
 export function marketplaceCategories() {
   return [...CATEGORIES];
+}
+
+export function pluginIconName(plugin) {
+  return CATEGORY_ICONS[plugin.category] || (plugin.kind === "mcp" ? "cube" : "tool");
 }
 
 export function filterPlugins(plugins, view = {}) {
@@ -55,23 +67,26 @@ function metaLine(plugin) {
   const tools = plugin.tools || [];
   if (plugin.kind === "mcp") {
     const command = plugin.command || [];
-    return `<code class="mkt-command">${esc(command.join(" "))}</code>`;
+    return `<code class="mkt-command" title="${esc(command.join(" "))}">${esc(command.join(" "))}</code>`;
   }
-  return `<span class="mkt-tools">${tools.map(tool => `<code>${esc(tool)}</code>`).join(" ")}</span>`;
+  return `<span class="mkt-tools">${tools.map(tool => `<code>${esc(tool)}</code>`).join("")}</span>`;
 }
 
 export function pluginCardHtml(plugin) {
-  return `<article class="mkt-card" data-plugin-id="${esc(plugin.id)}">
+  return `<article class="mkt-card" data-plugin-id="${esc(plugin.id)}" data-plugin-category="${esc(plugin.category || "")}">
     <header class="mkt-card-head">
-      ${kindBadge(plugin)}
-      <b>${esc(plugin.name)}</b>
+      <span class="mkt-plugin-icon" data-doodle="${pluginIconName(plugin)}" aria-hidden="true"></span>
+      <div class="mkt-card-identity">
+        <div class="mkt-card-name"><b>${esc(plugin.name)}</b>${kindBadge(plugin)}</div>
+        <span class="mkt-cat">${esc(plugin.category || "未分类")}</span>
+      </div>
       ${statusBadge(plugin)}
     </header>
     <p class="mkt-card-summary">${esc(plugin.summary || "")}</p>
     <div class="mkt-meta">${metaLine(plugin)}</div>
     ${plugin.reason ? `<p class="mkt-reason">${esc(plugin.reason)}</p>` : ""}
     <footer class="mkt-card-foot">
-      <span class="mkt-cat">${esc(plugin.category || "")}</span>
+      <span class="mkt-note">${plugin.kind === "mcp" ? "本机 mcp.json" : `${num((plugin.tools || []).length)} 项工具`}</span>
       ${actionButton(plugin)}
     </footer>
   </article>`;
@@ -91,26 +106,29 @@ export function marketplaceToolbarHtml(view = {}, counts = {}) {
     `<button class="mkt-filter${category === key ? " active" : ""}" type="button"
       data-mkt-cat="${esc(key)}" aria-pressed="${category === key}">${esc(label)}</button>`;
   return `<div class="mkt-toolbar">
-    <input class="mkt-search" type="search" data-mkt-search placeholder="搜索插件、工具或命令…"
-      value="${esc(view.query || "")}" aria-label="搜索插件">
+    <div class="mkt-search-wrap">
+      <span class="mkt-search-icon" data-doodle="search" aria-hidden="true"></span>
+      <input class="mkt-search" type="search" data-mkt-search placeholder="搜索插件、工具或命令…"
+        value="${esc(view.query || "")}" aria-label="搜索插件">
+    </div>
+    <span class="mkt-count" aria-label="当前结果与插件总数" id="mkt-count">${num(counts.visible || 0)} / ${num(counts.total || 0)}</span>
     <div class="mkt-filters" role="group" aria-label="按分类筛选">
       ${marketplaceCategories().map(key => button(key, key === "all" ? "全部" : key)).join("")}
     </div>
-    <span class="mkt-count" id="mkt-count">${num(counts.visible || 0)} / ${num(counts.total || 0)}</span>
   </div>`;
 }
 
 export function marketplacePageHtml(view = {}, counts = {}, plugins = []) {
   const connected = plugins.filter(plugin => plugin.status === "connected").length;
   return `<div class="mkt-page">
-    <header class="gov-wb-header">
+    <header class="gov-wb-header mkt-header">
       <div class="gov-wb-intro">
-        <p class="eyebrow">PLUGIN MARKET</p>
+        <p class="eyebrow">CAPABILITY CATALOGUE</p>
         <h1 class="page-title">插件市场</h1>
-        <p class="page-meta">内置能力与经过审查的 MCP 插件都在这里发现。安装只写入本机
-          <code>mcp.json</code>，桥接后台重连；失败会如实显示，不会伪装成功。</p>
+        <p class="page-meta">把检索、文件与执行能力接入你的工作流。所有状态来自本机目录；安装只写入
+          <code>mcp.json</code>，连接失败会如实显示。</p>
       </div>
-      <div class="mkt-summary">
+      <div class="mkt-summary" aria-label="插件目录概况">
         <span><b>${num(plugins.length)}</b> 个插件</span>
         <span class="gov-dot-sep"></span>
         <span><b>${num(connected)}</b> 已连接</span>

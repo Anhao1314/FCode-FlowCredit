@@ -16,3 +16,24 @@ export function composerMode({ intakeActive = false, govActive = false, chatActi
   if (sessionRunning) return "running";
   return "work";
 }
+
+/* Work 同时承载对话与任务，但只自动分流“整条消息都明确是对话”的短输入。
+   集合必须保持克制：模糊问题仍走原有任务链，不能靠关键词猜测并改变执行语义。
+   去除标点/表情只用于识别“你好👋”等等价问候；“你好，帮我写文件”不会命中。 */
+const DIRECT_CONVERSATION = new Set([
+  "你好", "你好啊", "你好呀", "您好", "您好呀", "你们好", "大家好", "嗨", "哈喽",
+  "hello", "hi", "hey", "yo", "goodmorning", "goodafternoon", "goodevening",
+  "早上好", "上午好", "中午好", "下午好", "晚上好", "晚安", "在吗", "在么",
+  "你好吗", "howareyou", "howareyoudoing", "最近怎么样", "近来如何",
+  "谢谢", "谢谢你", "谢谢你们", "感谢", "非常感谢", "thanks", "thankyou", "thx",
+  "再见", "拜拜", "bye", "goodbye", "seeyou", "回头见",
+  "你是谁", "你叫什么", "你的名字是什么", "怎么称呼你", "介绍一下你自己", "自我介绍",
+  "whoareyou", "whatisyourname", "你能做什么", "你会什么", "你有什么能力", "whatcanyoudo",
+]);
+
+export function isDirectConversation(text) {
+  const value = String(text || "").trim().toLowerCase();
+  if (!value || value.length > 40) return false;
+  const normalized = value.replace(/[\p{P}\p{S}\s]+/gu, "");
+  return DIRECT_CONVERSATION.has(normalized);
+}

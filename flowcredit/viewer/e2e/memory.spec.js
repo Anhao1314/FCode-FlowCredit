@@ -26,6 +26,7 @@ test("/remember 写入 → 设置页可见 → 删除消失", async ({ page }) =
   // 设置页「记忆与产物」区可见该条目
   await page.locator("#settings-btn, #settings-mobile").first().click();
   await expect(page.locator("#settings-page")).toBeVisible();
+  await page.locator('[data-set-section="memory"]').click();
   const row = page.locator(`[data-mem-row="${entry.id}"]`);
   await expect(row).toBeVisible();
   await expect(row).toContainText("E2E 记忆：口径基准是 CNY");

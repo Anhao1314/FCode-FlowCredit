@@ -10,7 +10,7 @@
 
 import { esc, stripTags } from "../core/format.js";
 import {
-  changedThreadKeys, lastBudget, projectTaskThread, threadItemHtmlMap,
+  changedThreadKeys, formatElapsed, lastBudget, projectTaskThread, threadItemHtmlMap,
 } from "./task-thread.js";
 import { isProjectTrace } from "./project-work.js";
 import {
@@ -50,17 +50,21 @@ export function createThreadSurface(deps) {
       : (result.path ? [result] : []);
   }
 
-  /* 最终回复的第一句话：可读结论优先，指标与引用退到次级详情。 */
+  /* 最终回复只使用结果中真实存在的总结字段；没有总结时说明可验证事实。 */
   function answerTextFor(trace) {
     const terminal = trace.terminal || {};
     const result = terminal.result || {};
+    const supplied = [result.answer, result.final_response, result.summary]
+      .find(value => typeof value === "string" && value.trim());
+    if (supplied) return supplied.trim();
     if (isProjectTrace(trace)) {
       const count = (trace.project?.filesChanged || []).length;
       return `已在隔离副本中完成修改${count ? `，共变更 ${count} 个文件` : ""}；原目录未改动。`;
     }
     if (result.change_bp !== undefined) return d.resultConclusion(result);
     const artifacts = artifactsOf(result);
-    if (artifacts.length) return `任务已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。`;
+    if (artifacts.length === 1) return `已生成 \`${artifacts[0].path}\`，并通过 Runtime 文件状态复核。`;
+    if (artifacts.length > 1) return `已生成 ${artifacts.length} 个交付文件，并通过 Runtime 文件状态复核。`;
     return "任务已完成，结果通过 Runtime 独立校验。";
   }
 
@@ -68,7 +72,7 @@ export function createThreadSurface(deps) {
     if (isProjectTrace(trace)) return "代码变更与验证";
     const result = (trace.terminal || {}).result || {};
     if (result.change_bp !== undefined) return "指标、引用与判断";
-    return "结构化结果";
+    return "验证与签名信息";
   }
 
   function answerDetailFor(trace) {
@@ -82,12 +86,18 @@ export function createThreadSurface(deps) {
     return "";
   }
 
-  /* 交付物在最终回复正文里，不要求用户先打开右侧 rail。项目任务只展示
-     本次变更过的文件；媒体文件可直接预览，代码文件保留状态标签。 */
+  /* 交付物紧随回答展示；完整签名与结构化结果仍可展开复核。 */
   function answerDeliveryFor(trace) {
     if ((trace.terminal || {}).status !== "succeeded") return "";
-    if (!isProjectTrace(trace)) return "";
-    return d.projectWork.projectDeliveryHtml(trace) || "";
+    if (isProjectTrace(trace)) return d.projectWork.projectDeliveryHtml(trace) || "";
+    const artifacts = artifactsOf((trace.terminal || {}).result || {});
+    if (!artifacts.length) return "";
+    return `<div class="th-artifacts" aria-label="交付文件">${artifacts.map(entry => `<div class="th-artifact">
+      <span class="th-artifact-mark" aria-hidden="true">↗</span>
+      <code class="th-artifact-path">${esc(entry.path)}</code>
+      <span class="th-artifact-meta">${Number(entry.bytes || 0).toLocaleString("en-US")} B${entry.commit ? ` · ${esc(entry.commit)}` : ""}</span>
+      <span class="th-artifact-state">文件状态已复核</span>
+    </div>`).join("")}</div>`;
   }
 
   function threadOptions(trace, session) {
@@ -151,6 +161,10 @@ export function createThreadSurface(deps) {
       if (toggle) toggle.setAttribute("aria-expanded", previous.dataset.open);
       next.dataset.user = "1";
     }
+    if (previous.dataset.threadItem === "plan" && previous.dataset.user === "1") {
+      next.open = previous.open;
+      next.dataset.user = "1";
+    }
     const keep = new Map();
     previous.querySelectorAll("details[data-keep]").forEach(node => keep.set(node.dataset.keep, node.open));
     next.querySelectorAll("details[data-keep]").forEach(node => {
@@ -207,6 +221,20 @@ export function createThreadSurface(deps) {
     return store.threadCache;
   }
 
+  let clockTimer = null;
+
+  function paintThreadClock() {
+    const clock = document.querySelector('[data-thread-clock][data-live="1"]');
+    if (!clock) {
+      if (clockTimer) clearInterval(clockTimer);
+      clockTimer = null;
+      return;
+    }
+    const startedAt = Number(clock.dataset.startedAt);
+    if (Number.isFinite(startedAt)) clock.textContent = formatElapsed(Date.now() - startedAt);
+    if (!clockTimer) clockTimer = setInterval(paintThreadClock, 1000);
+  }
+
   function paintThread(s, trace, { live = false } = {}) {
     const container = document.getElementById("thread");
     if (!container || !trace) return null;
@@ -227,8 +255,9 @@ export function createThreadSurface(deps) {
     patchThread(container, items, threadCtx(), threadCacheFor(s));
     const terminalStatus = ((source.terminal || liveState.terminal || {}) || {}).status || "";
     if (container.dataset && container.classList && !container.dataset.processTouched) {
-      container.classList.toggle("hide-tools", terminalStatus === "succeeded" || terminalStatus === "failed");
+      container.classList.toggle("hide-tools", !!terminalStatus);
     }
+    if (live) paintThreadClock();
     return items;
   }
 

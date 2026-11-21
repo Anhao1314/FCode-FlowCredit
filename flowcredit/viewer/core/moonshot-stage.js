@@ -1,5 +1,5 @@
-/* Moonshot's monochrome wordmark inside a calm Kimi-style workspace.
-   The stage identifies FCode; it never competes with the task. */
+/* A quiet, task-first opening scene. The stage identifies FCode;
+   the composer and the operator's next action remain primary. */
 import { esc } from "./format.js";
 
 const SUGGESTIONS = {
@@ -20,7 +20,7 @@ const SUGGESTIONS = {
 export function moonshotStageHtml(note, options = {}) {
   const chat = !!options.chat;
   const mode = chat ? "CHAT" : "WORK";
-  const title = chat ? ["Bring proof", "to ideas."] : ["Build your", "own work."];
+  const title = chat ? ["想从哪里", "开始？"] : ["今天想", "完成什么？"];
   const suggestions = (chat ? SUGGESTIONS.chat : SUGGESTIONS.work)
     .map(([label, prompt]) => `<button type="button" class="stage-suggestion" data-stage-prompt="${esc(prompt)}">${esc(label)}</button>`)
     .join("");

@@ -489,6 +489,34 @@ test("createAuditSurface:深链指向不存在的包 → 死链自愈,URL 退回
   assert.match(detail.innerHTML, /从右侧「发现账本」选择一次审计/, "详情回到占位");
 });
 
+test("createAuditSurface:连续深链导航时,过期请求不得重新预选旧包", async () => {
+  const item = makeAuditEl({ attrs: { "data-dir": "evox-1" } });
+  const { replaceCalls } = installAuditDom();
+  globalThis.document.querySelector = sel => (
+    sel.includes("data-dir") && globalThis.location.hash === "#/audit/evox-1" ? item : null);
+  let releaseFirst;
+  const firstResponse = new Promise(resolve => { releaseFirst = resolve; });
+  let request = 0;
+  const surface = createAuditSurface({
+    beforeEnter() {}, setChrome() {}, renderMain() {}, getMode: () => "audit",
+    fetchImpl: () => {
+      request += 1;
+      if (request === 1) return firstResponse;
+      return Promise.resolve({ ok: true, json: async () => ({ bundles: [] }) });
+    },
+  });
+  globalThis.location.hash = "#/audit/evox-1";
+  const staleRender = surface.renderAudit();
+  globalThis.location.hash = "#/audit/gone";
+  await surface.renderAudit();
+  releaseFirst({ ok: true, json: async () => ({ bundles: [
+    { dir: "evox-1", audit_id: "evox-1", findings: 1, evidence: 1 },
+  ] }) });
+  await staleRender;
+  assert.ok(!item.clicked, "旧深链的包列表返回后不得覆盖新导航");
+  assert.deepEqual(replaceCalls, ["#/audit"], "最终 URL 保持在新死链自愈后的审计根");
+});
+
 test("createAuditSurface:预选期间用户切走(mode 变化) → 放弃预选也不自愈", async () => {
   const item = makeAuditEl({ attrs: { "data-dir": "evox-1" } });
   const { replaceCalls } = installAuditDom({ preselectItem: item });
