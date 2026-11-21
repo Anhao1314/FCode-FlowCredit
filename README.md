@@ -15,7 +15,7 @@
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
   ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)
 
-  <img src="flowcredit/viewer/docs/desktop-home.png" alt="FCode Work 控制台" width="100%" />
+  <img src="flowcredit/docs/showcase/work-home.png" alt="FCode Work 控制台" width="100%" />
   <img src="flowcredit/docs/showcase/audit-library.png" alt="审计库：发现账本、证据与处置" width="100%" />
 </div>
 
