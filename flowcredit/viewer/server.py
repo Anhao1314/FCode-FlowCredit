@@ -43,6 +43,7 @@ import secrets
 import socketserver
 import sys
 import threading
+import traceback
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,6 +54,8 @@ if str(VIEWER_DIR) not in sys.path:
     sys.path.insert(0, str(VIEWER_DIR))
 
 from console_common import (  # noqa: E402
+    BROWSER_DIR,
+    CHAT_CONFIG_PATH,
     DOMAIN_KEY,
     MAX_REQUEST_BODY,
     RUNS_DIR,
@@ -60,6 +63,11 @@ from console_common import (  # noqa: E402
     migrate_legacy_chat_config,
     run_trace_path,
 )
+from audit_service import AuditService  # noqa: E402
+from gov_bots import GovBotService  # noqa: E402
+from gov_chat import GovChatService  # noqa: E402
+from gov_plans import GovPlanService  # noqa: E402
+from plugin_market import PluginMarket  # noqa: E402
 from console_manager import RunManager as _RunManager  # noqa: E402
 
 class RunManager(_RunManager):
@@ -77,6 +85,11 @@ class Handler(SimpleHTTPRequestHandler):
     manager: RunManager  # set by main()
     token: str | None = None  # set by main() in desktop mode
     repo: Path | None = None  # set by create_server(); audit artifacts live here
+    audit: AuditService | None = None  # set by create_server(); Governance-zone service
+    gov_bots: GovBotService | None = None  # set by create_server(); governance team roster
+    gov_plans: GovPlanService | None = None  # set by create_server(); 主代理规划子代理
+    gov_chat: GovChatService | None = None  # set by create_server(); normal model chat for Governance
+    plugins: PluginMarket | None = None  # set by create_server(); curated plugin market
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, directory=str(VIEWER_DIR), **kwargs)
@@ -117,10 +130,12 @@ class Handler(SimpleHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self'",
+            "connect-src 'self'; frame-ancestors 'none'",
         )
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         super().end_headers()
 
     def _json(self, payload: dict | list, code: int = 200) -> None:
@@ -131,341 +146,6 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
-
-    # ------------------------------------------------------------- audit api
-    # 只读：数据全部来自 `fcode audit` 落盘的 work/audit/<audit_id>/。
-    # 目录名与记录名都过白名单正则，resolve 后再验包含关系——与 run_trace_path
-    # 同一纪律，不给路径穿越留缝。
-
-    _AUDIT_DIR_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,63}$")
-    _AUDIT_POC_RE = re.compile(r"^POC-[0-9]{4,}(-c)?$")
-    _AUDIT_REA_FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.json$")
-
-    def _audit_root(self) -> Path | None:
-        repo = type(self).repo or (Path(self.manager.runtime.repo)
-                                   if self.manager.runtime else None)
-        if repo is None:
-            return None
-        return Path(repo) / "work" / "audit"
-
-    def _audit_bundles(self) -> dict:
-        root = self._audit_root()
-        if root is None:
-            return {"error": "live mode unavailable: no repo given", "bundles": []}
-        bundles = []
-        if root.exists():
-            for path in sorted(root.glob("*/audit-bundle.json")):
-                if not self._AUDIT_DIR_RE.match(path.parent.name):
-                    # 目录名不合规的包无法通过 bundle/evidence/disposition 的
-                    # 同一白名单——列出只会得到"可见但打不开"的死条目。
-                    continue
-                try:
-                    bundle = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                bundles.append({
-                    "dir": path.parent.name,
-                    "audit_id": bundle.get("audit_id"),
-                    "target": (bundle.get("target") or {}).get("identity"),
-                    "findings": len(bundle.get("findings") or []),
-                    "evidence": len(bundle.get("poc_evidence_refs") or []),
-                    "rea_evidence": len(bundle.get("rea_evidence_refs") or []),
-                    "uncovered": len(bundle.get("uncovered_surfaces") or []),
-                    "artifact": (bundle.get("target") or {}).get("artifact_sha256"),
-                    "recorded": (bundle.get("sessions") or [{}])[0].get("session_ref", ""),
-                })
-        return {"bundles": bundles}
-
-    def _audit_bundle(self, name: str) -> dict | tuple[dict, int]:
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
-            return {"error": "not found"}, 404
-        path = (root / name / "audit-bundle.json").resolve()
-        if root.resolve() not in path.parents:
-            return {"error": "not found"}, 404
-        if not path.exists():
-            return {"error": "not found"}, 404
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"error": "unreadable bundle"}, 500
-
-    def _audit_evidence(self, name: str, poc_id: str) -> dict | tuple[dict, int]:
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or "") \
-                or not self._AUDIT_POC_RE.match(poc_id or ""):
-            return {"error": "not found"}, 404
-        path = (root / name / f"{poc_id}.json").resolve()
-        if root.resolve() not in path.parents:
-            return {"error": "not found"}, 404
-        if not path.exists():
-            return {"error": "not found"}, 404
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"error": "unreadable evidence"}, 500
-
-    def _audit_rea(self, name: str, filename: str) -> dict | tuple[dict, int]:
-        """Read one REA evidence/facts file named by the bundle itself.
-
-        The bundle is the allow-list: only paths it references under
-        ``rea-evidence/`` are readable. A filename is a single segment, so
-        traversal, absolute paths and symlinks outside the directory are
-        refused before any bytes are served.
-        """
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or "") \
-                or not self._AUDIT_REA_FILE_RE.match(filename or ""):
-            return {"error": "not found"}, 404
-        bundle = self._audit_bundle(name)
-        if isinstance(bundle, tuple):
-            return bundle
-        allowed: set[str] = set()
-        for key in ("rea_facts_ref", "rea_control_facts_ref"):
-            ref = bundle.get(key)
-            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
-                allowed.add(ref["path"])
-        for ref in bundle.get("rea_evidence_refs") or []:
-            if isinstance(ref, dict) and isinstance(ref.get("path"), str):
-                allowed.add(ref["path"])
-        relative = f"rea-evidence/{filename}"
-        if relative not in allowed:
-            return {"error": "not found"}, 404
-        base = (root / name / "rea-evidence").resolve()
-        path = (root / name / relative).resolve()
-        if base not in path.parents:
-            return {"error": "not found"}, 404
-        if not path.exists():
-            return {"error": "not found"}, 404
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"error": "unreadable REA evidence"}, 500
-
-    _DISPOSITIONS = ("accepted_risk", "false_positive_disputed", "wont_fix")
-    # 处置写回是读-改-写整个 bundle;ThreadingHTTPServer 下并发 POST 会互相
-    # 覆盖,用一把进程内锁串行化(处置是罕见的操作员动作,全局锁足够)。
-    _disposition_lock = threading.Lock()
-
-    def _audit_disposition(self, name: str, finding_id: str,
-                           disposition: str) -> dict | tuple[dict, int]:
-        """Set operator_disposition on one finding in the pinned bundle.
-
-        This is a host decision recorded as data, not a model output. The
-        finding's status and PoC outcome are untouched — only the operator's
-        judgment field changes. The file is written atomically. The empty
-        string is the UI's "— 无 —" option: it clears a previous disposition
-        rather than being rejected.
-        """
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
-            return {"error": "not found"}, 404
-        if disposition not in self._DISPOSITIONS and disposition != "":
-            return {"error": f"invalid disposition; must be one of ('', {', '.join(self._DISPOSITIONS)})"}, 400
-        bundle_path = (root / name / "audit-bundle.json").resolve()
-        if root.resolve() not in bundle_path.parents or not bundle_path.exists():
-            return {"error": "not found"}, 404
-        try:
-            with self._disposition_lock:
-                bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-                for finding in bundle.get("findings") or []:
-                    if finding.get("finding_id") == finding_id:
-                        finding["operator_disposition"] = disposition or None
-                        break
-                else:
-                    return {"error": "finding not found"}, 404
-                tmp = bundle_path.with_suffix(".json.tmp")
-                tmp.write_text(json.dumps(bundle, ensure_ascii=False, indent=2), encoding="utf-8")
-                tmp.replace(bundle_path)
-        except (OSError, ValueError):
-            return {"error": "unreadable bundle"}, 500
-        self._audit_chain_disposition_event(name, bundle, finding_id, disposition)
-        return {"finding_id": finding_id, "operator_disposition": disposition or None}
-
-    def _audit_disposition_summary(self) -> list[dict]:
-        """操作员对审计发现的处置汇总(判断记录页的「审计处置」区段)。
-
-        与 run 判断(review_decided 事件)语义不同、并列展示,不并入四类
-        计数。损坏的 bundle 跳过——一份坏文件不能藏起其余历史。
-        """
-        root = self._audit_root()
-        if root is None or not root.is_dir():
-            return []
-        rows: list[dict] = []
-        for path in sorted(root.glob("*/audit-bundle.json")):
-            if not self._AUDIT_DIR_RE.match(path.parent.name):
-                continue
-            try:
-                bundle = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            target = str((bundle.get("target") or {}).get("identity") or "")
-            for finding in bundle.get("findings") or []:
-                disposition = finding.get("operator_disposition")
-                if not disposition:
-                    continue
-                rows.append({
-                    "dir": path.parent.name,
-                    "audit_id": bundle.get("audit_id"),
-                    "finding_id": finding.get("finding_id"),
-                    "disposition": disposition,
-                    "category": finding.get("category"),
-                    "severity": finding.get("severity"),
-                    "target": target,
-                })
-        rows.sort(key=lambda row: str(row.get("audit_id") or ""))
-        return rows
-
-    def _audit_chain_disposition_event(self, name: str, bundle: dict,
-                                       finding_id: str, disposition: str) -> None:
-        """处置落签名链:bundle 写完之后追加一条 operator 事件。
-
-        bundle 的渲染读取不需要链,所以失败只降级(处置仍在 bundle 里,
-        只是少了防篡改轨迹),不影响端点结果。没有 session.sqlite 的包
-        (纯 cli-batch 产物)同样静默跳过。
-        """
-        if getattr(self.manager, "runtime", None) is None:
-            # 静态模式(runtime 未起)也要能落链:与 console_manager 同法,
-            # 从 viewer 旁边的源码检出导入 flowaudit/flowagent。
-            src = VIEWER_DIR.parent / "src"
-            if str(src) not in sys.path and (src / "flowaudit" / "__init__.py").exists():
-                sys.path.insert(0, str(src))
-        try:
-            from flowagent.core.store import TaskStore
-            from flowaudit.session import AuditSession
-        except ImportError:
-            return
-        root = self._audit_root()
-        if root is None:
-            return
-        db_path = root / name / "session.sqlite"
-        if not db_path.exists():
-            return
-        audit_id = str(bundle.get("audit_id") or name)
-        try:
-            session = AuditSession.attach(TaskStore(db_path), f"audit-{audit_id}")
-            session.record_disposition(finding_id, disposition)
-        except Exception:  # noqa: BLE001 — 链事件是增强,bundle 写入已成功
-            pass
-
-    def _audit_chain(self, name: str) -> dict | tuple[dict, int]:
-        """Read the audit session's hash-linked event chain from session.sqlite.
-
-        Every candidate proposal, finding promotion and operator action is
-        an event in the chain. Verification is delegated to the kernel's
-        TaskStore — the same code that wrote the chain recomputes every
-        event hash, checks linkage, sequence continuity and the head — so a
-        tampered hash with intact linkage is still reported broken. When
-        the kernel is unavailable the endpoint falls back to a link-only
-        check and says so (`verification: "link-only"`).
-        """
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
-            return {"error": "not found"}, 404
-        audit_dir = (root / name).resolve()
-        if root.resolve() not in audit_dir.parents or not audit_dir.is_dir():
-            return {"error": "not found"}, 404
-        db_path = audit_dir / "session.sqlite"
-        if not db_path.exists():
-            return {"events": [], "chain_intact": True, "count": 0,
-                    "verification": "none", "note": "no session log"}
-        # 审计会话的 task_id 固定为 audit-{audit_id};audit_id 以 bundle 里
-        # 记录的为准(目录名与 audit_id 可能不同,例如显式 --out 的历史包)。
-        audit_id = name
-        bundle_path = audit_dir / "audit-bundle.json"
-        try:
-            audit_id = str(json.loads(
-                bundle_path.read_text(encoding="utf-8")).get("audit_id") or name)
-        except (OSError, ValueError):
-            pass
-        task_id = f"audit-{audit_id}"
-        runtime = getattr(self.manager, "runtime", None) if self.manager else None
-        if runtime is not None and getattr(runtime, "TaskStore", None) is not None:
-            events = None
-            try:
-                store = runtime.TaskStore(db_path)
-                events = store.events(task_id)
-                store.verify_chain(task_id)
-                return {"events": events, "chain_intact": True,
-                        "verification": "kernel", "count": len(events)}
-            except Exception as error:  # noqa: BLE001 — AgentError → 篡改证据
-                if isinstance(events, list):
-                    return {"events": events, "chain_intact": False,
-                            "verification": "kernel", "count": len(events),
-                            "tamper": str(error)}
-                return {"error": f"cannot read session: {error}"}, 500
-        # kernel 不可用:退化为纯链接检查,如实标注弱校验。
-        import sqlite3
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.execute(
-                "SELECT sequence, type, payload, prev_hash, hash, at "
-                "FROM event ORDER BY sequence ASC"
-            )
-            events = []
-            for row in cursor:
-                payload = json.loads(row["payload"]) if row["payload"] else {}
-                events.append({
-                    "sequence": row["sequence"],
-                    "type": row["type"],
-                    "payload": payload,
-                    "prev_hash": row["prev_hash"],
-                    "hash": row["hash"],
-                    "at": row["at"],
-                })
-            # Verify chain: each event's prev_hash must match the previous hash.
-            chain_intact = True
-            prev = None
-            for event in events:
-                if prev is not None and event["prev_hash"] != prev:
-                    chain_intact = False
-                    break
-                prev = event["hash"]
-            return {
-                "events": events,
-                "chain_intact": chain_intact,
-                "verification": "link-only",
-                "count": len(events),
-            }
-        except (sqlite3.Error, ValueError, KeyError) as error:
-            return {"error": f"cannot read session: {error}"}, 500
-        finally:
-            conn.close()
-
-    def _audit_spec_gap(self, name: str) -> dict | tuple[dict, int]:
-        """Read the spec-gap report if it exists alongside the bundle.
-
-        The spec-gap report records conforms/undetermined judgments —
-        documentation-vs-observation conclusions that are not audit-bundle
-        findings. It is generated separately via
-        ``python audit.py spec-gap-report --input … --out …``.
-        """
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
-            return {"error": "not found"}, 404
-        path = (root / name / "spec-gap-report.json").resolve()
-        if root.resolve() not in path.parents or not path.exists():
-            return {"error": "no spec-gap report"}, 404
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"error": "unreadable spec-gap report"}, 500
-
-    def _audit_regression(self, name: str) -> dict | tuple[dict, int]:
-        """Read regression.json (known/new/fixed/regressed) for one audit."""
-        root = self._audit_root()
-        if root is None or not self._AUDIT_DIR_RE.match(name or ""):
-            return {"error": "not found"}, 404
-        path = (root / name / "regression.json").resolve()
-        if root.resolve() not in path.parents or not path.exists():
-            return {"prior_audit_id": None, "known": [], "new": [],
-                    "fixed": [], "regressed": []}
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"prior_audit_id": None, "known": [], "new": [],
-                    "fixed": [], "regressed": []}
 
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -589,10 +269,65 @@ class Handler(SimpleHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             template_key = (query.get("template") or [""])[0].strip()
             return self._json({
-                "default": "mock",
+                "default": mgr.default_model(),
                 "template": template_key or None,
                 "models": mgr.model_catalog_with_budget(template_key or None),
             })
+        if path == "/api/chat/workspace-file":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            relative = str((query.get("path") or [""])[0] or "").strip()
+            if not relative:
+                return self._json({"error": "path is required"}, 400)
+            try:
+                return self._json(mgr.chat.read_workspace_file(relative))
+            except Exception as error:  # noqa: BLE001 — AgentError is a host refusal
+                return self._json({
+                    "error": str(error) or "workspace file is unavailable",
+                    "code": getattr(error, "code", "CHAT_WORKSPACE_READ_FAILED"),
+                }, 400)
+        if path == "/api/chat/workspace-files":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            needle = str((query.get("q") or [""])[0] or "")
+            try:
+                limit = int((query.get("limit") or ["12"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            try:
+                return self._json(mgr.chat.list_workspace_files(needle, limit))
+            except Exception as error:  # noqa: BLE001 — AgentError is a host refusal
+                return self._json({
+                    "error": str(error) or "workspace files are unavailable",
+                    "code": getattr(error, "code", "CHAT_WORKSPACE_LIST_FAILED"),
+                }, 400)
+        if path == "/api/browser/artifact":
+            query = parse_qs(urlparse(self.path).query)
+            relative = str((query.get("path") or [""])[0] or "").strip()
+            if not relative:
+                return self._json({"error": "path is required"}, 400)
+            root = BROWSER_DIR.resolve()
+            target = (root / relative).resolve()
+            if target == root or root not in target.parents:
+                return self._json({"error": "artifact not found"}, 404)
+            if target.suffix.lower() not in (".png", ".html") or not target.is_file():
+                return self._json({"error": "artifact not found"}, 404)
+            data = target.read_bytes()
+            self.send_response(200)
+            # DOM HTML is untrusted page content: never serve it as text/html on
+            # this origin (same-origin script execution). PNG is safe to render.
+            self.send_header(
+                "Content-Type",
+                "image/png" if target.suffix.lower() == ".png" else "text/plain; charset=utf-8",
+            )
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/chat/threads":
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)
@@ -617,7 +352,21 @@ class Handler(SimpleHTTPRequestHandler):
                 "models": mgr.chat.chat_models(),
                 "default": mgr.chat.default_model(),
             })
-        if path == "/api/settings/chat-config":
+        if path == "/api/schedules":
+            if getattr(mgr, "schedules", None) is None:
+                return self._json({"error": "scheduler is unavailable"}, 503)
+            import datetime
+
+            from console_scheduler import describe_next
+
+            now = datetime.datetime.now()
+            entries = [dict(e, next=describe_next(e, now)) for e in mgr.schedules.list()]
+            return self._json({"schedules": entries})
+        if path == "/api/chat/memory":
+            if mgr.chat is None:
+                return self._json({"error": "chat is unavailable"}, 503)
+            return self._json({"memories": mgr.chat.memory.list()})
+        if path in ("/api/settings/model-config", "/api/settings/chat-config"):
             if mgr.chat is None:
                 return self._json({"error": "chat is unavailable"}, 503)
             return self._json(mgr.chat.config_snapshot())
@@ -664,17 +413,157 @@ class Handler(SimpleHTTPRequestHandler):
                 "servers": mgr.mcp_tools(),
                 "approvalTools": list(bridge.approval_names()) if bridge else [],
             })
+        if path == "/api/plugins":
+            plugins = getattr(self, "plugins", None)
+            if plugins is None:
+                return self._json({"error": "plugin market is unavailable"}, 503)
+            tool_names: set[str] = set()
+            if mgr.runtime is not None:
+                try:
+                    tool_names = {
+                        str(item.get("name"))
+                        for item in mgr.runtime.template_tools("general-research")
+                        if isinstance(item, dict)
+                    }
+                except Exception:  # noqa: BLE001 — market still lists MCP plugins
+                    tool_names = set()
+            return self._json({
+                "plugins": plugins.entries(
+                    tool_names=tool_names,
+                    mcp_servers=mgr.mcp_tools(),
+                ),
+                "mcp_ready": bool(mgr.mcp.get("ready", False)),
+            })
         if path == "/api/tools":
             if mgr.runtime is None:
                 return self._json({"error": mgr.runtime_error}, 503)
             return self._json({"tools": mgr.runtime.tool_contracts()})
         if path == "/api/runs":
-            return self._json(mgr.list_runs())
+            query = parse_qs(urlparse(self.path).query)
+            project_id = str(
+                (query.get("projectId") or [""])[0] or ""
+            ).strip() or None
+            return self._json(mgr.list_runs(project_id=project_id))
+        if path == "/api/projects":
+            query = parse_qs(urlparse(self.path).query)
+            include_archived = str(
+                (query.get("includeArchived") or [""])[0] or ""
+            ).strip().lower() in ("1", "true", "yes")
+            return self._json({
+                "projects": mgr.list_projects(include_archived=include_archived),
+            })
+        # ---- 治理对话（正常 Chat）：线程列表与单线程投影 ----
+        if path == "/api/gov/chat/threads":
+            chat = getattr(self, "gov_chat", None)
+            if chat is None:
+                return self._json({"error": "governance chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+                offset = int((query.get("offset") or ["0"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit and offset must be integers"}, 400)
+            if not 1 <= limit <= 200 or offset < 0:
+                return self._json({"error": "limit must be 1..200 and offset >= 0"}, 400)
+            return self._json({
+                "threads": chat.list_threads(limit, offset),
+                "total": chat.thread_count(),
+                "limit": limit,
+                "offset": offset,
+            })
+        if path.startswith("/api/gov/chat/threads/"):
+            chat = getattr(self, "gov_chat", None)
+            if chat is None:
+                return self._json({"error": "governance chat is unavailable"}, 503)
+            thread_id = unquote(path[len("/api/gov/chat/threads/"):]).strip("/")
+            if not thread_id or "/" in thread_id:
+                return self._json({"error": "bad thread id"}, 400)
+            try:
+                return self._json(chat.get_thread(thread_id))
+            except Exception as error:  # noqa: BLE001 — no such thread is a 404
+                return self._json({"error": str(error)}, 404)
+        # ---- 解读层（审计包视角）：账本里的「AI 解读」缓存读取 ----
+        if path.startswith("/api/gov/audit/") and path.endswith("/explanations"):
+            bots = getattr(self, "gov_bots", None)
+            audit = getattr(self, "audit", None)
+            if bots is None or audit is None:
+                return self._json({"error": "governance is unavailable"}, 503)
+            audit_dir = unquote(
+                path[len("/api/gov/audit/"):-len("/explanations")]).strip("/")
+            if not audit_dir or "/" in audit_dir:
+                return self._json({"error": "bad audit dir"}, 400)
+            # 路径闸门与 bundle 读取同源：包不存在就是 404，不解读不猜测。
+            probe = audit.bundle(audit_dir)
+            if isinstance(probe, tuple):
+                return self._json({"error": str(probe[0].get("error") or "not found")}, 404)
+            return self._json({"explanations": bots.explanations_for_audit(audit_dir)})
+        # ---- 治理团队（Phase A）：Bot 花名册 + 运行日志 ----
+        if path == "/api/gov/bots":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            return self._json(bots.snapshot())
+        if path == "/api/gov/runs":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            bot_id = str((query.get("bot") or [""])[0] or "").strip() or None
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({
+                "runs": bots.runs(bot_id, limit),
+                "explanations": bots.explanations_map(),
+            })
+        if path == "/api/gov/swarms":
+            bots = getattr(self, "gov_bots", None)
+            if bots is None:
+                return self._json({"error": "governance bots are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"swarms": bots.swarms(limit)})
+        # ---- 主代理规划子代理（Slice P1）：计划/审批/派发状态 ----
+        if path == "/api/gov/plans":
+            plans = getattr(self, "gov_plans", None)
+            if plans is None:
+                return self._json({"error": "governance plans are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"plans": plans.plans(limit)})
+        if path.startswith("/api/gov/plans/"):
+            plans = getattr(self, "gov_plans", None)
+            if plans is None:
+                return self._json({"error": "governance plans are unavailable"}, 503)
+            plan_id = path[len("/api/gov/plans/"):].strip("/")
+            if not plan_id or "/" in plan_id:
+                return self._json({"error": "bad plan id"}, 400)
+            plan = plans.get(plan_id)
+            if plan is None:
+                return self._json({"error": "no such plan"}, 404)
+            return self._json(plan)
+        if path == "/api/gov/fixes":
+            fixes = getattr(self, "gov_fixes", None)
+            if fixes is None:
+                return self._json({"error": "fixer is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"fixes": fixes.list(limit)})
         # ---- 审计域只读 API：发现账本的数据源（work/audit/<audit_id>/）----
         if path == "/api/audit/bundles":
-            return self._json(self._audit_bundles())
+            return self._json(self.audit.bundles())
         if path.startswith("/api/audit/bundle/"):
-            result = self._audit_bundle(path[len("/api/audit/bundle/"):].strip("/"))
+            result = self.audit.bundle(path[len("/api/audit/bundle/"):].strip("/"))
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
@@ -683,25 +572,25 @@ class Handler(SimpleHTTPRequestHandler):
             # /api/audit/evidence/<audit_dir>/<poc_id>
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
-            result = self._audit_evidence(parts[3], parts[4])
+            result = self.audit.evidence(parts[3], parts[4])
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
         if path.startswith("/api/audit/regression/"):
             audit_dir = path[len("/api/audit/regression/"):].strip("/")
-            result = self._audit_regression(audit_dir)
+            result = self.audit.regression(audit_dir)
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
         if path.startswith("/api/audit/spec-gap/"):
             audit_dir = path[len("/api/audit/spec-gap/"):].strip("/")
-            result = self._audit_spec_gap(audit_dir)
+            result = self.audit.spec_gap(audit_dir)
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
         if path.startswith("/api/audit/chain/"):
             audit_dir = path[len("/api/audit/chain/"):].strip("/")
-            result = self._audit_chain(audit_dir)
+            result = self.audit.chain(audit_dir)
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
@@ -710,13 +599,12 @@ class Handler(SimpleHTTPRequestHandler):
             # /api/audit/rea/<audit_dir>/<filename>
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
-            result = self._audit_rea(parts[3], parts[4])
+            result = self.audit.rea(parts[3], parts[4])
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
         if path.startswith("/api/audit/jobs/"):
-            from audit_jobs import job_status
-            job = job_status(path[len("/api/audit/jobs/"):].strip("/"))
+            job = self.audit.job_status(path[len("/api/audit/jobs/"):].strip("/"))
             if job is None:
                 return self._json({"error": "not found"}, 404)
             return self._json(job)
@@ -732,7 +620,7 @@ class Handler(SimpleHTTPRequestHandler):
                 template=param("template"),
                 outcome=param("outcome"),
             )
-            profile["audit_dispositions"] = self._audit_disposition_summary()
+            profile["audit_dispositions"] = self.audit.disposition_summary()
             return self._json(profile)
         if path.startswith("/api/runs/"):
             rest = path[len("/api/runs/") :]
@@ -780,6 +668,76 @@ class Handler(SimpleHTTPRequestHandler):
                     status = 400 if code == "SANDBOX_PATH_DENIED" else 404
                     return self._json({"error": code or str(error)}, status)
                 return self._json(record)
+            if action == "workspace-media":
+                # Raw bytes for a delivered image/video. The JSON workspace
+                # endpoint is for text; an <img>/<video> tag needs the actual
+                # bytes under the same jail and same-origin policy.
+                if mgr.runtime is None:
+                    return self._json({"error": mgr.runtime_error}, 503)
+                query = parse_qs(urlparse(self.path).query)
+                relative = str((query.get("path") or [""])[0] or "").strip()
+                if not relative:
+                    return self._json({"error": "path is required"}, 400)
+                sandbox = mgr.runtime.WorkspaceSandbox(RUNS_DIR / run.id / "workspace")
+                try:
+                    target_path, _ = sandbox.resolve(relative)
+                except Exception as error:  # noqa: BLE001 — jail refusal, not a crash
+                    code = getattr(error, "code", "")
+                    return self._json({"error": code or str(error)}, 404)
+                media_types = {
+                    ".gif": "image/gif",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".mp4": "video/mp4",
+                    ".webm": "video/webm",
+                }
+                content_type = media_types.get(target_path.suffix.lower())
+                if content_type is None or not target_path.is_file():
+                    return self._json({"error": "media not found"}, 404)
+                try:
+                    size = target_path.stat().st_size
+                except OSError:
+                    return self._json({"error": "media not found"}, 404)
+                if size > 20 * 1024 * 1024:
+                    return self._json({"error": "media too large"}, 413)
+                data = target_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            if action == "quality-frame":
+                # The deterministic probe's contact sheet, generated by the
+                # host outside the workspace. Only flat PNG names are accepted;
+                # the directory is fixed, so no path traversal is possible.
+                query = parse_qs(urlparse(self.path).query)
+                name = str((query.get("name") or ["contact.png"])[0] or "contact.png")
+                if not re.fullmatch(r"[A-Za-z0-9._-]+\.png", name):
+                    return self._json({"error": "invalid frame name"}, 400)
+                frames_dir = (RUNS_DIR / run.id / "quality-frames").resolve()
+                target = (frames_dir / name).resolve()
+                if target.parent != frames_dir or not target.is_file():
+                    return self._json({"error": "quality frame not found"}, 404)
+                try:
+                    size = target.stat().st_size
+                except OSError:
+                    return self._json({"error": "quality frame not found"}, 404)
+                if size > 20 * 1024 * 1024:
+                    return self._json({"error": "quality frame too large"}, 413)
+                data = target.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             return self._json({"error": "unknown action"}, 404)
         return self._json({"error": "unknown endpoint"}, 404)
 
@@ -951,8 +909,8 @@ class Handler(SimpleHTTPRequestHandler):
             if len(parts) != 5:
                 return self._json({"error": "bad path"}, 400)
             body = self._read_body()
-            result = self._audit_disposition(parts[3], parts[4],
-                                             str(body.get("disposition") or ""))
+            result = self.audit.disposition(parts[3], parts[4],
+                                            str(body.get("disposition") or ""))
             if isinstance(result, tuple):
                 return self._json(result[0], result[1])
             return self._json(result)
@@ -1043,6 +1001,126 @@ def create_server(
     Handler.manager = manager
     Handler.token = token or None
     Handler.repo = Path(repo).expanduser().resolve() if repo else None
+    # Governance-zone service: own root, own path jail, own write path. The
+    # HTTP handler translates; it does not import flowaudit.
+    Handler.audit = AuditService(
+        repo=Handler.repo,
+        runtime=runtime,
+    )
+    # Governance team roster: durable run log beside the other console state.
+    # The bot service is only a scheduler/log; audit bundles remain the truth.
+    try:
+        Handler.gov_bots = GovBotService(
+            Handler.audit,
+            manager.runs_dir.parent / "governance.sqlite",
+            # triage 与解释层共用同一个 provider 目录纪律（共享默认模型、
+            # mock fail-closed）；triage 的产物只进 bot_runs，不进审计包。
+            provider_factory=manager.gov_explainer_provider,
+        )
+    except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
+        traceback.print_exc()
+    # 主代理规划子代理：计划/审批/派发记录与团队花名册同库；planner 走与
+    # 解释层相同的 provider 目录纪律（fail-closed，mock 不伪造计划）。
+    if getattr(Handler, "gov_bots", None) is not None:
+        try:
+            Handler.gov_plans = GovPlanService(
+                Handler.gov_bots,
+                manager.runs_dir.parent / "governance.sqlite",
+                provider_factory=lambda: manager.gov_explainer_provider(None),
+            )
+        except Exception:  # noqa: BLE001 — plans UI degrades, team stays usable
+            traceback.print_exc()
+            Handler.gov_plans = None
+    # Governance chat: a normal model thread with a bounded governance snapshot.
+    # It has no workspace tools; proposals are confirmed by the operator and
+    # dispatched through GovBotService below.
+    try:
+        Handler.gov_chat = GovChatService(
+            manager.runs_dir.parent / "governance-chat.sqlite",
+            CHAT_CONFIG_PATH,
+            Handler.gov_bots,
+            policy_root=Handler.repo,
+            gov_plans=getattr(Handler, "gov_plans", None),
+        )
+    except Exception:  # noqa: BLE001 — audit/team remain usable without chat
+        traceback.print_exc()
+    # Fixer write path: validate in an isolated copy, apply only on approval,
+    # then start a fresh manual audit so the finding is re-decided by evidence.
+    try:
+        from gov_fixes import GovFixService
+
+        bots = getattr(Handler, "gov_bots", None)
+
+        def _delegate_fix(objective, project_path, verification, model_key):
+            run = manager.create_fix_run(
+                objective, project_path, verification, model_key=model_key)
+            return {"run_id": run.id}
+
+        def _work_fix_lookup(run_id):
+            run = manager.get(str(run_id or ""))
+            if run is None:
+                return {"finished": True, "status": "missing",
+                        "error": "Work run not found"}
+            run_dir = manager.runs_dir / run.id
+            source = ""
+            project_path = run_dir / "project.json"
+            try:
+                if project_path.is_file():
+                    source = str(json.loads(
+                        project_path.read_text(encoding="utf-8")
+                    ).get("source") or "")
+            except (OSError, ValueError):
+                source = ""
+            patch_path = run_dir / "changes.patch"
+            try:
+                patch = patch_path.read_text(encoding="utf-8") if patch_path.is_file() else ""
+            except OSError:
+                patch = ""
+            return {
+                "finished": bool(run.finished),
+                "status": str(getattr(run, "status", "") or ""),
+                "patch": patch,
+                "source": source,
+                "error": str(getattr(run, "error", "") or ""),
+            }
+
+        Handler.gov_fixes = GovFixService(
+            Handler.audit,
+            (bots.start_manual_run if bots is not None else None),
+            root=(Handler.audit.root.parent / "fixes") if Handler.audit.root else None,
+            delegate=_delegate_fix,
+            work_lookup=_work_fix_lookup,
+        )
+    except Exception:  # noqa: BLE001 — audit/team remain usable without fixes
+        traceback.print_exc()
+        Handler.gov_bots = None
+    # 解释层：模型解释确定性证据，不做裁决。bundle 读取走审计服务（同一 jail），
+    # provider 构建走与运行相同的目录纪律；产物落 governance.sqlite。
+    Handler.gov_explainer = None
+    if Handler.gov_bots is not None:
+        try:
+            from gov_explainer import GovExplainer
+
+            Handler.gov_explainer = GovExplainer(
+                service=Handler.gov_bots,
+                bundle_loader=lambda name: Handler.audit.bundle(name),
+                provider_factory=lambda key: manager.gov_explainer_provider(key),
+                default_model=os.environ.get("FCODE_DEFAULT_RUN_MODEL", ""),
+            )
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            Handler.gov_explainer = None
+    # Curated plugin market over mcp.json. Install/uninstall is a host action
+    # with catalog-only ids; the UI cannot invent commands.
+    try:
+        Handler.plugins = PluginMarket(
+            config_path=os.environ.get("FCODE_MCP_CONFIG")
+            or (Handler.repo / "mcp.json" if Handler.repo else ""),
+            repo=Handler.repo,
+        )
+    except Exception:  # noqa: BLE001 — market UI degrades, runtime stays up
+        traceback.print_exc()
+        Handler.plugins = None
     httpd = ConsoleHTTPServer((host, port), Handler)
     httpd.daemon_threads = True
     return httpd

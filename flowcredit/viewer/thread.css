@@ -27,21 +27,13 @@ body {
 /* ================================================================ 主功能切换
    对齐 Kimi 桌面端：侧栏顶部 [工作 | 对话] 分段开关，切换整个侧栏内容；
    主区 wordmark 随模式挂 WORK 徽章（黑底白字，KIMI WORK 同款）。 */
-.mode-switch { display: flex; gap: 4px; margin: 0 0 10px; }
-.mode-opt {
-  flex: 1; height: 32px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  border: 0.5px solid transparent; border-radius: 10px; background: transparent;
-  color: var(--text-3); font-size: 13px; cursor: pointer;
-  transition: background-color .15s, color .15s, border-color .15s;
-}
 .mode-opt .s-icon, .mode-opt .d-icon { width: 15px; height: 15px; }
-.mode-opt:hover { color: var(--text-1); background: rgba(0, 0, 0, .04); }
 .mode-opt.active { background: #FFFFFF; border-color: rgba(0, 0, 0, .13); color: var(--text-1); }
 
-.stage-mark { display: inline-flex; align-items: flex-start; gap: 10px; }
+/* 仅用于非 moonshot 的内联字标；moonshot 标题必须是块级两行，
+   否则两行 span 会并排成一行被舞台裁切（标题只剩 "Build your own wo"）。 */
+.stage-mark:not(.moonshot-title) { display: inline-flex; align-items: flex-start; gap: 10px; }
 /* .stage-badge 黑底款已删：moonshot.css:21 的透明描边款是定稿（本文件加载序在先，从未生效）。 */
-.stage-chips[hidden] { display: none !important; }
 
 /* ================================================================ 主区 */
 /* 顶栏底边与底色由 desktop.css 的毛玻璃规则定稿（此处旧透明款是死代码，已删）。 */
@@ -52,11 +44,9 @@ body {
 html.desktop-app #app.stage-mode .statusline { display: none; }
 html.desktop-app #app.chat-mode .statusline { display: none; }
 .stage-note { color: var(--text-3); font-size: 15px; line-height: 22px; }
-.stage-chip {
   border: .5px solid rgba(0, 0, 0, .13); background: #FFFFFF; color: var(--text-2);
   font-size: 14px; transition: background-color .15s, color .15s, border-color .15s;
 }
-.stage-chip:hover { background: #F5F5F5; color: var(--text-1); border-color: rgba(0, 0, 0, .20); }
 
 /* rail 旧浮层规则已迁往 desktop.css「rail 双形态」节（含关闭态 visibility 修复）。 */
 
@@ -87,6 +77,15 @@ html.desktop-app .side-new { height: 40px; }
   background: transparent; color: var(--text-2); font-size: 14px;
   transition: background-color .3s ease-in-out, color .3s ease-in-out, box-shadow .15s;
 }
+/* Fast 开关：点亮 = 绿点 + 正常字色；关闭 = 灰点 + 淡字色（ZCode 极简）。 */
+#fast-btn { gap: 6px; }
+#fast-btn .fdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-3); transition: background-color .2s;
+}
+#fast-btn.on { color: var(--text-1); }
+#fast-btn.on .fdot { background: #2f9e44; }
+#fast-btn:not(.on) { color: var(--text-3); }
 .c-btn:hover { background: #F5F5F5; color: var(--text-1); }
 .c-btn.static { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
 .c-btn.static:hover { background: none; }
@@ -140,6 +139,26 @@ button.run-chip:hover { border-color: var(--accent); color: var(--text-1); }
 .s-icon { width: 18px; height: 18px; stroke-width: 1.8; }
 .side-new .s-icon, .side-nav .s-icon, .foot-item .s-icon { width: 18px; height: 18px; }
 
+/* S2.1 区切换器：新对话 hero 下方，工作区/治理区等宽两键。
+   底座复用 .seg 分段（r9 + 内衬 3px + rgba 底），active 白卡浮起。 */
+.zone-switch {
+  display: flex; margin: 8px 0 2px; padding: 2px; height: 36px;
+  border-radius: 10px; background: var(--k-fill-2);
+}
+.zone-switch .zone-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
+  height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: none;
+  color: var(--text-3); font-size: 14px; line-height: 20px; cursor: pointer;
+  transition: color .15s ease, background-color .15s ease;
+  white-space: nowrap; /* 英文副标签不得换行折成两行 */
+}
+.zone-switch .zone-btn .s-icon { width: 14px; height: 14px; }
+.zone-switch .zone-btn:hover { color: var(--text-2); }
+.zone-switch .zone-btn.active {
+  color: var(--text-1); font-weight: 500;
+  background: #fff; box-shadow: 0 1px 2px #0000000f;
+}
+
 /* ================================================================ 动效 */
 @keyframes kimiPulse {
   from { opacity: .45; }
@@ -181,7 +200,6 @@ body.reduce-motion .run-chip .pdot {
 .side-count, .side-desk .side-count, .side-section .side-count, .side-head-label .grp-count { font: 12px/18px var(--font-mono); }
 .session .smeta { font-size: 12px; line-height: 18px; }
 .run-row .r-sub { font: 12px/18px var(--font-mono); }
-.kbtn { font-size: 12px; }
 .foot-meta { font-size: 12px; line-height: 18px; }
 
 /* 用户行：Kimi 触发行的比例 → 32 高，齿轮 20 */
@@ -191,24 +209,26 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
 /* 对话：操作按钮 12/18；行内码与正文同字号（Kimi markdown-InlineCode 16/26） */
 .chat-act { font-size: 12px; line-height: 18px; }
 
-/* 思考强度 = Kimi 规格行：label 14/20 + 右侧档位胶囊 28/r8 */
+/* 思考强度 = 极简文字档位（ZCode 风格）：label 与档位同行，active 只加重不加底。
+   本块是唯一规则源——design.css 的重复副本已删，避免双源级联分歧。 */
 .model-effort {
+  display: flex; align-items: center; gap: 8px;
   margin: 4px 0 2px; padding: 8px 10px;
   border: 0; border-radius: 8px; background: #F5F5F5;
 }
 .me-head {
-  font: 500 14px/20px var(--font-ui);
+  flex: none; font: 500 14px/20px var(--font-ui);
   letter-spacing: 0; text-transform: none; color: var(--text-1);
 }
+.me-opts { display: flex; gap: 2px; align-items: center; }
 .me-opt {
-  min-width: 40px; height: 28px; padding: 0 10px;
-  border: 0; border-radius: 8px; background: rgba(0, 0, 0, .04);
-  color: var(--text-2); font-size: 12px; line-height: 18px;
-  transition: background-color .15s, color .15s;
+  border: none; background: none; color: var(--text-3);
+  font-size: 12px; line-height: 18px; padding: 2px 8px;
+  cursor: pointer; border-radius: 4px;
+  transition: color .15s ease;
 }
-.me-opt:hover { background: rgba(0, 0, 0, .08); color: var(--text-1); border-color: transparent; }
-.me-opt.active { background: #000000; border-color: transparent; color: #FFFFFF; font-weight: 500; }
-.me-note { font-size: 12px; line-height: 18px; }
+.me-opt:hover { color: var(--text-1); }
+.me-opt.active { color: var(--text-1); font-weight: 600; }
 
 /* toast = 深色胶囊已收编 design.css「toast」节（生效值 #2B2B2B + workspace 的 r10/13px）。 */
 
@@ -252,24 +272,15 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
    与 workspace.css 的三行覆写合并为生效值（卡 r14/--line、行透明底+软分隔、
    审批门白底+左缘 3px 警示条、主档 #111）。core/run-card.js 渲染契约不动。 */
 
-/* 舞台脚注与「演示场景」折叠：真实任务模板直接露出，故障注入夹具收进折叠。
-   chips 改为换行布局：Kimi 的模板区是有限几项，横滚是我们自己的历史包袱。 */
-.stage-chips { flex-wrap: wrap; row-gap: 10px; }
-.stage-foot {
   margin: 10px 0 0; max-width: 620px;
   font: 12px/18px var(--font-ui); color: var(--text-4); text-align: center;
 }
-.stage-demos {
   flex: 1 0 100%; margin-top: 2px;
   font: 12px/18px var(--font-ui); color: var(--text-3);
 }
-.stage-demos > summary {
   display: inline-block; padding: 4px 10px; border-radius: 8px; cursor: pointer;
   color: var(--text-3); transition: background-color .15s, color .15s;
 }
-.stage-demos > summary:hover { background: var(--panel); color: var(--text-1); }
-.stage-demo-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px 0 4px; }
-.stage-demo-note { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--text-4); }
 
 /* 设置页 provider 卡：作用域说明 + 配置时效 */
 .chatcfg-scope { margin: 2px 0 8px; font: 12px/18px var(--font-ui); color: var(--text-4); }
@@ -316,7 +327,6 @@ html.desktop-app .side-user { height: 32px; padding: 4px 8px; }
 /* ================================================================ Work 任务体验
    首页、执行页与输入区共用 Kimi 的阅读宽度和灰阶层级。项目设置、模型与附件
    都是浮层；执行、变更、文件共享一个任务上下文，不再混入需求确认与审计卡片。 */
-.mode-work .stage-foot { display: none; }
 .mode-work .chain-pill { display: none; }
 html.desktop-app .mode-work .statusline { display: none; }
 
@@ -462,7 +472,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 
 /* Composer: independent flex footer. A solid boundary makes the end of the
    scrollport explicit; .main owns scrolling and never extends beneath it. */
-.composer-wrap { position: relative; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
+.composer-wrap { position: relative; z-index: 40; padding: 12px 28px 22px; border-top: 1px solid var(--line-soft); background: var(--canvas); }
 .composer-box { border: 1px solid var(--line-strong); border-radius: 18px; box-shadow: var(--shadow-stage); }
 .composer-box:focus-within {
   /* 聚焦反馈保持在容器上：边框轻微加深 + 3px 柔环。此前 .32 接近黑色，
@@ -502,6 +512,11 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .seg { padding: 3px; border: 0; border-radius: 9px; background: rgba(0,0,0,.045); }
 .seg button { border-radius: 7px; font-size: 12px; }
 .seg button.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+/* Kimi segmented-tabs--md：36 高 / r10 / p2；tab 32 / r8 / 14-20。
+   .seg 是通用底座，招呼式选择器要在它之后覆盖共享属性。 */
+.zone-switch.seg { padding: 2px; border-radius: 10px; background: var(--k-fill-2); }
+.zone-switch .zone-btn { height: 32px; padding: 0 12px; border-radius: 8px; font-size: 14px; line-height: 20px; }
+.zone-switch .zone-btn.active { font-weight: 500; box-shadow: 0 1px 2px #0000000f; }
 .rail-body { padding: 10px 14px 24px; }
 .ev-item { border-left-color: var(--line-strong); }
 .ev-type { font-family: var(--font-ui); }
@@ -552,9 +567,8 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   #approval-label { display: none; }
   .model-menu { max-width: calc(100vw - 28px); }
   .chat-bubble, html.desktop-app .chat-bubble { max-width: 94%; }
-  .ai-avatar { display: none; }
+  .chat-msg-row { gap: 8px; }
   .result .metrics { grid-template-columns: 1fr; }
-  .apv-choices { flex-direction: column; }
   .palette-box { width: calc(100vw - 24px); margin-top: 6vh; }
   .palette-foot span:last-child { display: none; }
 }
@@ -645,6 +659,10 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-status.stopped .th-status-dot,
 .th-status.unknown .th-status-dot { background: var(--warn); }
 .th-status-label { font-weight: 550; font-size: var(--fs-3); }
+.th-status-elapsed {
+  color: var(--text-3); font: 12px/16px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 .th-status-detail {
   min-width: 0; color: var(--text-2); font-size: var(--fs-2);
   overflow-wrap: anywhere;
@@ -726,6 +744,15 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-tool-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .th-ic { display: inline-flex; color: var(--text-3); flex: none; }
 .th-ic svg, .th-glyph { width: 15px; height: 15px; flex: none; }
+/* GLYPHS are outline paths. Without an explicit paint they inherit the SVG
+   default (solid black fill), so every tool renders as the same heavy block. */
+.th-ic svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .th-ic.failed, .th-ic.denied { color: var(--bad); }
 .th-ic.stopped, .th-ic.unknown { color: var(--warn); }
 .th-tool-name {
@@ -760,6 +787,30 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   display: flex; flex-wrap: wrap; gap: 4px 10px;
   margin: 2px 0 8px; font: 11px/16px var(--font-mono); color: var(--text-4);
   font-variant-numeric: tabular-nums;
+}
+.th-browser-pair {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px; margin: 4px 0 8px;
+}
+.th-browser-figure { margin: 0; min-width: 0; }
+.th-browser-figure figcaption { margin-top: 3px; color: var(--text-3); font: 10px var(--font-mono); }
+.th-browser-shot {
+  display: block; margin: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--raised);
+}
+.th-browser-shot img {
+  display: block; width: 100%; max-height: 420px; object-fit: contain; object-position: top center;
+}
+.th-browser-meta {
+  margin: -4px 0 8px; color: var(--text-3);
+  font: 10.5px/16px var(--font-mono); overflow-wrap: anywhere;
+}
+.th-browser-diff { margin: 0 0 8px; }
+.th-browser-diff summary { cursor: pointer; color: var(--text-3); font-size: 11px; }
+.th-browser-diff pre {
+  margin: 4px 0 0; padding: 6px; max-height: 180px; overflow: auto;
+  border-radius: 6px; background: var(--inset); color: var(--text-2);
+  font: 10px/15px var(--font-mono); white-space: pre-wrap;
 }
 .th-args { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 4px 0 8px; }
 .th-arg { display: contents; }
@@ -870,6 +921,29 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-approval .th-ic { color: var(--warn); }
 .th-approval.resolved .th-ic { color: var(--text-3); }
 .th-question-text { margin: 0 0 4px; font-size: var(--fs-3); line-height: 1.6; color: var(--text-1); white-space: pre-wrap; }
+.th-q-options { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px; }
+.th-q-option {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  min-height: 36px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--raised); color: var(--text-1);
+  font: var(--fs-2)/1.45 var(--font-ui); text-align: left;
+  cursor: pointer;
+}
+.th-q-option:hover { border-color: var(--line-strong); background: var(--panel); }
+.th-q-option[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.th-q-option[aria-pressed="true"] .th-q-mark {
+  border-color: var(--accent); background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--raised);
+}
+.th-q-option:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.th-q-mark {
+  width: 14px; height: 14px; flex: none;
+  border: 1px solid var(--line-strong); border-radius: 50%;
+  background: var(--raised);
+}
 .th-q-input {
   width: 100%; resize: vertical; min-height: 52px;
   padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
@@ -885,6 +959,146 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   border-top: 1px solid var(--line-soft);
 }
 .th-answer-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.th-answer-warning { margin: 4px 0 0; color: var(--warn); }
+.th-delivery {
+  margin: 10px 0 6px; padding: 10px;
+  border: 1px solid var(--line-soft); border-radius: 10px; background: var(--raised);
+}
+.th-delivery-head {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 12px; color: var(--text-2);
+}
+.th-delivery-head > span:first-child { font-weight: 600; color: var(--text-1); }
+.th-delivery-isolated { margin-left: auto; color: var(--text-3); font-size: 11px; }
+.th-delivery-media-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px; margin-top: 8px;
+}
+.th-delivery-item { margin: 0; min-width: 0; }
+.th-delivery-media {
+  display: block; width: auto; max-width: 100%; max-height: 320px;
+  margin: 0 auto; object-fit: contain;
+  border-radius: 8px; background: #0b0b12;
+}
+.th-delivery-item figcaption {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 4px; font: 11px/16px var(--font-mono); color: var(--text-3);
+}
+.th-delivery-item figcaption span { overflow-wrap: anywhere; }
+.th-delivery-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.th-delivery-html { margin-top: 8px; }
+.th-delivery-open {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text-1);
+  font: 12px/18px var(--font-mono); text-align: left; cursor: pointer;
+}
+.th-delivery-open:hover { border-color: var(--accent); }
+.th-delivery-open small { margin-left: auto; color: var(--accent); font-family: var(--font-ui); }
+.th-delivery-quality {
+  margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line-soft);
+  font: 11px/16px var(--font-ui); color: var(--text-3);
+}
+.th-delivery-quality-head { display: flex; align-items: baseline; gap: 8px; }
+.th-delivery-quality b { color: var(--ok); font-weight: 600; margin-right: 2px; }
+.th-delivery-quality.warn b { color: var(--warn); }
+.th-delivery-quality.unverified b { color: var(--warn); }
+.th-delivery-quality.fail b { color: var(--bad); }
+.th-delivery-quality ul { margin: 3px 0 0; padding-left: 16px; }
+.th-delivery-quality li { margin: 1px 0; }
+.th-delivery-quality-frame {
+  margin: 7px 0 0; overflow: hidden; border: 1px solid var(--line-soft);
+  border-radius: 8px; background: var(--panel);
+}
+.th-delivery-quality-frame a { display: block; }
+.th-delivery-quality-frame img {
+  display: block; width: 100%; max-height: 240px; object-fit: contain;
+}
+.th-delivery-quality-metrics {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px;
+}
+.th-delivery-quality-metrics span {
+  padding: 1px 6px; border: 1px solid var(--line-soft); border-radius: 999px;
+  font: 10px/15px var(--font-mono); color: var(--text-2);
+}
+.th-delivery-file {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px;
+  font: 11px/16px var(--font-mono); color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.th-delivery-file b { color: var(--text-3); font-weight: 600; }
+
+/* A failed run still has an artifact. Show its state instead of leaving the
+   user to infer "empty scene" from a tool log. */
+.th-artifact-state {
+  margin: 6px 0 2px; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--raised);
+}
+.th-artifact-state-head { display: flex; align-items: center; gap: 8px; }
+.th-artifact-state-kicker {
+  font: 10px/16px var(--font-mono); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.th-artifact-state-head b { font: 13px/20px var(--font-ui); font-weight: 600; color: var(--text-1); }
+.th-artifact-state-badge.fail { color: var(--bad); background: var(--bad-soft); }
+.th-artifact-state-badge.warn,
+.th-artifact-state-badge.unverified { color: var(--warn); background: var(--warn-soft); }
+.th-artifact-state-note { margin: 5px 0 0; color: var(--text-3); font: 11px/16px var(--font-ui); }
+.th-artifact-state .th-delivery-quality-frame img { max-height: 180px; }
+.th-artifact-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.th-artifact-file {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px;
+  font: 11px/16px var(--font-mono); color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.th-artifact-file b { color: var(--text-3); font-weight: 600; }
+.th-artifact-more {
+  padding: 2px 6px; color: var(--text-3);
+  font: 11px/16px var(--font-mono);
+}
+.th-artifact-file small { color: var(--text-4); font: 10px/16px var(--font-mono); }
+.th-artifact-quality { margin-top: 6px; border-top: 1px solid var(--line-soft); }
+.th-artifact-quality > summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+  padding-top: 8px; color: var(--text-2); cursor: pointer;
+  font: 11px/16px var(--font-ui); list-style: none;
+}
+.th-artifact-quality.fail > summary { color: var(--bad); }
+.th-artifact-quality.warn > summary,
+.th-artifact-quality.unverified > summary { color: var(--warn); }
+.th-artifact-quality > summary::-webkit-details-marker { display: none; }
+.th-artifact-quality-facts { display: inline-flex; flex-wrap: wrap; gap: 6px 12px; }
+.th-artifact-quality-action { margin-left: auto; color: var(--text-3); }
+.th-artifact-quality-action::after { content: "▾"; margin-left: 5px; font-size: 10px; }
+.th-artifact-quality[open] .th-artifact-quality-action::after { content: "▴"; }
+.th-artifact-quality .th-delivery-quality {
+  margin-top: 6px; padding-top: 0; border-top: 0;
+}
+.html-preview-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(0, 0, 0, .58);
+}
+.html-preview-card {
+  display: flex; flex-direction: column;
+  width: min(1100px, 96vw); height: min(760px, 92vh);
+  overflow: hidden; border-radius: 14px; background: #fff;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .32);
+}
+.html-preview-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  font: 12px/18px var(--font-mono); color: var(--text-2);
+}
+.html-preview-head b { color: var(--text-1); font-family: var(--font-ui); font-size: 13px; }
+.html-preview-close {
+  margin-left: auto; border: 1px solid var(--line); border-radius: 7px;
+  background: #fff; color: var(--text-2); padding: 3px 9px; cursor: pointer;
+}
+.html-preview-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 .th-answer-kicker {
   font: 600 11px/16px var(--font-ui); letter-spacing: .06em;
   text-transform: uppercase; color: var(--text-3);
@@ -900,7 +1114,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 }
 .th-answer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .th-answer-detail-body { padding-top: 6px; min-width: 0; }
-.th-answer-detail-nav { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ------------------------------------------------------------- 错误状态 */
 .th-error {
@@ -954,7 +1167,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .th-btn.primary:hover:not(:disabled) { background: #2a2a2a; }
 .th-btn.danger { color: var(--bad); border-color: rgba(220, 38, 38, .35); }
 .th-btn:disabled { opacity: .5; cursor: default; }
-.th-grow, .grow { flex: 1 1 auto; }
+.grow { flex: 1 1 auto; }
 
 /* 旧卡片混进次级详情时的去壳：详情里不需要第二层卡片边框 */
 .th-answer-detail-body > .card,
@@ -986,3 +1199,670 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   .th-tool[data-open="true"] .th-tool-body { animation: none; }
   .th-badge.live .dot { animation: none; }
 }
+
+
+/* ================================================================ 分区历史（Kimi 式）
+   Work 区显示对话/任务/项目段；Governance 区显示审计历史。两套 DOM
+   都在侧栏里，由 body[data-zone] 互斥显隐——切换器负责写这个属性。 */
+body[data-zone="gov"] #chat-pinned,
+body[data-zone="gov"] #chat-projects,
+body[data-zone="gov"] #chat-chats,
+body[data-zone="gov"] #chat-tasks,
+body[data-zone="gov"] .side-list > .side-block-inner { display: none; }
+body[data-zone="work"] #gov-history,
+body[data-zone="work"] #gov-surface-nav { display: none; }
+/* 主行动按钮按区换内容（Kimi 式）：Work=新任务（任务 composer），
+   Governance=新对话（治理台新会话）。⌘N 跟随当前区。
+   A4（2026-11-21）：Work 的新对话拆为显式次级入口 #new-chat（⌘⇧N）——
+   之前 Work 槽位叫"新对话"却开 chat，发生过"以为发任务实际发 chat"。 */
+body[data-zone="gov"] #new-run { display: none; }
+body[data-zone="gov"] #new-chat { display: none; }
+body[data-zone="work"] #gov-new-dialog { display: none; }
+
+
+/* ================================================================ Kimi parity pass（2026-11）
+   本机 Kimi Work 的实测语言：中性白面、同色侧栏、安静行式导航、居中的
+   轻字标、以 composer 为主角、内容区无边框留白、卡片 16px 圆角。
+   本节最后加载，只覆盖呈现，不改任何交互或状态语义。 */
+
+/* ---- 侧栏：新对话从“白卡”收成安静行 ------------------------------------- */
+.side-new,
+html.desktop-app .side-new {
+  width: 100%; height: 36px; margin: 0 0 8px; padding: 0 8px;
+  border: 0; border-radius: 10px; background: transparent;
+  color: var(--text-1); font-size: 14px; font-weight: 500;
+  box-shadow: none;
+}
+.side-new:hover,
+html.desktop-app .side-new:hover {
+  background: var(--k-fill-2); border-color: transparent; box-shadow: none;
+}
+.side-new svg, .side-new .d-icon, .side-new .s-icon { color: var(--text-2); }
+.side-new:hover .s-icon, .side-new:hover .d-icon { transform: none; }
+.side-new .nav-shortcut { margin-left: auto; color: var(--text-4); font-size: 11px; }
+.side-search {
+  margin: 0 0 8px; border: 0; border-radius: 10px;
+  background: var(--k-fill-1);
+}
+.side-search:hover { background: var(--k-fill-2); }
+.side-search:focus-within { background: var(--k-fill-2); }
+
+/* ---- 首页舞台：居中轻字标，去掉与标题争抢的轨道插图 ---------------------- */
+.moonshot-stage .moonshot-stage-copy { position: relative; z-index: 2; width: 100%; }
+.moonshot-kicker {
+  justify-content: center; gap: 7px; margin-bottom: 18px;
+  font: 500 10.5px/16px var(--font-mono); letter-spacing: .12em;
+  color: var(--text-4);
+}
+.moonshot-pixel {
+  width: 5px; height: 5px; margin-right: 8px;
+  box-shadow: 7px 0 0 var(--line-strong);
+}
+.moonshot-kicker .stage-badge {
+  margin-left: 2px; padding: 0 5px; border: 0; border-radius: 4px;
+  background: var(--k-fill-2); color: var(--text-3);
+  font: 500 10px/16px var(--font-mono); letter-spacing: .08em;
+}
+.moonshot-title {
+  display: block;
+  font: 500 clamp(38px, 4.3vw, 56px)/1.1 var(--font-ui);
+  letter-spacing: -.055em;
+}
+.moonshot-title-line { margin-right: auto; margin-left: auto; }
+.moonshot-cursor { width: .42em; height: .7em; margin-left: .1em; opacity: .88; }
+.moonshot-stage .stage-note {
+  max-width: 480px; margin: 16px auto 0;
+  color: var(--text-3); font-size: 14px; line-height: 22px;
+}
+.moonshot-stage .stage-dock { width: min(800px, 100%); margin: 28px auto 0; }
+.stage-suggestions {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  width: 100%; margin: 14px auto 0;
+}
+.stage-suggestion {
+  height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--raised); color: var(--text-2);
+  font: 13px/20px var(--font-ui); cursor: pointer;
+  transition: background-color var(--t) ease, color var(--t) ease, border-color var(--t) ease;
+}
+.stage-suggestion:hover {
+  background: var(--panel); color: var(--text-1); border-color: var(--line-strong);
+}
+
+/* ---- composer：浮起的主件，输入 16px，控件更轻 --------------------------- */
+.composer-wrap {
+  padding: 14px 28px 22px; border-top: 0; background: var(--canvas);
+}
+.composer { max-width: 820px; }
+.composer-box {
+  border: 1px solid var(--line); border-radius: 20px;
+  background: var(--raised); box-shadow: var(--shadow-stage);
+}
+.composer-box:focus-within {
+  border-color: rgba(0, 0, 0, .18);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .025), var(--shadow-stage);
+}
+.composer-ta, html.desktop-app .composer-ta {
+  min-height: 60px; padding: 17px 18px 4px;
+  font-size: 16px; line-height: 24px;
+}
+.composer-bar, html.desktop-app .composer-bar { padding: 6px 10px 10px; gap: 6px; }
+.composer-bar .c-btn {
+  height: 32px; padding: 0 10px; border-radius: 16px;
+  font-size: 13px; color: var(--text-2);
+}
+.composer-bar .c-btn:hover { background: var(--k-fill-2); color: var(--text-1); }
+.composer .c-icon, .composer .send { width: 34px; height: 34px; }
+.composer .send { background: #111; }
+.composer .send:hover { background: #2a2a2a; }
+.composer .send:disabled { background: var(--panel); }
+
+/* ---- 任务线程：标题不画分割线，状态与工具调用退成安静的阅读行 ------------ */
+#main[data-view="run"] { max-width: 800px; padding: 22px 28px 48px; }
+.session-head { margin: 0 0 20px; padding: 0 0 12px; border-bottom: 0; }
+.session-kicker {
+  font: 500 11px/16px var(--font-ui); letter-spacing: 0;
+  text-transform: none; color: var(--text-3);
+}
+.session-title { font-size: 21px; line-height: 30px; font-weight: 600; letter-spacing: -.02em; }
+.session-meta { margin-top: 6px; font-size: 11px; }
+.work-view-tabs {
+  padding: 3px; border: 0; border-radius: 10px;
+  background: var(--k-fill-2); box-shadow: none;
+}
+.work-view-tab {
+  padding: 5px 12px; border-radius: 8px;
+  font-size: 13px; line-height: 18px; color: var(--text-3);
+}
+.work-view-tab.active {
+  background: var(--raised); color: var(--text-1);
+  font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+.task-thread { gap: 1px; margin-top: 14px; }
+.th-user { margin: 2px 0 10px; padding: 2px 10px 0; }
+.th-who { font: 500 11px/16px var(--font-ui); letter-spacing: 0; color: var(--text-3); }
+.th-chip {
+  padding: 0 7px; background: var(--k-fill-1); color: var(--text-3);
+  font-size: 11px; line-height: 18px;
+}
+.th-user-text { font-size: 15px; line-height: 1.72; }
+.th-status {
+  padding: 6px 10px; gap: 2px; border: 0; border-radius: 8px;
+  background: transparent;
+}
+.th-status:hover { background: var(--k-fill-1); }
+.th-status-label { font-size: 13px; font-weight: 500; }
+.th-status-facts { font-size: 11px; color: var(--text-4); }
+.th-tool-head { min-height: 34px; padding: 4px 10px; }
+.th-tool-head:hover { background: var(--k-fill-1); }
+.th-tool-name { max-width: 38%; font-size: 12.5px; color: var(--text-2); }
+.th-tool-summary { font-size: 12.5px; color: var(--text-3); }
+.th-tool-code { padding: 0; background: transparent; }
+.th-tool-body { padding: 0 10px 10px 33px; }
+.th-answer { padding: 14px 10px 8px; }
+.card.result {
+  margin-top: 18px; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.result .card-head { padding: 4px 10px 6px; }
+.result-answer { padding: 0 10px 12px; font-size: 15px; line-height: 1.75; }
+.result .metrics { padding: 0 10px 12px; }
+.result .metric { background: var(--k-fill-1); }
+.result-foot { padding: 12px 10px; border-top: 1px solid var(--line-soft); }
+
+/* ---- 治理面：与 Work 共用一套卡片/分段语言 ------------------------------- */
+.gov-surface-switch { padding: 3px; border-radius: 10px; background: var(--k-fill-2); }
+.gov-surface-btn { height: 28px; border-radius: 8px; font-size: 12.5px; }
+.gov-surface-btn.active { font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.gov-surface-nav .gov-surface-btn { height: 34px; border-radius: 10px; }
+.gov-wb-header { border-bottom: 0; padding-bottom: 10px; }
+.gov-wb-intro .page-title { font-size: 22px; letter-spacing: -.025em; }
+.gov-wb-intro .page-meta { font-size: 13px; color: var(--text-3); }
+.gov-target-field span,
+.gov-bot-dispatch-field > span,
+.gov-swarm-field > span {
+  font: 500 11px/16px var(--font-ui); letter-spacing: 0;
+  text-transform: none; color: var(--text-3);
+}
+.gov-bot-card, .gov-bot-dispatch, .gov-swarm-form,
+.gov-swarm-card, .gov-routine-row {
+  border-color: var(--line-soft); border-radius: 16px; background: var(--raised);
+}
+.gov-bot-card, .gov-swarm-card { padding: 16px; }
+.gov-bot-dispatch, .gov-swarm-form { padding: 14px; }
+.gov-bot-charter { font-size: 12.5px; line-height: 1.65; color: var(--text-2); }
+.gov-bot-current { border-radius: 9px; background: var(--k-fill-1); }
+.gov-swarm-run {
+  padding: 5px 8px; border: 0; border-radius: 8px;
+  background: var(--k-fill-1);
+}
+.gov-triage { border: 0; border-radius: 12px; background: var(--k-fill-1); }
+.gov-fix-box { border-color: var(--line-soft); border-radius: 12px; }
+
+/* 光标从粗黑块收成细竖线：保留打字节律，不抢字标。 */
+.moonshot-cursor {
+  width: 2px; height: .62em; margin-left: .08em;
+  background: var(--text-2); opacity: .55; vertical-align: .02em;
+}
+/* 计划是过程摘要，不是证据卡：与工具行同一档安静表面。 */
+.th-plan {
+  padding: 10px 12px; border: 0; border-radius: 12px;
+  background: var(--k-fill-1);
+}
+.th-plan-row.done .th-plan-text { text-decoration: none; color: var(--text-3); }
+
+/* 标题用一次轻柔上浮代替逐字裁切：Kimi 的开屏是静态的，
+   逐字动画在进入页面后的 1.3s 里会显示成“缺字/排版坏了”。 */
+.moonshot-title-line {
+  clip-path: none;
+  animation: stageLineIn .5s var(--ease) both;
+}
+.moonshot-title-line + .moonshot-title-line { animation-delay: .08s; }
+@keyframes stageLineIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+/* 运行标题显示完整目标，最多两行；侧栏仍用短标签。 */
+.session-title {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+/* 舞台与 dock 同宽：Kimi Work 的 composer 是首屏主角，760 的旧上限会让
+   输入框比标题窄一档。 */
+#app.stage-mode .moonshot-stage { width: min(800px, 100%); }
+/* 开屏不挂底部状态条：模型已在 composer 里，键盘提示留在「搜索与命令」。 */
+#app.stage-mode .statusline { display: none; }
+@media (max-width: 900px) {
+  .composer-wrap { padding: 10px 14px 14px; }
+  #main[data-view="run"] { padding: 16px 18px 42px; }
+}
+@media (max-width: 640px) {
+  .moonshot-stage .stage-dock { margin-top: 22px; }
+  .stage-suggestions { gap: 6px; }
+  .stage-suggestion { height: 30px; padding: 0 10px; font-size: 12.5px; }
+}
+
+/* ================================================================ 侧栏 · Kimi Work 结构对齐（2026-11-14）
+   实测对照（Kimi 1200×800 Work）：zones 在最上，下面是主行动与导航行；
+   分组标题 14/20 常规字重，行 30–36 高，无卡片描边，右侧只在悬停时
+   出现“更多”。本节同时覆盖 Work 的项目/对话/任务与 Governance 的
+   团队/工作台/审计台+审计记录，保持一套行高与留白。 */
+
+/* ---- 区切换器：最上方，通栏，活动块白底 ---- */
+.zone-switch { margin: 0 0 8px; }
+.zone-switch .zone-btn { gap: 6px; }
+.zone-switch .zone-btn .s-icon { width: 15px; height: 15px; }
+.zone-switch .zone-btn.active { font-weight: 500; }
+
+/* ---- 主行动 + 搜索：安静行，不画卡片 ---- */
+.side-new, html.desktop-app .side-new {
+  height: 36px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  font-size: 14px; font-weight: 400; color: var(--text-1);
+}
+.side-new .d-icon, .side-new .s-icon { width: 17px; height: 17px; color: var(--text-3); }
+.side-new:hover .s-icon, .side-new:hover .d-icon { transform: none; color: var(--text-1); }
+.side-new .nav-shortcut {
+  height: auto; padding: 0; border-radius: 0; background: transparent;
+  color: var(--text-4); font: 400 11.5px/20px var(--font-ui); letter-spacing: 0;
+}
+.side-new:hover .nav-shortcut { background: transparent; color: var(--text-3); }
+.side-search {
+  height: 32px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--text-3); font-size: 13.5px;
+}
+.side-search:hover { background: var(--k-fill-1); color: var(--text-1); }
+.side-search:focus-within { background: var(--k-fill-1); }
+.side-search svg, .side-search .d-icon { width: 16px; height: 16px; color: var(--text-3); }
+.side-search input { font-size: 13.5px; }
+.side-search kbd {
+  margin-left: auto; color: var(--text-4); font: 400 11px var(--font-ui);
+  background: transparent; border: 0; padding: 0;
+}
+
+/* ---- 插件市场：并入导航行序列，不再显示重复的「插件」角标 ---- */
+.side-market {
+  width: 100%; height: 36px; margin: 0 0 6px; padding: 0 8px; gap: 8px;
+  border-radius: 8px; color: var(--text-1); font-size: 14px;
+}
+.side-market .d-icon { width: 17px; height: 17px; color: var(--text-3); }
+.side-market:hover { background: var(--k-fill-1); color: var(--text-1); }
+.side-market.active { background: var(--k-fill-2); }
+.side-market .side-count { display: none; }
+
+/* ---- 分组标题：14px 常规灰字，行高 30；数量退到 11px ---- */
+.side-section {
+  height: 30px; margin: 12px 0 2px; padding: 0 6px; gap: 6px;
+  font-size: 14px; line-height: 20px; font-weight: 400; color: var(--text-3);
+}
+.side-section span:first-child { font-size: 14px; font-weight: 400; }
+.section-title-button {
+  height: 30px; gap: 4px;
+  font: 400 14px/20px var(--font-ui); color: var(--text-3);
+}
+.section-title-button:hover { color: var(--text-1); }
+.section-title-button .chev { font-size: 9px; color: var(--text-4); }
+.side-section .side-count {
+  font: 400 11px/18px var(--font-ui); color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+.section-action {
+  width: 24px; height: 24px; border-radius: 6px;
+  color: var(--text-3); opacity: .62;
+}
+.section-action:hover { opacity: 1; background: var(--k-fill-1); }
+.section-action .d-icon { width: 14px; height: 14px; }
+
+/* ---- 日期分组：11px 弱标签，无底色、无计数 ---- */
+.side-head-label {
+  position: static; height: 24px; margin: 6px 6px 0; padding: 0 4px;
+  display: flex; align-items: center; gap: 6px;
+  background: transparent; color: var(--text-4);
+  font: 400 11px/16px var(--font-ui); letter-spacing: 0;
+}
+.side-head-label .grp-count { display: none; }
+
+/* ---- 项目行：32 高、常规字重；运行/待处理只用小圆点 ---- */
+.proj-block { margin: 0; }
+.proj-row {
+  height: 32px; padding: 0 6px; gap: 6px; border-radius: 8px;
+}
+.proj-row:hover, .proj-row-shell:hover .proj-row { background: var(--k-fill-1); }
+.proj-block.is-active .proj-row { background: var(--k-fill-2); }
+.proj-caret { width: 10px; margin-left: 0; color: var(--text-4); font-size: 9px; }
+.proj-row .slabel { font-size: 14px; font-weight: 400; }
+.proj-row .smeta { font: 400 11px var(--font-ui); color: var(--text-4); }
+.proj-dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%;
+  background: var(--text-4);
+}
+.proj-dot.is-live { background: var(--ok); }
+.proj-dot.is-attention { background: var(--warn); }
+.proj-row-actions { padding-right: 0; gap: 0; }
+.proj-row-actions button {
+  width: 22px; height: 22px; border-radius: 6px;
+  color: var(--text-3); font-size: 12px;
+}
+.proj-runs { margin-left: 7px; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+.proj-runs .run-row { min-height: 30px; padding: 0 4px; }
+.proj-empty { padding: 4px 10px 6px; font-size: 12.5px; color: var(--text-4); }
+
+/* ---- 任务行：一行 30 高；模板/轮次/成本从侧栏退场，详情留在主区 ---- */
+.run-row { min-height: 30px; padding: 0 8px; border-radius: 8px; }
+.run-row .r-top { min-height: 30px; gap: 7px; }
+.run-row .r-top .slabel { font-size: 13.5px; font-weight: 400; }
+.run-row .r-top .smeta { font: 400 11px var(--font-ui); color: var(--text-4); }
+.run-row .r-sub { display: none; }
+.run-row:hover, .run-row.active { background: var(--k-fill-1); }
+.run-row.active { background: var(--k-fill-2); }
+.run-row:hover .row-more, .run-row:focus-within .row-more { opacity: .8; }
+.run-row .row-more { top: 5px; right: 5px; width: 20px; height: 20px; }
+.run-row .smark { width: 12px; height: 12px; }
+
+/* ---- 对话行和审计行：同一行高，右侧动作悬停才出现 ---- */
+.chat-row {
+  height: 30px; min-height: 30px; padding: 0 30px 0 8px;
+  border-radius: 8px; font-size: 13.5px; color: var(--text-2);
+}
+.chat-row:hover { background: var(--k-fill-1); color: var(--text-1); }
+.chat-row.active { background: var(--k-fill-2); color: var(--text-1); }
+#gov-history .gov-target-row {
+  padding-right: 8px; font-size: 13px;
+}
+#gov-history .gov-target-row .smeta {
+  font: 400 10.5px var(--font-ui); color: var(--text-4); max-width: 132px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.section-empty { padding: 6px 10px; font: 400 12.5px/18px var(--font-ui); color: var(--text-4); }
+.side-more { font-size: 12px; color: var(--text-4); }
+
+/* ---- 治理导航：与 Work 行同高，图标 + 标签 + 活动浅灰块 ---- */
+.gov-surface-nav { padding: 0; margin: 0 0 2px; }
+.gov-surface-nav .gov-surface-switch { gap: 1px; }
+.gov-surface-nav .gov-surface-btn {
+  height: 36px; padding: 0 8px; gap: 8px; justify-content: flex-start;
+  border-radius: 8px; color: var(--text-2);
+  font: 400 14px/20px var(--font-ui);
+}
+.gov-surface-nav .gov-surface-btn .d-icon,
+.gov-surface-nav .gov-surface-btn .s-icon {
+  width: 17px; height: 17px; color: var(--text-3);
+}
+.gov-surface-nav .gov-surface-btn:hover { background: var(--k-fill-1); color: var(--text-1); }
+.gov-surface-nav .gov-surface-btn.active {
+  background: var(--k-fill-2); color: var(--text-1); font-weight: 500;
+}
+.gov-surface-nav .gov-surface-btn.active .d-icon,
+.gov-surface-nav .gov-surface-btn.active .s-icon { color: var(--text-1); }
+
+/* ---- 页脚：一行紧凑用户行 ---- */
+.side-foot { padding: 6px 8px 8px; margin: 0 -8px -8px; }
+.side-user { height: 36px; padding: 4px 8px; border-radius: 8px; font-size: 13.5px; }
+.side-user:hover, .side-user[aria-expanded="true"] { background: var(--k-fill-1); }
+.side-user .side-gear { width: 20px; height: 20px; }
+.side-foot .foot-meta { font-size: 11px; }
+/* 列表滚到页脚时用 24px 渐隐收口（Kimi 的 sidebar-footer:before）。 */
+.side-foot::before {
+  content: ""; position: absolute; bottom: 100%; left: 0; right: 0;
+  height: 24px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--canvas));
+}
+/* 分组右侧的「＋」平时收起，悬停/聚焦才出现（Kimi 的 section action）。 */
+.side-section .section-action { opacity: 0; transition: opacity 120ms var(--ease); }
+.side-section:hover .section-action,
+.side-section:focus-within .section-action { opacity: .62; }
+.side-section .section-action:hover { opacity: 1; }
+@media (hover: none) {
+  .side-section .section-action { opacity: .62; }
+}
+/* 无前导图标的行（对话/审计记录）与导航文字列对齐：Kimi 的列表文字
+   从导航图标右侧开始，不贴侧栏边。 */
+.chat-row { padding-left: 24px; }
+#gov-history .gov-target-row { padding-left: 24px; }
+.section-empty { padding-left: 24px; }
+
+/* ================================================================ 项目运行 · 右侧扩展栏
+   代码变更/文件不再用浮层检查器；右侧 rail 承载 Patch 与只读文件树，
+   主区线程始终可见。窄栏内文件列表改为可横向滚动的 chip，diff/文件内容
+   在栏内独立滚动。 */
+.rail[data-rail-mode="changes"] .rail-body,
+.rail[data-rail-mode="files"] .rail-body { padding: 8px 12px 24px; }
+.rail-project .project-result,
+.rail-project .project-files {
+  max-width: none; margin: 0; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none;
+}
+.rail-project .project-result-head { padding: 2px 0 8px; align-items: flex-start; }
+.rail-project .project-result-head h3 { margin-top: 2px; font-size: 15px; }
+.rail-project .project-result-layout {
+  display: block; min-height: 0; max-height: none; border: 0;
+}
+.rail-project .project-file-list {
+  display: flex; gap: 2px; overflow-x: auto; padding: 0 0 8px;
+  border-right: 0; border-bottom: 1px solid var(--line-soft);
+}
+.rail-project .project-file-list button {
+  flex: none; width: auto; max-width: 100%; padding: 5px 8px;
+  gap: 5px; border-radius: 7px; font-size: 11px; white-space: nowrap;
+}
+.rail-project .project-file-list button > span:nth-child(2) {
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+}
+.rail-project .project-diff {
+  max-height: 46vh; padding: 8px 0; font-size: 10px; line-height: 1.6;
+}
+.rail-project .project-diff-line { padding: 0 3px; }
+.rail-project .project-result-foot {
+  flex-wrap: wrap; gap: 6px; padding: 10px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+.rail-project .project-result-foot > span:first-child {
+  width: 100%; max-height: 54px; overflow: auto;
+}
+.rail-project .project-result-foot .a-btn { flex: 1; min-width: 120px; }
+.rail-project .project-files-head { padding: 2px 0 8px; border-bottom: 0; }
+.rail-project .project-browser { display: block; min-height: 0; }
+.rail-project .project-browser .project-file-list {
+  display: block; max-height: 180px; overflow: auto;
+  border-right: 0; border-bottom: 1px solid var(--line-soft);
+}
+.rail-project .project-browser .project-file-list button { width: 100%; font-size: 11px; }
+.rail-project .project-browser-content {
+  min-height: 220px; max-height: 42vh; padding: 10px;
+  border: 0; font-size: 10px;
+}
+
+/* ================================================================ 通用委托 · 对话化
+   Work run 不再像后台任务面板：用户任务是一则右对齐消息，Agent 以
+   32px 头像开场；状态、计划、工具、最终回复都缩进到同一条 Agent 回合
+   的内容列里。事件/审批/预算语义不变，只换阅读语法。 */
+.task-thread { gap: 4px; }
+.th-user {
+  display: flex; flex-direction: column; align-items: flex-end;
+  margin: 2px 0 16px; padding: 2px 10px 0;
+}
+.th-user .th-who { display: none; }
+.th-user-head { justify-content: flex-end; }
+.th-user-head .th-chips { justify-content: flex-end; }
+.th-user-text {
+  max-width: min(82%, 620px); padding: 10px 14px;
+  border-radius: 16px 16px 4px 16px; background: var(--panel);
+  font-size: 15px; line-height: 1.7; white-space: pre-wrap;
+}
+.th-status {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 8px 10px; border: 0; background: transparent;
+}
+.th-status.failed { flex-direction: row; }
+.th-avatar-col { flex: none; padding-top: 1px; }
+.th-status-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.th-agent-head { display: flex; align-items: center; gap: 7px; min-height: 20px; }
+.th-agent-name { font: 600 13.5px/20px var(--font-ui); color: var(--text-1); letter-spacing: -.01em; }
+.th-agent-tag { font: 500 10px/16px var(--font-mono); color: var(--text-4); letter-spacing: .04em; }
+.th-status .th-status-line { gap: 7px; }
+.th-status .th-status-facts { padding-left: 0; }
+.task-thread .th-status ~ .th-item:not(.th-user):not(.th-operator) { margin-left: 44px; }
+.task-thread .th-answer {
+  margin: 12px 0 4px; padding: 8px 12px 10px; border-top: 0;
+}
+.task-thread .th-answer-head { display: none; }
+.task-thread .th-answer-text { font-size: 15px; line-height: 1.75; }
+.task-thread .th-answer-facts { margin-top: 8px; }
+.task-thread .th-answer-text { white-space: normal; }
+.task-thread .th-answer-text > :first-child { margin-top: 0; }
+.task-thread .th-answer-text > :last-child { margin-bottom: 0; }
+/* 计划默认折叠成一行，展开后才显示步骤；与 Kimi 的过程摘要一致。 */
+.th-plan > summary { list-style: none; cursor: pointer; }
+.th-plan > summary::-webkit-details-marker { display: none; }
+.th-plan .th-chev { transition: transform 150ms var(--ease); }
+.th-plan[open] .th-chev { transform: rotate(180deg); }
+.th-status.failed ~ .th-plan { padding-top: 8px; padding-bottom: 8px; }
+.th-plan-list { margin-top: 6px; }
+/* 与 chat.css 的用户气泡逐值一致：15/25，#efefef，14/14/4/14。 */
+.task-thread .th-user-text {
+  max-width: 82%; padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: #efefef; color: var(--text-1);
+  font-size: 15px; line-height: 25px;
+  white-space: pre-wrap;
+}
+/* 项目上下文只留“项目名 · 验证命令 · 隔离副本”，完整路径悬停看 title。 */
+.project-context-path { display: none; }
+/* 成功运行的执行过程收成一行；展开后才逐条看工具与证据。 */
+.task-thread.hide-tools .th-tool { display: none; }
+.th-process { padding: 0 10px; }
+.th-process-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px;
+  padding: 0 4px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text-3); font: 12.5px/20px var(--font-ui); text-align: left; cursor: pointer;
+}
+.th-process-toggle:hover { background: var(--k-fill-1); color: var(--text-1); }
+.th-process-count { color: var(--text-4); font: 11px/18px var(--font-mono); }
+.th-process .th-chev { margin-left: auto; font-size: 10px; transition: transform 150ms var(--ease); }
+.task-thread.hide-tools .th-process .th-chev { transform: rotate(-90deg); }
+/* 对话里只留一条成本 chip；prompt/cached/prefix 明细留给报告与证据栏。 */
+.task-thread .th-answer-actions .tok-split { display: none; }
+.th-process-toggle { width: auto; max-width: 100%; padding: 0 8px 0 4px; }
+
+/* --------------------------------------------------------- live run polish
+   正在等待工具返回的条目会把整段命令和计划更新一次性展开，长任务时会把
+   对话顶出可视区。保持“可检查”，但给 body 一个明确的滚动窗口；head 固定，
+   用户仍能随时展开/收起。 */
+.th-tool.waiting,
+.th-tool.running {
+  margin: 6px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--k-fill-1) 45%, transparent);
+}
+.th-tool.waiting .th-tool-head,
+.th-tool.running .th-tool-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-radius: 10px 10px 0 0;
+  background: var(--canvas);
+}
+.th-tool.waiting .th-tool-head { background: var(--k-fill-1); }
+.th-tool.waiting .th-tool-body,
+.th-tool.running .th-tool-body {
+  max-height: 284px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-left: 14px;
+  padding: 2px 10px 12px 18px;
+  border-left: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.th-tool.waiting .th-args .v,
+.th-tool.running .th-args .v {
+  display: block;
+  max-height: 76px;
+  overflow: hidden;
+}
+.th-tool.waiting .th-code,
+.th-tool.running .th-code {
+  max-height: 172px;
+}
+.th-tool.waiting .th-plan-delta,
+.th-tool.running .th-plan-delta {
+  max-height: 168px;
+  overflow-y: auto;
+}
+/* The live status is the anchor of the thread; do not let tool output visually
+   compete with it. */
+.th-status.running .th-status-label { color: var(--text-1); }
+.th-status.running .th-status-label::after {
+  content: "";
+  display: inline-block;
+  width: 5px; height: 5px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 2px;
+  animation: thLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes thLivePulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+/* A little more breathing room around the final answer and the composer. */
+.task-thread .th-answer { margin-top: 10px; }
+.task-thread .th-answer-text { max-width: 68ch; }
+.composer-wrap {
+  background: linear-gradient(to top, var(--canvas) 76%, color-mix(in srgb, var(--canvas) 0%, transparent));
+  border-top-color: transparent;
+}
+
+/* --------------------------------------------------------- Kimi-inspired home
+   The public Kimi home is a calm, warm canvas with one floating composer.
+   FCode already shares the structure; these rules reduce border noise and
+   make the primary actions read as objects rather than rows. */
+.side-new {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .025);
+  transition: background-color .16s var(--ease), border-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+.side-new:hover {
+  background: #fff;
+  border-color: rgba(0, 0, 0, .14);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .045);
+}
+.side-new kbd, .side-new .nav-shortcut {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-4);
+}
+.app.stage-mode .composer { max-width: 768px; }
+.app.stage-mode .composer-box {
+  border-color: rgba(0, 0, 0, .08);
+  border-radius: 24px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .02), 0 16px 40px rgba(0, 0, 0, .045);
+}
+/* This rule outranks the generic .composer-box:focus-within; restate focus
+   here or the home composer loses all visual feedback when typing. */
+.app.stage-mode .composer-box:focus-within {
+  border-color: rgba(0, 0, 0, .16);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, .025), 0 2px 4px rgba(0, 0, 0, .02),
+              0 18px 48px rgba(0, 0, 0, .055);
+}
+.app.stage-mode .composer-ta { padding: 18px 20px 6px; }
+.app.stage-mode .stage-suggestion {
+  background: #fff;
+  border-color: rgba(0, 0, 0, .08);
+  transition: background-color .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
+}
+.app.stage-mode .stage-suggestion:hover {
+  background: #f7f6f3;
+  border-color: rgba(0, 0, 0, .14);
+  color: var(--text-1);
+}
+.app.stage-mode .tabs { border-bottom-color: transparent; background: transparent; }
+
+/* 能力运行交付卡：产物 + 质量帧 + 预览 */
+.th-capability-delivery .th-delivery-frames { margin-top: 8px; }
+.th-capability-delivery .th-delivery-frames img { cursor: zoom-in; }
+.th-capability-delivery .th-delivery-open { margin-top: 8px; }

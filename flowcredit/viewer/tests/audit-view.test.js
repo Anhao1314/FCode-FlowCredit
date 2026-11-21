@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  actorBadge, capabilityChips, groupFindings, mapOutcome, outcomeBadge,
+  capabilityChips, createAuditSurface, groupFindings, mapOutcome, outcomeBadge,
   renderAuthorization, renderBundle, renderBundles, renderChain, renderGoDeps, renderEntitlementDiff, renderSidecarDetail, renderReaEvidence, renderReaFacts, renderRegression, renderSpecGap,
   renderUncovered, summarizeBundle,
 } from "../audit/audit-view.js";
@@ -66,12 +66,6 @@ test("bundle 摘要:manifest 只露出前 16 位", () => {
   assert.equal(sum.findings, 1);
   assert.equal(sum.evidence, 2);
   assert.equal(sum.ruleset, 3);
-});
-
-test("actor 徽章:已知角色着色,未知角色回落 operator 且转义", () => {
-  assert.ok(actorBadge("host").includes("at-actor-host"));
-  assert.ok(actorBadge("triage·shadow").includes("at-actor-operator"), "未知角色安全回落");
-  assert.ok(!actorBadge('<img>').includes("<img"));
 });
 
 test("REA 摘要:artifact、版本、证据数与未覆盖面来自 bundle", () => {
@@ -295,6 +289,34 @@ test("回归对比:known/new/fixed/regressed 四桶展示", () => {
   assert.ok(html.includes("entitlement"), "known finding detail");
 });
 
+test("回归对比:有指纹的发现显示短指纹,便于跨审计对齐", () => {
+  const html = renderRegression({
+    prior_audit_id: "prior-001",
+    known: [{ category: "AGI-02", root_cause_group: "approval",
+              fingerprint: "1234567890abcdef" }],
+  });
+  assert.ok(html.includes("fp:12345678"), "short stable fingerprint");
+});
+
+test("稳定指纹:finding 行显示 v2 exact/semantic 身份", () => {
+  const bundle = {
+    audit_id: "a", target: {}, toolchain: {},
+    findings: [{
+      finding_id: "F-1", root_cause_group: "approval-memory", category: "AGI-02",
+      severity: "high", poc_refs: ["POC-0001"],
+      fingerprint: "1234567890abcdef", semantic_fingerprint: "abcdef1234567890",
+      fingerprint_version: 2,
+    }],
+    poc_evidence_refs: ["POC-0001"],
+  };
+  const record = { poc_id: "POC-0001", replay: { outcome: "finding" } };
+  const html = renderBundle(bundle, [record]);
+  assert.ok(html.includes("fp:12345678"), "row short fingerprint");
+  assert.ok(html.includes("稳定指纹"), "detail label");
+  assert.ok(html.includes("1234567890abcdef"), "exact fingerprint");
+  assert.ok(html.includes("semantic abcdef1234567890"), "semantic fingerprint");
+});
+
 test("回归对比:空数据不渲染", () => {
   assert.equal(renderRegression({ known: [], new: [], fixed: [], regressed: [] }), "");
   assert.equal(renderRegression(null), "");
@@ -317,6 +339,22 @@ test("证据缺失:finding 引用的证据不在时显示'证据缺失',绝不�
   const html = renderBundle(bundle, []); // 证据读取失败 → records 空
   assert.ok(html.includes("证据缺失"), "缺证据必须有专门徽章");
   assert.ok(!html.includes(">已验证<"), "缺证据不得渲染成已验证");
+});
+
+test("账本是纯证据面：不渲染 AI 解读位（解读输出在治理对话）", () => {
+  const bundle = {
+    audit_id: "a", target: {}, toolchain: {},
+    findings: [{ finding_id: "F-1", root_cause_group: "g", category: "AGI-05",
+                 severity: "high", poc_refs: ["POC-0001"] }],
+    poc_evidence_refs: [],
+  };
+  const html = renderBundle(bundle, [], { explanations: { "F-1": { text: "x" } } });
+  assert.ok(!html.includes("data-at-explain"), "账本不挂解读按钮");
+  assert.ok(!html.includes("AI 解读"), "账本不出现解读卡/按钮");
+  assert.ok(!html.includes("gov-explain"), "账本不渲染解读块");
+  // 专业证据列原样保留
+  assert.ok(html.includes("oracle"));
+  assert.ok(html.includes("负对照"));
 });
 
 test("重放行:runs 已是 JSON 字符串时原样显示,不再二次 stringify", () => {
@@ -355,4 +393,141 @@ test("DISPOSITION_LABELS:三档处置与清除的单一标签来源", async () =
   assert.equal(DISPOSITION_LABELS.false_positive_disputed, "误报争议");
   assert.equal(DISPOSITION_LABELS.wont_fix, "不修复");
   assert.equal(DISPOSITION_LABELS[""], "— 无 —");
+});
+
+/* ---------------------------------------------------------- createAuditSurface
+   统一壳接线（自 app.js 迁入的切片 2）：断言的是壳层契约——
+   收尾/chrome 注入、hash 只在审计面内维护、深链预选与死链自愈。
+   DOM/localStorage 全部用最小桩,断言"发生了什么",不渲染真实页面。 */
+
+function makeAuditEl(init = {}) {
+  const el = {
+    hidden: false, innerHTML: "", textContent: "", value: "", className: "",
+    listeners: {}, attrs: {},
+    classList: { add() {}, remove() {} },
+    getAttribute(k) { return this.attrs[k] ?? null; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); },
+    click() { this.clicked = true; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    scrollTop: 0,
+    ...init,
+  };
+  return el;
+}
+
+function installAuditDom({ bundles = [], preselectItem = null } = {}) {
+  const side = makeAuditEl();
+  side.querySelectorAll = () => []; // init 绑定条目点击;壳层测试不需要触发
+  const detail = makeAuditEl();
+  const host = makeAuditEl();
+  host.querySelector = sel => (sel === "#at-bundles" ? side
+    : sel === "#at-main" ? detail : null);
+  const els = { main: host, "at-main": detail };
+  globalThis.document = {
+    body: makeAuditEl(),
+    getElementById: id => els[id] || null,
+    querySelector: sel => (preselectItem && sel.includes("data-dir")
+      ? preselectItem : null),
+    querySelectorAll: () => [],
+    createElement: () => makeAuditEl(),
+  };
+  globalThis.location = { hash: "", pathname: "/", search: "" };
+  const replaceCalls = [];
+  globalThis.history = {
+    replaceState(_s, _t, url) {
+      replaceCalls.push(url);
+      globalThis.location.hash = url || "";
+    },
+  };
+  globalThis.CSS = { escape: s => s };
+  return { side, detail, replaceCalls };
+}
+
+test("createAuditSurface:进入收尾/chrome/外壳注入,无深链时 hash 归位审计根", async () => {
+  const { side } = installAuditDom({ bundles: [] });
+  const calls = { beforeEnter: 0, setChrome: 0, renderMain: [] };
+  const surface = createAuditSurface({
+    beforeEnter: () => { calls.beforeEnter += 1; },
+    setChrome: () => { calls.setChrome += 1; },
+    renderMain: (html, meta) => calls.renderMain.push({ html, meta }),
+    getMode: () => "audit",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ bundles: [
+      { dir: "evox-1", audit_id: "evox-1", findings: 2, evidence: 1 },
+    ] }) }),
+  });
+  globalThis.location.hash = "";
+  await surface.renderAudit();
+  assert.equal(calls.beforeEnter, 1, "进入前必须收尾");
+  assert.equal(calls.setChrome, 1, "chrome 必须重置");
+  assert.equal(calls.renderMain.length, 1);
+  assert.match(calls.renderMain[0].html, /at-wrap/, "注入审计双栏外壳");
+  assert.equal(calls.renderMain[0].meta.mode, "audit");
+  assert.ok(side.innerHTML.includes("evox-1"), "包列表渲染进侧栏");
+});
+
+test("createAuditSurface:深链指向存在的包 → 预选点击,hash 保持深链", async () => {
+  const item = makeAuditEl({ attrs: { "data-dir": "evox-1" } });
+  const { replaceCalls } = installAuditDom({ preselectItem: item });
+  globalThis.location.hash = "#/audit/evox-1";
+  const surface = createAuditSurface({
+    beforeEnter() {}, setChrome() {},
+    renderMain() {},
+    getMode: () => "audit",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ bundles: [
+      { dir: "evox-1", audit_id: "evox-1", findings: 1, evidence: 1 },
+    ] }) }),
+  });
+  await surface.renderAudit();
+  assert.equal(item.clicked, true, "包列表就绪后预选对应条目");
+  assert.ok(!replaceCalls.some(url => url === "#/audit"),
+    "有效深链不被抹掉");
+});
+
+test("createAuditSurface:深链指向不存在的包 → 死链自愈,URL 退回审计根", async () => {
+  const { detail, replaceCalls } = installAuditDom({ preselectItem: null });
+  globalThis.location.hash = "#/audit/gone";
+  const surface = createAuditSurface({
+    beforeEnter() {}, setChrome() {},
+    renderMain() {},
+    getMode: () => "audit",
+    fetchImpl: async () => ({ ok: true, json: async () => ({ bundles: [] }) }),
+  });
+  await surface.renderAudit();
+  assert.deepEqual(replaceCalls, ["#/audit"], "自愈必须把 URL 退回审计根");
+  assert.match(detail.innerHTML, /从右侧「发现账本」选择一次审计/, "详情回到占位");
+});
+
+test("createAuditSurface:预选期间用户切走(mode 变化) → 放弃预选也不自愈", async () => {
+  const item = makeAuditEl({ attrs: { "data-dir": "evox-1" } });
+  const { replaceCalls } = installAuditDom({ preselectItem: item });
+  globalThis.location.hash = "#/audit/evox-1";
+  let mode = "audit";
+  const surface = createAuditSurface({
+    beforeEnter() {}, setChrome() {},
+    renderMain() {},
+    getMode: () => mode,
+    // init 拉包期间用户切走 → mode 变化
+    fetchImpl: async () => { mode = "chat"; return {
+      ok: true, json: async () => ({ bundles: [
+        { dir: "evox-1", audit_id: "evox-1", findings: 1, evidence: 1 },
+      ] }) };
+    },
+  });
+  await surface.renderAudit();
+  assert.ok(!item.clicked, "切走后放弃预选——点击属于审计面内的动作");
+  assert.ok(!replaceCalls.some(url => url === "#/audit"),
+    "切走后不做死链自愈——那是审计面内的动作");
+});
+
+test("createAuditSurface:healAuditDeepLink 可独立调用(供 hashchange 使用)", () => {
+  const { detail, replaceCalls } = installAuditDom({});
+  globalThis.location.hash = "#/audit/stale";
+  const surface = createAuditSurface({
+    beforeEnter() {}, setChrome() {}, renderMain() {}, getMode: () => "audit",
+  });
+  surface.healAuditDeepLink();
+  assert.deepEqual(replaceCalls, ["#/audit"]);
+  assert.match(detail.innerHTML, /从右侧「发现账本」选择一次审计/);
 });

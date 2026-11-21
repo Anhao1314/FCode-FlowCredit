@@ -95,24 +95,33 @@ test("extraHtml rides inside the answer, above the actions", () => {
   assert.ok(!user.includes("<div></div>"));
 });
 
-test("助手消息带 AI 头像，用户消息不带（形象只属于回答）", () => {
+test("assistant 有实时头像，user 只有右对齐气泡", () => {
   const assistant = chatMessageHtml({ id: "a1", role: "assistant", text: "你好", status: "ok" });
   assert.match(assistant, /class="chat-msg-row"/);
   assert.match(assistant, /class="ai-avatar ai-avatar--idle/);
-  assert.match(assistant, /role="img" aria-label="FCode"/);
+  assert.match(assistant, /--ai-avatar-size:32px/);
+  assert.match(assistant, /data-live="1"/);
+  assert.doesNotMatch(assistant, /chat-user-avatar/);
 
   const user = chatMessageHtml({ id: "u1", role: "user", text: "你好" });
-  assert.equal(user.includes("ai-avatar"), false);
+  assert.match(user, /class="chat-msg-row user-row"/);
+  assert.doesNotMatch(user, /ai-avatar/);
+  assert.doesNotMatch(user, /chat-user-avatar/);
 });
 
-test("生成中的回答换成落印章并带呼吸环；失败换叉眼", () => {
+test("头像状态跟随生成/失败，不只靠消息底色", () => {
   const streaming = chatMessageHtml({ id: "a2", role: "assistant", text: "…", status: "streaming" });
+  assert.match(streaming, /chat-msg assistant streaming/);
   assert.match(streaming, /ai-avatar--thinking/);
   assert.match(streaming, /ai-avatar-ring/);
 
-  const failed = chatMessageHtml({ id: "a3", role: "assistant", text: "", status: "error" });
+  const failed = chatMessageHtml({
+    id: "a3", role: "assistant", text: "", status: "error",
+    error: { code: "CHAT_FAILED", message: "boom" },
+  });
+  assert.match(failed, /chat-msg assistant/);
+  assert.match(failed, /chat-error/);
   assert.match(failed, /ai-avatar--bad/);
-  assert.match(failed, /aria-label="FCode · 调用失败"/);
 });
 
 test("agentic chat:有 blocks 的消息按序渲染文本与工具卡", async () => {
@@ -137,4 +146,29 @@ test("agentic chat:无 blocks 的旧消息保持单段 Markdown", async () => {
   const html = chatMessageHtml({ id: "a-2", role: "assistant", status: "ok", text: "普通回答" });
   assert.ok(!html.includes("chat-tool"));
   assert.match(html, /chat-md/);
+});
+
+/* ---------- 用户消息（Kimi 式：只有右对齐气泡） ---------- */
+
+test("用户消息只有右对齐气泡，没有头像", () => {
+  const html = chatMessageHtml({ id: "m9", role: "user", text: "你好" });
+  assert.match(html, /class="chat-msg-row user-row"/);
+  assert.match(html, /chat-msg-row user-row">\s*<div class="chat-bubble">你好</);
+  assert.match(html, /data-chat-delegate="m9"/);
+  assert.doesNotMatch(html, /chat-user-avatar/);
+  assert.doesNotMatch(html, /ai-avatar/);
+});
+
+test("不同用户消息都不画头像，但附件仍然可见", () => {
+  const a = chatMessageHtml({ id: "a", role: "user", text: "一" });
+  const b = chatMessageHtml({ id: "b", role: "user", text: "二", attachments: [{ name: "x.md" }] });
+  assert.doesNotMatch(a, /chat-user-avatar|ai-avatar/);
+  assert.doesNotMatch(b, /chat-user-avatar|ai-avatar/);
+  assert.match(b, /chat-file/);
+});
+
+test("编辑态不画头像(编辑框替换整条消息)", () => {
+  const html = chatMessageHtml({ id: "m1", role: "user", text: "旧消息" }, "m1");
+  assert.doesNotMatch(html, /chat-user-avatar/);
+  assert.match(html, /chat-edit-box/);
 });

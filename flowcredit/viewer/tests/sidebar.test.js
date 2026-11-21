@@ -107,6 +107,7 @@ function harness(overrides = {}) {
     runs: [],
     threads: [],
     catalog: [],
+    projects: [],
     counts: { ledger: 3 },
     pinned: new Set(),
     ...overrides,
@@ -117,6 +118,11 @@ function harness(overrides = {}) {
     renderProjects() {},
     renderRuns() {},
     getRunHistory: () => state.runs,
+    getProjects: () => state.projects,
+    onNewProject: () => { state.newProjectRequested = true; },
+    onAssignProject: (runId, projectId) => {
+      state.assignments = [...(state.assignments || []), [runId, projectId]];
+    },
     getChatThreads: () => state.threads,
     getModelCatalog: () => state.catalog,
     getLedgerOpen: () => state.ledgerOpen,
@@ -133,32 +139,12 @@ function harness(overrides = {}) {
   return { sidebar, els, doc, navItems, state, storage: globalThis.localStorage };
 }
 
-test("renderSidebarNav:4 个功能面与 4 个预留槽位各就各位", () => {
+test("renderSidebarNav:功能导航已撤除,不再写 nav/more 宿主", () => {
   const { sidebar, els } = harness();
   sidebar.renderSidebarNav();
-  for (const key of ["audit", "ledger", "reviews", "scheduled"]) {
-    assert.match(els["side-nav-items"].innerHTML, new RegExp(`data-open="${key}"`), key);
-  }
-  for (const key of ["canvas", "plugins", "remoteControl", "apps"]) {
-    assert.match(els["more-nav"].innerHTML, new RegExp(`data-open="${key}"`), key);
-  }
-  // 更多默认收起（v2 键未设）
-  assert.equal(els["more-nav"].hidden, true);
-  assert.equal(els["nav-more"].getAttribute("aria-expanded"), "false");
-});
-
-test("setMoreNav:展开/收起持久化并投影到 DOM", () => {
-  const { sidebar, els, storage } = harness();
-  sidebar.setMoreNav(true);
-  assert.equal(els["more-nav"].hidden, false);
-  assert.equal(els["nav-more"].getAttribute("aria-expanded"), "true");
-  assert.equal(els["nav-more"].classList.contains("open"), true);
-  assert.equal(storage.getItem("fa.sideMore.v2"), "1");
-  assert.equal(sidebar.moreOpen(), true);
-
-  sidebar.setMoreNav(false);
-  assert.equal(els["more-nav"].hidden, true);
-  assert.equal(storage.getItem("fa.sideMore.v2"), "0");
+  // 导航宿主整体撤除:渲染不再写任何 nav 内容(治理台由区切换器直达)
+  assert.equal(els["side-nav-items"].innerHTML, "", "nav 宿主不再被写入");
+  assert.equal(els["more-nav"].innerHTML, "", "more-nav 不再被写入");
 });
 
 test("paintNavActive:普通视图按 data-open 高亮,账本特例只在 run 保留", () => {
@@ -227,53 +213,106 @@ test("paintScrollMasks:scrollTop>1 才点亮顶部遮罩", () => {
   sidebar.paintScrollMasks();
   assert.equal(mask.classList.contains("is-visible"), true);
 });
-test("renderRuns:分组/空态/更多按钮与 projectFilter 过滤", () => {
+test("renderRuns:项目运行嵌在项目下，平坦列表只留未归属", () => {
   const { sidebar, els, state } = harness();
   const tasks = makeEl();
   els["chat-tasks"] = tasks;
   const now = new Date().toISOString();
+  state.projects = [{ id: "prj-a", name: "项目甲" }];
   state.runs = [
     { id: "r1", status: "succeeded", created: now, template: "general", rounds: 2,
-      objective: "A", pinned: false },
+      objective: "A", pinned: false, projectId: "prj-a" },
   ];
   sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /r1/);
+  assert.doesNotMatch(tasks.innerHTML, /r1/, "项目运行不再重复进平坦列表");
+  assert.match(tasks.innerHTML, /任务/);
+
+  state.runs = [
+    { id: "r2", status: "succeeded", created: now, template: "general", rounds: 1,
+      objective: "未归属", pinned: false, projectId: "" },
+  ];
+  sidebar.renderRuns();
+  assert.match(tasks.innerHTML, /r2/);
   assert.match(tasks.innerHTML, /今天/);
 
-  // 项目过滤：assign 到项目后过滤，未匹配则空态
-  const pid = sidebar.createProject("项目甲");
-  sidebar.assignRunProject("r1", pid);
-  sidebar.setProjectFilter(pid);
+  // 没有项目时，平坦列表承载全部历史
+  state.projects = [];
+  state.runs = [{ id: "r3", status: "succeeded", created: now, template: "general",
+    rounds: 1, objective: "全部", pinned: false, projectId: "" }];
   sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /r1/);
-  sidebar.setProjectFilter("prj-other");
-  sidebar.renderRuns();
-  assert.match(tasks.innerHTML, /任务会出现在这里|没有匹配/);
-  sidebar.setProjectFilter(null);
+  assert.match(tasks.innerHTML, /r3/);
+  assert.match(tasks.innerHTML, /任务/);
 
-  // 空列表空态
   state.runs = [];
   sidebar.renderRuns();
   assert.match(tasks.innerHTML, /任务会出现在这里/);
 });
 
-test("createProject/assignRunProject:写入 localStorage 并可查询", () => {
-  const { sidebar, storage } = harness();
-  const pid = sidebar.createProject("项目乙");
-  assert.match(pid, /^prj-/);
-  sidebar.assignRunProject("r9", pid);
-  assert.deepEqual(JSON.parse(storage.getItem("fa.projects")).map(p => p.name), ["项目乙"]);
-  assert.equal(sidebar.getRunProject("r9"), pid);
-  assert.equal(JSON.parse(storage.getItem("fa.runProjects")).r9, pid);
-});
-
-test("renderProjects:过滤态与运行计数来自 runProjects", () => {
-  const { sidebar, els } = harness();
+test("createProject/assignRunProject:侧栏表单与服务端动作", () => {
+  const { sidebar, els, state } = harness();
   const host = makeEl();
   els["chat-projects"] = host;
-  const pid = sidebar.createProject("含运行项目");
-  sidebar.assignRunProject("r1", pid);
-  sidebar.assignRunProject("r2", pid);
+  sidebar.createProject("项目乙");
+  assert.match(host.innerHTML, /data-proj-form/, "新建项目在侧栏内联表单");
+  state.runs = [{
+    id: "r9", status: "succeeded", created: new Date().toISOString(),
+    template: "general", rounds: 1, objective: "x", projectId: "prj-9",
+  }];
+  assert.equal(sidebar.getRunProject("r9"), "prj-9");
+  sidebar.assignRunProject("r9", "prj-10");
+  assert.deepEqual(state.assignments, [["r9", "prj-10"]]);
+  assert.equal(localStorage.getItem("fa.projects"), null,
+    "侧栏不再写本地项目标签");
+});
+
+test("renderPinned:置顶运行进入置顶段，平坦列表不再出现", () => {
+  const { sidebar, els, state } = harness();
+  const pinnedHost = makeEl();
+  els["chat-pinned"] = pinnedHost;
+  const tasks = makeEl();
+  els["chat-tasks"] = tasks;
+  const now = new Date().toISOString();
+  state.runs = [{
+    id: "rp", status: "running", created: now, template: "general",
+    rounds: 1, objective: "置顶的运行", pinned: true, projectId: "",
+  }];
+  sidebar.renderPinned();
+  assert.match(pinnedHost.innerHTML, /置顶运行/);
+  assert.match(pinnedHost.innerHTML, /rp/);
+  sidebar.renderRuns();
+  assert.doesNotMatch(tasks.innerHTML, /rp/,
+    "置顶运行只出现在置顶段，不再两边都丢");
+});
+
+test("renderProjects:表单打开时轮询重绘不吞输入", () => {
+  const { sidebar, els, state } = harness();
+  const host = makeEl();
+  els["chat-projects"] = host;
+  sidebar.beginProjectCreate();
+  const before = host.innerHTML;
+  assert.match(before, /data-proj-form/);
+  state.runs = [{
+    id: "r1", status: "running", created: new Date().toISOString(),
+    template: "general", rounds: 1, objective: "poll", pinned: false,
+  }];
+  sidebar.renderProjects();
+  assert.equal(host.innerHTML, before, "轮询重绘跳过打开中的表单");
+  sidebar.cancelProjectForm();
+  assert.doesNotMatch(host.innerHTML, /data-proj-form/);
+});
+
+test("renderProjects:过滤态与运行计数来自服务端快照", () => {
+  const { sidebar, els, state } = harness();
+  const host = makeEl();
+  els["chat-projects"] = host;
+  state.projects = [{ id: "prj-a", name: "含运行项目" }];
+  state.runs = [
+    { id: "r1", status: "succeeded", created: new Date().toISOString(),
+      template: "general", rounds: 1, objective: "a", projectId: "prj-a" },
+    { id: "r2", status: "running", created: new Date().toISOString(),
+      template: "general", rounds: 1, objective: "b", projectId: "prj-a" },
+  ];
   sidebar.renderProjects();
   assert.match(host.innerHTML, /含运行项目/);
+  assert.match(host.innerHTML, />2</);
 });

@@ -46,10 +46,6 @@ export function isExecutionProposal(action) {
 
 /* A run-anchored message stays a run mirror even when its proposal is gone
  * from the projection: the anchor, not the action, is what the mirror needs. */
-export function messageHasProposal(message) {
-  return isExecutionProposal((message || {}).action);
-}
-
 function sourcesText(sources) {
   return (sources || []).filter(item => typeof item === "string" && item.trim()).join("\n");
 }

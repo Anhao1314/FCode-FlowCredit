@@ -6,8 +6,8 @@ import { isExecutionProposal } from "../core/run-card.js";
 export function createChatRuns(deps) {
   const {
     esc, actionCardHtml, runMirrorHtml, mirrorFrom, stripTags, describe, chat, modelChoice,
-    getApprovalMode, getRunHistory, renderChat, loadChatThreads, toast, applyDelta, setUiMode, openLive,
-    modelSupportsEffort,
+    getApprovalMode, getRunHistory, renderChat, loadChatThreads, toast, applyDelta, openLive,
+    openReplay, modelSupportsEffort,
   } = deps;
   const TERMINAL_STATUS = ["succeeded", "failed", "stopped"];
   const rowDescription = observation => stripTags((describe(observation) || [])[0] || "");
@@ -303,18 +303,27 @@ export function createChatRuns(deps) {
   async function openRunFromCard(runId) {
     const known = getRunHistory().find(run => run.id === runId);
     if (known) {
-      setUiMode("work");
+      if (TERMINAL_STATUS.includes(String(known.status))) {
+        // 终态运行走只读回放：判断面 + 失败诊断卡都在 trace 上；
+        // live SSE 对旧 run 只会给"未返回任何快照"（A3 实测）。
+        if (openReplay) { await openReplay(known.id); return true; }
+      }
       openLive(known.id, known.objective, known.template);
-      return;
+      return true;
     }
     try {
       const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const run = await response.json();
-      setUiMode("work");
+      if (TERMINAL_STATUS.includes(String(run.status)) && openReplay) {
+        await openReplay(run.id);
+        return true;
+      }
       openLive(run.id, run.objective, run.template);
+      return true;
     } catch (error) {
       toast("打开运行失败：" + error.message);
+      return false;
     }
   }
 

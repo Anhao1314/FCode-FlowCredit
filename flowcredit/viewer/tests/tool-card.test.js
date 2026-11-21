@@ -39,6 +39,38 @@ test("错误工具卡:显示错误码与消息", () => {
   assert.match(html, /失败/);
 });
 
+test("browser_act 展示操作前/后两张截图", () => {
+  const html = toolCardHtml({
+    type: "tool", call_id: "c5", name: "browser_act",
+    arguments: '{"action":"click","selector":"#go"}', status: "ok",
+    result: {
+      title: "Preview", url: "http://127.0.0.1:5173/",
+      before: { url: "/api/browser/artifact?path=before.png" },
+      after: { url: "/api/browser/artifact?path=after.png" },
+    },
+  });
+  assert.match(html, /chat-browser-pair/);
+  assert.match(html, /操作前/);
+  assert.match(html, /操作后/);
+  assert.match(html, /before\.png/);
+  assert.match(html, /after\.png/);
+});
+
+test("browser_inspect 的截图作为证据预览，且 URL 转义", () => {
+  const html = toolCardHtml({
+    type: "tool", call_id: "c4", name: "browser_inspect",
+    arguments: '{"url":"http://127.0.0.1:5173/"}', status: "ok",
+    result: {
+      title: "Preview",
+      url: "http://127.0.0.1:5173/",
+      screenshot: { url: "/api/browser/artifact?path=a%2Fshot.png" },
+    },
+  });
+  assert.match(html, /chat-browser-shot/);
+  assert.match(html, /src="\/api\/browser\/artifact\?path=a%2Fshot\.png"/);
+  assert.match(html, /Preview/);
+});
+
 test("blocks 按序渲染:文本用 markdown,工具用卡片", () => {
   const html = toolBlocksHtml([
     { type: "text", text: "先看文件" },

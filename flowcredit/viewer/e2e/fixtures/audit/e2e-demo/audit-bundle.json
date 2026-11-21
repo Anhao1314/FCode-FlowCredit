@@ -1,0 +1,55 @@
+{
+  "schema_version": "fcode.audit-bundle/v1",
+  "audit_id": "e2e-demo-target",
+  "authorization": {
+    "operator": "e2e",
+    "scope": "fixture",
+    "granted_at": "2026-11-01T00:00:00Z"
+  },
+  "target": {
+    "identity": "demo",
+    "version": "1",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifact_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "sessions": [
+    {
+      "phase": "static",
+      "session_ref": "e2e-fixture"
+    }
+  ],
+  "toolchain": {
+    "replayer": "v1",
+    "oracle_version": "1",
+    "ruleset_version": "e2e-1",
+    "rea": {
+      "version": "6.8.0",
+      "evidence_schema": "rea.evidence/v1",
+      "facts_schema": "fcode.rea-facts/v1",
+      "manifest_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "poc_evidence_refs": [
+    "POC-0001"
+  ],
+  "findings": [
+    {
+      "finding_id": "F-POC-0001",
+      "root_cause_group": "approval-memory",
+      "category": "AGI-02",
+      "severity": "high",
+      "poc_refs": [
+        "POC-0001"
+      ],
+      "fingerprint": "e2efixture0000000000000000000000",
+      "fingerprint_version": 1,
+      "semantic_fingerprint": "e2esemantic0000000000000000000000"
+    }
+  ],
+  "uncovered_surfaces": [],
+  "rea_evidence_refs": [],
+  "chain_verification": {
+    "head_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "command": "verify-bundle"
+  }
+}

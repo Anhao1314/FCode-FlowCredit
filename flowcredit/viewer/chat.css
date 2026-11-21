@@ -265,11 +265,6 @@
 }
 .chat-edit-input:focus { border-color: rgba(0, 0, 0, .20); }
 
-.side-empty-inline {
-  padding: 6px 10px 10px;
-  color: var(--text-3);
-  font-size: 12px;
-}
 
 .stop-glyph {
   width: 12px;
@@ -341,7 +336,16 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   background: var(--canvas, #fff); color: var(--text-1);
   font: 12.5px var(--font-ui);
 }
-.chatcfg-field input:focus { outline: none; border-color: var(--accent-line, var(--line-strong)); }
+.chatcfg-field select {
+  height: 32px; padding: 0 8px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--canvas, #fff); color: var(--text-1);
+  font: 12.5px var(--font-ui);
+}
+.chatcfg-field input:focus, .chatcfg-field select:focus { outline: none; border-color: var(--accent-line, var(--line-strong)); }
+.chatcfg-advanced { margin-top: 10px; border-top: 0.5px solid var(--line); padding-top: 8px; }
+.chatcfg-advanced summary { cursor: pointer; font-size: 12px; color: var(--text-2); user-select: none; }
+.chatcfg-advanced .chatcfg-grid { margin-top: 10px; }
 .chatcfg-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .chatcfg-note { font-size: 11px; color: var(--text-3); }
 
@@ -369,39 +373,86 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 }
 .chat-more:hover { color: var(--text-1); }
 
-/* ---------------------------------------------------------------- AI 头像
-   定稿形态（原 workspace.css 生效值）：26px 黑底 #111 方圆 7px、白墨反白，
-   无描边阴影；状态推导在 core/ai-avatar.js（--idle/--mark 等类名保持，
-   --mark 的浅色底在定稿层序下从未生效，随归一移除其背景声明）。
-   形象是 FCode 的 Q 版印豆；只出现在对话面：工作舞台仍用品牌 logo。 */
+/* ---------------------------------------------------------------- AI 形象
+   Kimi-style face, made live: a black-grey gradient disc with two white eyes.
+   The eyes follow the pointer, blink on their own, and scan while the answer
+   streams. The message row keeps the 32px face; the empty state uses 64px.
+   The operator bubble stays avatar-free, so the AI is the only face in the
+   thread. */
 .chat-msg-row { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .chat-msg-row .chat-md { flex: 1; min-width: 0; }
+.chat-msg-row .chat-blocks { flex: 1; min-width: 0; }
 
 .ai-avatar {
-  --ai-avatar-size: 26px;
+  --ai-avatar-size: 32px;
+  --look-x: 0px;
+  --look-y: 0px;
   position: relative; flex: none;
-  width: var(--ai-avatar-size, 26px); height: var(--ai-avatar-size, 26px);
+  width: var(--ai-avatar-size, 32px); height: var(--ai-avatar-size, 32px);
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 7px;
-  background: #111;
-  box-shadow: none;
-  color: #fff;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 27%, #6B6B6E 0%, #3D3D40 42%, #1B1B1E 100%);
+  box-shadow:
+    0 0 0 .5px rgba(0, 0, 0, .16),
+    0 3px 10px rgba(23, 23, 26, .20);
+  overflow: visible;
 }
-.ai-avatar svg { display: block; }
+.ai-avatar::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .18);
+  pointer-events: none;
+}
+.ai-avatar > svg {
+  display: block; overflow: visible;
+  animation: ai-avatar-breathe 4.8s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+.ai-avatar-look {
+  transform: translate(var(--look-x, 0px), var(--look-y, 0px));
+  transition: transform .16s cubic-bezier(.23, 1, .32, 1);
+}
+.ai-avatar-eyes { transform-origin: 50% 50%; }
+.ai-eye {
+  transform-box: fill-box; transform-origin: center;
+  animation: ai-avatar-blink 5.6s ease-in-out infinite;
+}
+.ai-avatar--thinking .ai-avatar-scan {
+  animation: ai-avatar-scan 2.6s ease-in-out infinite;
+}
+.ai-avatar--thinking > svg { animation-duration: 2.4s; }
 .ai-avatar-ring {
   position: absolute; inset: -3px; border-radius: 50%;
-  border: 1.5px solid currentColor; opacity: .18;
+  border: 1.5px solid #7A7A7E; opacity: .24;
   animation: ai-avatar-breathe 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+/* 治理 Bot 的等待态：慢环 + 语义色（等操作员批准），脸本身不背颜色。 */
+.ai-avatar--pending .ai-avatar-scan { animation-duration: 5.2s; }
+.ai-avatar--pending > svg { animation-duration: 3.6s; }
+.ai-avatar-ring.is-pending {
+  border-color: var(--warn); opacity: .34;
+  animation-duration: 3.2s;
 }
 @keyframes ai-avatar-breathe {
-  0%, 100% { opacity: .1; transform: scale(.98); }
-  50% { opacity: .3; transform: scale(1.04); }
+  0%, 100% { transform: scale(.985); }
+  50% { transform: scale(1.035); }
+}
+@keyframes ai-avatar-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94% { transform: scaleY(.12); }
+  96% { transform: scaleY(1); }
+}
+@keyframes ai-avatar-scan {
+  0%, 100% { transform: translateX(-1.1px); }
+  50% { transform: translateX(1.1px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ai-avatar-ring { animation: none; opacity: .18; }
+  .ai-avatar > svg, .ai-eye, .ai-avatar-scan, .ai-avatar-ring {
+    animation: none;
+  }
+  .ai-avatar-look { transition: none; }
 }
 .chat-empty .ai-avatar { margin: 0 auto 10px; display: flex; width: 64px; height: 64px; }
-.ai-avatar .ai-avatar-ring { pointer-events: none; }
 
 /* ================================================================ 对话内工具卡
    Agentic chat：模型调用只读工具时，卡片按 blocks 顺序嵌在回答里。
@@ -424,6 +475,30 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
   font: 11px/1.55 var(--font-mono); color: var(--text-2); white-space: pre-wrap;
   word-break: break-all; max-height: 240px; overflow: auto; }
 .chat-tool-meta { margin-top: 6px; font: 10.5px var(--font-mono); color: var(--text-4); }
+.chat-browser-pair {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px; margin: 8px 10px 0;
+}
+.chat-browser-figure { margin: 0; min-width: 0; }
+.chat-browser-figure figcaption { margin-top: 3px; color: var(--text-3); font: 10px var(--font-mono); }
+.chat-browser-shot {
+  display: block; margin: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--raised);
+}
+.chat-browser-shot img {
+  display: block; width: 100%; max-height: 420px; object-fit: contain; object-position: top center;
+}
+.chat-browser-meta {
+  margin: 4px 10px 8px; color: var(--text-3);
+  font: 10.5px/16px var(--font-mono); overflow-wrap: anywhere;
+}
+.chat-browser-diff { margin: 0 10px 8px; }
+.chat-browser-diff summary { cursor: pointer; color: var(--text-3); font-size: 11px; }
+.chat-browser-diff pre {
+  margin: 4px 0 0; padding: 6px; max-height: 180px; overflow: auto;
+  border-radius: 6px; background: var(--inset); color: var(--text-2);
+  font: 10px/15px var(--font-mono); white-space: pre-wrap;
+}
 
 .chat-tool.awaiting { border-color: rgba(180, 83, 9, .45); }
 .chat-tool.awaiting .chat-tool-dot { background: var(--warn); }
@@ -431,3 +506,47 @@ body.reduce-motion .chat-wait { animation: none !important; opacity: .45; }
 .chat-tool-approval { border-top: 2px solid var(--warn); background: rgba(180, 83, 9, .06); padding: 8px 10px 10px; }
 .chat-tool-approval-head { font-size: 12px; font-weight: 550; color: var(--warn); margin-bottom: 6px; }
 .chat-tool-approval-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* ================================================================ W1 工作区命令卡
+   对话内的 /账本 /状态 /定时 卡片（role:"wcard" 本地消息）。块级卡片
+   走阅读列，视觉上与工具卡同族（细边 + 软底 + 等宽元数据）。 */
+.wcard-msg { display: flex; justify-content: center; }
+.wcard {
+  width: min(100%, 560px); margin: 8px 0; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--raised);
+}
+.wcard-head { display: flex; align-items: center; gap: 8px; }
+.wcard-icon svg { width: 16px; height: 16px; display: block; }
+.wcard-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.wcard-jump {
+  margin-left: auto; border: 0; background: none; cursor: pointer;
+  font-size: 11.5px; color: var(--text-3); padding: 2px 4px; border-radius: 6px;
+  transition: color .15s ease;
+}
+.wcard-jump:hover { color: var(--text-1); }
+.wcard-meta { margin-top: 6px; font: 11px/1.6 var(--font-mono); color: var(--text-3); }
+.wcard-rows { margin-top: 4px; }
+.wcard-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 0; border-top: 1px dashed var(--line-soft);
+}
+.wcard-row:first-child { border-top: 0; }
+.wcard-run-label {
+  min-width: 0; flex: 1; font-size: 12.5px; color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wcard-run-meta { flex: none; font: 11px/1.6 var(--font-mono); color: var(--text-3); }
+.wcard-empty { padding: 10px 0 4px; font-size: 12.5px; color: var(--text-3); }
+
+/* 用户头像（core/ai-avatar.js 的 userAvatarHtml）：墨盘 + 画布人形，
+   与 FCode 头像同族黑白；气泡右侧，镜像助手侧的 ai-avatar 位置。 */
+.chat-msg-row.user-row { justify-content: flex-end; }
+.chat-user-avatar {
+  flex: none; width: var(--ai-avatar-size, 28px); height: var(--ai-avatar-size, 28px);
+  border-radius: 50%; overflow: hidden;
+}
+.chat-user-avatar svg { display: block; width: 100%; height: 100%; }
+
+
+/* 元数据并入操作行后的行内形态:与按钮同一基线上,不继承块级 margin。 */
+.chat-meta.inline { margin-top: 0; margin-right: 6px; }

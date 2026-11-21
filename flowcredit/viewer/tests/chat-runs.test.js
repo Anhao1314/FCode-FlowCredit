@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createChatRuns } from "../app/chat-runs.js";
-import { actionCardHtml, isExecutionProposal, messageHasProposal, mirrorFrom, runMirrorHtml } from "../core/run-card.js";
+import { actionCardHtml, isExecutionProposal, mirrorFrom, runMirrorHtml } from "../core/run-card.js";
 import { esc } from "../core/format.js";
 
 /* The card renderer needs the app's chat state, so the test drives the real
@@ -89,13 +89,3 @@ test("a dismissed proposal renders the reconsider row, a dismissed plain message
   assert.equal(runs.chatCardHtml({ id: "a0", role: "assistant", action: {} }), "");
 });
 
-test("the proposal predicate is the single source of truth", () => {
-  assert.equal(isExecutionProposal({ goal: "写一个脚本整理文件" }), true);
-  assert.equal(isExecutionProposal({ goal: "写一个脚本整理文件", mode: "script" }), true);
-  assert.equal(isExecutionProposal({ goal: "查资料", mode: "research", sources: ["https://a"] }), true);
-  assert.equal(isExecutionProposal({ goal: "查资料", mode: "bogus" }), false);
-  assert.equal(isExecutionProposal({}), false);
-  assert.equal(isExecutionProposal(null), false);
-  assert.equal(messageHasProposal({ action: { goal: "有目标" } }), true);
-  assert.equal(messageHasProposal({}), false);
-});

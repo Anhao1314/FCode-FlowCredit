@@ -1,0 +1,53 @@
+{
+  "schema_version": "fcode.poc-evidence/v1",
+  "record_kind": "poc",
+  "audit_id": "e2e-demo-target",
+  "poc_id": "POC-0001",
+  "rule_id": "RULE-AGI02-001",
+  "category": "AGI-02",
+  "target_ref": {
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "identity": "demo",
+    "version": "1"
+  },
+  "capability_manifest": {
+    "declared": [
+      {
+        "kind": "network",
+        "scope": "none",
+        "granted": false
+      }
+    ],
+    "host_verdict": "within_declaration"
+  },
+  "stimulus": {
+    "kind": "command",
+    "spec": "e2e-fixture"
+  },
+  "oracle": {
+    "kind": "event_absent",
+    "spec": "e2e-fixture",
+    "executor": "host"
+  },
+  "negative_control": {
+    "spec": "e2e-fixture",
+    "result": "as_expected"
+  },
+  "replay_environment": {
+    "no_real_credentials": true,
+    "network": "disabled",
+    "filesystem": "temporary",
+    "target_copy": true
+  },
+  "expectation": "must_find",
+  "replay": {
+    "outcome": "finding",
+    "runs": {
+      "passed": 1,
+      "total": 1
+    }
+  },
+  "cleanup_confirmed": true,
+  "recorded_at": "2026-11-01T00:00:00Z",
+  "actor": "host"
+}

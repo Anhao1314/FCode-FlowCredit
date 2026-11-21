@@ -6,11 +6,11 @@
 <meta name="color-scheme" content="light">
 <title>FCode · 本机 Agent 工作区</title>
 <link rel="icon" type="image/svg+xml" href="brand/favicon.svg">
-<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=80">
-<link rel="stylesheet" href="design.css?v=82">
-<link rel="stylesheet" href="desktop.css?v=6">
-<link rel="stylesheet" href="chat.css?v=8">
-<link rel="stylesheet" href="thread.css?v=1">
+<script src="boot.js?v=1"></script><link rel="stylesheet" href="app.css?v=81">
+    <link rel="stylesheet" href="design.css?v=106">
+<link rel="stylesheet" href="desktop.css?v=9">
+    <link rel="stylesheet" href="chat.css?v=12">
+    <link rel="stylesheet" href="thread.css?v=39">
 </head>
 <body>
 <div class="shell app rail-hidden" id="app">
@@ -23,42 +23,68 @@
         <span class="side-tip" role="tooltip"><span class="side-tip-label">折叠侧栏</span><kbd class="side-tip-key">⌘B</kbd></span>
       </button>
       <img class="brand-mark" src="brand/logo.svg" alt="FCode" width="32" height="32">
+      <span class="side-flavor" id="side-flavor" aria-hidden="true">WORK</span>
       <span class="grow"></span>
     </div>
 
-    <button class="side-new" id="new-run" title="新对话">
+    <!-- S2.1 区切换器：Work / Governance 的身份 UI，放在侧栏最上方（Kimi 的
+         Work/Chat 分段同型）。指示当前视图所属区 + 一键着陆该区主面
+         （不过滤导航——E2E 契约：任意视图 4 项都可达）。
+         inner 由 side-nav.js 的 zoneSwitchHtml 生成，active 跟随视图。 -->
+    <div class="zone-switch seg" id="zone-switch" role="group" aria-label="Work and Governance"></div>
+
+    <!-- A4：Work 的主行动是任务——槽位=新任务（回工作台聚焦任务 composer）；
+         新对话是显式次级入口 ⌘⇧N，杜绝"以为发任务、实际发到 chat"。 -->
+    <button class="side-new" id="new-run" title="新任务：回到工作台任务入口（⌘N）" aria-label="新任务（工作台，⌘N）">
       <span data-doodle="kimi-plus"></span>
-      <span id="new-label">新对话</span>
+      <span id="new-label">新任务</span>
+      <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
+    </button>
+    <button class="side-new side-new-chat" id="new-chat" title="新对话：FCODE CHAT（⌘⇧N）" aria-label="新对话（FCODE CHAT，⌘⇧N）">
+      <span data-doodle="chat"></span>
+      <span>新对话</span>
+      <kbd class="nav-shortcut" aria-hidden="true">⌘⇧N</kbd>
+    </button>
+    <!-- 治理区的新对话：同一槽位按区换内容（Kimi 式）。动作 = 清空治理台
+         命令流、开新会话；运行与审计记录是服务端事实，不受影响。 -->
+    <button class="side-new" id="gov-new-dialog" title="治理台新会话：清空对话流（运行与审计记录保留）">
+      <span data-doodle="kimi-plus"></span>
+      <span>新对话</span>
       <kbd class="nav-shortcut" aria-hidden="true">⌘N</kbd>
     </button>
     <button class="side-search" id="side-search" type="button" title="搜索与命令（⌘K）">
       <span data-doodle="search"></span><span>搜索与命令</span><kbd>⌘K</kbd>
     </button>
 
+    <!-- 插件市场：内置能力 + 审查过的 MCP 插件。目录在服务端；安装只写本机
+         mcp.json，桥接后台重连。这是操作员动作，不是模型可写入口。 -->
+    <button class="side-market" type="button" data-open="market" title="插件市场">
+      <span data-doodle="cube"></span><span>插件市场</span>
+    </button>
+
     <!-- 统一侧栏（适配重建，2026-11）：只有一套列表。
-         结构：功能导航（4 个真实 surface 扁平排布）→ 更多（4 个预留槽位，
-         默认收起）→ 置顶 → Projects → 对话 → 任务。
-         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达，
-         四个功能面也不再拆散在「顶部两项 + 更多两项」。
+         结构：区切换器 → 置顶 → 项目 → 任务 → 对话。
+         Work 的主导航是“项目/任务”，对话历史放在最后，避免几十条
+         “写 hello.txt”把任务区推到折叠线以下。
+         pane-work 幽灵面板已删除——工作模式收敛退役后它不可达。
          折叠区只包"行"（.side-block-inner = Kimi 的 .sidebar-reveal-content），
          段标题留在外面——第一版把标题一起包了进去，折叠后标题被裁掉，
          [data-section-toggle] 点不到，该段再也展不开（浏览器验收抓到的真 bug）。
          #chat-pinned / #chat-projects 的 inner 由 side-nav.js 自带（它一次生成标题+行）。 -->
     <div class="side-list" id="pane-chat">
       <div class="side-scroll-top-mask"></div>
-      <div class="side-nav">
-        <nav id="side-nav-items" aria-label="功能导航"></nav>
-        <button class="nav-item" id="nav-more" type="button" aria-expanded="false" aria-controls="more-nav" title="更多（预留槽位）">
-          <span data-doodle="ellipsis"></span><span>更多</span>
-          <span class="chev" aria-hidden="true">▾</span>
-        </button>
-      </div>
-      <div class="side-nav more-nav" id="more-nav" hidden></div>
       <div id="chat-pinned"></div>
       <div id="chat-projects"></div>
+      <div id="chat-tasks"></div>
       <div id="chat-chats"></div>
       <div class="side-block-inner"><nav class="nav" id="chat-nav"></nav></div>
-      <div id="chat-tasks"></div>
+      <!-- 治理区历史（Kimi 式分区历史）：审计记录按日期分组。Work 区
+           显示对话/任务段，Governance 区显示审计历史——两套互斥显隐
+           （body[data-zone]）。行点击深链 #/audit/<dir>。
+           gov-surface-nav = 治理区四个面（治理台/团队/工作台/审计台）的切换，
+           从主区头部收进侧栏；审计台走 data-open，其余走 data-gov-mode。 -->
+      <nav class="gov-surface-nav" id="gov-surface-nav" aria-label="治理台视图"></nav>
+      <div id="gov-history"></div>
     </div>
 
     <div class="side-foot">
@@ -97,8 +123,6 @@
       <div class="tb-title" id="tb-title">—</div>
       <div class="tb-chips" id="tb-chips"></div>
       <div class="grow"></div>
-      <button class="tb-audit-link" type="button" data-open="audit"
-        title="发现账本:审计器产出的缺陷与证据">审计台</button>
       <button class="conn-pill" id="conn-pill" type="button" title="运行流连接状态" hidden>
         <span class="conn-dot" aria-hidden="true"></span><span id="conn-pill-text"></span>
       </button>
@@ -131,24 +155,30 @@
           <div class="composer">
             <div class="composer-box" id="composer-box">
               <div class="tpl-menu approval-menu" id="approval-menu" hidden></div>
-              <div class="tpl-menu model-menu" id="model-menu" hidden></div>
+              <!-- S1 Chat/Work 分态：两个菜单各归各渲染器（chat-config → chat /
+                   composer-panel → work），不再共用一个节点按 chat.active 覆写 -->
+              <div class="tpl-menu model-menu" id="chat-model-menu" hidden></div>
+              <div class="tpl-menu model-menu" id="work-model-menu" hidden></div>
               <div class="attach-panel" id="attach-panel" hidden></div>
+              <div class="composer-add-menu" id="composer-add-menu" hidden></div>
+              <div class="workspace-mention-menu" id="workspace-mention-menu" hidden></div>
               <div class="chat-attach-chips" id="chat-attach-chips" hidden></div>
               <div class="project-composer" id="project-composer" hidden></div>
               <textarea class="composer-ta" id="composer-ta" rows="1" aria-label="输入消息或任务描述"
                 placeholder="给 agent 派一个任务：例如整理本仓库的审计发现并生成一份摘要报告…"></textarea>
               <div class="composer-bar">
-                <button class="c-icon" id="composer-open" title="资料 / 工具 / 预算" aria-expanded="false">
+                <button class="c-icon" id="composer-open" title="添加内容" aria-expanded="false">
                   <svg class="i plus-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
                   <svg class="i close-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
-                </button>
-                <button class="c-icon" id="chat-attach" title="添加文本附件（最多 3 个，每个 ≤64 KiB）" hidden>
-                  <svg class="i" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>
                 </button>
                 <button class="c-btn" id="approval-btn" title="审批档位：只在需要你确认的地方暂停（对新任务生效）">
                   <span data-doodle="key"></span>
                   <span id="approval-label">关键审批</span>
                   <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <button class="c-btn" id="fast-btn" aria-pressed="true"
+                  title="Fast：一轮多动作 + 原生工具调用；不做逐步审批；项目走隔离副本（worktree），terminal 只能写工作区。点击切换，关闭恢复逐步审批。">
+                  <span class="fdot"></span><span id="fast-label">Fast</span>
                 </button>
                 <div class="grow"></div>
                 <button class="c-btn static run-chip" id="run-chip" hidden title="在轮次边界停止运行（⌘.）">
@@ -163,6 +193,15 @@
                   </svg>
                   <span id="run-chip-text" aria-live="polite">运行中</span>
                 </button>
+                <span id="ctx-ring" title="上下文容量" aria-label="上下文容量" style="display:none">
+                  <svg viewBox="0 0 20 20" width="16" height="16">
+                    <circle cx="10" cy="10" r="7" fill="none" stroke="var(--line)" stroke-width="2.5"/>
+                    <circle class="ctx-arc" cx="10" cy="10" r="7" fill="none"
+                      stroke="var(--text-3)" stroke-width="2.5"
+                      stroke-linecap="round" stroke-dasharray="0 44"
+                      transform="rotate(-90 10 10)"/>
+                  </svg>
+                </span>
                 <button class="c-btn" id="model-btn" title="选择模型与思考强度">
                   <span id="model-label">—</span>
                   <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="m6 9 6 6 6-6"/></svg>
@@ -262,8 +301,8 @@
             <p class="set-section-desc">模型只提议动作；权限、预算与执行由主机决定。这里展示当前实际生效的配置。</p>
             <div class="chatcfg" id="chatcfg">
               <div class="chatcfg-head">
-                <b>对话模型</b>
-                <small>配置保存在本机用户配置目录的 <code>chat-config.json</code>（不在静态目录，不进仓库、不进事件链）；优先级：这里 &gt; 环境变量。当前作用于对话；委托运行仍读环境变量。</small>
+                <b>全局模型目录</b>
+                <small>配置保存在本机用户配置目录的 <code>chat-config.json</code>（不在静态目录，不进仓库、不进事件链）；优先级：这里 &gt; 环境变量（<code>FCODE_DEFAULT_RUN_MODEL</code> 仍最高）。对话、Work 委托、治理解释与定时任务共用同一目录与默认值。</small>
               </div>
               <div class="chatcfg-default" id="chatcfg-default"></div>
               <div class="chatcfg-cards" id="chatcfg-cards"></div>
@@ -294,6 +333,11 @@
               <button class="set-action" id="settings-refresh-memory" type="button">刷新统计</button>
             </div>
             <p class="set-note">输入历史只存在本机 ↑↓ 里；案例与事实存放在 viewer/memory，删除运行会同步墓碑。</p>
+            <div class="set-section-head" style="margin-top:22px"><h2>操作员长期记忆</h2><span class="set-tag">本机</span></div>
+            <p class="set-section-desc">对话里用「/remember 一句话」沉淀的偏好与事实，每轮对话注入模型上下文；只有你明示的内容会进来，随时删除。</p>
+            <div class="set-rows" id="settings-memory-list">
+              <div class="set-row"><span class="set-row-text"><small>加载中…</small></span></div>
+            </div>
           </section>
 
           <section class="set-section" id="set-notify" data-set-panel="notify">
@@ -378,9 +422,9 @@
   </div>
 </div>
 
-<script src="report.js?v=56"></script>
+<script src="report.js?v=58"></script>
 <script src="icons-doodle.js?v=54"></script>
   <script src="brand/seal-icons.js"></script>
-<script src="app.js?v=120" type="module"></script>
+  <script src="app.js?v=189" type="module"></script>
 </body>
 </html>

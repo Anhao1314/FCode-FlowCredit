@@ -86,7 +86,7 @@ window.FCReport = (function () {
       if (artifacts.length) {
         const truth = (artifacts.find(entry => entry.content_truth) || {}).content_truth || "runtime-verified-file-state";
         return `<h2>一、结论</h2>
-        <p class="answer">通用委托已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。</p>
+        <p class="answer">任务已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。</p>
         <table class="metrics">
           ${artifacts.map(entry => `<tr><td>${esc(entry.path)}</td><td class="v">${num(entry.bytes)} B</td></tr>`).join("")}
         </table>
@@ -97,7 +97,9 @@ window.FCReport = (function () {
     const reasons = {
       BUDGET_EXCEEDED: "预算已耗尽", ROUND_LIMIT: "达到轮次上限", OPERATOR_DENIED: "操作员拒绝了关键工具调用",
       INSUFFICIENT_EVIDENCE: "证据不足，Runtime 拒绝给出未经证明的数字", PLAN_BLOCKED: "计划被阻塞",
-      PLAN_EXHAUSTED: "计划已没有可执行步骤", STOPPED_BY_OPERATOR: "操作员停止了运行",
+      PLAN_EXHAUSTED: "计划已没有可执行步骤", NO_PROGRESS: "连续多轮没有写入，Runtime 已停止空转",
+      REPAIR_BUDGET_EXCEEDED: "修复预算耗尽，Runtime 已停止无效重试",
+      STOPPED_BY_OPERATOR: "操作员停止了运行",
     };
     return `<h2>一、结论</h2>
     <p class="answer">未能给出结论：${esc(reasons[failure.code] || failure.message || "运行未完成")}。</p>

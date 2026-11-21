@@ -3,8 +3,8 @@
 /* 侧栏渲染与外壳交互（P2 自 app.js 抽离）。
 
    范围：
-   - 「更多」折叠（fa.sideMore.v2）、段落折叠（fa.sections）
-   - 功能导航渲染（SIDEBAR_NAV/MORE_NAV）与 active 高亮
+   - 段落折叠（fa.sections）
+   - 区切换器与治理导航点亮（治理台/团队/工作台/审计台）
    - 置顶段（对话）、首次使用卡（当前收敛为空壳）
    - 三类外壳接线：拖拽调宽 / 滚动遮罩淡入 / 长标题跑马灯
 
@@ -12,7 +12,8 @@
    运行历史、项目过滤状态耦合，仍留在 app.js，由 renderNav 通过 deps 编排。
    置顶（fa.pins）状态留在 app.js：聊天行渲染（chat-ui）也要读它。 */
 
-import { SIDEBAR_NAV, MORE_NAV, navItemsHtml, pinnedSectionHtml, projectSectionHtml } from "../core/side-nav.js";
+import { pinnedSectionHtml, projectSectionHtml, govHistorySectionHtml, runSectionHtml, zoneOf, zoneSwitchHtml } from "../core/side-nav.js";
+import { govSurfaceSwitchHtml } from "../core/gov-workbench.js";
 import { esc, num } from "../core/format.js";
 
 export function createSidebar(deps) {
@@ -20,13 +21,104 @@ export function createSidebar(deps) {
 
   /* ---------------------------------------------------------------- nav */
 
+  /* S2.1 区切换器点亮态：跟随当前视图所属区；视图不属于任何区（设置、
+     预留页）时保持上一次的区，不闪。 */
+  let zonePainted = "work";
+
+  let govHistPainted = false;
+  let govHistBusy = false;
+  let govHistSig = "";
+  let govHistTimer = null;
+
+  function paintZoneSwitch() {
+    const host = document.getElementById("zone-switch");
+    if (!host) return;
+    const view = document.getElementById("main")?.dataset.view || "";
+    const zone = zoneOf(view);
+    const changed = zone !== null && zone !== zonePainted;
+    if (zone) zonePainted = zone;
+    host.innerHTML = zoneSwitchHtml(zonePainted);
+    // 分区历史互斥：data-zone 驱动 CSS 显隐
+    // （Work=对话/任务，Governance=团队运行 + 审计记录）
+    document.body.dataset.zone = zonePainted;
+    const flavor = document.getElementById("side-flavor");
+    if (flavor) flavor.textContent = zonePainted === "gov" ? "GOV" : "WORK";
+    // 治理台四面（治理台/团队/工作台/审计台）切换收进侧栏：进 gov 区就点亮当前面。
+    if (zonePainted === "gov") paintGovSurfaceNav();
+    // 插件市场是功能页不是区：按钮自己点亮，不改变 Work/Governance 分区。
+    const marketButton = document.querySelector(".side-market");
+    if (marketButton) marketButton.classList.toggle("active", view === "market");
+    if (zonePainted === "gov" && (changed || !govHistPainted)) renderGovHistory();
+    ensureGovHistoryPolling();
+  }
+
+  function ensureGovHistoryPolling() {
+    if (zonePainted !== "gov") {
+      if (govHistTimer) {
+        clearInterval(govHistTimer);
+        govHistTimer = null;
+      }
+      return;
+    }
+    if (govHistTimer) return;
+    // Bot runs and audits finish in the background; the history is a live
+    // projection, not a one-shot list. Ten seconds is plenty for a sidebar.
+    govHistTimer = setInterval(() => renderGovHistory(), 10000);
+  }
+
+  async function safeJson(url, fallback) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      return response.ok ? await response.json() : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  /* 治理区历史：团队运行 + 审计记录。每 10 秒静默刷新，数据签名不变
+     就不重建 DOM（避免动画头像和滚动位置被无意义重绘）。 */
+  async function renderGovHistory() {
+    if (zonePainted !== "gov" || govHistBusy) return;
+    const host = document.getElementById("gov-history");
+    if (!host) return;
+    govHistBusy = true;
+    const first = !govHistPainted;
+    govHistPainted = true;
+    if (first || !host.innerHTML.trim()) {
+      host.innerHTML = '<div class="section-empty">读取审计记录…</div>';
+    }
+    try {
+      const bundleData = await safeJson("/api/audit/bundles", { bundles: [] });
+      const bundles = bundleData.bundles || [];
+      const signature = JSON.stringify([
+        bundles.map(item => [item.dir, item.findings, item.unhandled, item.ruleset_version]),
+      ]);
+      if (signature !== govHistSig || host.textContent.includes("读取审计记录")) {
+        govHistSig = signature;
+        host.innerHTML = govHistorySectionHtml(bundles);
+        paintSections();
+      }
+    } catch {
+      if (first) host.innerHTML = '<div class="section-empty">审计记录读取失败</div>';
+    } finally {
+      govHistBusy = false;
+    }
+  }
+
   function renderSidebarNav() {
-    // 统一侧栏（适配重建）:4 个真实 surface 扁平排布,4 个预留槽位进「更多」。
-    const nav = document.getElementById("side-nav-items");
-    if (nav) nav.innerHTML = navItemsHtml(SIDEBAR_NAV, navCounts);
-    const more = document.getElementById("more-nav");
-    if (more) more.innerHTML = navItemsHtml(MORE_NAV, navCounts);
-    paintMoreNav();
+    // 功能导航已撤除(nav 宿主删除);这里只剩区切换器的点亮渲染。
+    paintZoneSwitch();
+  }
+
+  /* 治理两面切换（对话/审计库）：团队、工作台与角色详情都是对话下钻，
+     只有审计库是独立 view。 */
+  function paintGovSurfaceNav() {
+    const host = document.getElementById("gov-surface-nav");
+    if (!host) return;
+    const view = document.getElementById("main")?.dataset.view || "";
+    const active = view === "audit" ? "audit" : "dialog";
+    host.innerHTML = govSurfaceSwitchHtml(active);
+    d.hydrateDoodles?.(host);
   }
 
   function paintNavActive() {
@@ -39,6 +131,9 @@ export function createSidebar(deps) {
       const ledgerActive = open === "ledger" || (d.getLedgerOpen() && open === "run");
       el.classList.toggle("active", isLedger ? ledgerActive : el.dataset.open === open);
     }
+    // 区切换器点亮必须挂这里：renderMode 先写 main.dataset.view 再调本函数，
+    // 而 renderNav 里的渲染发生在视图更新之前——挂那里会滞后一拍（冒烟抓到）。
+    paintZoneSwitch();
   }
 
   function renderNav() {
@@ -56,44 +151,27 @@ export function createSidebar(deps) {
     paintScrollMasks();
   }
 
-  /* ------------------------------------------------------------- 更多折叠 */
-
-  /* 只装 4 个预留槽位（kimi.com 的 next-sidebar__more-list 手法）。
-     适配重建后功能面全部提到第一屏;v2 键不继承旧 IA 的持久化状态——旧状态
-     曾被 openLedger/renderAudit 强制写成"展开",按新结构应为默认收起。 */
-  const MORE_KEY = "fa.sideMore.v2";
-
-  function moreOpen() {
-    try { return localStorage.getItem(MORE_KEY) === "1"; } catch { return false; }
-  }
-
-  function paintMoreNav() {
-    const wrap = document.getElementById("more-nav");
-    const toggle = document.getElementById("nav-more");
-    if (!wrap || !toggle) return;
-    const open = moreOpen();
-    wrap.hidden = !open;
-    toggle.setAttribute("aria-expanded", String(open));
-    toggle.classList.toggle("open", open);
-  }
-
-  function setMoreNav(open) {
-    try { localStorage.setItem(MORE_KEY, open ? "1" : "0"); } catch { /* quota */ }
-    paintMoreNav();
-  }
-
   /* --------------------------------------------------------------- 置顶 */
 
   function renderPinned() {
-    // 置顶运行行原宿主在 pane-work（已随侧栏重建删除），不再渲染；
-    // 对话置顶保持在本机，行上带 ★ 开关。
+    // 置顶对话与置顶运行都渲染；运行的置顶不再让它从侧栏消失
+    //（此前 renderPinned 只渲染 chat，而平坦列表又过滤 pinned——两边都不出现）。
     const threads = d.getChatThreads().filter(thread => d.isChatPinned(thread.id));
-    const chatHost = document.getElementById("chat-pinned");
-    if (chatHost) {
-      chatHost.innerHTML = pinnedSectionHtml(threads, {
-        kind: "chat", pinnedOf: d.isChatPinned,
+    const runs = (d.getRunHistory() || []).filter(run => run.pinned);
+    const host = document.getElementById("chat-pinned");
+    if (!host) return;
+    let html = "";
+    if (threads.length) {
+      html += pinnedSectionHtml(threads, {
+        kind: "chat", pinnedOf: d.isChatPinned, title: "置顶对话",
       });
     }
+    if (runs.length) {
+      html += pinnedSectionHtml(runs, {
+        kind: "run", rowHtml: runRowHtml, title: "置顶运行",
+      });
+    }
+    host.innerHTML = html;
   }
 
   /* ------------------------------------------------------- 首次使用卡 */
@@ -182,45 +260,107 @@ export function createSidebar(deps) {
      （renderRuns、renderProjects、addProject、createProject、assignRunProject、
      setProjectFilter、getProjects、getRunProject、setOlderOpen）。 */
 
-  let projects = JSON.parse(localStorage.getItem("fa.projects") || "[]");
-  let runProjects = JSON.parse(localStorage.getItem("fa.runProjects") || "{}");
+  let projects = [];
+  let runProjects = {};
   let projectFilter = null;
+  let expandedProjects = new Set();
+  try {
+    const stored = JSON.parse(localStorage.getItem("fa.projExpanded") || "[]");
+    if (Array.isArray(stored)) expandedProjects = new Set(stored);
+  } catch { /* ignore a damaged preference */ }
+  let addingProject = false;
+  let editingProjectId = null;
   let runFilter = "";
   let olderOpen = false;
   let navCounts = {};
 
-  const saveProjects = () => {
-    localStorage.setItem("fa.projects", JSON.stringify(projects));
-    localStorage.setItem("fa.runProjects", JSON.stringify(runProjects));
-  };
+  function persistExpanded() {
+    try {
+      localStorage.setItem("fa.projExpanded", JSON.stringify([...expandedProjects]));
+    } catch { /* quota */ }
+  }
 
-  const projectRunCount = pid => Object.values(runProjects).filter(x => x === pid).length;
+  /* 项目与 run 归属都来自服务端快照（/api/projects、/api/runs 的 projectId）。
+     本地不再写 fa.projects/fa.runProjects；旧 key 原样保留，不迁移、不删除。 */
+  function syncProjects() {
+    projects = Array.isArray(d.getProjects?.()) ? d.getProjects() : [];
+    runProjects = {};
+    for (const run of (d.getRunHistory?.() || [])) {
+      if (run && run.projectId) runProjects[run.id] = run.projectId;
+    }
+  }
 
-  function renderProjects() {
+
+  function renderProjects(force = false) {
+    syncProjects();
+    const editing = editingProjectId
+      ? projects.find(project => project.id === editingProjectId) || null
+      : null;
+    // 轮询触发的整体重绘不能吞掉正在填写的表单：表单开着时跳过重绘，
+    // 等 begin*/cancel 显式 force 或提交/取消后自然恢复。
+    const host = document.getElementById("chat-projects");
+    const formOpen = addingProject || editingProjectId;
+    if (!force && formOpen && host && host.querySelector("[data-proj-form]")) return;
     const html = projectSectionHtml(projects, {
       filter: projectFilter,
-      countOf: projectRunCount,
+      runs: d.getRunHistory() || [],
+      expanded: expandedProjects,
+      rowHtml: runRowHtml,
+      adding: addingProject,
+      editing,
     });
-    const host = document.getElementById("chat-projects");
     if (host) host.innerHTML = html;
   }
 
-  function createProject(name) {
-    const id = "prj-" + Date.now().toString(36);
-    projects.push({ id, name });
-    saveProjects();
-    return id;
+  function beginProjectCreate() {
+    addingProject = true;
+    editingProjectId = null;
+    renderProjects(true);
+  }
+
+  function beginProjectEdit(projectId) {
+    editingProjectId = projectId;
+    addingProject = false;
+    renderProjects(true);
+  }
+
+  function cancelProjectForm() {
+    addingProject = false;
+    editingProjectId = null;
+    renderProjects(true);
+  }
+
+  function toggleProject(projectId) {
+    const selecting = projectFilter !== projectId;
+    projectFilter = selecting ? projectId : null;
+    if (selecting) expandedProjects.add(projectId);
+    else expandedProjects.delete(projectId);
+    persistExpanded();
+    renderProjects();
+    renderRuns();
+    d.renderChats?.();
+    return selecting;
+  }
+
+  function getProject(projectId) {
+    syncProjects();
+    return projects.find(project => project.id === projectId) || null;
+  }
+
+  function createProject() {
+    beginProjectCreate();
+    return "";
   }
 
   function assignRunProject(runId, pid) {
     if (!runId) return;
     runProjects[runId] = pid;
-    saveProjects();
+    d.onAssignProject?.(runId, pid);
   }
 
-  function getProjects() { return projects; }
+  function getProjects() { syncProjects(); return projects; }
 
-  function getRunProject(runId) { return runProjects[runId]; }
+  function getRunProject(runId) { syncProjects(); return runProjects[runId]; }
 
   function getProjectFilter() { return projectFilter; }
 
@@ -228,26 +368,8 @@ export function createSidebar(deps) {
 
   function setOlderOpen(open) { olderOpen = !!open; }
 
-  function addProject(button) {
-    if (!button) return;
-    const input = document.createElement("input");
-    input.className = "proj-new-input";
-    input.placeholder = "项目名称，回车保存";
-    button.replaceWith(input);
-    input.focus();
-    let settled = false;
-    const commit = () => {
-      if (settled) return;
-      settled = true;
-      const name = (input.value || "").trim();
-      if (name) createProject(name);
-      renderProjects();
-    };
-    input.addEventListener("keydown", event => {
-      if (event.key === "Enter") commit();
-      if (event.key === "Escape") { settled = true; renderProjects(); }
-    });
-    input.addEventListener("blur", commit);
+  function addProject() {
+    beginProjectCreate();
   }
 
   /* 运行行的状态点图标（治理事实：PASS/DENIED/UNKNOWN）。 */
@@ -322,25 +444,27 @@ export function createSidebar(deps) {
     // 统一侧栏重建后运行行只有一个宿主 #chat-tasks。
     const chatTasks = document.getElementById("chat-tasks");
     if (!chatTasks) return;
+    syncProjects();
     updateRunCounts();
     const query = runFilter.trim().toLowerCase();
     let runs = d.getRunHistory()
       .filter(run => !query || `${run.name || ""} ${run.objective} ${run.id}`.toLowerCase().includes(query));
-    if (projectFilter) {
-      runs = runs.filter(run => runProjects[run.id] === projectFilter);
-    }
+    // Project runs live nested under their project row. The flat list keeps
+    // only unassigned runs; with no projects it is the whole history.
+    if (projects.length) runs = runs.filter(run => !run.projectId);
     // 置顶的运行由「置顶」分组渲染，主列表不再重复
     runs = runs.filter(run => !run.pinned);
+    const title = "任务";
 
     if (!runs.length) {
       const emptyHtml = query
         ? `<div class="section-empty side-empty-search">没有匹配的任务</div>`
-        : `<div class="section-empty">任务会出现在这里</div>`;
-      chatTasks.innerHTML = emptyHtml;
+        : `<div class="section-empty">${projects.length ? "没有未归属的运行" : "任务会出现在这里"}</div>`;
+      chatTasks.innerHTML = runSectionHtml(title, 0) + emptyHtml;
       return;
     }
 
-    let html = "";
+    let html = runSectionHtml(title, runs.length);
     if (query) {
       html += `<div class="side-head-label">${runs.length} 条结果</div>`;
       html += runs.map(runRowHtml).join("");
@@ -353,7 +477,7 @@ export function createSidebar(deps) {
       for (const run of runs) groups[runGroupOf(run.created)].items.push(run);
       for (const group of groups) {
         if (!group.items.length) continue;
-        html += `<div class="side-head-label"><span>${group.label}</span><span class="grp-count">${group.items.length}</span></div>`;
+        html += `<div class="side-head-label"><span>${group.label}</span></div>`;
         const visible = group.label === "更早" && !olderOpen ? group.items.slice(0, 5) : group.items;
         html += visible.map(runRowHtml).join("");
         if (group.label === "更早" && group.items.length > 5) {
@@ -468,11 +592,12 @@ export function createSidebar(deps) {
   }
 
   return {
-    renderNav, renderSidebarNav, paintNavActive,
-    paintMoreNav, setMoreNav, moreOpen,
+    renderNav, renderSidebarNav, paintNavActive, paintZoneSwitch, paintGovSurfaceNav,
+    refreshGovHistory: renderGovHistory,
     renderPinned, renderQuickStart, markQuickStart, dismissQuickStart, quickState,
     paintSections, toggleSection, hiddenSections,
     renderRuns, renderProjects, addProject, createProject, assignRunProject,
+    beginProjectCreate, beginProjectEdit, cancelProjectForm, toggleProject, getProject,
     getProjects, getRunProject, getProjectFilter, setProjectFilter, setOlderOpen,
     paintScrollMasks, mountShell,
   };

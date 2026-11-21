@@ -12,6 +12,8 @@
    直接覆盖；init() 只做 fetch 与事件接线。 */
 
 import { esc } from "../core/format.js";
+import { auditHashTarget } from "../core/work-surface.js";
+import { DISPOSITION_LABELS } from "../core/gov-cards.js";
 
 const OUTCOME_MAP = {
   finding: { label: "已验证", tone: "ok" },
@@ -22,22 +24,37 @@ const OUTCOME_MAP = {
   __evidence_missing__: { label: "证据缺失", tone: "bad" },
 };
 
-// 操作员处置的单一标签来源:审计台下拉与工作台判断记录页共用。
-export const DISPOSITION_LABELS = {
-  "": "— 无 —",
-  accepted_risk: "接受风险",
-  false_positive_disputed: "误报争议",
-  wont_fix: "不修复",
+// 操作员处置的单一标签来源已迁 core/gov-cards.js（治理台是第三个消费方）；
+// 这里转发导出，审计台下拉与判断记录页的旧导入路径不变。
+export { DISPOSITION_LABELS } from "../core/gov-cards.js";
+
+// 严重度只影响阅读层级：critical/high 同档，medium 次之，low/info 退后。
+const SEVERITY_LABELS = {
+  critical: "高",
+  high: "高",
+  medium: "中",
+  low: "低",
+  info: "信息",
 };
 
+function severityLabel(severity) {
+  const key = String(severity || "").toLowerCase();
+  return SEVERITY_LABELS[key] || String(severity || "—");
+}
+
+function severityKey(severity) {
+  return String(severity || "").toLowerCase();
+}
+
 // 统一壳的审计 surface 外壳:bundle 列表 + 详情双栏,由 app.js 的
-// renderAudit() 注入 #main 后调用 init()。独立 audit.html 已退役,
-// 这两个 id 只在这里出现一次。
+// 统一壳的审计 surface 外壳:详情为主区,发现账本收进右上角的证据侧栏
+// (rail,双形态:宽屏停靠/窄屏浮层;由 renderAudit 自动展开)。
+// init() 会把账本宿主建进 rail-body——rail 在 #main 之外,页面重绘不销毁。
+// 独立 audit.html 已退役,这个 id 只在这里出现一次。
 export function auditShellHtml() {
   return `<div class="at-wrap">
-    <aside class="at-side" id="at-bundles"><div class="at-none dim">加载中…</div></aside>
     <main class="at-main" id="at-main">
-      <div class="at-none dim">选择左侧一次审计,查看它的发现与证据。</div>
+      <div class="at-none dim">从右侧「发现账本」选择一次审计，查看它的发现与证据。</div>
     </main>
   </div>`;
 }
@@ -79,14 +96,6 @@ export function outcomeBadge(outcome) {
   return `<span class="at-badge at-${mapped.tone}">${esc(mapped.label)}</span>`;
 }
 
-export function actorBadge(actor) {
-  if (!actor) return "";
-  const known = ["host", "triage", "analyst", "operator"];
-  const name = String(actor);
-  const cls = known.includes(name) ? name : "operator";
-  return `<span class="at-actor at-actor-${cls}">${esc(name)}</span>`;
-}
-
 export function capabilityChips(capabilities) {
   return (capabilities || []).map((cap) => {
     const granted = cap.granted !== false;
@@ -97,12 +106,26 @@ export function capabilityChips(capabilities) {
 
 export function bundleItemHtml(entry, selected) {
   const sel = selected ? " at-sel" : "";
+  const sev = entry.severity || {};
+  const high = Number(sev.critical || 0) + Number(sev.high || 0);
+  const medium = Number(sev.medium || 0);
+  const low = Number(sev.low || 0) + Number(sev.info || 0);
+  const sevChip = high || medium || low
+    ? `<span class="at-bsev" title="高 ${high} · 中 ${medium} · 低 ${low}">`
+      + (high ? `<b class="h">${esc(String(high))}</b>` : "")
+      + (medium ? `<b class="m">${esc(String(medium))}</b>` : "")
+      + (low ? `<b class="l">${esc(String(low))}</b>` : "")
+      + "</span>"
+    : "";
+  const meta = [`${esc(String(entry.findings ?? 0))} 发现`];
+  if (entry.unhandled) meta.push(`${esc(String(entry.unhandled))} 未处置`);
+  if (entry.ruleset_version) meta.push(`v${esc(String(entry.ruleset_version))}`);
+  meta.push(`${esc(String(entry.evidence ?? 0))} 证据`);
+  if (entry.rea_evidence) meta.push(`${esc(String(entry.rea_evidence))} REA`);
   return `<button class="at-bitem${sel}" data-dir="${esc(entry.dir)}">`
-    + `<span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>`
-    + `<span class="at-bmeta">${esc(String(entry.findings ?? 0))} 发现 · `
-    + `${esc(String(entry.evidence ?? 0))} 证据`
-    + (entry.rea_evidence ? ` · ${esc(String(entry.rea_evidence))} REA` : "")
-    + `</span></button>`;
+    + `<span class="at-brow"><span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>${sevChip}</span>`
+    + `<span class="at-bmeta">${meta.join(" · ")}</span>`
+    + `</button>`;
 }
 
 export function renderGoDeps(facts) {
@@ -286,21 +309,21 @@ export function renderAuthorization(bundle) {
   if (toolchain.replayer) reaRows.push(["replayer", toolchain.replayer]);
   return `<section class="at-auth">
     <h2>授权与范围</h2>
-    ${kv(rows)}
+    <div class="at-kv-grid">${kv(rows)}</div>
     <div class="at-auth-target">
       <h3>目标</h3>
-      ${kv(targetRows)}
+      <div class="at-kv-grid">${kv(targetRows)}</div>
     </div>
     ${reaRows.length ? `<div class="at-auth-toolchain">
       <h3>工具链</h3>
-      ${kv(reaRows)}
+      <div class="at-kv-grid">${kv(reaRows)}</div>
     </div>` : ""}
   </section>`;
 }
 
 export function renderDisposition(finding, dir) {
   const current = finding.operator_disposition || "";
-  const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix"]
+  const options = ["", "accepted_risk", "false_positive_disputed", "wont_fix", "repaired"]
     .map((value) => {
       const selected = value === current ? " selected" : "";
       return `<option value="${esc(value)}"${selected}>${esc(DISPOSITION_LABELS[value] || value)}</option>`;
@@ -377,10 +400,14 @@ export function renderRegression(reg) {
   const has = (key) => Array.isArray(reg[key]) && reg[key].length > 0;
   if (!has("known") && !has("new") && !has("fixed") && !has("regressed")) return "";
   const badge = (label, tone) => `<span class="at-badge at-${tone}">${esc(label)}</span>`;
+  const fp = (f) => {
+    const value = f.fingerprint || f.semantic_fingerprint;
+    return value ? `<span class="at-mono dim">fp:${esc(String(value).slice(0, 8))}</span>` : "";
+  };
   const section = (key, label, tone) => {
     if (!has(key)) return "";
     const items = reg[key].map((f) =>
-      `<span class="at-reg-item">${esc(f.category || "?")} · ${esc(f.root_cause_group || "?")}</span>`
+      `<span class="at-reg-item">${esc(f.category || "?")} · ${esc(f.root_cause_group || "?")} ${fp(f)}</span>`
     ).join(" ");
     return `<div class="at-reg-row"><span class="at-reg-label">${badge(label, tone)}</span> ${items}</div>`;
   };
@@ -410,17 +437,26 @@ export function renderBundle(bundle, records, options = {}) {
     const runs = replay.runs;
     const runsText = typeof runs === "string" ? runs : JSON.stringify(runs || {});
     const outcome = rec ? (replay.outcome || "finding") : "__evidence_missing__";
-    return `<div class="at-finding" data-poc="${esc(ref || "")}">
+    const tone = mapOutcome(outcome).tone;
+    const markClass = tone === "ok" ? "at-mark-ok" : tone === "bad" ? "at-mark-bad" : "at-mark-dim";
+    return `<div class="at-finding" data-poc="${esc(ref || "")}" data-sev="${esc(severityKey(f.severity))}">
       <div class="at-frow">
-        <span class="at-mark at-mark-ok"></span>
+        <span class="at-mark ${markClass}"></span>
         <span class="at-ftitle">${esc(f.finding_id)} · ${esc(f.root_cause_group)}</span>
         <span class="at-cat">${esc(f.category)}</span>
-        <span class="at-sev">${esc(f.severity)}</span>
+        <span class="at-sev">${esc(severityLabel(f.severity))}</span>
+        ${f.fingerprint
+          ? `<span class="at-fp at-mono dim" title="stable fingerprint v${
+              esc(String(f.fingerprint_version || 1))}">fp:${esc(String(f.fingerprint).slice(0, 8))}</span>`
+          : ""}
         ${outcomeBadge(outcome)}
         ${renderDisposition(f, dir)}
       </div>
       <div class="at-fdetail">
         <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
+        ${f.fingerprint ? `<div class="at-kv"><span class="k">稳定指纹</span><span class="v at-mono">${esc(
+          String(f.fingerprint)
+        )}${f.semantic_fingerprint ? ` · semantic ${esc(String(f.semantic_fingerprint))}` : ""}</span></div>` : ""}
         <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
         <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
         <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>
@@ -445,20 +481,30 @@ export function renderBundle(bundle, records, options = {}) {
     }).join("");
 
   const reaFacts = options.reaFacts || null;
+  const rulesetChip = sum.ruleset !== "—"
+    ? `<span class="at-chip">规则集 v${esc(String(sum.ruleset))}</span>` : "";
+  const reaChip = sum.reaVersion !== "—"
+    ? `<span class="at-chip">REA v${esc(String(sum.reaVersion))}</span>` : "";
+  const artifactChip = sum.artifact !== "—"
+    ? `<span class="at-chip">artifact ${esc(sum.artifact)}</span>` : "";
   return `
-  <div class="at-bhead">
-    <h1>发现账本</h1>
-    <span class="at-mono dim">${esc(sum.auditId)}</span>
-    <span class="at-badge at-ok">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
-    ${sum.reaEvidence ? `<span class="at-badge at-dim">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
-  </div>
-  <div class="at-bmeta2">
-    <span class="at-mono">目标 ${esc(sum.target)}</span>
-    <span class="at-mono dim">manifest ${esc(sum.manifest)}</span>
-    ${sum.artifact !== "—" ? `<span class="at-mono dim">artifact ${esc(sum.artifact)}</span>` : ""}
-    ${sum.reaVersion !== "—" ? `<span class="at-mono dim">REA v${esc(String(sum.reaVersion))}</span>` : ""}
-    <span class="at-mono dim">规则集 v${esc(String(sum.ruleset))}</span>
-  </div>
+  <header class="at-bhead">
+    <div class="at-eyebrow">AUDIT LEDGER</div>
+    <div class="at-head-row">
+      <h1 class="at-title">发现账本</h1>
+      <span class="at-mono dim">${esc(sum.auditId)}</span>
+    </div>
+    <div class="at-target at-mono">${esc(sum.target)}</div>
+    <div class="at-meta-chips">
+      <span class="at-chip at-chip-strong">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
+      ${sum.reaEvidence ? `<span class="at-chip">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
+      ${rulesetChip}
+      ${reaChip}
+      <span class="at-chip">manifest ${esc(sum.manifest)}</span>
+      ${artifactChip}
+      ${sum.uncovered ? `<span class="at-chip">${esc(String(sum.uncovered))} 个未覆盖面</span>` : ""}
+    </div>
+  </header>
   ${renderAuthorization(bundle)}
   <div class="at-ledger">
     ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}
@@ -482,9 +528,17 @@ export async function init({ fetchImpl = fetch, root = document, host = null,
                              onSelect = null } = {}) {
   // 统一壳传 host=#main 元素;host 未给时回退 root(document)。
   const scope = host || root;
-  const side = scope.querySelector("#at-bundles");
   const main = scope.querySelector("#at-main");
-  if (!side || !main) return;
+  if (!main) return;
+  // 账本宿主收进 rail-body（rail 在 #main 之外，renderMain 不销毁它）。
+  // 统一壳测试桩直接供给 #at-bundles；独立用法（无 rail）无感降级。
+  let side = scope.querySelector("#at-bundles");
+  if (!side) {
+    const railBody = document.getElementById("rail-body");
+    if (!railBody) return;
+    railBody.innerHTML = '<aside class="at-side" id="at-bundles"><div class="at-none dim">加载中…</div></aside>';
+    side = document.getElementById("at-bundles");
+  }
   // 并发守卫:快速连点两个 bundle 时,只有最新一次点击允许写 main。
   let requestSeq = 0;
   let payload;
@@ -614,3 +668,54 @@ export async function init({ fetchImpl = fetch, root = document, host = null,
 /* 自动启动守卫已随独立 audit.html 退役:统一壳由 app.js 的 renderAudit()
    在 surface 渲染后显式调用 init({ host, onSelect });纯函数导入无副作用,
    node --test 直接覆盖。 */
+
+
+/* ================================================================ 统一壳接线（工厂）
+   自 app.js 迁入（拆分切片 2）：审计台 surface 的壳层接线——进入收尾、
+   hash 维护、深链预选与死链自愈。app.js 只保留三个挂点：
+   MODE_ENTRY 的 audit 项、hashchange 监听、DOMContentLoaded 深链分支。
+   deps 注入 app 侧关注点（浮层收尾/导航/chrome/mode 读取），
+   纯渲染函数不受影响。 */
+
+export function createAuditSurface(deps) {
+  const d = deps;
+
+  function writeAuditHash(dir) {
+    const next = dir ? `#/audit/${dir}` : "#/audit";
+    if (location.hash !== next) history.replaceState(null, "", next);
+  }
+
+  function healAuditDeepLink() {
+    writeAuditHash("");
+    document.querySelectorAll("#at-bundles .at-bitem.at-sel")
+      .forEach(b => b.classList.remove("at-sel"));
+    const detail = document.getElementById("at-main");
+    if (detail) {
+      detail.innerHTML = '<div class="at-none dim">从右侧「发现账本」选择一次审计，查看它的发现与证据。</div>';
+    }
+  }
+
+  async function renderAudit() {
+    d.beforeEnter();
+    d.setChrome();
+    // 发现账本收进右上 rail：进审计台自动展开（用户可随时 × 收起）。
+    d.openRail?.();
+    // deep link 必须在写 hash 之前捕获——writeAuditHash("") 会把 #/audit/<dir> 抹掉
+    const preselect = auditHashTarget(location.hash) || "";
+    d.renderMain(auditShellHtml(), { mode: "audit" });
+    if (!preselect) writeAuditHash("");
+    await init({
+      host: document.getElementById("main"),
+      onSelect: (dir) => writeAuditHash(dir),
+      fetchImpl: d.fetchImpl || fetch,
+    });
+    // deep link(#/audit/<dir>):包列表就绪后点击对应条目;期间用户切走则放弃。
+    if (d.getMode() !== "audit" || !preselect) return;
+    const item = document.querySelector(
+      `#at-bundles .at-bitem[data-dir="${CSS.escape(preselect)}"]`);
+    if (item) item.click();
+    else healAuditDeepLink();
+  }
+
+  return { renderAudit, healAuditDeepLink, writeAuditHash };
+}

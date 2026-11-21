@@ -9,7 +9,7 @@
    渲染保持"证据优先"：工具名与参数直接可见，结果放在展开体里；
    status 三态（running/ok/error）是唯一的状态来源，不写形容词。 */
 
-import { esc } from "./format.js";
+import { esc, safeUrl } from "./format.js";
 
 const STATE_LABEL = { running: "运行中", ok: "完成", error: "失败" };
 
@@ -68,10 +68,45 @@ function previewLines(preview) {
   if (preview.url) {
     lines.push(`<div class="chat-tool-meta">域名 <span class="chat-tool-approval-badge">${esc(preview.host || "?")}</span> · ${esc(preview.url)}</div>`);
   }
+  if (preview.action) {
+    lines.push(`<div class="chat-tool-meta">动作 ${esc(preview.action)} · 选择器 <code>${esc(preview.selector || "")}</code></div>`);
+  }
+  if (preview.note) lines.push(`<div class="chat-tool-meta">${esc(preview.note)}</div>`);
   if (preview.path) lines.push(`<div class="chat-tool-meta">路径 ${esc(preview.path)}${preview.content_chars !== undefined ? ` · ${esc(String(preview.content_chars))} 字符` : ""}</div>`);
   if (preview.arguments) lines.push(`<pre class="chat-tool-result">${esc(JSON.stringify(preview.arguments, null, 2))}</pre>`);
   if (preview.preview_error) lines.push(`<div class="chat-tool-meta">预览失败：${esc(preview.preview_error)}</div>`);
   return lines;
+}
+
+function browserHtml(block) {
+  const result = block.result || {};
+  const pair = ["before", "after"]
+    .map((key, index) => ({ key, shot: result[key], label: index === 0 ? "操作前" : "操作后" }))
+    .filter(item => item.shot && item.shot.url);
+  const shots = pair.length ? pair : (result.screenshot && result.screenshot.url
+    ? [{ key: "screenshot", shot: result.screenshot, label: "页面" }]
+    : []);
+  if (!shots.length) return "";
+  const figures = shots.map(item => `<figure class="chat-browser-figure">
+    <a class="chat-browser-shot" href="${esc(safeUrl(item.shot.url))}" target="_blank" rel="noreferrer">
+      <img src="${esc(safeUrl(item.shot.url))}" alt="浏览器截图 · ${esc(item.label)}" loading="lazy">
+    </a>
+    <figcaption>${esc(item.label)}</figcaption>
+  </figure>`).join("");
+  const diff = result.diff || {};
+  const diffText = diff.changed === undefined
+    ? ""
+    : diff.size_changed
+      ? "截图尺寸变化"
+      : diff.changed
+        ? `截图变化 ${diff.ratio === null || diff.ratio === undefined ? "（已变化）" : (diff.ratio * 100).toFixed(2) + "%"}`
+        : "截图无变化";
+  const domDiff = result.dom_diff
+    ? `<details class="chat-browser-diff"><summary>DOM 文本变化</summary><pre>${esc(result.dom_diff)}</pre></details>`
+    : "";
+  return `<div class="chat-browser-pair">${figures}</div>
+  <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}${diffText ? " · " + esc(diffText) : ""}</div>
+  ${domDiff}`;
 }
 
 function approvalHtml(block) {
@@ -111,6 +146,7 @@ export function toolCardHtml(block) {
       <span class="chat-tool-state">${esc(label)}</span>
     </div>
     ${approval}
+    ${browserHtml(block)}
     ${body || meta ? `<details class="chat-tool-detail">
       <summary>参数与结果</summary>
       ${body ? `<pre class="chat-tool-result">${esc(body)}</pre>` : ""}

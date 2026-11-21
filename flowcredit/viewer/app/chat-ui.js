@@ -245,15 +245,20 @@ export function createChatUI(deps) {
     show("chain-badge", !on);
     show("rail-toggle", !on);
     show("approval-btn", !on);
-    show("composer-open", !on);
-    const attach = document.getElementById("chat-attach");
-    if (attach) { attach.hidden = !on; attach.style.display = on ? "" : "none"; }
+    show("fast-btn", !on);
+    // The same + is the add-content menu in both modes; Work's menu then
+    // routes to the context/settings detail sheet. It is never hidden by the
+    // chat switch alone.
+    show("composer-open", true);
+    const addMenu = document.getElementById("composer-add-menu");
+    if (addMenu) addMenu.hidden = true;
+    const open = document.getElementById("composer-open");
+    if (open) open.setAttribute("title", "添加内容");
     const runChip = document.getElementById("run-chip");
     if (runChip && on) runChip.hidden = true;
     if (on) {
       const panel = document.getElementById("attach-panel");
       if (panel) panel.hidden = true;
-      const open = document.getElementById("composer-open");
       if (open) open.setAttribute("aria-expanded", "false");
       document.getElementById("composer-box")?.classList.remove("open-attach");
     }
@@ -337,6 +342,7 @@ export function createChatUI(deps) {
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     renderChatAttachChips();
     paintSendState();
+    d.paintCtxRing?.();
     d.adoptDefaultChatModel(d.getChatConfig() && d.getChatConfig().default_model);
     d.loadChatModels();
   }
@@ -362,6 +368,7 @@ export function createChatUI(deps) {
       const ta = document.getElementById("composer-ta");
       if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
       paintSendState();
+      d.paintCtxRing?.();
       return;
     }
 
@@ -388,6 +395,7 @@ export function createChatUI(deps) {
     const ta = document.getElementById("composer-ta");
     if (ta) { ta.value = ""; d.autosize(ta); ta.placeholder = "给 FCode 发消息…"; ta.focus(); }
     paintSendState();
+    d.paintCtxRing?.();
   }
 
   function renderChat({ forceBottom = false } = {}) {
@@ -559,7 +567,20 @@ export function createChatUI(deps) {
   }
 
   function pushOptimisticAnswer() {
-    chat.current.messages.push({ id: pendingId("pending-assistant"), role: "assistant", text: "", reasoning: "", status: "streaming", usage: {}, error: {} });
+    chat.current.messages.push({ id: pendingId("pending-assistant"), role: "assistant", text: "", reasoning: "", status: "streaming", usage: {}, error: {}, startedAt: Date.now() });
+    // CC 式计时：每秒原地更新状态行秒数，不整树重绘；流结束自清。
+    clearInterval(chat.liveTimer);
+    chat.liveTimer = setInterval(() => {
+      const el = document.querySelector("[data-gov-live-time]");
+      const msg = chat.current && Array.isArray(chat.current.messages)
+        ? chat.current.messages[chat.current.messages.length - 1] : null;
+      if (!el || !msg || msg.status !== "streaming" || !msg.startedAt) {
+        clearInterval(chat.liveTimer);
+        chat.liveTimer = null;
+        return;
+      }
+      el.textContent = `${Math.round((Date.now() - msg.startedAt) / 1000)}s`;
+    }, 1000);
   }
 
   async function sendChatFromComposer() {
@@ -684,6 +705,7 @@ export function createChatUI(deps) {
       if (visible(threadRef)) {
         renderChat();
         renderChatHead();
+        d.paintCtxRing?.();
       }
       await loadChatThreads();
     }
@@ -745,6 +767,67 @@ export function createChatUI(deps) {
     d.copyText(message.text).then(ok => d.toast(ok ? "已复制回答" : "复制失败"));
   }
 
+  /* 操作员长期记忆（M1）:/remember 写入、设置页列表与删除。 */
+  async function rememberChatMemory(text) {
+    const value = String(text || "").trim();
+    if (value.length < 2) { d.toast("要记住的内容太短：/remember 一句话"); return false; }
+    if (value.length > 600) { d.toast("记忆最多 600 字"); return false; }
+    try {
+      const response = await fetch("/api/chat/memory", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: value }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || `HTTP ${response.status}`);
+      }
+      d.toast("已存入长期记忆 · 设置页可管理");
+      return true;
+    } catch (error) {
+      d.toast("记忆未写入：" + error.message);
+      return false;
+    }
+  }
+
+  async function refreshChatMemory() {
+    const list = document.getElementById("settings-memory-list");
+    if (!list) return;
+    try {
+      const response = await fetch("/api/chat/memory", { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const entries = data.memories || [];
+      if (!entries.length) {
+        list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>还没有长期记忆——对话里用「/remember 一句话」沉淀。</small></span></div>';
+        return;
+      }
+      list.innerHTML = entries.map(entry => {
+        const source = entry.auto ? "自动提炼" : "操作员明示";
+        return `<div class="set-row" data-mem-row="${entry.id}">
+        <span class="set-row-text"><b>${d.esc(entry.text)}</b><small>${d.esc(entry.created || "")} · ${source} · 相关时注入</small></span>
+        <button class="set-action" type="button" data-mem-del="${entry.id}">删除</button>
+      </div>`;
+      }).join("");
+    } catch {
+      list.innerHTML = '<div class="set-row"><span class="set-row-text"><small>记忆列表加载失败</small></span></div>';
+    }
+  }
+
+  async function deleteChatMemory(entryId) {
+    if (!entryId) return;
+    try {
+      const response = await fetch("/api/chat/memory/delete", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entryId }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      d.toast("已删除该条记忆");
+    } catch (error) {
+      d.toast("删除失败：" + error.message);
+    }
+    refreshChatMemory();
+  }
+
   function delegateChatMessage(messageId) {
     if (!chat.current) return;
     const message = chat.current.messages.find(item => item.id === messageId);
@@ -754,9 +837,10 @@ export function createChatUI(deps) {
 
   return {
     loadChatThreads, renderChats, handleChatDelete, leaveChat, paintChatChrome, renderChatHead,
-    detachChatChrome, switchToChat, setUiMode, newChat, openChat, renderChat,
+    detachChatChrome, switchToChat, newChat, openChat, renderChat,
     renderChatAttachChips, handleChatFiles, paintSendState, restoreSendButton, setChatStreaming,
     stopChat, sendChatFromComposer, streamChat, beginChatEdit, cancelChatEdit, saveChatEdit,
     regenerateChat, copyChatMessage, delegateChatMessage,
+    rememberChatMemory, refreshChatMemory, deleteChatMemory,
   };
 }

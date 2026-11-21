@@ -63,18 +63,36 @@ def post_chat_config(handler):
     default_model = body.get("default_model")
     if default_model is not None and not isinstance(default_model, str):
         return handler._json({"error": "default_model must be a string"}, 400)
+    delete_provider = body.get("delete_provider", False)
+    if not isinstance(delete_provider, bool):
+        return handler._json({"error": "delete_provider must be boolean"}, 400)
     values = body.get("values")
     if values is not None and not isinstance(values, dict):
         return handler._json({"error": "values must be an object"}, 400)
     if len(json.dumps(body, ensure_ascii=False).encode("utf-8")) > 8192:
         return handler._json({"error": "config payload is too large"}, 400)
     try:
-        snapshot = chat.update_config(provider=provider, values=values, default_model=default_model)
+        snapshot = chat.update_config(
+            provider=provider, values=values, default_model=default_model,
+            delete_provider=delete_provider,
+        )
     except Exception as error:  # noqa: BLE001 — validation errors are 400s
         return handler._json(
             {"error": str(error), "code": getattr(error, "code", "CHAT_CONFIG_INVALID")}, 400,
         )
     return handler._json(snapshot)
+
+
+def post_chat_config_test(handler):
+    """Operator-initiated connectivity check for one configured provider."""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    provider = body.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        return handler._json({"error": "provider must be a non-empty string"}, 400)
+    return handler._json(chat.test_provider(provider))
 
 
 def post_chat_send(handler):
@@ -238,3 +256,53 @@ def post_chat_regenerate(handler, thread_id: str):
         return None
     events = chat.regenerate(thread_id=thread_id, message_id=message_id, model=model)
     return handler._stream_chat(events)
+
+
+def post_chat_memory(handler):
+    """操作员长期记忆：/remember 或设置页写入（M1 只收操作员明示内容）。"""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    text = body.get("text")
+    if not isinstance(text, str):
+        return handler._json({"error": "text must be a string"}, 400)
+    try:
+        entry = chat.memory.remember(text, source="operator")
+    except ValueError as error:
+        return handler._json({"error": str(error)}, 400)
+    return handler._json({"memory": entry, "count": chat.memory.count()})
+
+
+def post_chat_memory_delete(handler):
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    entry_id = body.get("id")
+    if not isinstance(entry_id, str) or not entry_id:
+        return handler._json({"error": "id must be a string"}, 400)
+    if not chat.memory.forget(entry_id):
+        return handler._json({"error": "memory not found"}, 404)
+    return handler._json({"ok": True, "count": chat.memory.count()})
+
+def post_intake_classify(handler):
+    """S-B 意图分类端点：短而模糊的 composer 输入问一次廉价模型。
+
+    provider 缺位/分类失败一律回退 {"intent": "task"}——分类是优化不是门，
+    fail-closed 的方向是"宁可走原来的路"。只对 ≤30 字输入有意义，长度门在前端。
+    """
+    mgr = handler.manager
+    if mgr.runtime is None:
+        return handler._json({"error": f"live mode unavailable: {mgr.runtime_error}"}, 503)
+    body = handler._read_body()
+    message = str(body.get("message") or "")[:120]
+    if not message.strip():
+        return handler._json({"error": "message is required"}, 400)
+    provider = mgr.gov_explainer_provider(None)
+    from flowagent.intake import classify_composer_text
+
+    result = classify_composer_text(message, provider)
+    if result is None:
+        result = {"intent": "task", "question": ""}
+    return handler._json(result)

@@ -1,24 +1,14 @@
 "use strict";
 
-import { esc } from "./format.js";
 
-/* Suggestions only place a draft in the composer. Starting work remains an
-   explicit operator action, exactly like Kimi's prompt suggestions. */
-const WORK_PROMPTS = [
-  ["01", "改造一个代码项目", "分析项目结构，完成一项明确的改造，并运行独立验证。"],
-  ["02", "研究并整理结论", "研究这个主题，梳理关键事实、分歧与来源，形成一份可核验的报告："],
-  ["03", "交付一份工作成果", "完成这项任务，将过程、验证结果和交付文件整理清楚："],
-];
-
-export function workPromptsHtml() {
-  return `<div class="stage-prompts" aria-label="任务建议">${WORK_PROMPTS.map(([n, title, prompt]) =>
-    `<button class="stage-prompt" type="button" data-stage-prompt="${esc(prompt)}"><span class="stage-prompt-no">${n}</span><span>${esc(title)}</span><span class="stage-prompt-arrow" aria-hidden="true">↗</span></button>`
-  ).join("")}</div>`;
-}
 
 export function bindWorkspaceNavigation({ openPalette, setMobileNavigation }) {
   document.getElementById("side-search")?.addEventListener("click", openPalette);
-  document.getElementById("workspace-menu")?.addEventListener("click", () => setMobileNavigation(true));
+  /* A2：汉堡可点后（z 层修复），open 态再点即关——toggle 语义。 */
+  document.getElementById("workspace-menu")?.addEventListener("click", () => {
+    const app = document.getElementById("app");
+    setMobileNavigation(!app.classList.contains("mobile-nav-open"));
+  });
   document.querySelector(".sidebar-scrim")?.addEventListener("click", () => setMobileNavigation(false));
 }
 
@@ -36,7 +26,12 @@ export function bindLatestScroll() {
   const button = document.getElementById("scroll-latest");
   if (!scroller || !button) return;
   const update = () => {
-    const visible = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 240;
+    // “回到最新内容”只属于对话/运行流；治理台、审计台等功能页没有
+    // 追加式内容，按钮会压住详情抽屉，不该出现。
+    const mode = document.getElementById("main")?.dataset.view;
+    const chatLike = mode === "chat" || mode === "run";
+    const visible = chatLike
+      && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > 240;
     button.hidden = !visible;
   };
   scroller.addEventListener("scroll", update, { passive: true });

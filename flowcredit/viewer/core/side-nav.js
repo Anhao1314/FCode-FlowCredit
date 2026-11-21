@@ -5,77 +5,60 @@
    退役（uiMode 恒为 chat），pane-work 成了不可达的幽灵 DOM；2026-11 适配
    重建把两套名单合并为单一结构：
 
-       header(折叠钮+logo) → 新对话(⌘N) + 搜索与命令(⌘K) →
-       SIDEBAR_NAV(审计台/看板/判断记录/定时任务，扁平) →
-       More(4 个预留槽位，默认收起) → Pinned → Projects → 对话 → 任务 →
-       footer(quickstart + 模型状态)
+       header(折叠钮+logo) → 区切换器(Work/Governance) →
+       新对话(⌘N) + 搜索与命令(⌘K) → 插件市场/Pinned →
+       Projects → 任务 → 对话 → footer(quickstart + 模型状态)
 
-   硬事实沿用（同一份 shell 样式表）：nav-item 高 36/内边距 8/圆角 12、
-   悬停 F1、选中 F2；分组标题 12px/18px/Tertiary；滚动区 24px 渐变遮罩；
-   footer padding 8、margin 0 -8px -8px。
+   Governance 区在插件市场之后渲染「治理台/团队/工作台/审计台」导航，
+   再按日期列审计记录；Work 区把任务放在对话历史之前，避免长对话列表
+   把任务区推到折叠线以下（2026-11-14 侧栏对齐）。
+
+   硬事实沿用（同一份 shell 样式表）：导航行高 36/内边距 8/圆角 8、
+   悬停 F1、选中 F2；分组标题 14px/20px/常规字重；日期标签 11px；
+   滚动区 24px 渐变遮罩；footer padding 8、margin 0 -8px -8px。
 
    这里只放“生成 HTML 的纯函数”，状态机与事件接线仍在 app.js。 */
 
 import { esc, num } from "./format.js";
+import { aggregateTargets } from "./gov-workbench.js";
 
-/* 统一侧栏的平坦导航（2026-11 适配重建）。
 
-   历史包袱：桌面版 Kimi 有工作/对话两套 sidebar，FCode 照抄过两份
-   （WORK_NAV 进隐藏的 pane-work、CHAT_NAV/CHAT_MORE_NAV 进 pane-chat）。
-   工作模式 2026-11-02 已收敛退役（uiMode 恒为 chat），pane-work 只剩幽灵
-   DOM；四个真实功能面被拆散成「顶部两项 + 更多里两项」，审计台这种一等
-   公民还藏在二级菜单里。重建后只有一套名单：
 
-   - SIDEBAR_NAV：4 个真实功能面，扁平排布 —— 第一眼全部可点，不做折叠。
-     顺序：审计台打头（统一壳的最新入口），其余按日常频率（看板/判断/定时）。
-   - MORE_NAV：4 个 Kimi Work 预留槽位，收进「更多」二级区（默认收起），
-     各自带 kimi 出处与 needs（落地需要什么），点开是**明确标注的预留槽位
-     页**，不是伪装成可用的空页。行上带一个安静的「预留」标记。
+/* 侧栏导航已清空:治理台不再作为侧栏条目——两区对话面由区切换器直达
+   （Work → 新对话,Governance → 治理台）。此处只留两区定义与切换器渲染。 */
 
-   每条都记 kimi 字段：预留页要把"它对应 Kimi 的什么"直接印出来，单一来源。 */
-export const SIDEBAR_NAV = [
-  { open: "audit", label: "审计台", icon: "shield-check",
-    title: "发现账本:审计器产出的缺陷与证据", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "ledger", label: "看板 · 账本", icon: "layout-grid",
-    title: "委托汇总与成本账本", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "reviews", label: "判断记录", icon: "clipboard-list",
-    title: "你在判断面里做过的选择", kimi: "FCode 自有（Kimi 无对应槽位）" },
-  { open: "scheduled", label: "定时任务", icon: "calendar",
-    title: "把重复的委托排上日程", kimi: "cron（Kimi Work 的 Scheduled）" },
+/* S2.1 区切换器：工作区/治理区的身份 UI（Kimi 的 Chat/Work 分段同型），
+   放在「新对话」hero 下方。指示 + 着陆，**不做内容过滤**——E2E 契约是
+   任意视图下 4 个导航项都可达，过滤会把 audit.spec「首页直达审计台」
+   这类路径打断。点击经 data-open 走 renderMode 一条路（着陆到该区主面：
+   工作区→账本，治理区→审计台）。 */
+export const ZONES = [
+  { key: "work", label: "Work", land: "work", icon: "layout-grid",
+    title: "工作台：项目、运行与待处理事项" },
+  { key: "gov", label: "Governance", land: "gov", icon: "shield-check",
+    title: "治理台挖洞与操作员判断" },
 ];
 
-export const MORE_NAV = [
-  { open: "canvas", label: "Canvas", icon: "cube", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 canvas，FCode 尚未实现",
-    kimi: "canvas", needs: "一个可读写的画布对象模型 + 与工作区文件的双向同步" },
-  { open: "plugins", label: "插件", icon: "tool", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 plugins，FCode 尚未实现",
-    kimi: "pluginsHub / pluginDetail",
-    needs: "插件清单、权限声明与安装通道（现有 MCP 桥只覆盖工具导入）" },
-  { open: "remoteControl", label: "远程控制", icon: "link", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 remoteControl，FCode 尚未实现",
-    kimi: "remoteControl", needs: "远程序列与隧道；当前运行全部绑在本机 loopback" },
-  { open: "apps", label: "Apps", icon: "book-open", reserved: true,
-    title: "预留槽位：对应 Kimi Work 的 apps(Beta)，FCode 尚未实现",
-    kimi: "apps（Beta）", needs: "第三方应用目录与 OAuth；目前只有本地模板与 MCP" },
-];
+/* 当前视图属于哪个区；不属于任何区（设置、预留槽位页）返回 null——
+   切换器保持上一次的点亮态，不闪。 */
+export function zoneOf(view) {
+  if (["gov", "audit", "reviews"].indexOf(view) >= 0) return "gov";
+  if (["work", "chat", "ledger", "run", "scheduled", "intake", "empty"].indexOf(view) >= 0) return "work";
+  return null;
+}
 
-/* 预留槽位的索引：open 键 → 条目。页面用它在预留页上印出"对应 Kimi 的什么、
-   落地需要什么"，避免那两句在各处重复。 */
-export function reservedSlots() {
-  const out = {};
-  for (const item of [...SIDEBAR_NAV, ...MORE_NAV]) {
-    if (item.reserved) out[item.open] = item;
-  }
-  return out;
+export function zoneSwitchHtml(activeKey) {
+  return ZONES.map(function (zone) {
+    const active = zone.key === activeKey;
+    return '<button class="zone-btn' + (active ? " active" : "") + '" type="button"'
+      + ' data-zone="' + zone.key + '" data-open="' + zone.land + '"'
+      + ' title="' + esc(zone.title) + '" aria-pressed="' + (active ? "true" : "false") + '">'
+      + '<span data-doodle="' + zone.icon + '"></span><span>' + esc(zone.label) + "</span></button>";
+  }).join("");
 }
 
 /* 行状态点：Kimi 的任务行左侧是状态点（running 转动 / 完成 / 失败）。
    FCode 保留同一位置与语义，颜色走治理事实（PASS/DENIED/UNKNOWN）。 */
-export function statusDotHtml(cls) {
-  return '<span class="smark ' + esc(cls) + '" aria-hidden="true"></span>';
-}
-
 /* 置顶行沿用各自列表的行组件：任务用运行行（带菜单，能取消置顶），
    对话用对话行（带置顶开关）。Kimi 的 pinned-list 也是复用同一套行。 */
 function pinnedRunRowHtml(item, rowHtml) {
@@ -118,26 +101,88 @@ export function pinnedSectionHtml(pins, options) {
       ? pinnedChatRowHtml(item, opts)
       : pinnedRunRowHtml(item, opts.rowHtml);
   }).join("");
-  return sectionHeadHtml("置顶", { key: "pinned" }, pins.length)
+  const title = opts.title || "置顶";
+  return sectionHeadHtml(title, { key: "pinned" }, pins.length)
     + revealHtml('<nav class="nav" data-pin-nav>' + rows + "</nav>");
 }
 
-/* Projects 分组：标题 + “＋”动作（Kimi 的 workspace-add-pop：从零开始 / 用已有文件夹）。
-   empty 只在真的没有项目时出现，文案对应 sidebar.workspaceEmpty。 */
+/* Projects 分组：项目是 run 的容器，线程（run）嵌在项目下面。
+   侧栏是 Work 的主导航；主区只显示选中的对话/运行。 */
+export function projectFormHtml(project) {
+  const editing = !!project;
+  return '<form class="proj-form" data-proj-form'
+    + (editing ? ' data-proj-edit-id="' + esc(project.id) + '"' : "") + '>'
+    + '<input class="proj-input" name="name" required maxlength="80" placeholder="项目名称" value="'
+    + esc(editing ? project.name : "") + '">'
+    + (editing
+      ? '<div class="proj-path mono" title="' + esc(project.path) + '">' + esc(project.path) + "</div>"
+      : '<input class="proj-input" name="path" required placeholder="/绝对路径">')
+    + '<input class="proj-input" name="verification" maxlength="300" placeholder="验证命令（可空）" value="'
+    + esc(editing ? project.verification : "") + '">'
+    + '<div class="proj-form-actions">'
+    + '<button class="proj-submit" type="submit">' + (editing ? "保存" : "创建") + "</button>"
+    + '<button class="proj-cancel" type="button" data-proj-cancel>取消</button>'
+    + (editing
+      ? '<button class="proj-archive" type="button" data-proj-archive="' + esc(project.id) + '">归档</button>'
+      : "")
+    + "</div></form>";
+}
+
 export function projectSectionHtml(projects, options) {
   const opts = options || {};
-  const rows = (projects || []).map(function (prj) {
-    const count = opts.countOf ? opts.countOf(prj.id) : 0;
-    const active = opts.filter === prj.id ? " active" : "";
-    const pin = prj.pinned ? '<span class="pin-mark" title="已置顶">★</span>' : "";
-    return '<button class="session proj-row' + active + '" data-proj="' + esc(prj.id) + '">'
-      + pin + '<span class="slabel">' + esc(prj.name) + "</span>"
-      + '<span class="smeta">' + (count || "") + "</span></button>";
+  const list = projects || [];
+  const expanded = opts.expanded instanceof Set
+    ? opts.expanded
+    : new Set(opts.expanded || []);
+  const runs = opts.runs || [];
+  const rows = list.map(function (prj) {
+    const mine = runs.filter(run => run.projectId === prj.id);
+    const count = mine.length;
+    const running = mine.filter(run => run.status === "running").length;
+    const attention = mine.filter(run => !!run.attention).length;
+    const open = expanded.has(prj.id) || opts.filter === prj.id;
+    const active = opts.filter === prj.id ? " is-active" : "";
+    const badges = (running
+      ? '<span class="proj-dot is-live" title="' + running + ' 个运行中"></span>'
+      : "")
+      + (attention
+        ? '<span class="proj-dot is-attention" title="' + attention + ' 项待处理"></span>'
+        : "");
+    const nested = open
+      ? '<div class="proj-runs">' + (mine.length
+        ? mine.map(opts.rowHtml).join("")
+        : '<div class="proj-empty">还没有运行</div>') + "</div>"
+      : "";
+    return '<div class="proj-block' + active + '" data-proj-block="' + esc(prj.id) + '">'
+      + '<div class="proj-row-shell">'
+      + '<button type="button" class="proj-row" data-proj-toggle="' + esc(prj.id)
+      + '" title="' + esc(prj.path) + '">'
+      + '<span class="proj-caret">' + (open ? "▾" : "▸") + "</span>"
+      + '<span class="slabel">' + esc(prj.name) + "</span>"
+      + badges
+      + '<span class="smeta">' + (count || "") + "</span>"
+      + "</button>"
+      + '<span class="proj-row-actions">'
+      + '<button type="button" data-proj-run="' + esc(prj.id) + '" title="新运行">＋</button>'
+      + '<button type="button" data-proj-edit="' + esc(prj.id) + '" title="项目设置">⋯</button>'
+      + "</span></div>" + nested + "</div>";
   }).join("");
-  const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目">＋</button>';
-  return sectionHeadHtml("Projects", { key: "projects", action: add }, (projects || []).length)
-    + revealHtml('<nav class="nav" data-proj-nav>' + rows + "</nav>")
-    + (rows ? "" : '<div class="section-empty">还没有项目——用「＋」建一个，把任务归到一起</div>');
+  const add = '<button class="section-action" data-proj-add type="button" aria-label="新建项目" title="新建项目"><span data-doodle="plus" aria-hidden="true"></span></button>';
+  const form = (opts.adding || opts.editing)
+    ? projectFormHtml(opts.editing)
+    : "";
+  const body = form + (rows
+    || (opts.adding || opts.editing
+      ? ""
+      : '<div class="proj-empty">还没有项目</div>'));
+  return sectionHeadHtml("项目", { key: "projects", action: add }, list.length)
+    + revealHtml('<nav class="nav" data-proj-nav>' + body + "</nav>");
+}
+
+export function runSectionHtml(title, count) {
+  // 任务入口就是主区 composer；侧栏不再提供第二个“新建任务”入口。
+  return sectionHeadHtml(title || "任务", { key: "tasks" }, count || 0)
+    .replace('class="side-count"', 'class="side-count" data-task-count');
 }
 
 export function runRowsHtml(runs, options) {
@@ -213,29 +258,54 @@ export function quickStartHtml(state) {
 
 /* 侧栏版本：header 的 flavor 徽章只在工作侧栏出现（Kimi Work 的 sidebar-flavor-badge）；
    对话侧栏（网页版）header 只有 logo 与折叠钮。 */
-export function panelHeadHtml(count, label) {
-  return "<span>" + esc(label) + '</span><span class="side-count">' + num(count || 0) + "</span>";
+/* 治理区历史（Kimi 式分区历史）：审计记录按日期分组（今天/昨天/更早）。
+   数据源 = /api/audit/bundles 的服务端事实；行点击进入团队下的审计
+   工作台（发现/处置/修复），审计库是更深的证据面。Work 区看到的是
+   对话/任务历史，Governance 区看到的是审计历史——两区各一套，互不混排
+   （侧栏 DOM 都在，由 body[data-zone] 的 CSS 互斥显隐）。 */
+function localDayString(date) {
+  const pad = n => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/* 导航条目：Kimi 的 nav-item = 图标(18) + 标签 +（可选）计数/警示。
-   打开哪个页面用 data-open 表达，两侧栏可以各放一份而不打架。
-   预留槽位仍是可点的按钮（点开是标注过的预留页），只是多一个「预留」标记。 */
-export function navItemsHtml(items, counts) {
-  const seen = counts || {};
-  return (items || []).map(function (item) {
-    const count = seen[item.open];
-    const tail = count
-      ? '<span class="side-count">' + num(count) + "</span>"
-      : (item.badge ? '<span class="nav-warn" aria-hidden="true">!</span>' : "");
-    const mark = item.reserved
-      ? '<span class="nav-reserved" aria-hidden="true">预留</span>'
-      : "";
-    return '<button class="nav-item' + (item.reserved ? " nav-item--reserved" : "") + '" type="button" data-open="' + esc(item.open) + '"'
-      + (item.reserved ? ' data-reserved="1"' : "")
-      + (item.title ? ' title="' + esc(item.title) + '"' : "") + ">"
-      + '<span data-doodle="' + esc(item.icon) + '"></span>'
-      + "<span>" + esc(item.label) + "</span>" + mark + tail + "</button>";
-  }).join("");
+/* 治理历史 = 审计记录。审计记录按目标聚合（一个 target 一行，指向最近
+   一次审计）；团队运行在治理团队面的频道侧栏里（gov-run 行已随
+   团队运行段一起撤除——那份事实现在只住在频道流里）。
+   审计行的版本号来自 bundle.toolchain.ruleset_version。 */
+export function govHistorySectionHtml(bundles) {
+  const rows = aggregateTargets((bundles || []).slice()).map(row => {
+    const match = /(\d{4}-\d{2}-\d{2})/.exec(row.dir)
+      || /(\d{4}-\d{2}-\d{2})/.exec(String(row.auditId || ""));
+    return { ...row, day: match ? match[1] : "" };
+  });
+  const now = new Date();
+  const today = localDayString(now);
+  const yesterday = localDayString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const groups = { "今天": [], "昨天": [], "更早": [] };
+  for (const row of rows) {
+    groups[row.day === today ? "今天" : row.day === yesterday ? "昨天" : "更早"].push(row);
+  }
+  let body = "";
+  for (const name of ["今天", "昨天", "更早"]) {
+    const items = groups[name];
+    if (!items.length) continue;
+    body += '<div class="side-head-label"><span>' + name + "</span></div>";
+    body += items.map(row => {
+      const high = Number((row.severity || {}).high || 0);
+      const version = row.rulesetVersion ? ` · v${row.rulesetVersion}` : "";
+      const meta = (high ? `高${high} · ${num(row.findings)} 发现` : `${num(row.findings)} 发现`) + version;
+      // 行内只放发现数/规则集版本；运行次数进 title，避免长目标名被挤没。
+      const title = row.auditId + (row.runs > 1 ? ` · ${num(row.runs)} 次审计` : "")
+        + (row.rulesetVersion ? ` · ruleset v${row.rulesetVersion}` : "");
+      return '<button class="session chat-row gov-target-row" type="button" data-gov-hist="' + esc(row.dir) + '" data-gov-target="' + esc(row.key) + '" title="' + esc(title) + '">'
+        + '<span class="slabel">' + esc(row.label) + '</span><span class="smeta">' + esc(meta) + "</span></button>";
+    }).join("");
+  }
+  const total = rows.length;
+  const inner = total
+    ? '<div class="side-block-inner"><nav class="nav" data-gov-hist-nav>' + body + "</nav></div>"
+    : '<div class="section-empty">还没有治理记录——在团队派活，或开始一次审计。</div>';
+  return sectionHeadHtml("审计记录", { key: "govhist" }, total) + inner;
 }
 
 /* 对话分组标题（kimi.com 的 history 段）。 */
@@ -243,9 +313,13 @@ export function chatSectionHtml(count) {
   return sectionHeadHtml("对话", { key: "chats" }, count);
 }
 
-/* 任务分组标题（Kimi Work 的 Tasks 段）：标题可折叠 + “＋”直接新建任务。 */
-export function taskSectionHtml(count) {
-  const add = '<button class="section-action" type="button" data-new-task aria-label="新建任务" title="新建任务">＋</button>';
-  return sectionHeadHtml("任务", { key: "tasks", action: add }, count || 0)
-    .replace('class="side-count"', 'class="side-count" data-task-count');
+/* 任务分组标题（Kimi Work 的 Tasks 段）：标题可折叠；任务从主区 composer 发起。 */
+/* 移动抽屉（≤900px）：一次侧栏内点击是否应关闭抽屉。
+   "离开当前列表"的动作——打开任务/对话、新对话、跳到别的页面。
+   纯函数，供 app.js 的委托点击与单测共用；选择器变化只改这里。 */
+export const MOBILE_NAV_CLOSE_SELECTOR =
+  "[data-run], [data-chat-id], [data-open], #new-run, .side-market";
+
+export function mobileNavShouldClose(target) {
+  return !!(target && target.closest && target.closest(MOBILE_NAV_CLOSE_SELECTOR));
 }
