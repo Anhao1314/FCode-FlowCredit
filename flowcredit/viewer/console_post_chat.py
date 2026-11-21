@@ -83,6 +83,18 @@ def post_chat_config(handler):
     return handler._json(snapshot)
 
 
+def post_chat_config_test(handler):
+    """Operator-initiated connectivity check for one configured provider."""
+    chat = _chat(handler)
+    if chat is None:
+        return None
+    body = handler._read_body()
+    provider = body.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        return handler._json({"error": "provider must be a non-empty string"}, 400)
+    return handler._json(chat.test_provider(provider))
+
+
 def post_chat_send(handler):
     chat = _chat(handler)
     if chat is None:
@@ -273,3 +285,24 @@ def post_chat_memory_delete(handler):
     if not chat.memory.forget(entry_id):
         return handler._json({"error": "memory not found"}, 404)
     return handler._json({"ok": True, "count": chat.memory.count()})
+
+def post_intake_classify(handler):
+    """S-B 意图分类端点：短而模糊的 composer 输入问一次廉价模型。
+
+    provider 缺位/分类失败一律回退 {"intent": "task"}——分类是优化不是门，
+    fail-closed 的方向是"宁可走原来的路"。只对 ≤30 字输入有意义，长度门在前端。
+    """
+    mgr = handler.manager
+    if mgr.runtime is None:
+        return handler._json({"error": f"live mode unavailable: {mgr.runtime_error}"}, 503)
+    body = handler._read_body()
+    message = str(body.get("message") or "")[:120]
+    if not message.strip():
+        return handler._json({"error": "message is required"}, 400)
+    provider = mgr.gov_explainer_provider(None)
+    from flowagent.intake import classify_composer_text
+
+    result = classify_composer_text(message, provider)
+    if result is None:
+        result = {"intent": "task", "question": ""}
+    return handler._json(result)

@@ -2,7 +2,7 @@
 
 > 本文档面向两类读者:**想快速判断这个项目深度的工程师/面试官**,和**想复现任何一条能力的使用者**。
 > 规矩沿用项目自己的纪律:每条能力对到**可指出的代码**和**可现场复现的命令**;没有对应证据的,直接写"未覆盖",不凑。
-> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 1,406 项),前端以 `node --test viewer/tests/*.test.js` 为准(417 项)。数字由 CI 在每次提交时重新推导。
+> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 1,476 项),前端以 `node --test viewer/tests/*.test.js` 为准(418 项)。数字由 CI 在每次提交时重新推导。
 
 ## 一、Agent 应用工程
 

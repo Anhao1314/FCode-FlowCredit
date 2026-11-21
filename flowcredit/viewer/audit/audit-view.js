@@ -28,6 +28,24 @@ const OUTCOME_MAP = {
 // 这里转发导出，审计台下拉与判断记录页的旧导入路径不变。
 export { DISPOSITION_LABELS } from "../core/gov-cards.js";
 
+// 严重度只影响阅读层级：critical/high 同档，medium 次之，low/info 退后。
+const SEVERITY_LABELS = {
+  critical: "高",
+  high: "高",
+  medium: "中",
+  low: "低",
+  info: "信息",
+};
+
+function severityLabel(severity) {
+  const key = String(severity || "").toLowerCase();
+  return SEVERITY_LABELS[key] || String(severity || "—");
+}
+
+function severityKey(severity) {
+  return String(severity || "").toLowerCase();
+}
+
 // 统一壳的审计 surface 外壳:bundle 列表 + 详情双栏,由 app.js 的
 // 统一壳的审计 surface 外壳:详情为主区,发现账本收进右上角的证据侧栏
 // (rail,双形态:宽屏停靠/窄屏浮层;由 renderAudit 自动展开)。
@@ -78,6 +96,8 @@ export function outcomeBadge(outcome) {
   return `<span class="at-badge at-${mapped.tone}">${esc(mapped.label)}</span>`;
 }
 
+// 保留旧导出：账本主体已不再渲染 actor 徽章，但测试与其他 surface 仍按这个
+// 契约导入；删除会让模块加载整体失败。
 export function actorBadge(actor) {
   if (!actor) return "";
   const known = ["host", "triage", "analyst", "operator"];
@@ -96,12 +116,26 @@ export function capabilityChips(capabilities) {
 
 export function bundleItemHtml(entry, selected) {
   const sel = selected ? " at-sel" : "";
+  const sev = entry.severity || {};
+  const high = Number(sev.critical || 0) + Number(sev.high || 0);
+  const medium = Number(sev.medium || 0);
+  const low = Number(sev.low || 0) + Number(sev.info || 0);
+  const sevChip = high || medium || low
+    ? `<span class="at-bsev" title="高 ${high} · 中 ${medium} · 低 ${low}">`
+      + (high ? `<b class="h">${esc(String(high))}</b>` : "")
+      + (medium ? `<b class="m">${esc(String(medium))}</b>` : "")
+      + (low ? `<b class="l">${esc(String(low))}</b>` : "")
+      + "</span>"
+    : "";
+  const meta = [`${esc(String(entry.findings ?? 0))} 发现`];
+  if (entry.unhandled) meta.push(`${esc(String(entry.unhandled))} 未处置`);
+  if (entry.ruleset_version) meta.push(`v${esc(String(entry.ruleset_version))}`);
+  meta.push(`${esc(String(entry.evidence ?? 0))} 证据`);
+  if (entry.rea_evidence) meta.push(`${esc(String(entry.rea_evidence))} REA`);
   return `<button class="at-bitem${sel}" data-dir="${esc(entry.dir)}">`
-    + `<span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>`
-    + `<span class="at-bmeta">${esc(String(entry.findings ?? 0))} 发现 · `
-    + `${esc(String(entry.evidence ?? 0))} 证据`
-    + (entry.rea_evidence ? ` · ${esc(String(entry.rea_evidence))} REA` : "")
-    + `</span></button>`;
+    + `<span class="at-brow"><span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>${sevChip}</span>`
+    + `<span class="at-bmeta">${meta.join(" · ")}</span>`
+    + `</button>`;
 }
 
 export function renderGoDeps(facts) {
@@ -285,14 +319,14 @@ export function renderAuthorization(bundle) {
   if (toolchain.replayer) reaRows.push(["replayer", toolchain.replayer]);
   return `<section class="at-auth">
     <h2>授权与范围</h2>
-    ${kv(rows)}
+    <div class="at-kv-grid">${kv(rows)}</div>
     <div class="at-auth-target">
       <h3>目标</h3>
-      ${kv(targetRows)}
+      <div class="at-kv-grid">${kv(targetRows)}</div>
     </div>
     ${reaRows.length ? `<div class="at-auth-toolchain">
       <h3>工具链</h3>
-      ${kv(reaRows)}
+      <div class="at-kv-grid">${kv(reaRows)}</div>
     </div>` : ""}
   </section>`;
 }
@@ -413,12 +447,14 @@ export function renderBundle(bundle, records, options = {}) {
     const runs = replay.runs;
     const runsText = typeof runs === "string" ? runs : JSON.stringify(runs || {});
     const outcome = rec ? (replay.outcome || "finding") : "__evidence_missing__";
-    return `<div class="at-finding" data-poc="${esc(ref || "")}">
+    const tone = mapOutcome(outcome).tone;
+    const markClass = tone === "ok" ? "at-mark-ok" : tone === "bad" ? "at-mark-bad" : "at-mark-dim";
+    return `<div class="at-finding" data-poc="${esc(ref || "")}" data-sev="${esc(severityKey(f.severity))}">
       <div class="at-frow">
-        <span class="at-mark at-mark-ok"></span>
+        <span class="at-mark ${markClass}"></span>
         <span class="at-ftitle">${esc(f.finding_id)} · ${esc(f.root_cause_group)}</span>
         <span class="at-cat">${esc(f.category)}</span>
-        <span class="at-sev">${esc(f.severity)}</span>
+        <span class="at-sev">${esc(severityLabel(f.severity))}</span>
         ${f.fingerprint
           ? `<span class="at-fp at-mono dim" title="stable fingerprint v${
               esc(String(f.fingerprint_version || 1))}">fp:${esc(String(f.fingerprint).slice(0, 8))}</span>`
@@ -455,20 +491,30 @@ export function renderBundle(bundle, records, options = {}) {
     }).join("");
 
   const reaFacts = options.reaFacts || null;
+  const rulesetChip = sum.ruleset !== "—"
+    ? `<span class="at-chip">规则集 v${esc(String(sum.ruleset))}</span>` : "";
+  const reaChip = sum.reaVersion !== "—"
+    ? `<span class="at-chip">REA v${esc(String(sum.reaVersion))}</span>` : "";
+  const artifactChip = sum.artifact !== "—"
+    ? `<span class="at-chip">artifact ${esc(sum.artifact)}</span>` : "";
   return `
-  <div class="at-bhead">
-    <h1>发现账本</h1>
-    <span class="at-mono dim">${esc(sum.auditId)}</span>
-    <span class="at-badge at-ok">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
-    ${sum.reaEvidence ? `<span class="at-badge at-dim">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
-  </div>
-  <div class="at-bmeta2">
-    <span class="at-mono">目标 ${esc(sum.target)}</span>
-    <span class="at-mono dim">manifest ${esc(sum.manifest)}</span>
-    ${sum.artifact !== "—" ? `<span class="at-mono dim">artifact ${esc(sum.artifact)}</span>` : ""}
-    ${sum.reaVersion !== "—" ? `<span class="at-mono dim">REA v${esc(String(sum.reaVersion))}</span>` : ""}
-    <span class="at-mono dim">规则集 v${esc(String(sum.ruleset))}</span>
-  </div>
+  <header class="at-bhead">
+    <div class="at-eyebrow">AUDIT LEDGER</div>
+    <div class="at-head-row">
+      <h1 class="at-title">发现账本</h1>
+      <span class="at-mono dim">${esc(sum.auditId)}</span>
+    </div>
+    <div class="at-target at-mono">${esc(sum.target)}</div>
+    <div class="at-meta-chips">
+      <span class="at-chip at-chip-strong">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
+      ${sum.reaEvidence ? `<span class="at-chip">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
+      ${rulesetChip}
+      ${reaChip}
+      <span class="at-chip">manifest ${esc(sum.manifest)}</span>
+      ${artifactChip}
+      ${sum.uncovered ? `<span class="at-chip">${esc(String(sum.uncovered))} 个未覆盖面</span>` : ""}
+    </div>
+  </header>
   ${renderAuthorization(bundle)}
   <div class="at-ledger">
     ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}

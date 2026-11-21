@@ -42,7 +42,9 @@ Runtime 的零依赖约束(`pyproject.toml` 的 `dependencies = []`)是 CI 强�
 
 `version` 字段单调整数递增;规则只增不删,废弃的规则置 `"deprecated": true` 保留在库里——审计报告的历史结论要能追溯到当时的规则集。
 
-当前版本 8 新增 VIBE-02 / VIBE-05 五条规则：
+当前版本 11 新增 WEB-01–WEB-07 七类 Web 规则（第三方脚本、SRI、内联事件、eval、sourcemap、安全响应头、运行时第三方源），规则集共 30 条活跃规则（AGI 10 / VIBE 13 / WEB 7）。
+
+版本 8 新增 VIBE-02 / VIBE-05 五条规则：
 - **VIBE-02 一致性缺陷**：`RULE-VIBE02-001` 同名常量跨文件取值分歧、
   `RULE-VIBE02-002` 同文件魔法值散落（≥5 次）
 - **VIBE-05 AI 指纹**：`RULE-VIBE05-001` 注释里的 AI 对话残留、

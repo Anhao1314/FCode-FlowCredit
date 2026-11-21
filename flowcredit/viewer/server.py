@@ -55,6 +55,7 @@ if str(VIEWER_DIR) not in sys.path:
 
 from console_common import (  # noqa: E402
     BROWSER_DIR,
+    CHAT_CONFIG_PATH,
     DOMAIN_KEY,
     MAX_REQUEST_BODY,
     RUNS_DIR,
@@ -64,6 +65,8 @@ from console_common import (  # noqa: E402
 )
 from audit_service import AuditService  # noqa: E402
 from gov_bots import GovBotService  # noqa: E402
+from gov_chat import GovChatService  # noqa: E402
+from gov_plans import GovPlanService  # noqa: E402
 from plugin_market import PluginMarket  # noqa: E402
 from console_manager import RunManager as _RunManager  # noqa: E402
 
@@ -84,6 +87,8 @@ class Handler(SimpleHTTPRequestHandler):
     repo: Path | None = None  # set by create_server(); audit artifacts live here
     audit: AuditService | None = None  # set by create_server(); Governance-zone service
     gov_bots: GovBotService | None = None  # set by create_server(); governance team roster
+    gov_plans: GovPlanService | None = None  # set by create_server(); 主代理规划子代理
+    gov_chat: GovChatService | None = None  # set by create_server(); normal model chat for Governance
     plugins: PluginMarket | None = None  # set by create_server(); curated plugin market
 
     def __init__(self, *args, **kwargs) -> None:
@@ -447,6 +452,51 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({
                 "projects": mgr.list_projects(include_archived=include_archived),
             })
+        # ---- 治理对话（正常 Chat）：线程列表与单线程投影 ----
+        if path == "/api/gov/chat/threads":
+            chat = getattr(self, "gov_chat", None)
+            if chat is None:
+                return self._json({"error": "governance chat is unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+                offset = int((query.get("offset") or ["0"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit and offset must be integers"}, 400)
+            if not 1 <= limit <= 200 or offset < 0:
+                return self._json({"error": "limit must be 1..200 and offset >= 0"}, 400)
+            return self._json({
+                "threads": chat.list_threads(limit, offset),
+                "total": chat.thread_count(),
+                "limit": limit,
+                "offset": offset,
+            })
+        if path.startswith("/api/gov/chat/threads/"):
+            chat = getattr(self, "gov_chat", None)
+            if chat is None:
+                return self._json({"error": "governance chat is unavailable"}, 503)
+            thread_id = unquote(path[len("/api/gov/chat/threads/"):]).strip("/")
+            if not thread_id or "/" in thread_id:
+                return self._json({"error": "bad thread id"}, 400)
+            try:
+                return self._json(chat.get_thread(thread_id))
+            except Exception as error:  # noqa: BLE001 — no such thread is a 404
+                return self._json({"error": str(error)}, 404)
+        # ---- 解读层（审计包视角）：账本里的「AI 解读」缓存读取 ----
+        if path.startswith("/api/gov/audit/") and path.endswith("/explanations"):
+            bots = getattr(self, "gov_bots", None)
+            audit = getattr(self, "audit", None)
+            if bots is None or audit is None:
+                return self._json({"error": "governance is unavailable"}, 503)
+            audit_dir = unquote(
+                path[len("/api/gov/audit/"):-len("/explanations")]).strip("/")
+            if not audit_dir or "/" in audit_dir:
+                return self._json({"error": "bad audit dir"}, 400)
+            # 路径闸门与 bundle 读取同源：包不存在就是 404，不解读不猜测。
+            probe = audit.bundle(audit_dir)
+            if isinstance(probe, tuple):
+                return self._json({"error": str(probe[0].get("error") or "not found")}, 404)
+            return self._json({"explanations": bots.explanations_for_audit(audit_dir)})
         # ---- 治理团队（Phase A）：Bot 花名册 + 运行日志 ----
         if path == "/api/gov/bots":
             bots = getattr(self, "gov_bots", None)
@@ -477,6 +527,28 @@ class Handler(SimpleHTTPRequestHandler):
             except (TypeError, ValueError):
                 return self._json({"error": "limit must be an integer"}, 400)
             return self._json({"swarms": bots.swarms(limit)})
+        # ---- 主代理规划子代理（Slice P1）：计划/审批/派发状态 ----
+        if path == "/api/gov/plans":
+            plans = getattr(self, "gov_plans", None)
+            if plans is None:
+                return self._json({"error": "governance plans are unavailable"}, 503)
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except (TypeError, ValueError):
+                return self._json({"error": "limit must be an integer"}, 400)
+            return self._json({"plans": plans.plans(limit)})
+        if path.startswith("/api/gov/plans/"):
+            plans = getattr(self, "gov_plans", None)
+            if plans is None:
+                return self._json({"error": "governance plans are unavailable"}, 503)
+            plan_id = path[len("/api/gov/plans/"):].strip("/")
+            if not plan_id or "/" in plan_id:
+                return self._json({"error": "bad plan id"}, 400)
+            plan = plans.get(plan_id)
+            if plan is None:
+                return self._json({"error": "no such plan"}, 404)
+            return self._json(plan)
         if path == "/api/gov/fixes":
             fixes = getattr(self, "gov_fixes", None)
             if fixes is None:
@@ -946,6 +1018,31 @@ def create_server(
             provider_factory=manager.gov_explainer_provider,
         )
     except Exception:  # noqa: BLE001 — team UI degrades, audit stays available
+        traceback.print_exc()
+    # 主代理规划子代理：计划/审批/派发记录与团队花名册同库；planner 走与
+    # 解释层相同的 provider 目录纪律（fail-closed，mock 不伪造计划）。
+    if getattr(Handler, "gov_bots", None) is not None:
+        try:
+            Handler.gov_plans = GovPlanService(
+                Handler.gov_bots,
+                manager.runs_dir.parent / "governance.sqlite",
+                provider_factory=lambda: manager.gov_explainer_provider(None),
+            )
+        except Exception:  # noqa: BLE001 — plans UI degrades, team stays usable
+            traceback.print_exc()
+            Handler.gov_plans = None
+    # Governance chat: a normal model thread with a bounded governance snapshot.
+    # It has no workspace tools; proposals are confirmed by the operator and
+    # dispatched through GovBotService below.
+    try:
+        Handler.gov_chat = GovChatService(
+            manager.runs_dir.parent / "governance-chat.sqlite",
+            CHAT_CONFIG_PATH,
+            Handler.gov_bots,
+            policy_root=Handler.repo,
+            gov_plans=getattr(Handler, "gov_plans", None),
+        )
+    except Exception:  # noqa: BLE001 — audit/team remain usable without chat
         traceback.print_exc()
     # Fixer write path: validate in an isolated copy, apply only on approval,
     # then start a fresh manual audit so the finding is re-decided by evidence.

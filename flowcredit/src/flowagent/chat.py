@@ -29,6 +29,7 @@ import re
 import secrets
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -108,6 +109,8 @@ _WORKSPACE_LIST_SKIP_DIRS = {
 
 CHAT_SYSTEM_PROMPT = (
     "你是 FCode 里的对话助手。用中文、清楚、简洁地回答。"
+    "问候、寒暄、探活这类消息直接回答，不调用任何工具；"
+    "工具只在回答当前问题确实需要工作区事实时才用，一次够用就不重复调用。"
     "你可以调用只读工具查看工作区（ls_workspace 列目录、search_codebase 按语义"
     "检索代码与文档并返回路径/行号/片段、read_file 读文件、"
     "grep_workspace 正则搜索内容、find_files 按模式找文件、git_status 查看工作区"
@@ -344,11 +347,69 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             "model": config.model,
             "remote": config.remote,
             "maxCompletionTokens": config.max_completion_tokens,
+            "completionField": config.completion_field,
+            "supportsTools": config.supports_tools,
+            "supportsParallelTools": config.supports_parallel_tools,
+            "supportsReasoning": config.supports_reasoning,
+            "maxContextTokens": config.max_context_tokens,
+            "maxOutputTokens": config.max_output_tokens,
             "price": {
                 "inputMicrousdPerMtok": config.input_price_microusd_per_mtok,
                 "outputMicrousdPerMtok": config.output_price_microusd_per_mtok,
             },
         }
+
+    def test_provider(self, provider: str | None) -> dict[str, Any]:
+        """One tiny live completion; proves URL/key/model/request shape work.
+
+        This is an operator-initiated connectivity check, not a chat turn: it
+        is not charged to a thread and its output never enters the chain. The
+        completion is capped so a misconfigured endpoint cannot generate a
+        large bill.
+        """
+        key = (provider or "mock").strip().lower()
+        if key == "mock":
+            return {"ok": True, "provider": "mock", "model": "offline-mock",
+                    "reply": "mock", "note": "offline provider needs no network"}
+        try:
+            config = resolve_chat_provider(key, self._overrides_for(key))
+            if not config.remote:
+                raise AgentError(
+                    "CHAT_PROVIDER_UNAVAILABLE",
+                    f"{key} has no remote endpoint",
+                )
+            probe = replace(
+                config,
+                max_completion_tokens=max(1, min(16, config.max_completion_tokens)),
+                timeout_seconds=max(1.0, min(20.0, config.timeout_seconds)),
+            )
+            reply_parts: list[str] = []
+            usage: dict[str, Any] = {}
+            for event in _RemoteProvider(probe).stream([
+                {"role": "user", "content": "Reply with the single word OK."},
+            ]):
+                if not isinstance(event, dict):
+                    continue
+                if isinstance(event.get("delta"), str):
+                    reply_parts.append(event["delta"])
+                if isinstance(event.get("usage"), dict):
+                    usage = dict(event["usage"])
+            return {
+                "ok": True,
+                "provider": key,
+                "model": config.model,
+                "reply": "".join(reply_parts).strip()[:120],
+                "usage": usage,
+                "completion_field": config.completion_field,
+            }
+        except AgentError as error:
+            return {"ok": False, "provider": key, "code": error.code,
+                    "message": error.message}
+        except Exception as error:  # noqa: BLE001 — connectivity errors are data
+            return {
+                "ok": False, "provider": key, "code": "CHAT_TEST_FAILED",
+                "message": f"{type(error).__name__}: {error}",
+            }
 
     def default_model(self) -> str:
         self._refresh_config()
@@ -450,6 +511,12 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 # Prices without the date they were read are a guess; the
                 # settings page collects both, for chat and for delegations.
                 "price_as_of", "price_source",
+                # Provider request-shape capabilities. These are what make
+                # "OpenAI-compatible" actually compatible across vendors.
+                "completion_field", "temperature_mode", "json_mode", "stream",
+                "supports_tools", "supports_parallel_tools",
+                "supports_reasoning", "supports_effort", "reasoning_field",
+                "max_context_tokens", "max_output_tokens",
             }
             # Endpoint overrides for the cloud providers are an exfiltration
             # path (a stolen settings write could redirect the stored key).
@@ -474,8 +541,48 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     raise AgentError("CHAT_CONFIG_INVALID", "model name is too long")
                 if name == "label" and len(text) > 80:
                     raise AgentError("CHAT_CONFIG_INVALID", "provider label is too long")
-                if name == "supports_effort" and text not in ("0", "1"):
-                    raise AgentError("CHAT_CONFIG_INVALID", "supports_effort must be 0 or 1")
+                if name in ("json_mode", "stream", "supports_tools",
+                            "supports_parallel_tools", "supports_reasoning",
+                            "supports_effort") and text not in ("0", "1"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID", f"{name} must be 0 or 1")
+                if name == "completion_field" and text not in (
+                        "max_tokens", "max_completion_tokens"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "completion_field must be max_tokens or max_completion_tokens",
+                    )
+                if name == "temperature_mode" and text not in (
+                        "send-configured", "omit-unless-pinned", "pin-zero"):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "temperature_mode must be send-configured, "
+                        "omit-unless-pinned or pin-zero",
+                    )
+                if name == "reasoning_field" and (
+                        len(text) > 40 or not text.replace("_", "").isalnum()):
+                    raise AgentError(
+                        "CHAT_CONFIG_INVALID",
+                        "reasoning_field must be an identifier of at most 40 characters",
+                    )
+                if name in ("max_context_tokens", "max_output_tokens"):
+                    try:
+                        tokens = int(text)
+                    except ValueError:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID", f"{name} must be an integer")
+                    if name == "max_context_tokens" and not 1_024 <= tokens <= 10_000_000:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID",
+                            "max_context_tokens must be 1024..10000000",
+                        )
+                    if name == "max_output_tokens" and not 0 <= tokens <= 1_000_000:
+                        raise AgentError(
+                            "CHAT_CONFIG_INVALID",
+                            "max_output_tokens must be 0..1000000",
+                        )
+                    clean[name] = str(tokens)
+                    continue
                 if name == "base_url" and not text.startswith(("http://", "https://")):
                     raise AgentError("CHAT_CONFIG_INVALID", "base url must start with http(s)://")
                 if name in ("input_price_microusd_per_mtok", "output_price_microusd_per_mtok"):
@@ -574,6 +681,61 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                 raise AgentError("CHAT_THREAD_NOT_FOUND", f"no chat thread {thread_id!r}")
             raise
 
+    def post_explanation(
+        self,
+        thread_id: str,
+        *,
+        text: str,
+        model: str = "",
+        tokens: int = 0,
+        cost_microusd: int = 0,
+        title: str = "",
+        finding_id: str = "",
+        audit_id: str = "",
+        kind: str = "explain",
+        candidate_count: int = 0,
+    ) -> dict[str, Any]:
+        """把一条宿主生成的解读写进对话线程（输出在对话里，不伪造轮次）。
+
+        与 ``send`` 的差别：没有用户输入、没有模型轮次记账——解读的预算
+        与收据由调用方（解释层）负责，这里只把已成文的事实追加进线程链，
+        让操作员在对话流里读到它。thread_id 为空时新建线程（title 作标题）。
+        ``finding_id``/``audit_id``/``kind``/``candidate_count`` 进 ``explain``
+        元数据：前端据此渲染结构化卡片（解读/探员候选），文本本身保持干净。
+        """
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            raise AgentError("CHAT_EXPLAIN_EMPTY", "解读文本为空，拒绝写入对话")
+        if thread_id:
+            task = self._load_task(thread_id)
+        else:
+            task = self._create_thread(title)
+        message_id = f"a-{secrets.token_hex(6)}"
+        explain = {
+            "finding_id": str(finding_id or ""),
+            "audit_id": str(audit_id or ""),
+            "kind": str(kind or "explain"),
+            "candidate_count": max(0, int(candidate_count or 0)),
+        }
+        detail = {
+            "id": message_id,
+            "user_id": "",
+            "text": clean_text,
+            "reasoning": "",
+            "status": "ok",
+            "usage": {
+                "total_tokens": max(0, int(tokens or 0)),
+                "cost_microusd": max(0, int(cost_microusd or 0)),
+            },
+            "receipt_ref": "",
+            "provider": "",
+            "model": str(model or ""),
+            "error": {},
+            "explain": explain,
+        }
+        task = self._append(task, "chat_assistant", detail)
+        return {"thread_id": task.id, "message_id": message_id}
+
     def _append(self, task: Task, event: str, detail: dict[str, Any]) -> Task:
         with self._lock:
             return self.store.save(task, task.sequence, event, detail)
@@ -630,6 +792,9 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
                     message["blocks"] = list(detail["blocks"])
                 if isinstance(detail.get("tool_calls"), list) and detail["tool_calls"]:
                     message["tool_calls"] = list(detail["tool_calls"])
+                # 解读卡元数据：前端据此渲染结构化卡片，正文保持干净。
+                if isinstance(detail.get("explain"), dict) and detail["explain"]:
+                    message["explain"] = dict(detail["explain"])
                 messages.append(message)
                 by_id[message["id"]] = message
             elif kind == "chat_run_started":
