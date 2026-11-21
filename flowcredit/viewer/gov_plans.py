@@ -318,6 +318,10 @@ class GovPlanService:
 
     def shutdown(self) -> None:
         self._stop.set()
+        # Pump threads write plan events as they unwind. Waiting for them keeps
+        # tests and process teardown from deleting the DB mid-write.
+        for thread in list(self._threads.values()):
+            thread.join(timeout=5)
 
     # ------------------------------------------------------------------ propose
 
