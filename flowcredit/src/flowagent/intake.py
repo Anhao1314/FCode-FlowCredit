@@ -255,6 +255,8 @@ def _general_turn(message: str, spec: dict[str, Any] | None) -> dict[str, Any]:
                 "task": "general-research",
                 "mode": mode,
                 "source": "console-intake",
+                **({"computerUse": True}
+                   if isinstance(spec, dict) and spec.get("computerUse") else {}),
                 **({"fastProfile": "motion-render", "toolset": list(MOTION_TOOLSET)}
                    if motion else {}),
             },

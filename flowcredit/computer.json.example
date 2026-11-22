@@ -1,0 +1,16 @@
+{
+  "allowed_apps": [
+    {"bundle_id": "com.apple.TextEdit", "name": "TextEdit"},
+    {"bundle_id": "com.apple.Safari", "name": "Safari"}
+  ],
+  "allowed_domains": [
+    "example.com"
+  ],
+  "denied_apps": [
+    "com.apple.keychainaccess",
+    "com.1password.1password",
+    "com.apple.systempreferences"
+  ],
+  "max_session_seconds": 900,
+  "max_actions": 100
+}

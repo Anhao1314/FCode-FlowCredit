@@ -93,9 +93,10 @@ function browserHtml(block) {
     ? [{ key: "screenshot", shot: result.screenshot, label: "页面" }]
     : []);
   if (!shots.length) return "";
+  const shotKind = String(block.name || "").startsWith("computer_") ? "电脑截图" : "浏览器截图";
   const figures = shots.map(item => `<figure class="chat-browser-figure">
     <a class="chat-browser-shot" href="${esc(safeUrl(item.shot.url))}" target="_blank" rel="noreferrer">
-      <img src="${esc(safeUrl(item.shot.url))}" alt="浏览器截图 · ${esc(item.label)}" loading="lazy">
+      <img src="${esc(safeUrl(item.shot.url))}" alt="${shotKind} · ${esc(item.label)}" loading="lazy">
     </a>
     <figcaption>${esc(item.label)}</figcaption>
   </figure>`).join("");
@@ -110,8 +111,12 @@ function browserHtml(block) {
   const domDiff = result.dom_diff
     ? `<details class="chat-browser-diff"><summary>DOM 文本变化</summary><pre>${esc(result.dom_diff)}</pre></details>`
     : "";
+  const context = result.url
+    ? `${result.title || ""}${result.title ? " · " : ""}${result.url}`
+    : [result.app && (result.app.name || result.app.bundle_id),
+       result.window && result.window.title].filter(Boolean).join(" · ");
   return `<div class="chat-browser-pair">${figures}</div>
-  <div class="chat-browser-meta">${esc(result.title || "")}${result.title && result.url ? " · " : ""}${esc(result.url || "")}${diffText ? " · " + esc(diffText) : ""}</div>
+  <div class="chat-browser-meta">${esc(context)}${diffText ? (context ? " · " : "") + esc(diffText) : ""}</div>
   ${domDiff}`;
 }
 

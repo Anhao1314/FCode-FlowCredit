@@ -155,12 +155,12 @@ bash desktop/build.sh
 ## 验证，而不是感觉
 
 ```bash
-python3 -m unittest discover -s tests -q       # 1,476 Python tests
-node --test viewer/tests/*.test.js              # 418 frontend tests
+python3 -m unittest discover -s tests -q       # 1,495 Python tests
+node --test viewer/tests/*.test.js              # 435 frontend tests
 python3 scripts/gate.py                         # backend / frontend / benchmark / audit / e2e
 ```
 
-当前完整回归：**1,476 项 Python 测试、418 项前端测试、36 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
+当前完整回归：**1,495 项 Python 测试、435 项前端测试、49 个 Playwright 场景、19 个版本化 Runtime 任务**。CI 在 Ubuntu / macOS × Python 3.11 / 3.13 上重新推导，并断言 Runtime 依赖为 `[]`。
 
 测试覆盖权限与参数门控、预算、状态机、并发 CAS、事件篡改、收据伪造、独立重算、审批与计划控制、崩溃恢复、Provider 纪律、修复票据、构图回滚，以及真实 HTTP 服务边界。
 
@@ -192,6 +192,7 @@ archive/          v1 Node 原型（NO_GO 负结果，不参与 CI）
 - 动效门测量的是契约、几何和构图，不是审美；Jev 视觉 critic 仍是 advisory，不接运行终态。
 - 上面的鹈鹕结果是一个在线失败样本，不是统计意义上的模型对比；当前仍未通过轮速/背景速度一致性。
 - 本地工具与命令有应用层约束，但不构成操作系统级安全沙箱。
+- `computer_*` 默认关闭，只支持 macOS 桌面与独立外部浏览器 profile；一次会话级授权覆盖后续动作，安全输入框、破坏性关键词和范围外窗口由宿主阻断。需要操作员手动授予 Accessibility / Screen Recording，未授权时 fail-closed。
 - REA 审计当前以静态事实为主；动态探针全量、容器级隔离仍在路线图。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用。
@@ -207,6 +208,7 @@ archive/          v1 Node 原型（NO_GO 负结果，不参与 CI）
 | [Capability Runtime](flowcredit/docs/capabilities.md) | 阶段机、动作门、预算语义、构图回滚 |
 | [能力图谱](flowcredit/docs/capability-map.md) | 逐条可复现的能力与测试口径 |
 | [Work 模式](flowcredit/docs/work-mode.md) | 项目实体、运行看板与待处理队列 |
+| [Computer Use](flowcredit/docs/computer-use.md) | 会话级桌面/浏览器控制、权限链、证据与失败码 |
 | [任务基准](flowcredit/docs/runtime-benchmark.md) | 19 项任务、独立 verifier、指标与证据 |
 | [审计方法论](flowcredit/docs/audit-methodology.md) | AGI 分类法、证据模型与交互方式 |
 | [REA 证据融合](flowcredit/docs/integration-rea.md) | 制品审计与声明覆盖 |

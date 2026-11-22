@@ -95,6 +95,15 @@ html.desktop-app .side-new { height: 40px; }
 #fast-btn.on { color: var(--text-1); }
 #fast-btn.on .fdot { background: #2f9e44; }
 #fast-btn:not(.on) { color: var(--text-3); }
+/* 电脑开关：点亮 = 琥珀点；默认关闭，避免误触后模型直接拿到工具。 */
+#computer-btn { gap: 6px; }
+#computer-btn .fdot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-3); transition: background-color .2s;
+}
+#computer-btn.on { color: var(--text-1); }
+#computer-btn.on .fdot { background: var(--warn); }
+#computer-btn:not(.on) { color: var(--text-3); }
 .c-btn:hover { background: #F5F5F5; color: var(--text-1); }
 .c-btn.static { font-family: var(--font-ui); font-size: 13px; color: var(--text-3); }
 .c-btn.static:hover { background: none; }

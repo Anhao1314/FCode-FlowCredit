@@ -1,0 +1,9 @@
+# Optional dependency for macOS desktop computer use.
+# The runtime stays stdlib-only; without these packages computer_request returns
+# available:false / secure-field screenshots are dropped instead of failing a
+# run. Pillow is required to redact secure-field regions in place.
+pyobjc-core>=10.0
+pyobjc-framework-Cocoa>=10.0
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-ApplicationServices>=10.0
+Pillow>=10.0

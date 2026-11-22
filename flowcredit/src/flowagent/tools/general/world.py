@@ -86,6 +86,7 @@ class GeneralWorld:
         subagent_channel: Any = None,
         budget_channel: Any = None,
         motion_probe: Any = None,
+        computer: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -133,6 +134,9 @@ class GeneralWorld:
         #: console (it owns Playwright and the run's frame directory); None in
         #: offline deployments, where motion_check still runs its text checks.
         self.motion_probe = motion_probe
+        #: Session-scoped computer use (desktop/external browser). None means
+        #: this run did not opt in, so the tools are not registered at all.
+        self.computer = computer
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -203,6 +207,7 @@ class GeneralWorld:
             # regressions. Other domains keep the historical write semantics.
             repair_policy=repair,
             scaffolded_paths=scaffolded,
+            computer=self.computer,
         )
         # The tool is always registered; the *channel* is resolved when a
         # question is actually asked. Assemblies wire it after the world exists

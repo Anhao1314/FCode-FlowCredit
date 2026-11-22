@@ -84,6 +84,17 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(turn["task"]["approval"], "consequential")
         self.assertIn("关键审批", turn["reply"])
 
+    def test_general_delegation_carries_computer_use_opt_in(self) -> None:
+        turn = clarify(
+            message="把这份文档在 TextEdit 里整理一下",
+            template="general-research",
+            spec={"computerUse": True},
+        )
+        self.assertTrue(turn["ready"])
+        self.assertIs(turn["task"]["spec"].get("computerUse"), True)
+        plain = clarify(message="整理一下这周的行程", template="general-research")
+        self.assertNotIn("computerUse", plain["task"]["spec"])
+
     def test_motion_task_gets_the_compact_profile_and_toolset(self) -> None:
         prompt = (
             "编写单文件HTML，内含SVG动画：卡通鹈鹕骑带辐条自行车；"

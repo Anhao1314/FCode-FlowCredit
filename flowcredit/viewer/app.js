@@ -41,7 +41,7 @@ import {
   queuePanelHtml, queueMove, queueMoveTo, queueDropIndex,
 } from "./app/queue-panel.js";
 import { createLiveSessions } from "./app/live-sessions.js";
-import { createIntake } from "./app/intake.js?v=171";
+import { createIntake } from "./app/intake.js?v=172";
 import { createSettings } from "./app/settings.js";
 import { createComposerPanel } from "./app/composer-panel.js";
 import { createCommandPalette } from "./app/command-palette.js";
@@ -4957,6 +4957,15 @@ function bindComposer() {
     toast(next
       ? "Fast 已开：一轮多动作 · 免逐步审批 · 项目走隔离副本"
       : "Fast 已关：恢复逐步审批与单动作");
+  });
+  const computerBtn = document.getElementById("computer-btn");
+  computerBtn?.addEventListener("click", () => {
+    const next = computerBtn.getAttribute("aria-pressed") !== "true";
+    computerBtn.setAttribute("aria-pressed", next ? "true" : "false");
+    computerBtn.classList.toggle("on", next);
+    toast(next
+      ? "电脑使用已开启：模型仍需先申请范围，由你批准会话"
+      : "电脑使用已关闭：新任务不会注册 computer 工具");
   });
   const plusBtn = document.getElementById("composer-open");
   const attachPanel = document.getElementById("attach-panel");

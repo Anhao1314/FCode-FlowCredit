@@ -189,7 +189,7 @@ python demo.py all
 PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/latest
 ```
 
-当前完整回归：**1,476 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、418 项前端测试、36 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
+当前完整回归：**1,495 项 Python 测试（含审计域 flowaudit 的契约与端到端测试）、435 项前端测试、49 个端到端场景、19 个版本化 Runtime 任务**。数字口径与逐条复现命令见 [能力图谱](docs/capability-map.md)。原生桌面验收另覆盖真实项目交付、连续审批、工具 diff／命令输出，以及实时与历史线程一致性。
 
 任务基准的离线实测为：独立 verifier `18/19`（保留一个预置错误交付）、崩溃恢复 `3/3`、未知结果安全处理 `3/3`、回放等价 `18/18`、篡改检测 `1/1`，越权与重复副作用均为 `0`。正常链和 SIGKILL 证据见 [任务基准](docs/runtime-benchmark.md)；这不是实际模型成功率，本轮 `ONLINE_MODEL=NOT_RUN`。
 
@@ -208,6 +208,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 - Fast 批量只读工具在原生 `Loop` 中并发派发；写/网络/终端仍串行，LangGraph 引擎保持顺序步骤节点。
 - `browser_inspect` 只打开 `127.0.0.1 / localhost / ::1` 预览，依赖可选的 Playwright sidecar；外部 URL、文件 URL 与非本机子资源一律拒绝。
 - `browser_act`（click/fill/press）是 write effect，按 Work 当前审批档位执行；Fast/自动运行不额外暂停，Governance 负责审计与人工复核。每次保留操作前/后截图、操作后 DOM、DOM 文本 diff 和截图变化摘要。
+- `computer_*` 默认关闭：只有操作员在工作台显式开启、并批准一次会话级授权后，模型才能操作 allowlist 内的 macOS 应用或外部域名。会话不可扩大或续期，安全输入框与破坏性关键词由宿主阻断；只支持 macOS 桌面与独立外部浏览器 profile，不读写剪贴板、不执行 shell、不导入浏览器凭据。详见 [Computer Use](docs/computer-use.md)。
 - 同一工作区的浏览器检查/交互复用一条持久 Chromium 会话（空闲 5 分钟回收）；像素级截图比例依赖可选的 Pillow，缺失时退化为哈希/尺寸变化。
 - Chat 回答拥有事件链与收据，不代表每个回答都经过领域 verifier 验证。
 - 恢复只覆盖当前工作区、事件与收据对账，不能恢复任意外部副作用；通用任务仍受模型能力与可验证性限制。
@@ -222,6 +223,7 @@ PYTHONPATH=src python -m flowagent.benchmark --output work/runtime-benchmark/lat
 | [任务基准](docs/runtime-benchmark.md) | 19 项任务、独立 verifier、指标与证据路径 |
 | [演示脚本](docs/demo-script.md) | 正常链、审批拒绝、SIGKILL 与 verifier 拒绝 |
 | [环境配置](docs/environment.md) | 离线运行、可选 Provider 与命令白名单示例 |
+| [Computer Use](docs/computer-use.md) | 会话级桌面/浏览器控制、权限链、证据与失败码 |
 | [设计哲学](docs/philosophy.md) | 为什么把控制权交给主机与人 |
 | [通用能力](docs/general-capabilities.md) | 从金融示例到领域无关内核 |
 | [上下文管理](docs/context-management.md) | 记忆、压缩与事件重建 |

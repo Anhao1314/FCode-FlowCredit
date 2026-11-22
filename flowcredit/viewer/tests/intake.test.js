@@ -18,7 +18,8 @@ function makeLocalStorage() {
 function makeEl(init = {}) {
   return {
     hidden: false, innerHTML: "", textContent: "", value: "", placeholder: "",
-    dataset: {}, disabled: false, listeners: {}, style: {},
+    dataset: {}, disabled: false, listeners: {}, style: {}, attrs: {},
+    getAttribute(name) { return this.attrs[name] ?? null; },
     classList: {
       _set: new Set(),
       add(c) { this._set.add(c); }, remove(c) { this._set.delete(c); },
@@ -238,6 +239,21 @@ test("intakeRequest:通用委托把审批档位并入 spec 一起送出", async 
   assert.equal(fetchCalls[0].body.spec.approval, "consequential",
     "通用委托的自主度由输入框档位决定,随请求送出");
   assert.equal(fetchCalls[0].body.template, "full");
+});
+
+test("intakeRequest:只把显式开启的电脑使用带进 spec", async () => {
+  const off = setup();
+  off.intake.intake.active = true;
+  await off.intake.intakeRequest("整理行程", null);
+  assert.equal("computerUse" in off.fetchCalls[0].body.spec, false,
+    "默认关闭:没有开关就不注册 computer 工具");
+
+  const on = setup();
+  on.els["computer-btn"] = makeEl({ attrs: { "aria-pressed": "true" } });
+  on.intake.startIntake("把 TextEdit 里的文档整理一下");
+  await new Promise(r => setTimeout(r, 720));
+  assert.equal(on.fetchCalls[0].body.spec.computerUse, true);
+  assert.equal(on.intake.intake.spec.computerUse, true, "开关随 spec 往返保留");
 });
 
 test("intakeChoose/intakeFreeText/intakeBack:选项入链,上一步恢复快照", async () => {

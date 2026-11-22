@@ -88,6 +88,24 @@ test("browser_inspect 的截图作为证据预览，且 URL 转义", () => {
   assert.match(html, /Preview/);
 });
 
+test("computer_act 展示电脑截图与应用上下文", () => {
+  const html = toolCardHtml({
+    type: "tool", call_id: "c6", name: "computer_act",
+    arguments: '{"action":"click_element","element_id":"0/1"}', status: "ok",
+    result: {
+      ok: true, action: "click_element", mode: "desktop",
+      app: { name: "TextEdit", bundle_id: "com.apple.TextEdit" },
+      window: { title: "未命名" },
+      before: { url: "/api/runs/r1/computer-frame?path=before.png" },
+      after: { url: "/api/runs/r1/computer-frame?path=after.png" },
+    },
+  });
+  assert.match(html, /chat-browser-pair/);
+  assert.match(html, /alt="电脑截图 · 操作前"/);
+  assert.match(html, /alt="电脑截图 · 操作后"/);
+  assert.match(html, /TextEdit · 未命名/);
+});
+
 test("blocks 按序渲染:文本用 markdown,工具用卡片", () => {
   const html = toolBlocksHtml([
     { type: "text", text: "先看文件" },

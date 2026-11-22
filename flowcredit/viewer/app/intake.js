@@ -30,6 +30,13 @@ export function createIntake(deps) {
     conclusion: { label: "只要结论", short: "只要结论" },
   };
 
+  /** The composer toggle is the only place computer use is opted into. */
+  function computerUseOn() {
+    const toggle = document.getElementById("computer-btn");
+    return !!(toggle && typeof toggle.getAttribute === "function"
+      && toggle.getAttribute("aria-pressed") === "true");
+  }
+
   function loadIntakePrefs() {
     const raw = localStorage.getItem(INTAKE_KEY);
     try {
@@ -301,6 +308,11 @@ export function createIntake(deps) {
     intake.direct = !!options.direct && d.isGeneralTemplate() && !(extras && extras.origin);
     intake.messages = [];
     intake.spec = {};
+    const computerToggle = document.getElementById("computer-btn");
+    if (computerToggle && typeof computerToggle.getAttribute === "function"
+      && computerToggle.getAttribute("aria-pressed") === "true") {
+      intake.spec.computerUse = true;
+    }
     intake.origin = extras && extras.origin ? extras.origin : null;
     intake.choices = [];
     intake.readyTask = null;
@@ -379,7 +391,11 @@ export function createIntake(deps) {
           // 通用委托没有问卷，唯一决定自主度的就是输入框那个档位——随请求一起
           // 送过去，否则会产生"chip 显示自动、运行却在每步都停"的错觉。
           // 财务问卷的审批问题仍由问卷本身回答，不受这里影响。
-          spec: d.isGeneralTemplate() ? { ...intake.spec, approval: d.getApprovalMode() } : intake.spec,
+          spec: d.isGeneralTemplate() ? {
+            ...intake.spec,
+            approval: d.getApprovalMode(),
+            ...(computerUseOn() ? { computerUse: true } : {}),
+          } : intake.spec,
           history: intake.messages.slice(-16),
           template: d.getTplKey() || "",
         }),

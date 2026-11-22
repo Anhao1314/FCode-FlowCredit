@@ -328,6 +328,14 @@ class RunDriver:
                     self.sandbox.root, self.run_dir / "quality-frames",
                 )
                 kwargs["motion_probe"] = self.motion_probe
+            if (self.run.spec or {}).get("computerUse"):
+                from flowagent.tools.general.computer import ComputerRuntime
+
+                self.computer = ComputerRuntime(
+                    artifact_root=self.run_dir / "computer",
+                    run_id=self.run.id,
+                )
+                kwargs["computer"] = self.computer
         return self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
         )
@@ -409,6 +417,10 @@ class RunDriver:
             # The fast toolset has no terminal; the domain instruction that
             # advertises it would send the model straight into a denial.
             instruction = GENERAL_FAST_INSTRUCTION
+        if (self.run.spec or {}).get("computerUse"):
+            from flowagent.tools.general.computer import COMPUTER_USE_INSTRUCTION
+
+            instruction = (instruction or "") + "\n\n" + COMPUTER_USE_INSTRUCTION
 
         # 验证目标：模型需要知道成功的判定标准
         verification = (self.run.spec or {}).get("verification")
@@ -524,6 +536,19 @@ class RunDriver:
                 "selector": selector,
                 "note": "本机回环浏览器交互；操作前后截图与 DOM 入证据",
             }
+        if tool == "computer_request":
+            return {
+                "computer": {
+                    "mode": str(arguments.get("mode") or "both"),
+                    "apps": list(arguments.get("apps") or []),
+                    "domains": list(arguments.get("domains") or []),
+                    "duration_seconds": int(arguments.get("duration_seconds") or 300),
+                    "max_actions": int(arguments.get("max_actions") or 30),
+                    "allow_destructive": bool(arguments.get("allow_destructive") or False),
+                    "reason": str(arguments.get("reason") or ""),
+                },
+                "note": "会话级授权：批准后动作不再逐条询问；危险目标与安全输入框仍会被阻止",
+            }
         if tool == "run_command":
             command = str(arguments.get("command") or "")
             if not command:
@@ -595,6 +620,15 @@ class RunDriver:
             if self.extra_allowed:
                 grant["allowed_tools"] = list(grant.get("allowed_tools") or []) + self.extra_allowed
             allowed_tools = list(self.scenario.allowed_tools) + self.extra_allowed
+            if getattr(self, "computer", None) is not None:
+                from flowagent.tools.general.computer import COMPUTER_TOOLS
+
+                binding["computer_use"] = True
+                allowed_tools.extend(name for name in COMPUTER_TOOLS if name not in allowed_tools)
+                grant["allowed_tools"] = list(grant.get("allowed_tools") or []) + [
+                    name for name in COMPUTER_TOOLS
+                    if name not in (grant.get("allowed_tools") or [])
+                ]
             allowed_tools, requested_tools = filter_toolset(self.run.spec, allowed_tools)
             if requested_tools:
                 binding["toolset"] = requested_tools
@@ -928,6 +962,12 @@ class RunDriver:
                 self.run.bump()
             self.run.controller = None
         self.manager._write_meta(self.run)
+        computer = getattr(self, "computer", None)
+        if computer is not None:
+            try:
+                computer.close()
+            except Exception:  # noqa: BLE001 — cleanup is best effort
+                pass
         if self.store is not None:
             try:
                 self.store.close()

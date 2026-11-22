@@ -99,6 +99,8 @@ const TOOL_GLYPH = {
   working_paper_append: "file", write_document: "file", read_slice: "file", report_blocked: "shield",
   verify: "check", motion_check: "play", git_status: "branch",
   browser_inspect: "globe", browser_act: "globe", spawn_subagents: "branch",
+  computer_request: "shield", computer_look: "globe", computer_act: "globe",
+  computer_stop: "shield",
   ask_operator: "message", ingest_file: "file",
 };
 
@@ -110,6 +112,8 @@ const TOOL_ACTION = {
   run_command: "运行命令", terminal: "运行命令", git_status: "检查版本状态", motion_check: "检查动态效果",
   fetch_url: "获取网页", fetch_source: "获取来源", collect_source: "收集来源",
   browser_inspect: "检查页面", browser_act: "操作浏览器", verify: "运行验证",
+  computer_request: "申请电脑权限", computer_look: "查看屏幕", computer_act: "操作电脑",
+  computer_stop: "停止电脑使用",
   ask_operator: "向你提问", report_blocked: "报告受阻", spawn_subagents: "分派子任务",
 };
 
@@ -123,7 +127,15 @@ function glyphForTool(tool) {
 }
 
 function toolTarget(args = {}) {
-  const value = args.path ?? args.file ?? args.command ?? args.url ?? args.query ?? args.pattern ?? args.name ?? "";
+  const parts = [];
+  if (args.mode) parts.push(String(args.mode));
+  if (Array.isArray(args.apps) && args.apps.length) parts.push(args.apps.join("+"));
+  if (Array.isArray(args.domains) && args.domains.length) parts.push(args.domains.join("+"));
+  if (args.action) parts.push(String(args.action));
+  if (args.selector) parts.push(String(args.selector));
+  if (args.element_id) parts.push(String(args.element_id));
+  const value = parts.length ? parts.join(" · ")
+    : (args.path ?? args.file ?? args.command ?? args.url ?? args.query ?? args.pattern ?? args.name ?? "");
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > 120 ? `${text.slice(0, 119)}…` : text;
 }
@@ -842,7 +854,8 @@ function toolBodyHtml(item, ctx) {
     browserShots.push({ key: "screenshot", shot: browserResult.screenshot, label: "页面" });
   }
   if (browserShots.length) {
-    const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(safeUrl(entry.shot.url))}" target="_blank" rel="noreferrer"><img src="${esc(safeUrl(entry.shot.url))}" alt="浏览器截图 · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
+    const shotKind = String(item.tool || "").startsWith("computer_") ? "电脑截图" : "浏览器截图";
+    const figures = browserShots.map(entry => `<figure class="th-browser-figure"><a class="th-browser-shot" href="${esc(safeUrl(entry.shot.url))}" target="_blank" rel="noreferrer"><img src="${esc(safeUrl(entry.shot.url))}" alt="${shotKind} · ${esc(entry.label)}" loading="lazy"></a><figcaption>${esc(entry.label)}</figcaption></figure>`).join("");
     const diff = browserResult.diff || {};
     const diffText = diff.changed === undefined ? ""
       : diff.size_changed ? "截图尺寸变化"
@@ -850,7 +863,11 @@ function toolBodyHtml(item, ctx) {
           : "截图无变化";
     const domDiff = browserResult.dom_diff
       ? `<details class="th-browser-diff"><summary>DOM 文本变化</summary><pre>${esc(browserResult.dom_diff)}</pre></details>` : "";
-    sections.push(`<div class="th-browser-pair">${figures}</div><div class="th-browser-meta">${esc(browserResult.title || "")}${browserResult.title && browserResult.url ? " · " : ""}${esc(browserResult.url || "")}${diffText ? " · " + esc(diffText) : ""}</div>${domDiff}`);
+    const context = browserResult.url
+      ? `${browserResult.title || ""}${browserResult.title ? " · " : ""}${browserResult.url}`
+      : [browserResult.app && (browserResult.app.name || browserResult.app.bundle_id),
+         browserResult.window && browserResult.window.title].filter(Boolean).join(" · ");
+    sections.push(`<div class="th-browser-pair">${figures}</div><div class="th-browser-meta">${esc(context)}${diffText ? (context ? " · " : "") + esc(diffText) : ""}</div>${domDiff}`);
   }
   if (item.detailHtml) sections.push(`<div class="th-tool-detail">${item.detailHtml}</div>`);
   if (!sections.length && item.message) sections.push(`<p class="th-note">${esc(item.message)}</p>`);
