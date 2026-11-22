@@ -13,7 +13,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const E2E_REPO = join(tmpdir(), "fcode-e2e", "repo");
+const stateRoot = process.env.FCODE_E2E_STATE_ROOT || join(tmpdir(), "fcode-e2e");
+export const E2E_REPO = join(stateRoot, "repo");
 
 // 幂等装配：playwright 的 webServer 在 globalSetup 之前启动（冷启动时
 // 隔离仓还不存在，Runtime 会判定 live mode OFF，一整批运行类用例连锁

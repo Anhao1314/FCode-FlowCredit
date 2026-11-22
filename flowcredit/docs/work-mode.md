@@ -59,8 +59,8 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 
 ## 主区
 
-- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`，提交走 `sendTask → 后台 clarifier → /api/runs`，不是聊天。舞台按 Kimi Work 的中轴排布：标题、说明、composer、快捷建议居中，不再叠轨道插图。
-- **提交即开跑（Kimi 式）**：任务不再进入独立的「需求确认」页。`sendTask` 先把任务交给后台 clarifier 准备执行方式/预算，返回 readyTask 后立即创建运行并进入任务线程；准备期间只显示任务卡与「正在准备任务」。返回 choices 时先留在任务页，选择后再次 ready 即自动开跑；在途的重复选择被忽略，双击只创建一次运行，刷新不会重放建 run。research 缺来源或项目缺验证命令时停在任务页，保留 `+` 面板补充；open/script 无需 URL。财务模板仍走原问卷。
+- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`。`sendTask` 先用保守的确定性规则分流：只有明确的执行/交付意图进入 `后台 clarifier → /api/runs`；问候、知识问答、解释和歧义输入进入真实 Chat 回答，不创建 Run。它不是语义模型分类器；Chat 中仍可确认执行提案后进入治理运行。舞台按 Kimi Work 的中轴排布：标题、说明、composer、快捷建议居中，不再叠轨道插图。
+- **明确任务提交即开跑（Kimi 式）**：任务不再进入独立的「需求确认」页。`sendTask` 先把明确任务交给后台 clarifier 准备执行方式/预算，返回 readyTask 后立即创建运行并进入任务线程；准备期间只显示任务卡与「正在准备任务」。返回 choices 时先留在任务页，选择后再次 ready 即自动开跑；在途的重复选择被忽略，双击只创建一次运行，刷新不会重放建 run。research 缺来源或项目缺验证命令时停在任务页，保留 `+` 面板补充；open/script 无需 URL。财务模板仍走原问卷。
 - 选中项目后，composer 占位符变成「在『项目名』中要完成什么？」，提交时带 `spec.project_id`。
 - 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
 - 运行视图以任务线程为主体：执行线程常驻；「变更 / 文件」收进右侧扩展栏（rail），主区不被替换。代码变更栏显示文件列表、Patch、应用到原项目与下载；文件栏只读浏览隔离副本（运行期 `.shell-home`/缓存不列）。关闭 rail 或点「执行」回到线程。Work 不再有主区项目卡或看板。

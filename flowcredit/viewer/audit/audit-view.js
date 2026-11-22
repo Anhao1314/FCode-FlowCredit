@@ -127,12 +127,14 @@ export function bundleItemHtml(entry, selected) {
       + (low ? `<b class="l">${esc(String(low))}</b>` : "")
       + "</span>"
     : "";
-  const meta = [`${esc(String(entry.findings ?? 0))} 发现`];
-  if (entry.unhandled) meta.push(`${esc(String(entry.unhandled))} 未处置`);
-  if (entry.ruleset_version) meta.push(`v${esc(String(entry.ruleset_version))}`);
-  meta.push(`${esc(String(entry.evidence ?? 0))} 证据`);
-  if (entry.rea_evidence) meta.push(`${esc(String(entry.rea_evidence))} REA`);
-  return `<button class="at-bitem${sel}" data-dir="${esc(entry.dir)}">`
+  const meta = [`${esc(String(entry.findings ?? 0))} 项发现`];
+  if (entry.unhandled) meta.push(`${esc(String(entry.unhandled))} 项未处置`);
+  meta.push(`${esc(String(entry.evidence ?? 0))} 条证据`);
+  const detail = [
+    entry.ruleset_version ? `规则集 v${entry.ruleset_version}` : "",
+    entry.rea_evidence ? `${entry.rea_evidence} 条 REA 证据` : "",
+  ].filter(Boolean).join(" · ");
+  return `<button class="at-bitem${sel}" data-dir="${esc(entry.dir)}" title="${esc(detail || entry.audit_id || entry.dir)}">`
     + `<span class="at-brow"><span class="at-bid">${esc(entry.audit_id || entry.dir)}</span>${sevChip}</span>`
     + `<span class="at-bmeta">${meta.join(" · ")}</span>`
     + `</button>`;
@@ -249,20 +251,22 @@ export function renderReaFacts(facts) {
   const extras = extra.length
     ? `<div class="at-rea-extra">未声明 entitlement: ${extra.map((item) => `<code>${esc(item)}</code>`).join(" ")}</div>`
     : `<div class="at-rea-ok">entitlements 均在声明范围内</div>`;
-  return `<section class="at-rea-facts">
-    <h2>REA 事实</h2>
-    <div class="at-kv"><span class="k">artifact</span><span class="v mono">${esc(target.artifact_sha256 || "—")}</span></div>
-    <div class="at-kv"><span class="k">operations</span><span class="v">${esc(operations.map(([name]) => name).join(", ") || "—")}</span></div>
-    ${opRows}
-    <div class="at-kv"><span class="k">entitlements</span><span class="v">${esc(entitlements.join(", ") || "—")}</span></div>
-    <div class="at-kv"><span class="k">declared</span><span class="v">${esc(declared.join(", ") || "—")}</span></div>
-    ${extras}
-    ${validationRow}
-    ${sidecarRows ? `<div class="at-kv"><span class="k">sidecars</span><span class="v">${esc(sidecars.map((item) => item.name || "?").join(", "))}</span></div>${sidecarRows}` : ""}
-    ${renderGoDeps(facts)}
-    ${renderEntitlementDiff(facts)}
-    ${renderSidecarDetail(facts)}
-  </section>`;
+  return `<details class="at-rea-facts at-secondary">
+    <summary class="at-secondary-summary"><span>REA 事实</span><span class="at-secondary-hint">${operations.length} 项操作</span></summary>
+    <div class="at-secondary-body">
+      <div class="at-kv"><span class="k">artifact</span><span class="v mono">${esc(target.artifact_sha256 || "—")}</span></div>
+      <div class="at-kv"><span class="k">operations</span><span class="v">${esc(operations.map(([name]) => name).join(", ") || "—")}</span></div>
+      ${opRows}
+      <div class="at-kv"><span class="k">entitlements</span><span class="v">${esc(entitlements.join(", ") || "—")}</span></div>
+      <div class="at-kv"><span class="k">declared</span><span class="v">${esc(declared.join(", ") || "—")}</span></div>
+      ${extras}
+      ${validationRow}
+      ${sidecarRows ? `<div class="at-kv"><span class="k">sidecars</span><span class="v">${esc(sidecars.map((item) => item.name || "?").join(", "))}</span></div>${sidecarRows}` : ""}
+      ${renderGoDeps(facts)}
+      ${renderEntitlementDiff(facts)}
+      ${renderSidecarDetail(facts)}
+    </div>
+  </details>`;
 }
 
 export function renderReaEvidence(bundle, dir = "") {
@@ -278,7 +282,7 @@ export function renderReaEvidence(bundle, dir = "") {
     return `<li><a href="${esc(href)}" target="_blank" rel="noopener">${esc(ref.operation || filename)}</a>`
       + ` <span class="at-mono dim">${esc(String(ref.evidence_id || "").slice(0, 18))}…</span></li>`;
   }).join("");
-  return `<section class="at-rea"><h2>REA 证据</h2><ul class="at-rea-list">${rows}</ul></section>`;
+  return `<details class="at-rea at-secondary"><summary class="at-secondary-summary"><span>REA 证据</span><span class="at-secondary-hint">${refs.length} 条</span></summary><div class="at-secondary-body"><ul class="at-rea-list">${rows}</ul></div></details>`;
 }
 
 export function renderUncovered(bundle) {
@@ -286,7 +290,7 @@ export function renderUncovered(bundle) {
   if (!items.length) return "";
   const rows = items.map((item) => `<li><strong>${esc(item.surface || "?")}</strong>`
     + ` <span class="dim">${esc(item.reason || "")}</span></li>`).join("");
-  return `<section class="at-uncovered"><h2>未覆盖面</h2><ul>${rows}</ul></section>`;
+  return `<details class="at-uncovered at-secondary"><summary class="at-secondary-summary"><span>未覆盖面</span><span class="at-secondary-hint">${items.length} 项</span></summary><div class="at-secondary-body"><ul>${rows}</ul></div></details>`;
 }
 
 export function renderAuthorization(bundle) {
@@ -317,18 +321,20 @@ export function renderAuthorization(bundle) {
   if (rea.facts_schema) reaRows.push(["facts schema", rea.facts_schema]);
   if (toolchain.ruleset_version) reaRows.push(["ruleset", "v" + toolchain.ruleset_version]);
   if (toolchain.replayer) reaRows.push(["replayer", toolchain.replayer]);
-  return `<section class="at-auth">
-    <h2>授权与范围</h2>
-    <div class="at-kv-grid">${kv(rows)}</div>
-    <div class="at-auth-target">
-      <h3>目标</h3>
-      <div class="at-kv-grid">${kv(targetRows)}</div>
+  return `<details class="at-auth at-secondary">
+    <summary class="at-secondary-summary"><span>授权与范围</span><span class="at-secondary-hint">操作员、目标与工具链</span></summary>
+    <div class="at-secondary-body">
+      <div class="at-kv-grid">${kv(rows)}</div>
+      <div class="at-auth-target">
+        <h3>目标</h3>
+        <div class="at-kv-grid">${kv(targetRows)}</div>
+      </div>
+      ${reaRows.length ? `<div class="at-auth-toolchain">
+        <h3>工具链</h3>
+        <div class="at-kv-grid">${kv(reaRows)}</div>
+      </div>` : ""}
     </div>
-    ${reaRows.length ? `<div class="at-auth-toolchain">
-      <h3>工具链</h3>
-      <div class="at-kv-grid">${kv(reaRows)}</div>
-    </div>` : ""}
-  </section>`;
+  </details>`;
 }
 
 export function renderDisposition(finding, dir) {
@@ -340,8 +346,8 @@ export function renderDisposition(finding, dir) {
     })
     .join("");
   return `<div class="at-disp" data-finding="${esc(finding.finding_id || "")}" data-dir="${esc(dir)}">
-    <label class="at-disp-label">operator</label>
-    <select class="at-disp-select" data-finding="${esc(finding.finding_id || "")}">
+    <label class="at-disp-label">操作员处置</label>
+    <select class="at-disp-select" aria-label="操作员处置：${esc(finding.finding_id || "未知发现")}" data-finding="${esc(finding.finding_id || "")}">
       ${options}
     </select>
   </div>`;
@@ -371,10 +377,10 @@ export function renderChain(chain) {
       <span class="at-chain-hash at-mono dim">${esc(String(event.hash || "").slice(0, 12))}…</span>
     </div>`;
   }).join("");
-  return `<section class="at-chain">
-    <h2>Provenance chain ${status} <span class="dim at-mono">(${events.length} events)</span></h2>
-    <div class="at-chain-list">${rows}</div>
-  </section>`;
+  return `<details class="at-chain at-secondary">
+    <summary class="at-secondary-summary"><span>签名链</span><span class="at-chain-status">${status}<span class="at-secondary-hint">${events.length} events</span></span></summary>
+    <div class="at-secondary-body"><div class="at-chain-list">${rows}</div></div>
+  </details>`;
 }
 
 export function renderSpecGap(report) {
@@ -396,13 +402,10 @@ export function renderSpecGap(report) {
       <span class="at-sg-detail">${detail}</span>
     </div>`;
   }).join("");
-  return `<section class="at-sg">
-    <h2>Spec-gap report
-      <span class="at-badge at-ok">${conforms.length} conforms</span>
-      ${undetermined.length ? `<span class="at-badge at-dim">${undetermined.length} undetermined</span>` : ""}
-    </h2>
-    <div class="at-sg-list">${rows}</div>
-  </section>`;
+  return `<details class="at-sg at-secondary">
+    <summary class="at-secondary-summary"><span>Spec-gap report</span><span class="at-secondary-hint">${conforms.length} conforms${undetermined.length ? ` · ${undetermined.length} undetermined` : ""}</span></summary>
+    <div class="at-secondary-body"><div class="at-sg-list">${rows}</div></div>
+  </details>`;
 }
 
 export function renderRegression(reg) {
@@ -424,14 +427,16 @@ export function renderRegression(reg) {
   const prior = reg.prior_audit_id
     ? `<div class="at-kv"><span class="k">prior audit</span><span class="v">${esc(reg.prior_audit_id)}</span></div>`
     : "";
-  return `<section class="at-reg">
-    <h2>回归对比</h2>
-    ${prior}
-    ${section("known", "known", "dim")}
-    ${section("new", "new", "warn")}
-    ${section("fixed", "fixed", "ok")}
-    ${section("regressed", "regressed", "bad")}
-  </section>`;
+  return `<details class="at-reg at-secondary">
+    <summary class="at-secondary-summary"><span>回归对比</span><span class="at-secondary-hint">${["known", "new", "fixed", "regressed"].reduce((total, key) => total + (reg[key] || []).length, 0)} 项</span></summary>
+    <div class="at-secondary-body">
+      ${prior}
+      ${section("known", "known", "dim")}
+      ${section("new", "new", "warn")}
+      ${section("fixed", "fixed", "ok")}
+      ${section("regressed", "regressed", "bad")}
+    </div>
+  </details>`;
 }
 
 export function renderBundle(bundle, records, options = {}) {
@@ -449,34 +454,32 @@ export function renderBundle(bundle, records, options = {}) {
     const outcome = rec ? (replay.outcome || "finding") : "__evidence_missing__";
     const tone = mapOutcome(outcome).tone;
     const markClass = tone === "ok" ? "at-mark-ok" : tone === "bad" ? "at-mark-bad" : "at-mark-dim";
-    return `<div class="at-finding" data-poc="${esc(ref || "")}" data-sev="${esc(severityKey(f.severity))}">
-      <div class="at-frow">
-        <span class="at-mark ${markClass}"></span>
-        <span class="at-ftitle">${esc(f.finding_id)} · ${esc(f.root_cause_group)}</span>
-        <span class="at-cat">${esc(f.category)}</span>
-        <span class="at-sev">${esc(severityLabel(f.severity))}</span>
-        ${f.fingerprint
-          ? `<span class="at-fp at-mono dim" title="stable fingerprint v${
-              esc(String(f.fingerprint_version || 1))}">fp:${esc(String(f.fingerprint).slice(0, 8))}</span>`
-          : ""}
-        ${outcomeBadge(outcome)}
-        ${renderDisposition(f, dir)}
-      </div>
-      <div class="at-fdetail">
-        <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
-        ${f.fingerprint ? `<div class="at-kv"><span class="k">稳定指纹</span><span class="v at-mono">${esc(
-          String(f.fingerprint)
-        )}${f.semantic_fingerprint ? ` · semantic ${esc(String(f.semantic_fingerprint))}` : ""}</span></div>` : ""}
-        <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
-        <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
-        <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>
-        ${(rec || {}).notes ? `<div class="at-kv"><span class="k">证据摘要</span><span class="v">${esc(String(rec.notes).slice(0, 600))}</span></div>` : ""}
-        <div class="at-caps">${capabilityChips(rec ? (rec.capability_manifest || {}).declared : undefined)}</div>
-        <div class="at-kv"><span class="k">重放</span><span class="v">${
-          esc(runsText)
-        } · 阈值 ${esc(replay.threshold || "—")}</span></div>
-      </div>
-    </div>`;
+    return `<article class="at-finding" data-poc="${esc(ref || "")}" data-sev="${esc(severityKey(f.severity))}">
+      <details class="at-fevidence">
+        <summary class="at-frow">
+          <span class="at-mark ${markClass}"></span>
+          <span class="at-ftitle">${esc(f.finding_id)} · ${esc(f.root_cause_group)}</span>
+          <span class="at-cat">${esc(f.category)}</span>
+          <span class="at-sev">${esc(severityLabel(f.severity))}</span>
+          ${outcomeBadge(outcome)}
+        </summary>
+        <div class="at-fdetail">
+          <div class="at-kv"><span class="k">目标</span><span class="v">${esc(sum.target)}</span></div>
+          ${f.fingerprint ? `<div class="at-kv"><span class="k">稳定指纹</span><span class="v at-mono">fp:${esc(String(f.fingerprint).slice(0, 8))} · ${esc(
+            String(f.fingerprint)
+          )}${f.semantic_fingerprint ? ` · semantic ${esc(String(f.semantic_fingerprint))}` : ""}</span></div>` : ""}
+          <div class="at-kv"><span class="k">目标哈希</span><span class="v">${esc(sum.manifest)}</span></div>
+          <div class="at-kv"><span class="k">oracle</span><span class="v">${esc((rec || {}).oracle ? rec.oracle.spec || "—" : "—")}</span></div>
+          <div class="at-kv"><span class="k">负对照</span><span class="v">${esc((rec || {}).negative_control ? rec.negative_control.result || "—" : "—")}</span></div>
+          ${(rec || {}).notes ? `<div class="at-kv"><span class="k">证据摘要</span><span class="v">${esc(String(rec.notes).slice(0, 600))}</span></div>` : ""}
+          <div class="at-caps">${capabilityChips(rec ? (rec.capability_manifest || {}).declared : undefined)}</div>
+          <div class="at-kv"><span class="k">重放</span><span class="v">${
+            esc(runsText)
+          } · 阈值 ${esc(replay.threshold || "—")}</span></div>
+        </div>
+      </details>
+      ${renderDisposition(f, dir)}
+    </article>`;
   }).join("");
 
   const pendingRows = (records || [])
@@ -491,42 +494,36 @@ export function renderBundle(bundle, records, options = {}) {
     }).join("");
 
   const reaFacts = options.reaFacts || null;
-  const rulesetChip = sum.ruleset !== "—"
-    ? `<span class="at-chip">规则集 v${esc(String(sum.ruleset))}</span>` : "";
-  const reaChip = sum.reaVersion !== "—"
-    ? `<span class="at-chip">REA v${esc(String(sum.reaVersion))}</span>` : "";
-  const artifactChip = sum.artifact !== "—"
-    ? `<span class="at-chip">artifact ${esc(sum.artifact)}</span>` : "";
   return `
   <header class="at-bhead">
-    <div class="at-eyebrow">AUDIT LEDGER</div>
     <div class="at-head-row">
       <h1 class="at-title">发现账本</h1>
-      <span class="at-mono dim">${esc(sum.auditId)}</span>
+      <span class="at-audit-id at-mono">${esc(sum.auditId)}</span>
     </div>
-    <div class="at-target at-mono">${esc(sum.target)}</div>
-    <div class="at-meta-chips">
-      <span class="at-chip at-chip-strong">🔗 证据集 ${esc(String(sum.evidence))} 条</span>
-      ${sum.reaEvidence ? `<span class="at-chip">REA ${esc(String(sum.reaEvidence))} 条</span>` : ""}
-      ${rulesetChip}
-      ${reaChip}
-      <span class="at-chip">manifest ${esc(sum.manifest)}</span>
-      ${artifactChip}
-      ${sum.uncovered ? `<span class="at-chip">${esc(String(sum.uncovered))} 个未覆盖面</span>` : ""}
+    <div class="at-target at-mono" title="${esc(sum.target)}">${esc(sum.target)}</div>
+    <div class="at-overview" aria-label="审计概览">
+      <span><strong>${esc(String(sum.findings))}</strong> 项发现</span>
+      <span><strong>${esc(String(sum.evidence))}</strong> 条证据</span>
+      <span><strong>${esc(String(sum.uncovered))}</strong> 个未覆盖面</span>
     </div>
   </header>
-  ${renderAuthorization(bundle)}
-  <div class="at-ledger">
-    ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}
-    ${pendingRows}
+  <section class="at-findings" aria-label="审计发现">
+    <div class="at-section-heading"><h2>发现</h2><span>展开查看证据与重放记录</span></div>
+    <div class="at-ledger">
+      ${findingRows || '<div class="at-none dim">本包内没有晋升的发现</div>'}
+      ${pendingRows}
+    </div>
+  </section>
+  <div class="at-secondary-stack">
+    ${renderAuthorization(bundle)}
+    ${renderReaEvidence(bundle, dir)}
+    ${renderReaFacts(reaFacts)}
+    ${renderUncovered(bundle)}
+    ${options.chain ? renderChain(options.chain) : ""}
+    ${options.specGap ? renderSpecGap(options.specGap) : ""}
+    ${options.regression ? renderRegression(options.regression) : ""}
   </div>
-  ${renderReaEvidence(bundle, dir)}
-  ${renderReaFacts(reaFacts)}
-  ${renderUncovered(bundle)}
-  ${options.chain ? renderChain(options.chain) : ""}
-  ${options.specGap ? renderSpecGap(options.specGap) : ""}
-  ${options.regression ? renderRegression(options.regression) : ""}
-  <div class="at-note dim">UI 只显示证据支持的状态:徽章来自 poc-evidence 的 outcome,不来自任何人的声称。</div>`;
+  <div class="at-note dim">状态仅来自 poc-evidence 的 outcome；处置与证据事件写入签名链。</div>`;
 }
 
 export function renderBundles(entries) {
@@ -662,7 +659,11 @@ export async function init({ fetchImpl = fetch, root = document, host = null,
               const chainRes = await fetchImpl(`/api/audit/chain/${encodeURIComponent(dir)}`);
               if (chainRes.ok) {
                 const chainEl = main.querySelector(".at-chain");
-                if (chainEl) chainEl.outerHTML = renderChain(await chainRes.json());
+                if (chainEl) {
+                  const wasOpen = chainEl.tagName === "DETAILS" && chainEl.open;
+                  chainEl.outerHTML = renderChain(await chainRes.json());
+                  if (wasOpen) main.querySelector(".at-chain").open = true;
+                }
               }
             } catch { /* 链刷新失败不影响处置结果 */ }
           } catch (err) {

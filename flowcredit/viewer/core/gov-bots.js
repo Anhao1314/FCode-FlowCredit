@@ -7,6 +7,7 @@
 
 import { esc, num } from "./format.js";
 import { renderMarkdown } from "./chat-format.js";
+import { aiAvatarHtml } from "./ai-avatar.js";
 
 const AGENT_STATES = new Set(["idle", "thinking", "pending", "ok", "bad"]);
 const AGENT_ROLES = new Set(["auditor", "verifier", "analyst"]);
@@ -25,17 +26,18 @@ export function govAgentAvatarHtml(state = "idle", size = 32, bot = {}) {
   return `<span class="ai-avatar ai-avatar--${key}${key === "thinking" ? " is-thinking" : ""} gov-agent-avatar gov-agent-avatar--${role}" style="--ai-avatar-size:${Number(size) || 32}px" role="img" aria-label="${esc(bot.name || "子代理")}" data-ai-state="${key}" data-agent-role="${role}" data-live="1"><svg class="gov-agent-symbol gov-agent-symbol--${role}" viewBox="0 0 32 32" width="${Number(size) || 32}" height="${Number(size) || 32}" aria-hidden="true">${symbols[role]}</svg>${ring ? `<span class="ai-avatar-ring${key === "pending" ? " is-pending" : ""}" aria-hidden="true"></span>` : ""}<span class="gov-agent-status-dot" aria-hidden="true"></span></span>`;
 }
 
-/* 首页角色编组只呈现编制，不借动画伪造运行状态。待机呼吸与扫描线由
-   governance.css 负责，data-ai-state 始终保持 idle。 */
+/* 首页角色编组只呈现编制，不借动画伪造运行状态。FCode 主伙伴与三个
+   子代理都保持 idle；子代理继续使用自己的职责符号。 */
 export function govHomeCrewHtml() {
   const crew = [
     { id: "auditor", name: "审计员" },
     { id: "verifier", name: "复核员" },
     { id: "analyst", name: "分析员" },
   ];
-  return `<div class="gov-home-crew" aria-label="治理团队：审计员、复核员、分析员">${crew.map(bot =>
+  const agents = `<div class="gov-home-crew" aria-label="治理团队：审计员、复核员、分析员">${crew.map(bot =>
     `<div class="gov-home-agent">${govAgentAvatarHtml("idle", 44, bot)}<span>${esc(bot.name)}</span></div>`
   ).join("")}</div>`;
+  return `<div class="gov-home-cast"><div class="gov-home-companion">${aiAvatarHtml("idle", 72)}<span class="gov-home-companion-label">FCODE</span></div>${agents}</div>`;
 }
 
 const STATUS_LABEL = {

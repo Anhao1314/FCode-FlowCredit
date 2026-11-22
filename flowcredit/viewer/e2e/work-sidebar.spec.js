@@ -100,7 +100,7 @@ test("Work：已删除的项目目录在建 run 前拒绝，清绑定并保留�
       path: project.path, verification: project.verification,
       projectId: project.id, name: project.name,
     });
-    const objective = "保留这条被失效项目阻塞的任务";
+    const objective = "执行任务：保留这条被失效项目阻塞的任务";
     await page.route("**/api/intake", route => route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

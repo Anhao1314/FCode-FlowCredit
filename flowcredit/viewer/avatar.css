@@ -1,0 +1,257 @@
+/* FCode pixel companion — final presentation layer.
+   The sprite is inline SVG; every moving part uses transform or opacity only. */
+
+.ai-avatar-mascot {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  isolation: isolate;
+}
+.ai-avatar-mascot::after { content: none; }
+.ai-avatar-mascot > svg.ai-avatar-sprite {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform-origin: 50% 62%;
+  animation: ai-mascot-idle 3.2s steps(2, end) infinite;
+}
+.ai-avatar-mascot :is(.ai-avatar-bounce, .ai-avatar-arm, .ai-avatar-leg,
+  .ai-avatar-antenna, .ai-avatar-tail, .ai-avatar-ground, .ai-avatar-thoughts,
+  .ai-avatar-confetti) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ai-avatar-mascot .ai-avatar-look {
+  transform: translate(var(--look-x, 0px), var(--look-y, 0px));
+  transition: transform .16s cubic-bezier(.23, 1, .32, 1);
+}
+.ai-avatar-mascot .ai-avatar-eyes { transform-origin: 50% 50%; }
+.ai-avatar-mascot .ai-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ai-mascot-blink 5.6s steps(1, end) infinite;
+}
+.ai-avatar-mascot .ai-avatar-tail {
+  transform-origin: left center;
+  animation: ai-mascot-tail 1.4s steps(2, end) infinite;
+}
+.ai-avatar-mascot .ai-avatar-ground {
+  transform-origin: center;
+  animation: ai-mascot-ground 3.2s steps(2, end) infinite;
+}
+.ai-avatar-mascot .ai-avatar-ring {
+  inset: 1px;
+  border: 1px solid #D97757;
+  border-radius: 8px;
+  opacity: .25;
+  animation: ai-mascot-ring 1.6s ease-in-out infinite;
+}
+.ai-avatar-mascot .ai-avatar-ring.is-pending {
+  border-color: #D97757;
+  opacity: .34;
+  animation-duration: 2.8s;
+}
+
+/* Thinking: quick, restrained keyboard taps and three ascending pixels. */
+.ai-avatar--thinking.ai-avatar-mascot > svg.ai-avatar-sprite {
+  animation: ai-mascot-thinking .72s steps(2, end) infinite;
+}
+.ai-avatar--thinking.ai-avatar-mascot .ai-avatar-scan {
+  animation: ai-mascot-scan 2.2s steps(3, end) infinite;
+}
+.ai-avatar--thinking.ai-avatar-mascot .ai-avatar-arm--left {
+  transform-origin: right top;
+  animation: ai-mascot-type-left .48s steps(2, end) infinite;
+}
+.ai-avatar--thinking.ai-avatar-mascot .ai-avatar-arm--right {
+  transform-origin: left top;
+  animation: ai-mascot-type-right .48s steps(2, end) infinite;
+}
+.ai-avatar--thinking.ai-avatar-mascot .ai-avatar-antenna {
+  animation: ai-mascot-antenna .72s steps(2, end) infinite;
+}
+.ai-avatar-thoughts rect { opacity: 0; animation: ai-mascot-thought 1.2s steps(2, end) infinite; }
+.ai-avatar-thoughts rect:nth-child(2) { animation-delay: .2s; }
+.ai-avatar-thoughts rect:nth-child(3) { animation-delay: .4s; }
+
+/* Pending: one hand is visibly raised; the slow ring mirrors the approval wait. */
+.ai-avatar--pending.ai-avatar-mascot > svg.ai-avatar-sprite {
+  animation: ai-mascot-idle 4.4s steps(2, end) infinite;
+}
+.ai-avatar--pending.ai-avatar-mascot .ai-avatar-arm--right {
+  transform: rotate(-72deg);
+  transform-origin: left top;
+  animation: ai-mascot-wait 1.8s steps(3, end) infinite;
+}
+.ai-avatar--pending.ai-avatar-mascot .ai-avatar-tail { animation-duration: 2.8s; }
+
+/* Success: crouch, jump, raised hands and a short burst of pixel confetti. */
+.ai-avatar--ok.ai-avatar-mascot > svg.ai-avatar-sprite {
+  animation: ai-mascot-celebrate 2.8s cubic-bezier(.2, .75, .3, 1) infinite;
+}
+.ai-avatar--ok.ai-avatar-mascot .ai-avatar-arm--left {
+  transform-origin: right top;
+  animation: ai-mascot-cheer-left 2.8s steps(2, end) infinite;
+}
+.ai-avatar--ok.ai-avatar-mascot .ai-avatar-arm--right {
+  transform-origin: left top;
+  animation: ai-mascot-cheer-right 2.8s steps(2, end) infinite;
+}
+.ai-avatar--ok.ai-avatar-mascot .ai-eye { animation: none; }
+.ai-avatar-confetti rect { opacity: 0; animation: ai-mascot-confetti 2.8s steps(4, end) infinite; }
+.ai-avatar-confetti rect:nth-child(2n) { animation-delay: .08s; }
+.ai-avatar-confetti rect:nth-child(3n) { animation-delay: .16s; }
+
+/* Stopped: lowered shoulders and a small shrug; failed: one short pixel glitch. */
+.ai-avatar--warn.ai-avatar-mascot > svg.ai-avatar-sprite {
+  animation: ai-mascot-stopped 4s steps(2, end) infinite;
+}
+.ai-avatar--warn.ai-avatar-mascot .ai-avatar-arm--left { transform: rotate(9deg) translateY(2px); }
+.ai-avatar--warn.ai-avatar-mascot .ai-avatar-arm--right { transform: rotate(-9deg) translateY(2px); }
+.ai-avatar--bad.ai-avatar-mascot > svg.ai-avatar-sprite {
+  animation: ai-mascot-error 2.8s steps(2, end) infinite;
+}
+.ai-avatar--bad.ai-avatar-mascot .ai-eye { animation: none; }
+.ai-avatar--bad.ai-avatar-mascot .ai-avatar-antenna { transform: rotate(9deg) translateY(1px); }
+.ai-avatar--bad.ai-avatar-mascot .ai-avatar-tail { animation: none; opacity: .45; }
+
+@media (hover: hover) {
+  .ai-avatar-mascot:hover .ai-avatar-arm--right {
+    transform-origin: left top;
+    animation: ai-mascot-wave .72s steps(3, end) 1;
+  }
+}
+
+/* Opening scenes use the same real component, always in an honest idle state. */
+.stage-mascot {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto 18px;
+  filter: drop-shadow(0 9px 12px rgba(91, 48, 34, .12));
+}
+.gov-home-cast {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.gov-home-companion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: var(--text-3);
+  font: 550 10px/1.4 var(--font-mono);
+  letter-spacing: .08em;
+  filter: drop-shadow(0 8px 12px rgba(91, 48, 34, .10));
+}
+.gov-home-cast .gov-home-crew { margin-bottom: 22px; }
+
+@keyframes ai-mascot-idle {
+  0%, 100% { transform: translateY(1px); }
+  50% { transform: translateY(-1.5px); }
+}
+@keyframes ai-mascot-ground {
+  0%, 100% { transform: scaleX(1); opacity: .8; }
+  50% { transform: scaleX(.88); opacity: .48; }
+}
+@keyframes ai-mascot-blink {
+  0%, 91%, 95%, 100% { transform: scaleY(1); }
+  92%, 94% { transform: scaleY(.16); }
+}
+@keyframes ai-mascot-tail {
+  0%, 100% { transform: translateX(0); opacity: .72; }
+  50% { transform: translateX(1.5px); opacity: 1; }
+}
+@keyframes ai-mascot-ring {
+  0%, 100% { transform: scale(.97); opacity: .16; }
+  50% { transform: scale(1.04); opacity: .38; }
+}
+@keyframes ai-mascot-thinking {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+@keyframes ai-mascot-scan {
+  0%, 100% { transform: translateX(-1px); }
+  50% { transform: translateX(1px); }
+}
+@keyframes ai-mascot-type-left {
+  0%, 100% { transform: rotate(-7deg) translateY(0); }
+  50% { transform: rotate(5deg) translateY(2px); }
+}
+@keyframes ai-mascot-type-right {
+  0%, 100% { transform: rotate(7deg) translateY(2px); }
+  50% { transform: rotate(-5deg) translateY(0); }
+}
+@keyframes ai-mascot-antenna {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+@keyframes ai-mascot-thought {
+  0%, 20% { opacity: 0; transform: translateY(3px); }
+  40%, 78% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-3px); }
+}
+@keyframes ai-mascot-wait {
+  0%, 100% { transform: rotate(-72deg); }
+  50% { transform: rotate(-94deg) translateY(-1px); }
+}
+@keyframes ai-mascot-celebrate {
+  0%, 8%, 38%, 100% { transform: translateY(0); }
+  13% { transform: translateY(2px) scaleY(.96); }
+  22% { transform: translateY(-7px) scaleY(1.02); }
+  30% { transform: translateY(0); }
+}
+@keyframes ai-mascot-cheer-left {
+  0%, 10%, 40%, 100% { transform: rotate(0); }
+  16%, 32% { transform: rotate(62deg) translateY(-1px); }
+}
+@keyframes ai-mascot-cheer-right {
+  0%, 10%, 40%, 100% { transform: rotate(0); }
+  16%, 32% { transform: rotate(-62deg) translateY(-1px); }
+}
+@keyframes ai-mascot-confetti {
+  0%, 11%, 55%, 100% { opacity: 0; transform: translateY(5px); }
+  18%, 36% { opacity: 1; transform: translateY(-3px); }
+}
+@keyframes ai-mascot-stopped {
+  0%, 100% { transform: translateY(1px) rotate(0); }
+  50% { transform: translateY(2px) rotate(-1deg); }
+}
+@keyframes ai-mascot-error {
+  0%, 5%, 13%, 100% { transform: translateX(0); }
+  3% { transform: translateX(-2px); }
+  7% { transform: translateX(2px); }
+  10% { transform: translateX(-1px); }
+}
+@keyframes ai-mascot-wave {
+  0%, 100% { transform: rotate(0); }
+  35%, 70% { transform: rotate(-88deg) translateY(-1px); }
+  52%, 86% { transform: rotate(-64deg); }
+}
+
+@media (max-width: 640px) {
+  .stage-mascot { margin-bottom: 14px; }
+  .stage-mascot .ai-avatar-mascot { --ai-avatar-size: 72px !important; }
+  .gov-home-companion { margin-bottom: 12px; }
+  .gov-home-companion .ai-avatar-mascot { --ai-avatar-size: 60px !important; }
+  .gov-home-cast .gov-home-crew { margin-bottom: 20px; }
+}
+
+body.reduce-motion .ai-avatar-mascot *,
+body.reduce-motion .ai-avatar-mascot > svg,
+body.reduce-motion .ai-avatar-mascot .ai-avatar-ring {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-avatar-mascot *,
+  .ai-avatar-mascot > svg,
+  .ai-avatar-mascot .ai-avatar-ring {
+    animation: none !important;
+    transition: none !important;
+  }
+}

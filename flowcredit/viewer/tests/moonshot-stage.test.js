@@ -12,6 +12,16 @@ test("Work opening scene keeps the composer contract and creator message", () =>
   assert.doesNotMatch(html, /stage-prompts|stage-chips|class="stage-foot"/);
 });
 
+test("Work and Chat openings share one live pixel companion without inventing activity", () => {
+  for (const options of [{ work: true }, { chat: true }]) {
+    const html = moonshotStageHtml("开始", options);
+    assert.match(html, /class="stage-mascot"/);
+    assert.match(html, /ai-avatar-mascot/);
+    assert.equal((html.match(/data-ai-state="idle"/g) || []).length, 1);
+    assert.doesNotMatch(html, /is-thinking|ai-avatar-ring/);
+  }
+});
+
 test("Chat gets its own opening message and hides delegation templates", () => {
   const html = moonshotStageHtml("整理思路", { chat: true });
   assert.match(html, /想从哪里/);

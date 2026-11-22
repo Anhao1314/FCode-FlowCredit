@@ -8,7 +8,7 @@ import { createLatestGate, createRunsPoller, settleLatest } from "./core/latest.
 import { resolveModelLabel, traceModelLabel } from "./core/model-label.js";
 import { connectionPresentation, initialConnection, reduceConnection } from "./core/sse-status.js";
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
-import { composerMode, isDirectConversation } from "./core/composer-mode.js";
+import { composerMode, workSubmissionRoute } from "./core/composer-mode.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
@@ -1946,8 +1946,8 @@ async function sendTask() {
     toast("回放模式：用 python3 viewer/server.py 启动后才能派任务");
     return;
   }
-  if (isDirectConversation(text)) {
-    // 纯对话不能创建 Run。复用真实 chat 流生成回答，而不是在前端伪造一句回复。
+  if (workSubmissionRoute(text) === "chat") {
+    // 问候、问答与歧义输入不能创建 Run。复用真实 chat 流回答，而不是伪造回复。
     newChat();
     const chatInput = document.getElementById("composer-ta");
     chatInput.value = text;
@@ -1956,7 +1956,7 @@ async function sendTask() {
   }
   ta.value = "";
   autosize(ta);
-  // Work 的任务提交直接开跑（Kimi 式）：clarifier 在后台准备，就绪即创建运行；
+  // 只有明确任务直接开跑：clarifier 在后台准备，就绪即创建运行；
   // 财务问卷仍走原 intake 页（它确实需要多轮问答）。
   startIntake(text, null, { direct: isGeneralTemplate() });
 }
@@ -6498,8 +6498,8 @@ async function fromFile(file) {
   }
 }
 
-/* 蓝色 AI 脸的“实时”部分：眼睛朝指针轻微偏移。CSS 负责眨眼/呼吸/
-   生成中扫视；系统开启 reduced-motion 时这里也不绑定指针。 */
+/* 像素伙伴的“实时”部分：眼睛朝指针轻微偏移。CSS 负责各状态动作；
+   系统开启 reduced-motion 时这里也不绑定指针。 */
 function bindAvatarMotion() {
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   let frame = 0;

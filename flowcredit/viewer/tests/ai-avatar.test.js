@@ -24,20 +24,26 @@ test("锚定的运行决定状态：只有 succeeded 才算完成", () => {
   assert.equal(avatarStateFor({ status: "done", text: "hi" }), "idle");
 });
 
-test("黑灰脸上只有两只白眼，没有嘴和腮红", () => {
+test("官方像素机器人比例：暖橙机体、两只竖眼、短四肢与 FCode 识别件", () => {
   const html = aiAvatarHtml("idle", 64);
-  assert.match(html, /class="ai-avatar ai-avatar--idle"/);
+  assert.match(html, /class="ai-avatar ai-avatar--idle ai-avatar-mascot"/);
   assert.match(html, /--ai-avatar-size:64px/);
   assert.match(html, /viewBox="0 0 64 64"/);
+  assert.match(html, /shape-rendering="crispEdges"/);
   assert.match(html, /data-ai-state="idle"/);
   assert.match(html, /data-live="1"/);
   assert.equal((html.match(/class="ai-eye"/g) || []).length, 2);
-  assert.equal((html.match(/fill="#FFFFFF"/g) || []).length, 2);
+  assert.match(html, /class="ai-avatar-body"/);
+  assert.match(html, /class="ai-avatar-antenna"/);
+  assert.match(html, /class="ai-avatar-tail"/);
+  assert.match(html, /class="ai-avatar-mouth"/);
+  assert.equal((html.match(/ai-avatar-arm ai-avatar-arm--/g) || []).length, 2);
+  assert.equal((html.match(/ai-avatar-leg ai-avatar-leg--/g) || []).length, 2);
+  assert.match(html, /fill="#D97757"/);
   assert.doesNotMatch(html, /ellipse/);
-  assert.doesNotMatch(html, /opacity=/);
 });
 
-test("两层动效容器分离：指针跟随、生成扫视、眨眼各自一层", () => {
+test("三层动效容器分离：指针跟随、生成扫视、眨眼各自一层", () => {
   const html = aiAvatarHtml("idle", 28);
   assert.match(html, /class="ai-avatar-look"/);
   assert.match(html, /class="ai-avatar-scan"/);
@@ -73,7 +79,7 @@ test("未知状态回落待命，标签仍转义", () => {
   }
 });
 
-test("操作员头像仍是黑白墨盘，不与蓝色 AI 脸混淆", () => {
+test("操作员头像仍是黑白墨盘，不与暖橙像素伙伴混淆", () => {
   const html = userAvatarHtml(28);
   assert.match(html, /class="chat-user-avatar"/);
   assert.match(html, new RegExp(`fill="${AVATAR_INK}"`));

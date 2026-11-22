@@ -93,16 +93,20 @@ test("子代理角色符号:三种职责、状态与身份转义", () => {
   assert.match(escaped, /&lt;img&gt;/);
 });
 
-test("治理首页角色编组:保留三种动画角色且不伪造运行态", () => {
+test("治理首页角色编组:FCode 主伙伴与三种子代理都不伪造运行态", () => {
   const html = govHomeCrewHtml();
-  assert.equal((html.match(/class="gov-home-agent"/g) || []).length, 3);
-  assert.equal((html.match(/data-ai-state="idle"/g) || []).length, 3);
+  const crew = html.slice(html.indexOf('<div class="gov-home-crew"'));
+  assert.match(html, /class="gov-home-companion"/);
+  assert.match(html, /ai-avatar-mascot/);
+  assert.match(html, /class="gov-home-companion-label">FCODE/);
+  assert.equal((crew.match(/class="gov-home-agent"/g) || []).length, 3);
+  assert.equal((crew.match(/data-ai-state="idle"/g) || []).length, 3);
   for (const role of ["auditor", "verifier", "analyst"]) {
-    assert.match(html, new RegExp(`data-agent-role="${role}"`));
+    assert.match(crew, new RegExp(`data-agent-role="${role}"`));
   }
-  assert.match(html, /审计员/);
-  assert.match(html, /复核员/);
-  assert.match(html, /分析员/);
+  assert.match(crew, /审计员/);
+  assert.match(crew, /复核员/);
+  assert.match(crew, /分析员/);
   assert.doesNotMatch(html, /is-thinking|ai-avatar-ring/);
 });
 

@@ -16,7 +16,8 @@ import { defineConfig, devices } from "@playwright/test";
 import globalSetup, { E2E_REPO, prepareE2ERepo } from "./e2e/global-setup.js";
 
 const PORT = Number(process.env.FCODE_E2E_PORT || 8610);
-const stateRoot = join(tmpdir(), "fcode-e2e");
+// 可覆盖端口与状态根，避免本机另一套 E2E 同时运行时互删 SQLite/隔离仓。
+const stateRoot = process.env.FCODE_E2E_STATE_ROOT || join(tmpdir(), "fcode-e2e");
 const runsDir = join(stateRoot, "runs");
 // 每轮 E2E 从干净机器状态开始：清空上一轮的运行/对话/排程/记忆库。
 // 只允许主进程做（TEST_WORKER_INDEX 未定义）：config 在每个 worker
@@ -60,7 +61,7 @@ export default defineConfig({
   webServer: {
     // --repo 指向隔离副本(runtime 走符号链接,审计数据是复制快照);
     // 脚本化 chat 工具让"写文件审批卡"在离线确定性出现。
-    command: `python3 -B viewer/server.py --repo "${repoForServer}" --port 8610 --pace 0`,
+    command: `python3 -B viewer/server.py --repo "${repoForServer}" --port ${PORT} --pace 0`,
     cwd: "..",                     // flowcredit 仓库根(config 位于 viewer/)
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,

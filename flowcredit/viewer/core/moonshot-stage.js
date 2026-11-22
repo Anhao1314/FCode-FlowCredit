@@ -1,6 +1,7 @@
 /* A quiet, task-first opening scene. The stage identifies FCode;
    the composer and the operator's next action remain primary. */
 import { esc } from "./format.js";
+import { aiAvatarHtml } from "./ai-avatar.js";
 
 const SUGGESTIONS = {
   work: [
@@ -26,6 +27,7 @@ export function moonshotStageHtml(note, options = {}) {
     .join("");
   return `<section class="stage-empty moonshot-stage${chat ? " is-chat" : ""}" aria-label="${chat ? "开始对话" : "开始任务"}">
     <div class="moonshot-stage-copy">
+      <div class="stage-mascot">${aiAvatarHtml("idle", 84)}</div>
       <div class="moonshot-kicker"><span class="moonshot-pixel" aria-hidden="true"></span><span>FCODE</span><span class="stage-badge">${mode}</span></div>
       <div class="stage-mark moonshot-title" aria-label="${title.join(" ")}">
         <span class="moonshot-title-line">${title[0]}</span>

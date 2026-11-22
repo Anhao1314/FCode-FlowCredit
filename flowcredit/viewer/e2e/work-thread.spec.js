@@ -46,6 +46,37 @@ test("Work 中的纯问候走对话流，不创建任务", async ({ page }) => {
   expect(taskPosts).toEqual([]);
 });
 
+for (const text of ["早上好呀", "什么是闭包？"]) {
+  test(`Work 中的「${text}」先回答且不创建任务`, async ({ page }) => {
+    const taskPosts = [];
+    let chatPayload = null;
+    page.on("request", request => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "POST" && ["/api/intake", "/api/runs"].includes(path)) taskPosts.push(path);
+    });
+    await page.route("**/api/chat/send", async route => {
+      chatPayload = route.request().postDataJSON();
+      const frames = [
+        ["start", { thread_id: "question-thread", thread_title: text, assistant_id: "a-question" }],
+        ["delta", { text: "这是来自真实对话流的回答。" }],
+        ["done", { message: { id: "a-question", text: "这是来自真实对话流的回答。", usage: {} } }],
+      ];
+      const body = frames.map(([type, data]) => `data: ${JSON.stringify({ type, ...data })}\n\n`).join("");
+      await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body });
+    });
+    await page.goto("/");
+    await expect(page.locator("body")).toHaveAttribute("data-booted", "1");
+    await page.locator("#composer-ta").fill(text);
+    await page.locator("#send").click();
+
+    await expect(page.locator("#main")).toHaveAttribute("data-view", "chat");
+    await expect(page.locator(".chat-msg.user").last()).toContainText(text);
+    await expect(page.locator(".chat-msg.assistant").last()).toContainText("这是来自真实对话流的回答。");
+    expect(chatPayload.text).toBe(text);
+    expect(taskPosts).toEqual([]);
+  });
+}
+
 test("运行中的 Work 回合显示真实动作、活动详情和独立计时", async ({ page }) => {
   const id = "visual-live-thread";
   const started = new Date(Date.now() - 4000).toISOString();

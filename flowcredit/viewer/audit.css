@@ -1,0 +1,496 @@
+/* 审计台最终表现层：概览 → 发现 → 按需展开证据。
+   保留 at-* DOM 契约；视觉只在这里覆盖，不再向基础层追加补丁。 */
+
+#main[data-view="audit"] .main-inner {
+  max-width: 960px;
+  padding: 32px clamp(24px, 4vw, 48px) 64px;
+}
+#main[data-view="audit"] .at-wrap { display: block; }
+#main[data-view="audit"] .at-main { width: 100%; min-width: 0; }
+
+/* 审计概览 */
+#main[data-view="audit"] .at-bhead {
+  margin: 0 0 26px;
+  padding: 0;
+  border: 0;
+}
+#main[data-view="audit"] .at-head-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+}
+#main[data-view="audit"] .at-title {
+  flex: none;
+  margin: 0;
+  color: var(--text-1);
+  font-size: 24px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -.025em;
+}
+#main[data-view="audit"] .at-audit-id {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#main[data-view="audit"] .at-target {
+  margin-top: 7px;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+#main[data-view="audit"] .at-overview {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 16px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#main[data-view="audit"] .at-overview span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+#main[data-view="audit"] .at-overview span + span::before {
+  content: "·";
+  margin: 0 10px;
+  color: var(--text-4);
+}
+#main[data-view="audit"] .at-overview strong {
+  color: var(--text-1);
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 发现列表 */
+#main[data-view="audit"] .at-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+#main[data-view="audit"] .at-section-heading h2 {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+#main[data-view="audit"] .at-section-heading > span {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+#main[data-view="audit"] .at-ledger {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+#main[data-view="audit"] .at-finding {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-left: 0 !important;
+  border-radius: 0;
+  background: transparent;
+}
+#main[data-view="audit"] .at-finding:last-child { border-bottom: 0; }
+#main[data-view="audit"] .at-finding::before { display: none; }
+#main[data-view="audit"] .at-finding:hover { background: transparent; }
+#main[data-view="audit"] .at-fevidence { min-width: 0; }
+#main[data-view="audit"] .at-frow {
+  display: grid;
+  grid-template-columns: 7px minmax(140px, 1fr) auto auto auto 12px;
+  align-items: center !important;
+  gap: 10px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 12px 12px 12px 4px;
+  border-radius: 6px;
+  color: var(--text-1);
+  cursor: pointer;
+  list-style: none;
+  transition: background-color .15s ease;
+}
+#main[data-view="audit"] .at-frow::-webkit-details-marker,
+#main[data-view="audit"] .at-secondary-summary::-webkit-details-marker { display: none; }
+#main[data-view="audit"] .at-frow:hover { background: var(--surface-hover); }
+#main[data-view="audit"] .at-frow:focus-visible,
+#main[data-view="audit"] .at-secondary-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+#main[data-view="audit"] .at-frow::after,
+#main[data-view="audit"] .at-secondary-summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: rotate(45deg) translateY(-2px);
+  transform-origin: center;
+}
+#main[data-view="audit"] .at-fevidence[open] > .at-frow::after,
+#main[data-view="audit"] .at-secondary[open] > .at-secondary-summary::after {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+#main[data-view="audit"] .at-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+#main[data-view="audit"] .at-ftitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#main[data-view="audit"] .at-cat {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.4;
+}
+#main[data-view="audit"] .at-sev {
+  min-width: 24px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+}
+#main[data-view="audit"] .at-badge {
+  height: 22px;
+  padding: 0 7px;
+  border-color: transparent;
+  border-radius: 5px;
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+#main[data-view="audit"] .at-fdetail {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  margin: 0 12px 14px 17px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--panel);
+}
+#main[data-view="audit"] .at-kv {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12px;
+}
+#main[data-view="audit"] .at-kv .k {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+#main[data-view="audit"] .at-kv .v {
+  min-width: 0;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+#main[data-view="audit"] .at-kv .v.at-mono,
+#main[data-view="audit"] .at-kv .v.mono { font-family: var(--font-mono); font-size: 11px; }
+#main[data-view="audit"] .at-caps:empty { display: none; }
+#main[data-view="audit"] .at-cand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+}
+#main[data-view="audit"] .at-cand:hover { background: transparent; }
+
+/* 处置始终在发现行表层，不随证据折叠。 */
+#main[data-view="audit"] .at-disp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: start;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: auto;
+  max-width: 148px;
+  margin: 0;
+  padding: 12px 0 12px 12px;
+}
+#main[data-view="audit"] .at-disp-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+#main[data-view="audit"] .at-disp-select {
+  width: 132px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 25px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--text-2);
+  font: 11.5px var(--font-ui);
+  cursor: pointer;
+}
+#main[data-view="audit"] .at-disp-select:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}
+#main[data-view="audit"] .at-disp-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#main[data-view="audit"] .at-disp-status {
+  flex-basis: 100%;
+  max-width: 132px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+/* 次级证据：完整的审计事实仍在，但默认只占一行。 */
+#main[data-view="audit"] .at-secondary-stack {
+  margin-top: 28px;
+  border-top: 1px solid var(--line);
+}
+#main[data-view="audit"] .at-secondary {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#main[data-view="audit"] .at-secondary-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 12px 4px;
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  transition: color .15s ease, background-color .15s ease;
+}
+#main[data-view="audit"] .at-secondary-summary:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+#main[data-view="audit"] .at-secondary-summary::after {
+  flex: none;
+  margin-left: 8px;
+}
+#main[data-view="audit"] .at-secondary-hint {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+#main[data-view="audit"] .at-secondary-body {
+  min-width: 0;
+  padding: 4px 16px 18px;
+  overflow-wrap: anywhere;
+}
+#main[data-view="audit"] .at-auth-target,
+#main[data-view="audit"] .at-auth-toolchain {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+#main[data-view="audit"] .at-auth h3 {
+  margin: 0 0 9px;
+  color: var(--text-2);
+  font: 500 11px var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+}
+#main[data-view="audit"] .at-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 28px;
+}
+#main[data-view="audit"] .at-kv-grid .at-kv { grid-template-columns: 96px minmax(0, 1fr); }
+#main[data-view="audit"] .at-chain-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+#main[data-view="audit"] .at-chain-status .at-secondary-hint { margin-left: 0; }
+#main[data-view="audit"] .at-chain-list { padding-left: 12px; }
+#main[data-view="audit"] .at-chain-ev {
+  display: grid;
+  grid-template-columns: 24px minmax(120px, 170px) minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: 11.5px;
+}
+#main[data-view="audit"] .at-chain-ev::before { left: -11px; top: 12px; }
+#main[data-view="audit"] .at-chain-type { min-width: 0; overflow-wrap: anywhere; }
+#main[data-view="audit"] .at-chain-detail { min-width: 0; }
+#main[data-view="audit"] .at-chain-hash { font-size: 9.5px; }
+#main[data-view="audit"] .at-rea-op,
+#main[data-view="audit"] .at-sg-row,
+#main[data-view="audit"] .at-reg-row { min-width: 0; overflow-wrap: anywhere; }
+#main[data-view="audit"] .at-expand { max-width: 100%; overflow-x: auto; }
+#main[data-view="audit"] .at-table { min-width: 420px; }
+#main[data-view="audit"] .at-note {
+  margin-top: 18px;
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.6;
+}
+#main[data-view="audit"] .at-none {
+  padding: 26px 12px;
+  border: 0;
+  background: transparent;
+}
+
+/* 右侧审计包索引：选中态只靠浅底色，元数据只留复核所需计数。 */
+.rail[data-rail-mode="ledger"] .rail-body { padding: 8px 12px 24px; }
+.rail[data-rail-mode="ledger"] .at-side { gap: 3px; }
+.rail[data-rail-mode="ledger"] .at-bitem {
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+}
+.rail[data-rail-mode="ledger"] .at-bitem:hover { background: var(--surface-hover); }
+.rail[data-rail-mode="ledger"] .at-bitem.at-sel {
+  border-color: transparent;
+  background: var(--surface-selected);
+  box-shadow: none;
+}
+.rail[data-rail-mode="ledger"] .at-bid {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 500;
+}
+.rail[data-rail-mode="ledger"] .at-bmeta {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.rail[data-rail-mode="ledger"] .at-bsev b {
+  padding: 0 3px;
+  background: transparent;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+@media (max-width: 900px) {
+  #main[data-view="audit"] .main-inner { padding: 24px 22px 52px; }
+  #main[data-view="audit"] .at-kv-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  #main[data-view="audit"] .at-finding { grid-template-columns: minmax(0, 1fr); }
+  #main[data-view="audit"] .at-frow {
+    grid-template-columns: 7px minmax(0, 1fr) auto auto 12px;
+    gap: 8px;
+    padding-right: 4px;
+  }
+  #main[data-view="audit"] .at-frow .at-cat { display: none; }
+  #main[data-view="audit"] .at-disp {
+    justify-self: start;
+    max-width: calc(100% - 20px);
+    padding: 0 4px 12px 19px;
+  }
+  #main[data-view="audit"] .at-fdetail { margin-right: 4px; }
+  #main[data-view="audit"] .at-chain-ev { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  #main[data-view="audit"] .at-chain-detail { display: none; }
+}
+@media (max-width: 620px) {
+  #main[data-view="audit"] .main-inner { padding: 20px 16px 44px; }
+  #main[data-view="audit"] .at-head-row { flex-direction: row !important; }
+  #main[data-view="audit"] .at-title { font-size: 22px; }
+  #main[data-view="audit"] .at-audit-id { font-size: 10px; }
+  #main[data-view="audit"] .at-bhead { margin-bottom: 22px; }
+  #main[data-view="audit"] .at-overview { margin-top: 13px; font-size: 11.5px; }
+  #main[data-view="audit"] .at-overview span + span::before { margin: 0 6px; }
+  #main[data-view="audit"] .at-section-heading > span { display: none; }
+  #main[data-view="audit"] .at-frow { min-height: 54px; }
+  #main[data-view="audit"] .at-ftitle { font-size: 12.5px; }
+  #main[data-view="audit"] .at-badge { padding: 0 5px; font-size: 10px; }
+  #main[data-view="audit"] .at-fdetail { margin-left: 14px; padding: 12px; }
+  #main[data-view="audit"] .at-kv,
+  #main[data-view="audit"] .at-kv-grid .at-kv { grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
+  #main[data-view="audit"] .at-secondary-body { padding-inline: 8px; }
+  #main[data-view="audit"] .at-secondary-summary { gap: 7px; }
+  #main[data-view="audit"] .at-chain-status { gap: 5px; }
+  #main[data-view="audit"] .at-chain-status .at-secondary-hint { display: none; }
+  #main[data-view="audit"] .at-secondary-hint { font-size: 10px; }
+}
+@media (max-width: 390px) {
+  #main[data-view="audit"] .main-inner { padding-inline: 14px; }
+  #main[data-view="audit"] .at-frow { grid-template-columns: 6px minmax(0, 1fr) auto 10px; }
+  #main[data-view="audit"] .at-frow .at-sev { display: none; }
+  #main[data-view="audit"] .at-overview { font-size: 11px; }
+  #main[data-view="audit"] .at-overview span + span::before { margin-inline: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #main[data-view="audit"] .at-frow,
+  #main[data-view="audit"] .at-secondary-summary { transition: none; }
+}

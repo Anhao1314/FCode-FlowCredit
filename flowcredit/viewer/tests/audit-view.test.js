@@ -335,6 +335,25 @@ test("空账本与空列表给出可读空态,而不是空白", () => {
   assert.ok(ledger.includes("没有晋升的发现"));
 });
 
+test("证据与授权默认折叠,处置独立于发现详情", () => {
+  const bundle = {
+    audit_id: "a", target: { identity: "/tmp/app" }, toolchain: {},
+    authorization: { operator: "alice" },
+    findings: [{ finding_id: "F-1", root_cause_group: "g", category: "AGI-05",
+                 severity: "high", poc_refs: ["POC-0001"] }],
+    poc_evidence_refs: ["POC-0001"],
+  };
+  const html = renderBundle(bundle, [{ poc_id: "POC-0001", replay: { outcome: "finding" } }], {
+    chain: { chain_intact: true, events: [{ sequence: 1, type: "task_created", hash: "a" }] },
+  });
+  assert.ok(html.includes('<details class="at-fevidence">'), "发现证据使用原生折叠");
+  assert.ok(html.includes('<details class="at-auth at-secondary">'), "授权默认折叠");
+  assert.ok(html.includes('<details class="at-chain at-secondary">'), "签名链默认折叠");
+  assert.ok(!html.includes(" at-fevidence\" open"), "发现详情不得默认展开");
+  assert.ok(/<\/details>\s*<div class="at-disp"/.test(html), "处置必须留在折叠区外");
+  assert.ok(html.includes('aria-label="操作员处置：F-1"'), "处置控件具有可访问名称");
+});
+
 test("证据缺失:finding 引用的证据不在时显示'证据缺失',绝不兜底成'已验证'", () => {
   const bundle = {
     audit_id: "a", target: {}, toolchain: {},

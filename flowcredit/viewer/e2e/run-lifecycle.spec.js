@@ -93,7 +93,7 @@ test("诚实失败回放、+面板、需求确认、接流与账本", async ({ p
 });
 
 test("Work direct：choices 确认后自动开跑，双击也只创建一次运行", async ({ page }) => {
-  const objective = `E2E direct choices ${Date.now()}`;
+  const objective = `执行任务 E2E direct choices ${Date.now()}`;
   let intakeCalls = 0;
   let runPosts = 0;
   page.on("request", request => {
