@@ -282,7 +282,10 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "COMPUTER_LOOK_LIMIT")
 
     def test_secure_field_regions_are_blacked_out(self) -> None:
-        from PIL import Image
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed; the fail-closed path is covered separately")
 
         with tempfile.TemporaryDirectory() as tmp:
             runtime = self._runtime(

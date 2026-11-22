@@ -76,6 +76,8 @@ python3.12 viewer/server.py --repo .
 
 macOS 自带的 Python 3.9 在当前 Command Line Tools 下可能无法从源码构建 `pyobjc-core`；优先使用 3.11+（项目 CI 覆盖 3.11/3.13）。
 
+`requirements-computer.txt` 同时包含 Pillow：它只用于把安全字段区域涂黑。Pillow 缺失时桌面 `look` 仍可运行，但带安全字段的截图会被删除而不是留下未涂黑证据（fail-closed）。
+
 - 首次使用必须在系统设置里授予 **辅助功能（Accessibility）** 与 **屏幕录制（Screen Recording）**；未授权时返回 `COMPUTER_PERMISSION_DENIED`，不自动绕过 TCC。
 - `look` 只截目标窗口，不截全屏；AX 树按深度/节点数截断，元素 id 用稳定路径（如 `0/3/2`）。
 - `AXSecureTextField` 的值不读取、不可输入；它的 bounds 会在截图落盘前涂黑。
