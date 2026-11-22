@@ -738,6 +738,37 @@ class Handler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
                 return
+            if action == "computer-frame":
+                # Computer-use evidence lives under the run directory, never
+                # the workspace. Only PNG (screen) and JSON (AX tree) are
+                # served, resolved inside `<run>/computer`.
+                query = parse_qs(urlparse(self.path).query)
+                relative = str((query.get("path") or [""])[0] or "").strip()
+                if not relative:
+                    return self._json({"error": "path is required"}, 400)
+                base = (RUNS_DIR / run.id / "computer").resolve()
+                target = (base / relative).resolve()
+                if base not in target.parents or not target.is_file():
+                    return self._json({"error": "computer frame not found"}, 404)
+                content_type = {".png": "image/png", ".json": "application/json"}.get(
+                    target.suffix.lower())
+                if content_type is None:
+                    return self._json({"error": "unsupported computer frame"}, 404)
+                try:
+                    size = target.stat().st_size
+                except OSError:
+                    return self._json({"error": "computer frame not found"}, 404)
+                if size > 20 * 1024 * 1024:
+                    return self._json({"error": "computer frame too large"}, 413)
+                data = target.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             return self._json({"error": "unknown action"}, 404)
         return self._json({"error": "unknown endpoint"}, 404)
 

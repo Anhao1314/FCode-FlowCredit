@@ -33,7 +33,7 @@ __all__ = [
 GENERAL_INSTRUCTION = GENERAL_DOMAIN_INSTRUCTION
 
 APPROVAL_TOOLS = ("write_file", "edit_file", "run_command", "terminal",
-                  "spawn_subagents", "browser_act")
+                  "spawn_subagents", "browser_act", "computer_request")
 
 #: ``report_blocked`` is deliberately *not* an approval tool here. It is a
 #: read-effect declaration whose only consequence is that the runtime stops;
@@ -63,6 +63,7 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         subagent_channel=kwargs.get("subagent_channel"),
         budget_channel=kwargs.get("budget_channel"),
         motion_probe=kwargs.get("motion_probe"),
+        computer=kwargs.get("computer"),
     )
 
 

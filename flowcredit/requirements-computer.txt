@@ -1,0 +1,7 @@
+# Optional dependency for macOS desktop computer use.
+# The runtime stays stdlib-only; without these packages computer_request returns
+# available:false instead of failing a run.
+pyobjc-core>=10.0
+pyobjc-framework-Cocoa>=10.0
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-ApplicationServices>=10.0

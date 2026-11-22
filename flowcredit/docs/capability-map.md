@@ -2,7 +2,7 @@
 
 > 本文档面向两类读者:**想快速判断这个项目深度的工程师/面试官**,和**想复现任何一条能力的使用者**。
 > 规矩沿用项目自己的纪律:每条能力对到**可指出的代码**和**可现场复现的命令**;没有对应证据的,直接写"未覆盖",不凑。
-> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 1,476 项),前端以 `node --test viewer/tests/*.test.js` 为准(418 项)。数字由 CI 在每次提交时重新推导。
+> 数字口径:Python 测试以 `python -m unittest discover -s tests -q` 为准(当前 1,495 项),前端以 `node --test viewer/tests/*.test.js` 为准(435 项)。数字由 CI 在每次提交时重新推导。
 
 ## 一、Agent 应用工程
 
@@ -11,6 +11,7 @@
 | 设计 Agent 执行循环 | `runtime/loop.py`:单轮提议 → 门控 → 执行 → 观测 → 判定,终止策略与多轮驱动分离 | `python demo.py full` 看 9 轮推进 |
 | 工具调用与参数校验 | `tools/registry.py` + `tools/base.py`:声明式 schema,未知键拒绝而非忽略 | `python -m unittest tests.test_security` |
 | 权限与最小授权 | `runtime/permissions.py` 五道检查(注册表/任务范围/授权/效果分级/参数),单一咽喉点 | `python demo.py tool-denied` |
+| 会话级 computer use | `tools/general/computer.py`(主机策略/会话/证据)+ `viewer/computer_sidecar.py`(AX/pyobjc)+ `viewer/browser_external.mjs`(独立 Playwright profile):默认关闭、一次批准、App/域名白名单、安全字段涂黑、坐标/破坏性门控 | `PYTHONPATH=src:viewer python3 -m unittest tests.test_computer_tool` |
 | 上下文与记忆管理 | `memory/context.py`:派生而非累积,观测压缩成决策字段 | 读 `state()` 与 `_summarise()` |
 | 失败处理与未知结果 | `runtime/harness.py`:结果未知不重试,凭签名收据对账;四值词汇表禁止把 FAIL 当"不存在" | `python demo.py unknown` |
 | 成本控制 | `runtime/budget.py` 四维硬预算,发送前扣减(事务级 CAS,并发不可双过) | `python demo.py budget` |
@@ -42,7 +43,7 @@
 | 零依赖 / 可移植 | `pyproject.toml` `dependencies = []`,CI 第一步断言为空;规则用 JSON 不用 YAML | CI "Confirm there is nothing to install" |
 | 数据完整性与密码学用法 | `core/store.py` 序列号 CAS + 追加式事件;`core/hashing.py` canonical JSON(拒 float);`core/receipts.py` HMAC + `compare_digest` | 改一个字节,`load` 抛 `CHAIN_TAMPERED` |
 | 状态机建模 | `core/contracts.py` 显式迁移表,存储层强制 | `test_illegal_transition_is_rejected` |
-| 测试设计 | 1,406 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 418 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
+| 测试设计 | 1,495 项 Python(单元/集成/端到端/真 SIGKILL/对抗用例)+ 435 项前端;Ubuntu/macOS × Py3.11/3.13 | `python -m unittest discover -s tests -q` |
 | 契约即测试 | 证据 Schema 用 stdlib 迷你校验器 enforced;8 类篡改用例(自报 PASS/非宿主 oracle/改环境标志…)全部被拒 | `python -m unittest tests.test_audit_contracts` |
 | 前端基础 | `viewer/`:零构建 ES module、`crypto.subtle` 前端重验哈希、SSE 流式;审计台为统一壳内 surface(`#/audit`)+ `/api/audit/*` 已落地 | `python viewer/server.py --repo .` 后从侧栏「审计台」进入,旧 `/audit.html` 链接 302 到 `#/audit` |
 | 文档能力 | `docs/`:架构、威胁模型、审计方法论、规则指南、外部评审裁决记录(`design-reviews/`) | 随便打开一篇 |

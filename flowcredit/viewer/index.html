@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="design.css?v=93">
 <link rel="stylesheet" href="desktop.css?v=9">
 <link rel="stylesheet" href="chat.css?v=11">
-    <link rel="stylesheet" href="thread.css?v=38">
+    <link rel="stylesheet" href="thread.css?v=39">
     <link rel="stylesheet" href="codex.css?v=2">
     <link rel="stylesheet" href="catalog.css?v=1">
     <link rel="stylesheet" href="governance.css?v=1">
@@ -177,6 +177,10 @@
                 <button class="c-btn" id="fast-btn" aria-pressed="true"
                   title="Fast：一轮多动作 + 原生工具调用；不做逐步审批；项目走隔离副本（worktree），terminal 只能写工作区。点击切换，关闭恢复逐步审批。">
                   <span class="fdot"></span><span id="fast-label">Fast</span>
+                </button>
+                <button class="c-btn" id="computer-btn" aria-pressed="false"
+                  title="允许本次任务申请电脑使用（桌面 App 与外部浏览器）。默认关闭；开启后模型仍需先申请范围，由你批准会话。">
+                  <span class="fdot"></span><span id="computer-label">电脑</span>
                 </button>
                 <div class="grow"></div>
                 <button class="c-btn static run-chip" id="run-chip" hidden title="在轮次边界停止运行（⌘.）">
@@ -436,6 +440,6 @@
 <script src="report.js?v=58"></script>
 <script src="icons-doodle.js?v=54"></script>
   <script src="brand/seal-icons.js"></script>
-  <script src="app.js?v=174" type="module"></script>
+  <script src="app.js?v=176" type="module"></script>
 </body>
 </html>

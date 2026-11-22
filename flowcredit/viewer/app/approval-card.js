@@ -36,10 +36,11 @@ const APPROVAL_VERBS = {
    edit_file / run_command 同属 consequential（能力基线三大件）。 */
 const WRITE_TOOLS = new Set([
   "working_paper_append", "collect_source", "write_document", "write_file",
-  "edit_file", "run_command", "browser_act",
+  "edit_file", "run_command", "browser_act", "computer_request",
 ]);
 const WRITE_VERBS = {
   write_file: "写入", edit_file: "编辑", run_command: "执行", browser_act: "操作浏览器",
+  computer_request: "授权电脑使用",
 };
 
 /* MCP 导入工具默认 consequential：未经主机标注 readonly 的都按写入对待 */
@@ -88,6 +89,23 @@ export function approvalDiffHtml(preview) {
   return `<div class="apv-impact">
     <div class="apv-impact-head">写入影响 · 真实 diff（${esc(stat)}）</div>
     <div class="apv-diff">${lines || '<div class="diff-line ctx">（无内容变化）</div>'}</div>
+  </div>`;
+}
+
+/* computer use 会话申请：范围、时长、动作上限与破坏性开关一次看清 */
+export function approvalComputerHtml(preview) {
+  const scope = (preview && preview.computer) || {};
+  const apps = Array.isArray(scope.apps) && scope.apps.length ? scope.apps.join("、") : "—";
+  const domains = Array.isArray(scope.domains) && scope.domains.length ? scope.domains.join("、") : "—";
+  return `<div class="apv-impact">
+    <div class="apv-impact-head">电脑使用授权 · 会话级</div>
+    <div class="kv">
+      <span class="k">范围</span><span class="v">${esc(scope.mode || "—")} · App ${esc(apps)} · 域名 ${esc(domains)}</span>
+      <span class="k">时长</span><span class="v">${esc(scope.duration_seconds || 0)} 秒 · 最多 ${esc(scope.max_actions || 0)} 个动作</span>
+      <span class="k">危险动作</span><span class="v">${scope.allow_destructive ? "允许（删除/支付/发送等）" : "阻止（默认）"}</span>
+      ${scope.reason ? `<span class="k">理由</span><span class="v">${esc(scope.reason)}</span>` : ""}
+    </div>
+    <div class="apv-note">批准后动作不再逐条询问；安全输入框、密码管理器与范围外窗口仍会被阻止。可随时停止。</div>
   </div>`;
 }
 

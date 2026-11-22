@@ -96,6 +96,80 @@ test("运行中的 Work 回合显示真实动作、活动详情和独立计时",
   await expect(page.locator('[data-thread-item="answer"]')).toHaveCount(0);
 });
 
+test("computer use 的操作证据在线程里显示前后截图与应用上下文", async ({ page }) => {
+  const id = "visual-computer-thread";
+  const started = new Date(Date.now() - 2000).toISOString();
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const shot = name => ({
+    path: `act-${name}.png`,
+    url: `/api/runs/${id}/computer-frame?path=act-${name}.png`,
+    bytes: png.length,
+    sha256: "sha256-demo",
+    width: 800,
+    height: 600,
+  });
+  const snapshot = {
+    task: {
+      id: `task-${id}`, objective: "在 TextEdit 里写入一句话",
+      binding: { scenario: "general-research", spec: { mode: "open", computerUse: true } },
+    },
+    rounds: [{
+      index: 1,
+      proposal: { steps: [{ id: "act", tool: "computer_act",
+        arguments: { action: "click_element", element_id: "0/1" } }] },
+      decision: { allowed: true, code: "PASS", tool: "computer_act" },
+      observation: {
+        tool: "computer_act",
+        arguments: { action: "click_element", element_id: "0/1" },
+        result: {
+          ok: true, action: "click_element", mode: "desktop", target: "0/1",
+          before: shot("before"), after: shot("after"),
+          app: { name: "TextEdit", bundle_id: "com.apple.TextEdit" },
+          window: { title: "未命名" },
+          text: "已保存", duration_ms: 40,
+        },
+        result_hash: "hash-computer",
+      },
+      plan: { revision: 1, todos: [] },
+      plan_after: null,
+    }],
+    events: [
+      event(1, "task_created", started),
+      event(2, "tool_succeeded", started, {
+        round: 1, tool: "computer_act",
+        arguments: { action: "click_element", element_id: "0/1" },
+      }),
+    ],
+    terminal: null,
+  };
+  await page.route("**/api/runs", route => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify([{
+      id, objective: snapshot.task.objective, template: "general-research", status: "running",
+    }]) });
+  });
+  await page.route(`**/api/runs/${id}/stream`, route => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    body: `retry: 5000\n\nevent: snapshot\ndata: ${JSON.stringify({ snapshot, pending: null, finished: false })}\n\n`,
+  }));
+  await page.route("**/computer-frame*", route => route.fulfill({
+    status: 200, contentType: "image/png", body: png,
+  }));
+
+  await page.goto(`/?run=${id}`);
+  const tool = page.locator('[data-thread-item="tool"]').first();
+  await expect(tool.locator(".th-tool-name")).toHaveText("操作电脑");
+  await expect(tool.locator(".th-browser-shot")).toHaveCount(2);
+  await expect(tool.locator('.th-browser-shot img[alt="电脑截图 · 操作前"]')).toHaveCount(1);
+  await expect(tool.locator('.th-browser-shot img[alt="电脑截图 · 操作后"]')).toHaveCount(1);
+  await expect(tool.locator(".th-browser-meta")).toContainText("TextEdit");
+  await expect(tool).toContainText("已保存");
+});
+
 test("成功与失败终态都可回顾真实过程，窄屏没有横向溢出", async ({ page }) => {
   const success = await page.request.post("/api/runs", {
     data: {

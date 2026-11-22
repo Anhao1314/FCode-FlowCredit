@@ -63,6 +63,7 @@ def build_general_tools(
     motion_probe: Any = None,
     repair_policy: bool = False,
     scaffolded_paths: tuple[str, ...] = (),
+    computer: Any = None,
 ) -> list[ToolSpec]:
     """Bind the sandbox, fetcher and command runner to their tool specs.
 
@@ -1224,6 +1225,10 @@ def build_general_tools(
             version="1.0",
         ),
     ]
+    if computer is not None:
+        from .computer import build_computer_tools
+
+        tools.extend(build_computer_tools(computer))
     return tools
 
 

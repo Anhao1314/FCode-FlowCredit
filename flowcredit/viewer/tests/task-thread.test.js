@@ -16,6 +16,7 @@ import {
   threadItemHtml,
   threadItemHtmlMap,
   threadStatus,
+  toolAction,
   toolOutcome,
 } from "../app/task-thread.js";
 
@@ -692,4 +693,15 @@ test("real command output is visible directly and remains escaped", () => {
   assert.match(html, /42 passed/);
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert/);
+});
+
+test("computer 工具:动作标签与目标摘要可读", () => {
+  assert.equal(toolAction("computer_request", { mode: "desktop", apps: ["TextEdit"] }).label,
+    "申请电脑权限");
+  assert.match(toolAction("computer_request", { mode: "desktop", apps: ["TextEdit"] }).target,
+    /desktop/);
+  assert.equal(toolAction("computer_act", { action: "click_element", element_id: "0/1" }).label,
+    "操作电脑");
+  assert.match(toolAction("computer_act", { action: "click_element", element_id: "0/1" }).target,
+    /0\/1/);
 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   fmtCountdown, isWriteLike, approvalVerb, approvalActionTitle,
-  approvalCommandHtml, approvalDiffHtml, approvalImpactHtml,
+  approvalCommandHtml, approvalDiffHtml, approvalImpactHtml, approvalComputerHtml,
 } from "../app/approval-card.js";
 
 test("fmtCountdown:负数截 0,分钟补零", () => {
@@ -61,4 +61,20 @@ test("approvalImpactHtml:影响对象命中目标键,空值行被过滤,值转�
   assert.ok(html.includes("path=ledger&lt;x&gt;.md"), "目标键值必须转义");
   assert.ok(!html.includes(">note<"), "空值参数不进影响区");
   assert.ok(html.includes("extra"));
+});
+
+test("approvalComputerHtml:会话级 scope 一次说清,破坏性默认阻止", () => {
+  assert.ok(isWriteLike("computer_request"));
+  assert.equal(approvalVerb("computer_request"), "授权电脑使用");
+  const html = approvalComputerHtml({ computer: {
+    mode: "both", apps: ["com.apple.TextEdit"], domains: ["example.com"],
+    duration_seconds: 300, max_actions: 30, allow_destructive: false,
+    reason: "整理文档",
+  } });
+  assert.ok(html.includes("电脑使用授权"));
+  assert.ok(html.includes("com.apple.TextEdit"));
+  assert.ok(html.includes("example.com"));
+  assert.ok(html.includes("300 秒"));
+  assert.ok(html.includes("阻止（默认）"));
+  assert.ok(html.includes("整理文档"));
 });

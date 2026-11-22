@@ -15,7 +15,7 @@ import {
 import { isProjectTrace } from "./project-work.js";
 import {
   isWriteLike, approvalActionTitle,
-  approvalCommandHtml, approvalDiffHtml, approvalImpactHtml,
+  approvalCommandHtml, approvalDiffHtml, approvalImpactHtml, approvalComputerHtml,
 } from "./approval-card.js";
 
 export function createThreadSurface(deps) {
@@ -37,6 +37,7 @@ export function createThreadSurface(deps) {
         : "关键步骤：这个动作会改变结论或宣告任务受阻，执行前需要你确认。"),
       approvalPreviewHtml: pending => {
         if (!isWriteLike(pending.tool)) return "";
+        if (pending.preview && pending.preview.computer) return approvalComputerHtml(pending.preview);
         if (pending.preview && pending.preview.command !== undefined) return approvalCommandHtml(pending.preview);
         if (pending.preview && (pending.preview.diff !== undefined || pending.preview.error)) return approvalDiffHtml(pending.preview);
         return approvalImpactHtml(pending.arguments || {});
