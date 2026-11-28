@@ -208,11 +208,11 @@ class SessionIsolationTests(unittest.TestCase):
             self.assertTrue(one._session.startswith("fcode-"))
 
     def test_artifact_dir_is_per_workspace(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            "os.environ", {"FCODE_BROWSER_DIR": ""}
-        ):
-            one = AgentBrowserRunner(pathlib.Path(tmp) / "a",
-                                     artifact_root=pathlib.Path(browser_artifact_dir()))
+        with tempfile.TemporaryDirectory() as tmp:
+            one = AgentBrowserRunner(pathlib.Path(tmp) / "a")
+            # artifact dir 是懒创建的：断言它落在宿主约定的位置，而不是碰运气断言已存在。
+            self.assertTrue(str(one.artifact_root).endswith("fcode-browser"))
+            one._artifact_dir()
             self.assertTrue(one.artifact_root.is_dir())
 
 
