@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 import tempfile
@@ -122,7 +123,7 @@ class KnowledgeSourceEnvTests(unittest.TestCase):
             good = Path(tmp) / "docs"
             good.mkdir()
             missing = Path(tmp) / "missing"
-            raw = f"policy={good}{pathlib.os.pathsep}{missing}"
+            raw = f"policy={good}{os.pathsep}{missing}"
             sources = knowledge_sources_from_env(raw)
             self.assertEqual([item.name for item in sources], ["policy"])
             self.assertEqual(sources[0].root, good.resolve())
