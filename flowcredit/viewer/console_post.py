@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from console_post_chat import (
     post_intake_classify,
+    post_intake_route,
     post_chat_confirm,
     post_chat_tool_decision,
     post_chat_edit,
@@ -605,6 +606,7 @@ _STATIC = {
     "/api/chat/send": post_chat_send,
     "/api/gov/chat/send": post_gov_chat_send,
     "/api/intake/classify": post_intake_classify,
+    "/api/intake/route": post_intake_route,
     "/api/chat/memory": post_chat_memory,
     "/api/schedules": post_schedules_upsert,
     "/api/schedules/delete": post_schedules_delete,

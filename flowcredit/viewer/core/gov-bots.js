@@ -282,11 +282,12 @@ function runStatusLine(bot, run) {
         ? `<span class="gov-state bad">链断裂</span>`
         : `<span class="gov-state">链状态未知</span>`;
     const reg = run.regression || {};
-    const changed = Number(reg.new || 0) + Number(reg.fixed || 0) + Number(reg.regressed || 0);
+    const changed = Number(reg.new || 0) + Number(reg.fixed || 0)
+      + Number(reg.unverified || 0) + Number(reg.regressed || 0);
     return `<div class="gov-bot-result-line">${chain}
       <span>${num(run.events || 0)} 事件</span>
       <span>·</span>
-      <span>${changed ? `回归 new ${num(reg.new || 0)} / fixed ${num(reg.fixed || 0)} / regressed ${num(reg.regressed || 0)}` : "无回归变化"}</span>
+      <span>${changed ? `回归 new ${num(reg.new || 0)} / fixed ${num(reg.fixed || 0)} / unverified ${num(reg.unverified || 0)} / regressed ${num(reg.regressed || 0)}` : "无回归变化"}</span>
     </div>`;
   }
   return `<div class="gov-bot-result-line">

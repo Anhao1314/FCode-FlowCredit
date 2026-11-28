@@ -1073,5 +1073,40 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(final.result["verification"], "file-state-recomputed")
 
 
+class ExploreFirstTests(unittest.TestCase):
+    """C1: the plan is a commitment, not an entry ticket.
+
+    The runtime never required a plan before acting — the round-one plan tax
+    lived only in the prompt. These tests pin the behaviour the new contract
+    promises: a model may explore with plain reads and deliver without ever
+    calling submit_plan; the open-mode plan's built-in ``out`` todo is the
+    only completion anchor the host needs.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.stack = Stack(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self.stack.close()
+        self._tmp.cleanup()
+
+    def test_zero_plan_explore_then_deliver_succeeds(self) -> None:
+        rounds = [
+            (step("ls_workspace", {}), []),
+            (step("read_file", {"path": "stats.py"}), []),
+            (step("write_file", {"path": "SUMMARY.md",
+                                 "content": "# notes\n\nmean() truncates via //.\n"}), []),
+        ]
+        provider, harness, recorder, loop, final = self.stack.run(rounds, max_rounds=6)
+        self.assertEqual(final.status, "succeeded", final.failure)
+        # The whole plan is the host's out todo; the model never added one.
+        ids = [t["id"] for t in final.plan_state["todos"]]
+        self.assertEqual(ids, ["out"])
+        self.assertEqual([t["status"] for t in final.plan_state["todos"]], ["done"])
+        self.assertEqual(final.result["verification"], "file-state-recomputed")
+        verify_trace(recorder.build(harness.store.load(final.id)))
+
+
 if __name__ == "__main__":
     unittest.main()

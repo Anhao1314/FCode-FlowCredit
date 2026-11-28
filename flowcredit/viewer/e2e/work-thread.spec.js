@@ -117,8 +117,10 @@ test("运行中的 Work 回合显示真实动作、活动详情和独立计时",
   const tool = page.locator('[data-thread-item="tool"]');
   await expect(tool).toHaveClass(/running/);
   await expect(tool).toHaveAttribute("data-open", "true");
-  await expect(tool.locator(".th-tool-name")).toHaveText("运行命令");
-  await expect(tool.locator(".th-tool-summary")).toHaveText("npm");
+  await expect(tool.locator(".th-tool-id")).toHaveText("run_command");
+  await expect(tool.locator(".th-tool-target")).toHaveText("(npm test)");
+  await expect(tool.locator(".th-result-text")).toHaveText("…");
+  await expect(tool.locator(".th-mark")).toHaveClass(/running/);
   await expect(tool.locator(".th-code")).toHaveText("npm test");
   await expect(page.locator('[data-thread-item="plan"]')).toHaveAttribute("open", "");
   const clock = page.locator("[data-thread-clock]");
@@ -193,12 +195,74 @@ test("computer use 的操作证据在线程里显示前后截图与应用上下�
 
   await page.goto(`/?run=${id}`);
   const tool = page.locator('[data-thread-item="tool"]').first();
-  await expect(tool.locator(".th-tool-name")).toHaveText("操作电脑");
+  await expect(tool.locator(".th-tool-id")).toHaveText("computer_act");
+  await expect(tool.locator(".th-tool-target")).toHaveText("(click_element · 0/1)");
   await expect(tool.locator(".th-browser-shot")).toHaveCount(2);
   await expect(tool.locator('.th-browser-shot img[alt="电脑截图 · 操作前"]')).toHaveCount(1);
   await expect(tool.locator('.th-browser-shot img[alt="电脑截图 · 操作后"]')).toHaveCount(1);
   await expect(tool.locator(".th-browser-meta")).toContainText("TextEdit");
   await expect(tool).toContainText("已保存");
+});
+
+test("同轮批量只读折叠为可展开分组，写动作独立成行", async ({ page }) => {
+  const id = "visual-batch-group";
+  const started = new Date(Date.now() - 8000).toISOString();
+  const obs = (tool, args, result) => ({ tool, arguments: args, result });
+  const snapshot = {
+    task: { id: `task-${id}`, objective: "读取后修改", binding: { scenario: "general-research", spec: { mode: "open" } } },
+    rounds: [{
+      index: 1,
+      proposal: { steps: [
+        { id: "a", tool: "ls_workspace", arguments: {} },
+        { id: "b", tool: "read_file", arguments: { path: "stats.py" } },
+        { id: "c", tool: "grep_workspace", arguments: { pattern: "mean" } },
+        { id: "d", tool: "edit_file", arguments: { path: "stats.py", old_text: "a", new_text: "b" } },
+      ] },
+      decisions: [{ allowed: true }, { allowed: true }, { allowed: true }, { allowed: true }],
+      observations: [
+        obs("ls_workspace", {}, { entries: [{ path: "stats.py" }] }),
+        obs("read_file", { path: "stats.py" }, { path: "stats.py", bytes: 120 }),
+        obs("grep_workspace", { pattern: "mean" }, { matches: [{ path: "stats.py", line: 5 }] }),
+        obs("edit_file", { path: "stats.py", old_text: "a", new_text: "b" }, { path: "stats.py", bytes: 121 }),
+      ],
+      plan: { revision: 1, todos: [] },
+      plan_after: null,
+    }],
+    events: [
+      event(1, "task_created", started),
+      event(2, "model_started", started, { round: 1 }),
+    ],
+    terminal: null,
+  };
+  await page.route("**/api/runs", route => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify([{
+      id, objective: snapshot.task.objective, template: "general-research", status: "running",
+    }]) });
+  });
+  await page.route(`**/api/runs/${id}/stream`, route => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    body: `retry: 5000\n\nevent: snapshot\ndata: ${JSON.stringify({ snapshot, pending: null, finished: false })}\n\n`,
+  }));
+
+  await page.goto(`/?run=${id}`);
+  const group = page.locator('[data-thread-item="tool-group"]');
+  await expect(group).toHaveCount(1);
+  await expect(group.locator(".th-tool-id").first()).toHaveText("只读侦察");
+  await expect(group.locator(".th-tool-target").first()).toHaveText("(×3)");
+  await expect(group.locator(".th-result-text").first()).toContainText("等 3 项");
+  // 默认折叠：成员行不可见；点头部展开后三个 ⏺ 成员出现。
+  await expect(group).toHaveAttribute("data-open", "false");
+  await expect(group.locator(".th-group-body .th-tool").first()).not.toBeVisible();
+  await group.locator(".th-tool-head").first().click();
+  await expect(group).toHaveAttribute("data-open", "true");
+  await expect(group.locator(".th-group-body .th-tool")).toHaveCount(3);
+  await expect(group.locator(".th-group-body .th-tool").first()).toBeVisible();
+  // 写动作独立成行，带常驻 diff。
+  const edit = page.locator('[data-thread-item="tool"]', { hasText: "edit_file" });
+  await expect(edit).toHaveCount(1);
+  await expect(edit.locator(".th-inline-diff")).toBeVisible();
 });
 
 test("成功与失败终态都可回顾真实过程，窄屏没有横向溢出", async ({ page }) => {

@@ -36,6 +36,20 @@ def evidence_set_hash(records: list[dict]) -> str:
     return digest.hexdigest()
 
 
+def coverage_hash(coverage: dict | None) -> str:
+    """Content-address the rule coverage ledger."""
+    return hashlib.sha256(
+        json.dumps(coverage or {}, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def external_tools_hash(tools: list[dict] | None) -> str:
+    """Content-address the external-tool evidence summary."""
+    return hashlib.sha256(
+        json.dumps(tools or [], sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
 def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
                  manifest_sha256: str, operator: str, scope: str, granted_at: str,
                  sessions: list[dict], toolchain: dict, poc_records: list[dict],
@@ -48,6 +62,9 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
                  target_profile: str | None = None,
                  rea_facts_ref: dict | None = None,
                  rea_control_facts_ref: dict | None = None,
+                 coverage: dict | None = None,
+                 external_tools: list[dict] | None = None,
+                 external_tool_refs: list[dict] | None = None,
                  regression: dict | None = None) -> dict:
     target = {
         "identity": target_identity,
@@ -78,6 +95,9 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
         "poc_evidence_refs": [record["poc_id"] for record in poc_records],
         "findings": findings,
         "uncovered_surfaces": uncovered_surfaces,
+        **({"coverage": coverage} if coverage else {}),
+        **({"external_tools": external_tools} if external_tools else {}),
+        **({"external_tool_refs": external_tool_refs} if external_tool_refs else {}),
         **({"regression": regression} if regression else {}),
         "rea_evidence_refs": rea_evidence_refs or [],
         **({"rea_facts_ref": rea_facts_ref} if rea_facts_ref else {}),
@@ -85,6 +105,9 @@ def build_bundle(*, audit_id: str, target_identity: str, target_version: str,
            if rea_control_facts_ref else {}),
         "chain_verification": {
             "head_hash": evidence_set_hash(poc_records),
+            **({"coverage_sha256": coverage_hash(coverage)} if coverage else {}),
+            **({"external_tools_sha256": external_tools_hash(external_tools)}
+               if external_tools else {}),
             "command": (
                 "python -m flowaudit.cli verify-bundle <bundle.json> "
                 "--evidence <dir> — validates the manifest and every "

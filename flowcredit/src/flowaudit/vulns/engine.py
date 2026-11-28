@@ -73,28 +73,55 @@ def active_rules(ruleset: dict) -> list[Rule]:
     return [rule for rule in ruleset["rules"].values() if rule.active]
 
 
-def static_scan(root: Path, ruleset: dict) -> list[Candidate]:
+def static_scan(root: Path, ruleset: dict,
+                coverage: list[dict[str, Any]] | None = None) -> list[Candidate]:
     """Run every active static trigger over the target copy.
 
     Dynamic (probe) triggers are out of scope here; the scan simply skips
     them, so the same ruleset drives both static and dynamic phases.
+
+    When ``coverage`` is supplied, one record per active static rule is
+    appended. The distinction that matters is ``executed`` (the glob matched
+    files and they were read) versus ``not_applicable`` (no file matched):
+    a rule that never saw an input must never be read as "clean".
     """
     candidates: list[Candidate] = []
     for rule in active_rules(ruleset):
         trigger = rule.trigger
         if trigger.get("type") != "static":
             continue
+        record: dict[str, Any] = {
+            "rule_id": rule.id,
+            "category": rule.category,
+            "root_cause_group": rule.root_cause_group,
+            "trigger": "static",
+            "file_glob": str(trigger.get("file_glob") or "*"),
+            "status": "not_applicable",
+            "files_seen": 0,
+            "files_scanned": 0,
+            "candidates": 0,
+            "reason": "",
+        }
         patterns = [re.compile(p) for p in trigger.get("any_of", [])]
         if not patterns:
+            record.update(status="error", reason="static rule has no patterns")
+            if coverage is not None:
+                coverage.append(record)
             continue
+        files = [path for path in sorted(Path(root).rglob(record["file_glob"]))
+                 if path.is_file()]
+        record["files_seen"] = len(files)
         evidence: list[dict] = []
-        for path in sorted(Path(root).rglob(trigger.get("file_glob", "*"))):
-            if not path.is_file():
-                continue
+        scanned = 0
+        read_errors = 0
+        truncated = False
+        for path in files:
             try:
                 lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
             except OSError:
+                read_errors += 1
                 continue
+            scanned += 1
             for number, line in enumerate(lines, start=1):
                 if any(p.search(line) for p in patterns):
                     evidence.append({
@@ -105,7 +132,23 @@ def static_scan(root: Path, ruleset: dict) -> list[Candidate]:
                     if len(evidence) >= 5:
                         break
             if len(evidence) >= 5:
+                truncated = len(files) > scanned
                 break
+        record["files_scanned"] = scanned
+        if not files:
+            record["reason"] = f"no files matched {record['file_glob']!r}"
+        elif scanned == 0:
+            record.update(
+                status="error",
+                reason=f"all {read_errors} matched files were unreadable",
+            )
+        else:
+            record["status"] = "executed"
+            record["candidates"] = 1 if evidence else 0
+            if truncated:
+                record["reason"] = "evidence cap reached; remaining files not scanned"
+        if coverage is not None:
+            coverage.append(record)
         if evidence:
             candidates.append(Candidate(rule=rule, evidence=evidence))
     return candidates
@@ -221,8 +264,15 @@ def _rea_evidence(facts: dict, operation: str, selector: str,
     }
 
 
-def rea_scan(facts: dict[str, Any], ruleset: dict) -> list[Candidate]:
-    """Match active ``trigger.type == "rea"`` rules against pinned facts."""
+def rea_scan(facts: dict[str, Any], ruleset: dict,
+             coverage: list[dict[str, Any]] | None = None) -> list[Candidate]:
+    """Match active ``trigger.type == "rea"`` rules against pinned facts.
+
+    ``not_applicable`` means the selector's top-level surface is absent from
+    the facts document (e.g. a repo audit with no ``web_scan``). An empty list
+    under an existing surface is ``executed`` with zero candidates: the rule
+    looked at real input and found nothing.
+    """
     candidates: list[Candidate] = []
     for rule in active_rules(ruleset):
         trigger = rule.trigger
@@ -235,14 +285,38 @@ def rea_scan(facts: dict[str, Any], ruleset: dict) -> list[Candidate]:
             operation_facts = (facts.get("operations") or {}).get(operation) or {}
             root = operation_facts.get("facts") or {}
         selector = str(trigger.get("selector") or "")
-        value = _resolve(root, selector)
         predicate = trigger.get("predicate")
-        if not isinstance(predicate, dict) or not _predicate(value, predicate):
-            continue
-        candidates.append(Candidate(
-            rule=rule,
-            evidence=[_rea_evidence(facts, operation, selector, value)],
-        ))
+        record: dict[str, Any] = {
+            "rule_id": rule.id,
+            "category": rule.category,
+            "root_cause_group": rule.root_cause_group,
+            "trigger": "rea",
+            "operation": operation,
+            "selector": selector,
+            "status": "not_applicable",
+            "candidates": 0,
+            "reason": "",
+        }
+        if not selector:
+            record.update(status="error", reason="rea rule has no selector")
+        elif not isinstance(predicate, dict):
+            record.update(status="error", reason="rea rule has no predicate")
+        else:
+            surface = selector.split(".", 1)[0]
+            surface_present = isinstance(root, dict) and surface in root
+            value = _resolve(root, selector)
+            matched = surface_present and _predicate(value, predicate)
+            record["status"] = "executed" if surface_present else "not_applicable"
+            record["candidates"] = 1 if matched else 0
+            if not surface_present:
+                record["reason"] = f"selector surface {surface!r} absent from facts"
+            if matched:
+                candidates.append(Candidate(
+                    rule=rule,
+                    evidence=[_rea_evidence(facts, operation, selector, value)],
+                ))
+        if coverage is not None:
+            coverage.append(record)
     return candidates
 
 def ruleset_summary(ruleset: dict) -> dict[str, Any]:

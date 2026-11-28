@@ -168,7 +168,7 @@ class Stack:
         )
 
     def run(self, rounds, *, max_rounds: int = 12, registry=None, verification="__from_world__",
-            task_id: str = "task-verify"):
+            task_id: str = "task-verify", plan_extension: bool | None = None):
         provider = PlannedProvider(rounds)
         harness = self.harness(provider, registry=registry, verification=verification)
         scenario = get_scenario("general-research")
@@ -181,12 +181,14 @@ class Stack:
             grant=scenario.grant,
         )
         recorder = TraceRecorder(harness.store, provider_name=provider.name, model_name=provider.model)
+        loop_kwargs = {} if plan_extension is None else {"plan_extension": plan_extension}
         final = Loop(
             harness,
             planner=GENERAL_DOMAIN.make_planner(self.world),
             max_rounds=max_rounds,
             observer=recorder,
             result_tools=GENERAL_DOMAIN.result_tools,
+            **loop_kwargs,
         ).run(task.id)
         return provider, harness, recorder, final
 
@@ -417,9 +419,20 @@ class NegativeTests(unittest.TestCase):
         ]
 
     def test_e1_negative_claimed_success_does_not_override_a_failing_test(self) -> None:
-        """DECISIVE. A `succeeded` here is a test failure."""
+        """DECISIVE. A `succeeded` here is a test failure.
+
+        W3: the first failed verification no longer kills the run — the host
+        feeds the exit code and output tail back and the model gets bounded
+        repair rounds. This scripted model ignores the feedback and re-claims;
+        after the repair budget is gone the *original* verification failure is
+        what terminates the run, and every attempt is on the chain.
+        """
         stack = Stack(self._tmp.name, spec_with(DECLARATION))
-        provider, harness, recorder, final = stack.run(self._rounds(), max_rounds=8)
+        rounds = self._rounds() + [
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
+        ]
+        provider, harness, recorder, final = stack.run(rounds, max_rounds=8)
         events = stack.events(harness, final)
 
         self.assertEqual(final.status, "failed", "a false success claim was accepted")
@@ -427,13 +440,25 @@ class NegativeTests(unittest.TestCase):
         self.assertIsNone(final.result)
         kinds = [e["type"] for e in events]
         self.assertNotIn("task_succeeded", kinds)
-        # The failing evidence is on the chain, and so is the refusal to pass.
+        # The failing evidence is on the chain, and so is every refusal to pass.
         runs = [e for e in events if e["type"] == "tool_succeeded"
                 and e["payload"]["detail"]["tool"] == "run_command"]
-        self.assertEqual(runs[-1]["payload"]["detail"]["result"]["exit_code"], 1)
+        exits = [e["payload"]["detail"]["result"]["exit_code"] for e in runs]
+        self.assertTrue(exits and set(exits) == {1}, exits)
         verdicts = [e for e in events if e["type"] == "verification_result"]
-        self.assertEqual(len(verdicts), 1)
-        self.assertIs(verdicts[0]["payload"]["detail"].get("verified"), False)
+        self.assertEqual(len(verdicts), 3)
+        self.assertTrue(all(v["payload"]["detail"].get("verified") is False for v in verdicts))
+        # Bounded repair: exactly two feedback rounds, each on the chain with
+        # its attempt number; the third failure aborts without a third offer.
+        repairs = [e for e in events if e["type"] == "verification_repair_requested"]
+        self.assertEqual([e["payload"]["detail"]["attempt"] for e in repairs], [1, 2])
+        # The feedback actually reached the model: the first repair round's
+        # context carries the failed command and its exit code.
+        fed_back = [c for c in provider.contexts if "verification_failures" in c]
+        self.assertTrue(fed_back)
+        failure = fed_back[0]["verification_failures"][-1]
+        self.assertEqual(failure["exit_code"], 1)
+        self.assertIn("test_stats.py", failure["command"])
         # The artifact really was written — that is exactly why file state alone
         # was never enough.
         self.assertTrue((stack.ws / "SUMMARY.md").exists())
@@ -451,6 +476,10 @@ class NegativeTests(unittest.TestCase):
             (step("run_command", {"command": "python3", "args": ["always_ok.py"]}), []),
             (step("write_file", {"path": "SUMMARY.md",
                                  "content": "# Done\n\nI ran a check and it passed.\n"}), []),
+            # W3 repair rounds: the scripted model keeps re-running the declared
+            # check (which still fails) until the repair budget is exhausted.
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
         ]
         provider, harness, recorder, final = stack.run(rounds, max_rounds=8)
         self.assertEqual(final.status, "failed", final.result)
@@ -459,8 +488,10 @@ class NegativeTests(unittest.TestCase):
         exits = [e["payload"]["detail"]["result"]["exit_code"] for e in events
                  if e["type"] == "tool_succeeded"
                  and e["payload"]["detail"]["tool"] == "run_command"]
-        # The irrelevant run passed (0); the declared obligation still failed (1).
-        self.assertEqual(exits, [0, 1])
+        # The irrelevant run passed (0); every declared-obligation run after it
+        # failed (1) — substitution never became a pass, even across repairs.
+        self.assertEqual(exits[:2], [0, 1])
+        self.assertEqual(set(exits[1:]), {1})
         stack.close()
 
     def test_declaring_nothing_cannot_pass_a_declared_obligation(self) -> None:
@@ -469,10 +500,16 @@ class NegativeTests(unittest.TestCase):
         rounds = [
             (step("ls_workspace", {}), [add("r_list", "ls_workspace")]),
             (step("write_file", {"path": "SUMMARY.md", "content": "# All good\n"}), []),
+            # W3 repair budget, exhausted honestly: still no pass.
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
         ]
         provider, harness, recorder, final = stack.run(rounds, max_rounds=6)
         self.assertEqual(final.status, "failed")
         self.assertEqual(final.failure["code"], "RESULT_VERIFICATION_FAILED")
+        repairs = [e for e in stack.events(harness, final)
+                   if e["type"] == "verification_repair_requested"]
+        self.assertEqual(len(repairs), 2)
         stack.close()
 
 
@@ -625,6 +662,9 @@ class ReplayTests(unittest.TestCase):
         rounds = [
             (step("ls_workspace", {}), [add("f_list", "ls_workspace")]),
             (step("write_file", {"path": "SUMMARY.md", "content": "# claimed fixed\n"}), []),
+            # W3 repair budget, exhausted honestly: still no pass.
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
+            (step("run_command", {"command": "python3", "args": ["test_stats.py"]}), []),
         ]
         provider, harness, recorder, final = stack.run(rounds, max_rounds=6)
         self.assertEqual(final.status, "failed")
@@ -633,9 +673,91 @@ class ReplayTests(unittest.TestCase):
         reloaded = reopened.load(final.id)
         self.assertEqual(reloaded.status, "failed")
         self.assertEqual(reloaded.failure["code"], "RESULT_VERIFICATION_FAILED")
-        verdicts = [e for e in reopened.events(final.id) if e["type"] == "verification_result"]
+        events = reopened.events(final.id)
+        verdicts = [e for e in events if e["type"] == "verification_result"]
         self.assertIs(verdicts[0]["payload"]["detail"]["verified"], False)
+        # The repair round survives replay: it is a chain event, not loop state.
+        repairs = [e for e in events if e["type"] == "verification_repair_requested"]
+        self.assertEqual([e["payload"]["detail"]["attempt"] for e in repairs], [1, 2])
         reopened.close()
+
+
+class RepairLoopTests(unittest.TestCase):
+    """W3: a failed host verification is feedback, not a death sentence.
+
+    The scripted model claims success while ``stats.py`` is still broken. The
+    host feeds the failed run (command, exit code, bounded output tail) back
+    into the next round's context; the model edits the real bug; the next
+    verification passes. A run that used to die on the first failed check now
+    finishes green — with every attempt on the chain.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_a_failed_verification_is_repaired_and_then_passes(self) -> None:
+        stack = Stack(self._tmp.name, spec_with(DECLARATION))
+        self.assertFalse(stack.tests_pass(), "the fixture must start broken")
+        rounds = [
+            (step("ls_workspace", {}), [add("w_list", "ls_workspace")]),
+            # The false claim: artifact written, nothing fixed.
+            (step("write_file", {"path": "SUMMARY.md", "content": "# claimed fixed\n"}), []),
+            # The repair round: the model acts on the feedback and fixes the bug.
+            (step("edit_file", {
+                "path": "stats.py",
+                "old_text": "    return sum(values) // len(values)",
+                "new_text": "    return sum(values) / len(values)",
+            }), []),
+        ]
+        provider, harness, recorder, final = stack.run(rounds, max_rounds=8)
+        events = stack.events(harness, final)
+
+        self.assertEqual(final.status, "succeeded", final.failure)
+        # Two verification attempts, on the chain, in order: fail then pass.
+        obligations = [e for e in events if e["type"] == "verification_obligation"]
+        self.assertEqual(len(obligations), 2)
+        verdicts = [e for e in events if e["type"] == "verification_result"]
+        self.assertEqual([v["payload"]["detail"].get("verified") for v in verdicts],
+                         [False, True])
+        repairs = [e for e in events if e["type"] == "verification_repair_requested"]
+        self.assertEqual([e["payload"]["detail"]["attempt"] for e in repairs], [1])
+        # The repair round's context carried the failed command, its exit code
+        # and the real assertion failure — not a summary of one.
+        fed_back = [c for c in provider.contexts if "verification_failures" in c]
+        self.assertEqual(len(fed_back), 1)
+        failure = fed_back[0]["verification_failures"][-1]
+        self.assertEqual(failure["exit_code"], 1)
+        self.assertIn("test_stats.py", failure["command"])
+        self.assertIn("AssertionError", failure["output"])
+        # The terminal result reports the run that actually decided success.
+        self.assertEqual(final.result["obligations"][0]["exit_code"], 0)
+        verify_trace(recorder.build(harness.store.load(final.id)))
+        # Independent inspection: the fix is on disk, not just in the chain.
+        self.assertIn("sum(values) / len(values)",
+                      (stack.ws / "stats.py").read_text(encoding="utf-8"))
+        self.assertTrue(stack.tests_pass())
+        stack.close()
+
+    def test_a_domain_without_plan_extension_aborts_on_the_first_failure(self) -> None:
+        """Blueprint semantics are frozen: no extension path, no repair loop."""
+        stack = Stack(self._tmp.name, spec_with(DECLARATION))
+        rounds = [
+            (step("ls_workspace", {}), [add("b_list", "ls_workspace")]),
+            (step("write_file", {"path": "SUMMARY.md", "content": "# claimed\n"}), []),
+        ]
+        provider, harness, recorder, final = stack.run(
+            rounds, max_rounds=6, plan_extension=False)
+        events = stack.events(harness, final)
+        self.assertEqual(final.status, "failed")
+        self.assertEqual(final.failure["code"], "RESULT_VERIFICATION_FAILED")
+        self.assertEqual(
+            len([e for e in events if e["type"] == "verification_result"]), 1)
+        self.assertEqual(
+            len([e for e in events if e["type"] == "verification_repair_requested"]), 0)
+        stack.close()
 
 
 class UnchangedBehaviourTests(unittest.TestCase):

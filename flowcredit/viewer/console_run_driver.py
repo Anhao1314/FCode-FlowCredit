@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from console_common import DOMAIN_KEY, TERMINAL_STATUS, _scaled_budget_for_prices
+from flowagent.runtime.budget import find_budget_request, plan_adjustment, replay_limits
 from console_budget_extension import BudgetChannel
 from console_subagents import SubagentChannel
 from console_run_budget import budget_summary
@@ -63,6 +64,7 @@ class RunDriver:
         *,
         resume_limits=None,
         extra_rounds: int = 6,
+        resume_request_id: str | None = None,
         recover_unknown: bool = False,
         recover_pending=None,
     ) -> None:
@@ -71,6 +73,7 @@ class RunDriver:
         self.rt = manager.runtime
         self.resume_limits = resume_limits
         self.extra_rounds = extra_rounds
+        self.resume_request_id = str(resume_request_id or "")
         #: Operator-confirmed recovery of an unknown model outcome. It reuses
         #: the operator's limits (and trace seeding) but must NOT go through
         #: ``harness.resume`` — that entry only accepts ``failed`` tasks.
@@ -206,9 +209,16 @@ class RunDriver:
             max_completion = int(getattr(provider, "max_completion_tokens", 512) or 512)
             if price is not None:
                 limits = rt.BudgetLimits(**_scaled_budget_for_prices(limits, price, max_completion))
-        self.limits = limits
-        #: 延展封底参照的原始上限(价格缩放后的定稿值)——通道懒解析它。
+        #: 延展封底参照的原始上限：Run 创建时价格缩放后的不可变值。
         self.base_limits = limits
+        self.limits = limits
+        self._budget_diagnostics: list[dict[str, Any]] = []
+        self._rounds_base = self._initial_rounds()
+        self._resume_adjustment = None
+        self._resume_rounds = None
+        self._resume_duplicate = False
+        if self.run.task_id:
+            self._replay_existing_budget()
         # Fast runs opt into the batch/native contract; `fastProfile` lets the
         # experiment compare JSON batching (`general-fast`) with native tools
         # (`general-fast-native`, the default).
@@ -223,7 +233,7 @@ class RunDriver:
             registry=registry,
             provider=provider,
             world=self.world,
-            limits=limits,
+            limits=self.limits,
             receipts=self.receipts,
             verifier=lambda observation: self.module.verify(self.world, observation),
             state_fn=self.module.summarize_state,
@@ -257,6 +267,7 @@ class RunDriver:
             preview=self._approval_preview if self.sandbox is not None else None,
             classify_consequential=self._classify_consequential,
             persist=self.manager._write_meta,
+            base_limits=self.base_limits,
         )
         self.run.controller = self.control
         if self.general:
@@ -292,9 +303,17 @@ class RunDriver:
 
     def _build_world(self):
         kwargs = {}
+        self.coding_contract = None
+        self.contract_baseline: dict[str, str] = {}
         if self.general:
             self._seed_workspace_copy()
             self.sandbox = self.rt.WorkspaceSandbox(self.run_dir / "workspace")
+            contract_spec = (self.run.spec or {}).get("codingContract")
+            if contract_spec is not None:
+                # Raw spec dict: the world normalizes once, and everything
+                # downstream (prompt, binding, gate) reads that same normalized
+                # policy back off the world so no second parser can disagree.
+                kwargs["coding_contract"] = contract_spec
             project_spec = (self.run.spec or {}).get("project")
             if project_spec:
                 project_path = self.run_dir / "project.json"
@@ -336,9 +355,24 @@ class RunDriver:
                     run_id=self.run.id,
                 )
                 kwargs["computer"] = self.computer
-        return self.module.create_world(
+            # Host-configured knowledge roots (R1): the operator names them in
+            # the environment, never the model or the run spec.
+            from flowagent.tools.general.knowledge import knowledge_sources_from_env
+
+            self.knowledge_sources = knowledge_sources_from_env()
+            if self.knowledge_sources:
+                kwargs["knowledge_sources"] = self.knowledge_sources
+        world = self.module.create_world(
             partial=self.scenario.partial_corpus, spec=self.run.spec or {}, **kwargs,
         )
+        if self.general:
+            # One source of truth: prompt text, binding and the completion gate
+            # all project this same normalized dict the tools enforce.
+            self.coding_contract = getattr(world, "coding_contract", None)
+            self.contract_baseline = dict(
+                getattr(world, "contract_baseline", {}) or {}
+            )
+        return world
 
     def _try_worktree(self, project_spec: dict) -> bool:
         """Fast-mode workspace: git worktree instead of a full copy.
@@ -422,16 +456,49 @@ class RunDriver:
 
             instruction = (instruction or "") + "\n\n" + COMPUTER_USE_INSTRUCTION
 
+        # Coding contract (W2): the enforced policy, stated to the model in the
+        # same normalized form the tools and the terminal gate hold. Text only —
+        # the verdict comes from the gate, never from the model obeying prose.
+        contract = getattr(self, "coding_contract", None)
+        if contract:
+            from flowagent.tools.general.coding_contract import (
+                coding_contract_instruction,
+            )
+
+            instruction = (instruction or "") + "\n\n" + coding_contract_instruction(contract)
+
         # 验证目标：模型需要知道成功的判定标准
         verification = (self.run.spec or {}).get("verification")
+        verification_record = None
         if isinstance(verification, dict) and verification.get("command"):
             cmd = verification["command"]
             args = verification.get("args") or []
             full_cmd = " ".join([cmd] + [str(a) for a in args])
+            verification_record = {"command": cmd, "args": [str(a) for a in args]}
             instruction = (instruction or "") + (
                 f"\n\n【验证目标】你的产出将被以下命令独立验证——"
                 f"确保它通过：\n  {full_cmd}"
             )
+
+        # Coding context pack (W1): candidate files, related tests, symbol
+        # edges and the declared verification command. It is best-effort and
+        # fail-closed: no objective terms or no hits means no context theatre.
+        self.code_context = None
+        sandbox_for_context = getattr(self, "sandbox", None)
+        if getattr(self, "general", False) and sandbox_for_context is not None:
+            try:
+                from flowagent.tools.general.code_context import build_code_context
+
+                self.code_context = build_code_context(
+                    sandbox_for_context.root,
+                    str(getattr(self.run, "objective", "") or ""),
+                    verification=verification_record,
+                )
+                code_context = self.code_context
+                if code_context and code_context.get("block"):
+                    instruction = (instruction or "") + "\n\n" + code_context["block"]
+            except Exception:  # noqa: BLE001 — repo context must never kill a run
+                traceback.print_exc()
 
         # 仓库级约定：只读隔离工作区，限长，哈希随 task binding 入链。
         # 失败时宁可不注入，也不能因为一个项目说明文件阻断运行。
@@ -446,6 +513,28 @@ class RunDriver:
             except Exception:  # noqa: BLE001 — project instructions are best-effort context
                 traceback.print_exc()
 
+        # Host-configured knowledge (R1.5): prefetch a bounded citation block
+        # for the objective. `search_knowledge` remains model-initiated; this
+        # makes the existence of policy/runbook context obvious on round one.
+        self.knowledge_context = None
+        sources = getattr(self, "knowledge_sources", None)
+        if sources:
+            try:
+                from flowagent.tools.general.knowledge import build_knowledge_context
+
+                self.knowledge_context = build_knowledge_context(
+                    sources, str(getattr(self.run, "objective", "") or ""))
+                context = self.knowledge_context
+                if context and context.get("block"):
+                    instruction = (instruction or "") + "\n\n" + context["block"]
+                if context:
+                    instruction = (instruction or "") + (
+                        "\n\n【知识库检索】上面的候选证据不完整。需要更多依据时用 "
+                        "search_knowledge 检索；引用产物前尽量打开原文件确认。"
+                    )
+            except Exception:  # noqa: BLE001 — knowledge prefetch is best-effort context
+                traceback.print_exc()
+
         # 操作员长期记忆
         chat = getattr(self.manager, "chat", None)
         if chat is not None and hasattr(chat, "memory"):
@@ -458,11 +547,121 @@ class RunDriver:
                 pass
         return instruction
 
+    def _initial_rounds(self) -> int:
+        """The run's original round envelope (before any resume extension)."""
+        spec = self.run.spec or {}
+        if spec.get("project"):
+            return max(60 if self.fast else 24, self.scenario.max_rounds)
+        return self.scenario.max_rounds
+
+    def _replay_existing_budget(self) -> None:
+        """Rebuild effective limits from the chain; plan a resume on top."""
+        try:
+            task = self.store.load(self.run.task_id)
+        except Exception:  # noqa: BLE001 — a missing task will fail at resume/create
+            return
+        binding = dict(task.binding or {})
+        stored_base = binding.get("budget_base")
+        has_base = isinstance(stored_base, dict)
+        if has_base:
+            try:
+                self.base_limits = self.rt.BudgetLimits(**stored_base)
+            except TypeError as error:
+                raise ValueError(f"stored budget_base is invalid: {error}") from error
+        if isinstance(binding.get("rounds_base"), int) and binding["rounds_base"] > 0:
+            self._rounds_base = int(binding["rounds_base"])
+        events = self.store.events(self.run.task_id)
+        self.limits, self._budget_diagnostics = replay_limits(
+            self.base_limits, events, allow_legacy_resume=not has_base,
+        )
+        if not self.resume_limits:
+            return
+        requested = {
+            "calls": int(self.resume_limits["maxCalls"]),
+            "reads": int(self.resume_limits["maxReads"]),
+            "cost_microusd": int(self.resume_limits["maxCostMicrousd"]),
+            "tokens": int(self.resume_limits.get("maxTokens") or self.limits.max_tokens),
+        }
+        adjustment = plan_adjustment(
+            self.base_limits, self.limits, total=requested, allow_zero=True,
+        )
+        if adjustment.exhausted:
+            raise ValueError("resume budget request exceeds the accumulated extension cap")
+        request_id = self.resume_request_id or f"resume-{self.run.id}"
+        self.resume_request_id = request_id
+        existing = find_budget_request(events, request_id)
+        if existing is not None:
+            if dict(existing.get("after") or {}) != adjustment.after.to_dict():
+                raise ValueError(f"resume request_id {request_id!r} was already used with other limits")
+            self._resume_duplicate = True
+        if any(
+            event.get("type") == "task_resumed"
+            and (((event.get("payload") or {}).get("detail") or {}).get("request_id") == request_id)
+            for event in events
+        ):
+            # The request id also covers the rounds grant: a retried resume
+            # must not spend the second half of the rounds cap.
+            self._resume_duplicate = True
+        self._resume_adjustment = adjustment
+        self.limits = adjustment.after
+        self._resume_rounds = self._plan_resume_rounds(events, task)
+
+    def _plan_resume_rounds(self, events: list[dict[str, Any]], task) -> dict[str, Any]:
+        if "extraRounds" in self.resume_limits:
+            requested = int(self.resume_limits.get("extraRounds") or 0)
+        else:
+            requested = int(getattr(self, "extra_rounds", 0) or 0)
+        if requested < 0 or requested > 50:
+            raise ValueError("extraRounds must be between 0 and 50")
+        granted_before = 0
+        same_request: list[dict[str, Any]] = []
+        for event in events:
+            if event.get("type") != "task_resumed":
+                continue
+            detail = ((event.get("payload") or {}).get("detail") or {})
+            rounds = detail.get("rounds") if isinstance(detail.get("rounds"), dict) else {}
+            if self.resume_request_id and detail.get("request_id") == self.resume_request_id:
+                same_request.append(rounds)
+                continue
+            granted_before += int(rounds.get("granted") or 0)
+        if same_request:
+            # This exact resume request already committed. Replaying it is a
+            # no-op for rounds too: keep the ceiling it established and grant
+            # nothing new, rather than consuming the other half of the cap.
+            prior = same_request[-1]
+            if int(prior.get("requested") or 0) != requested:
+                raise ValueError(
+                    f"resume request_id {self.resume_request_id!r} was already used "
+                    "with different extraRounds"
+                )
+            return {
+                "base": self._rounds_base,
+                "granted_before": granted_before + int(prior.get("granted") or 0),
+                "requested": requested,
+                "granted": 0,
+                "capped": requested > 0,
+                "max_rounds": int(
+                    prior.get("max_rounds")
+                    or max(self._rounds_base, task.model.attempts)
+                ),
+            }
+        headroom = max(0, self._rounds_base - granted_before)
+        allowed = min(self._rounds_base // 2, headroom)
+        granted = min(requested, allowed)
+        return {
+            "base": self._rounds_base,
+            "granted_before": granted_before,
+            "requested": requested,
+            "granted": granted,
+            "capped": granted < requested,
+            "max_rounds": max(self._rounds_base, task.model.attempts + granted),
+        }
+
     def _limits(self):
         scenario = self.scenario
         limits = scenario.limits
         spec = self.run.spec or {}
-        if spec.get("project") and not self.resume_limits:
+        if spec.get("project"):
             # More room to inspect and repair a real repository; the operator's
             # hard cost ceiling and the provider price scaling still apply.
             # Fast mode is an experiment: it keeps the operator envelope instead
@@ -482,20 +681,13 @@ class RunDriver:
                     max_cost_microusd=max(1_000_000, scenario.limits.max_cost_microusd),
                     max_tokens=max(300_000, scenario.limits.max_tokens),
                 )
-        override = spec.get("budget") if not self.resume_limits else None
+        override = spec.get("budget")
         if override:
             limits = self.rt.BudgetLimits(
                 max_calls=int(override["maxCalls"]),
                 max_reads=int(override["maxReads"]),
                 max_cost_microusd=int(override["maxCostMicrousd"]),
                 max_tokens=limits.max_tokens,
-            )
-        if self.resume_limits:
-            limits = self.rt.BudgetLimits(
-                max_calls=int(self.resume_limits["maxCalls"]),
-                max_reads=int(self.resume_limits["maxReads"]),
-                max_cost_microusd=int(self.resume_limits["maxCostMicrousd"]),
-                max_tokens=int(self.resume_limits.get("maxTokens") or scenario.limits.max_tokens),
             )
         return limits
 
@@ -578,11 +770,7 @@ class RunDriver:
         restore_state = False
         if self.recover_pending:
             task = self.store.load(self.run.task_id)
-            self.max_rounds = (
-                max(60 if self.fast else 24, self.scenario.max_rounds)
-                if (self.run.spec or {}).get("project")
-                else self.scenario.max_rounds
-            )
+            self.max_rounds = self._rounds_base
             restore_state = True
         elif self.recover_unknown:
             # Unknown model outcome: the operator explicitly accepted the risk.
@@ -595,17 +783,41 @@ class RunDriver:
             restore_state = True
         elif self.resume_limits:
             task = self.store.load(self.run.task_id)
-            task = self.harness.resume(
-                task,
-                detail={"by": "operator", "reason": "budget topped up", "limits": self.limits.to_dict()},
-            )
-            self.max_rounds = max(self.scenario.max_rounds, task.model.attempts + self.extra_rounds)
+            adjustment = self._resume_adjustment
+            rounds = self._resume_rounds or {"granted": 0, "max_rounds": self._rounds_base}
+            detail = {
+                "by": "operator",
+                "reason": "budget topped up",
+                "request_id": self.resume_request_id,
+                "limits": self.limits.to_dict(),
+                "rounds": rounds,
+            }
+            if adjustment is None or not any(adjustment.granted.values()) or self._resume_duplicate:
+                task = self.harness.resume(task, detail=detail)
+            else:
+                budget_detail = {
+                    "policy_version": 2,
+                    "request_id": self.resume_request_id,
+                    "by": "operator",
+                    "decision_source": "resume",
+                    "before": adjustment.before.to_dict(),
+                    "after": adjustment.after.to_dict(),
+                    "requested": adjustment.requested,
+                    "granted": adjustment.granted,
+                    "capped": adjustment.capped,
+                }
+                task = self.harness.resume_with_budget(
+                    task, resume_detail=detail, budget_detail=budget_detail,
+                )
+            self.max_rounds = int(rounds.get("max_rounds") or self._rounds_base)
             restore_state = True
         else:
             binding = {
                 "scenario": self.scenario.key,
                 "module": self.module.key,
                 "source": "viewer-live",
+                "budget_base": self.base_limits.to_dict(),
+                "rounds_base": self._rounds_base,
                 **({"spec": self.run.spec} if self.run.spec else {}),
             }
             if self.general:
@@ -629,6 +841,84 @@ class RunDriver:
                     name for name in COMPUTER_TOOLS
                     if name not in (grant.get("allowed_tools") or [])
                 ]
+            if getattr(self, "knowledge_sources", None):
+                # The knowledge tool is host-configured and read-only; the
+                # grant must name it or the gate would refuse the very search
+                # the operator asked this deployment to enable.
+                if "search_knowledge" not in allowed_tools:
+                    allowed_tools.append("search_knowledge")
+                grant_allowed = grant.get("allowed_tools")
+                if isinstance(grant_allowed, list) and "search_knowledge" not in grant_allowed:
+                    grant_allowed.append("search_knowledge")
+                binding["knowledge_sources"] = [
+                    {"name": item.name, "root": str(item.root)}
+                    for item in self.knowledge_sources
+                ]
+            if getattr(self, "coding_contract", None):
+                # What the run promised and what the forbidden surface looked
+                # like at seed time — the completion gate's verdict is checked
+                # against exactly this baseline, so it enters the chain too.
+                from flowagent.tools.general.coding_contract import (
+                    coding_contract_binding,
+                )
+
+                binding["coding_contract"] = coding_contract_binding(
+                    self.coding_contract
+                )
+                binding["coding_contract_baseline"] = dict(
+                    getattr(self, "contract_baseline", {}) or {}
+                )
+            if getattr(self, "knowledge_context", None):
+                context = self.knowledge_context
+                binding["knowledge_context"] = {
+                    "query": context.get("query"),
+                    "block_sha256": context.get("block_sha256"),
+                    "chars": context.get("chars"),
+                    "truncated": context.get("truncated"),
+                    "citations": [
+                        {
+                            "source": item.get("source"),
+                            "path": item.get("path"),
+                            "title": item.get("title"),
+                            "headings": item.get("headings"),
+                            "start_line": item.get("start_line"),
+                            "end_line": item.get("end_line"),
+                            "score_bp": item.get("score_bp"),
+                        }
+                        for item in (context.get("citations") or [])
+                    ],
+                }
+            if getattr(self, "code_context", None):
+                context = self.code_context
+                binding["code_context"] = {
+                    "version": context.get("version"),
+                    "query": context.get("query"),
+                    "block_sha256": context.get("block_sha256"),
+                    "chars": context.get("chars"),
+                    "truncated": context.get("truncated"),
+                    "candidate_files": [
+                        {
+                            "path": item.get("path"),
+                            "sha256": item.get("sha256"),
+                            "bytes": item.get("bytes"),
+                            "score_bp": item.get("score_bp"),
+                            "start_line": item.get("start_line"),
+                            "end_line": item.get("end_line"),
+                            "reason": item.get("reason"),
+                        }
+                        for item in (context.get("candidate_files") or [])
+                    ],
+                    "related_tests": [
+                        {
+                            "path": item.get("path"),
+                            "sha256": item.get("sha256"),
+                            "reason": item.get("reason"),
+                        }
+                        for item in (context.get("related_tests") or [])
+                    ],
+                    "symbol_edges": context.get("symbol_edges") or [],
+                    "verification": context.get("verification"),
+                }
             allowed_tools, requested_tools = filter_toolset(self.run.spec, allowed_tools)
             if requested_tools:
                 binding["toolset"] = requested_tools
@@ -646,11 +936,7 @@ class RunDriver:
                     task = self.harness.record_recall(task, hits)
                 except Exception:  # noqa: BLE001 — memory must never kill a run
                     traceback.print_exc()
-            self.max_rounds = (
-                max(60 if self.fast else 24, self.scenario.max_rounds)
-                if (self.run.spec or {}).get("project")
-                else self.scenario.max_rounds
-            )
+            self.max_rounds = self._rounds_base
         self.run.task_id = task.id
         self.observer = LiveObserver(self.run, self.recorder, self.store, task.id)
         self.watcher = threading.Thread(

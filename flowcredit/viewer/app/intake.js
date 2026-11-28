@@ -30,8 +30,10 @@ export function createIntake(deps) {
     conclusion: { label: "只要结论", short: "只要结论" },
   };
 
-  /** The composer toggle is the only place computer use is opted into. */
+  /** Computer use is opted into via the + panel's mode row; the injected
+      state is the single source, the DOM row is only a fallback. */
   function computerUseOn() {
+    if (typeof d.getComputerUseMode === "function") return !!d.getComputerUseMode();
     const toggle = document.getElementById("computer-btn");
     return !!(toggle && typeof toggle.getAttribute === "function"
       && toggle.getAttribute("aria-pressed") === "true");
@@ -308,11 +310,7 @@ export function createIntake(deps) {
     intake.direct = !!options.direct && d.isGeneralTemplate() && !(extras && extras.origin);
     intake.messages = [];
     intake.spec = {};
-    const computerToggle = document.getElementById("computer-btn");
-    if (computerToggle && typeof computerToggle.getAttribute === "function"
-      && computerToggle.getAttribute("aria-pressed") === "true") {
-      intake.spec.computerUse = true;
-    }
+    if (computerUseOn()) intake.spec.computerUse = true;
     intake.origin = extras && extras.origin ? extras.origin : null;
     intake.choices = [];
     intake.readyTask = null;

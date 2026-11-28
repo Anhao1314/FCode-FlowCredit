@@ -1,22 +1,23 @@
-"""预算延展通道（S2a）：长任务在批前申请加预算的封底逻辑。
+"""预算延展通道（S1）：模型工具、operator、resume 共用一套封底。
 
 原则：**追加要有封底、要有理由、要能被账本证明。**
-- 单次申请任一维度 ≤ 原始上限的 50%；
-- 累计追加 ≤ 原始上限（总预算最多翻倍）；
-- reason 必填（给审批人看）；
-- 已授予的追加量由通道自己记账（进程内存），原始上限取 driver 构造时的
-  limits——两者都不随追加漂移，重复申请不能绕过封底。
 
-审批由运行侧 RunControl 对 effect=write 的工具统一执行（consequential/all
-走审批卡，off 自动放行）；本模块只管"批不批得下来"的数值判定与生效。
+- 原始上限（base）是 Run 创建时价格缩放后的不可变值；
+- 单次任一维度 ≤ base 的 50%，累计 ≤ base（总预算最多翻倍）；
+- reason 必填（给审批人看）；
+- 计算与提交分离：``request`` 只规划，``apply`` 只在 ``tool_succeeded``
+  与 ``budget_adjusted`` 同一事务提交成功之后才更新内存预算；
+- request_id 由宿主生成并写入事件，重放同一 request_id 幂等；不同
+  request_id 的相同 delta 是两次独立申请（仍受封底约束）。
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+import uuid
 from typing import Any
 
 from flowagent.core.contracts import AgentError
+from flowagent.runtime.budget import BudgetAdjustment, plan_adjustment
 
 __all__ = ["BudgetChannel"]
 
@@ -29,31 +30,18 @@ class BudgetChannel:
 
     def __init__(self, driver: Any) -> None:
         self._driver = driver
-        #: 原始上限由驱动在 limits 定稿后写入 driver.base_limits（懒解析：
-        #: 通道必须在 _build_world 之前就存在，而 limits 在其后才算得出来）。
-        self._granted_calls = 0
-        self._granted_cost = 0
 
     @property
     def _base(self) -> Any:
         return getattr(self._driver, "base_limits", None) or self._driver.limits
 
-    def _validate_amount(self, name: str, value: Any) -> int:
-        if value is None:
-            return 0
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise AgentError(
-                "BUDGET_EXTENSION_INVALID",
-                f"{name} must be an integer",
-                details={"field": name},
-            )
-        if value < 0:
-            raise AgentError(
-                "BUDGET_EXTENSION_INVALID",
-                f"{name} must be non-negative",
-                details={"field": name},
-            )
-        return value
+    @property
+    def _current(self) -> Any:
+        return self._driver.harness.limits
+
+    def _decision_source(self) -> str:
+        approval = str(getattr(getattr(self._driver, "run", None), "approval", "") or "")
+        return "configured_policy_auto" if approval == "off" else "operator"
 
     def request(
         self,
@@ -61,6 +49,7 @@ class BudgetChannel:
         reason: str,
         extra_calls: Any = None,
         extra_cost_microusd: Any = None,
+        extra_tokens: Any = None,
     ) -> dict[str, Any]:
         text = str(reason or "").strip()
         if not text:
@@ -73,49 +62,73 @@ class BudgetChannel:
                 "BUDGET_EXTENSION_INVALID",
                 f"reason must be at most {MAX_REASON_CHARS} characters",
             )
-        calls = self._validate_amount("extra_calls", extra_calls)
-        cost = self._validate_amount("extra_cost_microusd", extra_cost_microusd)
-        if calls == 0 and cost == 0:
-            raise AgentError(
-                "BUDGET_EXTENSION_INVALID",
-                "request at least one dimension: extra_calls or extra_cost_microusd",
-            )
-        # 封底：单次 ≤ 原始 50%，累计 ≤ 原始 100%（总预算最多翻倍）。
-        # 超出封底时**夹取而不是拒绝**：治理边界内可获得的部分照给，并把
-        # "申请了多少、实际给了多少、还剩多少额度"如实回给模型——拒绝会
-        # 终结运行，而通常模型只是要得比封底多（真实踩过：+10/封底 4）。
-        base = self._base
-        requested_calls, requested_cost = calls, cost
-        calls = min(calls, max(1, base.max_calls // 2))
-        cost = min(cost, max(1, base.max_cost_microusd // 2))
-        calls = max(0, min(calls, base.max_calls - self._granted_calls))
-        cost = max(0, min(cost, base.max_cost_microusd - self._granted_cost))
-        if calls == 0 and cost == 0:
+        adjustment: BudgetAdjustment = plan_adjustment(
+            self._base,
+            self._current,
+            delta={
+                "calls": extra_calls,
+                "cost_microusd": extra_cost_microusd,
+                "tokens": extra_tokens,
+            },
+        )
+        if adjustment.exhausted:
             raise AgentError(
                 "BUDGET_EXTENSION_EXHAUSTED",
-                "no extension headroom remains for this run "
-                f"(granted so far: +{self._granted_calls} calls / +{self._granted_cost} µUSD)",
-                details={"cap": "cumulative", "dimension": "both"},
+                "no extension headroom remains for this run",
+                details={"requested": adjustment.requested},
             )
-        capped = (calls, cost) != (requested_calls, requested_cost)
-        current = self._driver.harness.limits
-        extended = replace(
-            current,
-            max_calls=current.max_calls + calls,
-            max_cost_microusd=current.max_cost_microusd + cost,
-        )
-        # 运行中生效：harness.budget() 每轮从 harness.limits 取新值。
-        self._driver.harness.limits = extended
-        self._driver.limits = extended
-        self._granted_calls += calls
-        self._granted_cost += cost
+        request_id = f"budget-{uuid.uuid4().hex[:16]}"
         return {
             "granted": True,
-            "extra_calls": calls,
-            "extra_cost_microusd": cost,
-            "requested_calls": requested_calls,
-            "requested_cost_microusd": requested_cost,
-            "capped": capped,
+            "request_id": request_id,
+            "decision_source": self._decision_source(),
             "reason": text,
-            "limits": extended.to_dict(),
+            "before": adjustment.before.to_dict(),
+            "after": adjustment.after.to_dict(),
+            "effective": adjustment.after.to_dict(),
+            "requested": adjustment.requested,
+            "granted_dimensions": adjustment.granted,
+            "capped_dimensions": adjustment.capped,
+            "exhausted": adjustment.exhausted,
+            # Compatibility keys used by earlier callers/tests.
+            "extra_calls": adjustment.granted["calls"],
+            "extra_cost_microusd": adjustment.granted["cost_microusd"],
+            "extra_tokens": adjustment.granted["tokens"],
+            "requested_calls": adjustment.requested["calls"],
+            "requested_cost_microusd": adjustment.requested["cost_microusd"],
+            "requested_tokens": adjustment.requested["tokens"],
+            "capped": any(adjustment.capped.values()),
+            "limits": adjustment.after.to_dict(),
         }
+
+    def audit_detail(self, result: dict[str, Any]) -> dict[str, Any]:
+        """The chain fact committed beside ``tool_succeeded``."""
+        return {
+            "policy_version": 2,
+            "request_id": result.get("request_id"),
+            "by": "model-request",
+            "decision_source": result.get("decision_source"),
+            "reason": result.get("reason"),
+            "before": result.get("before"),
+            "after": result.get("after"),
+            "requested": result.get("requested"),
+            "granted": result.get("granted_dimensions"),
+            "capped": result.get("capped_dimensions"),
+        }
+
+    def apply(self, result: dict[str, Any]) -> None:
+        """Install a committed adjustment. Idempotent for the same request."""
+        current = self._current
+        before = dict(result.get("before") or {})
+        after = dict(result.get("after") or {})
+        current_values = current.to_dict()
+        if current_values == after:
+            return
+        if current_values != before:
+            raise AgentError(
+                "BUDGET_APPLY_CONFLICT",
+                "the committed budget adjustment no longer matches the live limits",
+            )
+        target = type(current)(**after)
+        self._driver.harness.limits = target
+        self._driver.limits = target

@@ -18,6 +18,7 @@ import {
   threadStatus,
   toolAction,
   toolOutcome,
+  READ_TOOLS,
 } from "../app/task-thread.js";
 
 /* ------------------------------------------------------------- fixtures */
@@ -62,6 +63,57 @@ test("the thread vocabulary covers the required item kinds", () => {
   for (const kind of ["user", "status", "plan", "tool", "approval", "answer", "error"]) {
     assert.ok(THREAD_KINDS.includes(kind), kind);
   }
+});
+
+test("批量轮：连续只读调用折叠为 tool-group，写动作保持独立", () => {
+  const obs = (tool, args, result) => ({ tool, arguments: args, result });
+  const batch = {
+    index: 2,
+    proposal: { steps: [
+      { id: "a", tool: "ls_workspace", arguments: {} },
+      { id: "b", tool: "read_file", arguments: { path: "a.py" } },
+      { id: "c", tool: "grep_workspace", arguments: { pattern: "mean" } },
+      { id: "d", tool: "edit_file", arguments: { path: "a.py", old_text: "x", new_text: "y" } },
+    ] },
+    decisions: [
+      { allowed: true }, { allowed: true }, { allowed: true }, { allowed: true },
+    ],
+    observations: [
+      obs("ls_workspace", {}, { entries: [] }),
+      obs("read_file", { path: "a.py" }, { path: "a.py", bytes: 10 }),
+      obs("grep_workspace", { pattern: "mean" }, { matches: [] }),
+      obs("edit_file", { path: "a.py" }, { path: "a.py", bytes: 12 }),
+    ],
+    budget_after: { calls_used: 4 },
+  };
+  const { items } = projectTaskThread(trace({ terminal: null, rounds: [round(1), batch] }), {});
+  const kindsList = kinds(items).filter(kind => kind === "tool" || kind === "tool-group");
+  assert.deepEqual(kindsList, ["tool", "tool-group", "tool"],
+    "reads collapse into one group; the write stays standalone");
+  const group = items.find(item => item.kind === "tool-group");
+  assert.equal(group.count, 3);
+  assert.equal(group.key, "toolgroup:2:tool:2:0");
+  assert.equal(group.items.length, 3);
+  assert.ok(group.items.every(item => READ_TOOLS.has(item.tool)));
+});
+
+test("思考窗：运行中且最后一轮为空时出现 thinking 项，结束或待审批时不出现", () => {
+  const thinkingRound = { index: 2 };
+  const running = projectTaskThread(
+    trace({ terminal: null, rounds: [round(1), thinkingRound] }),
+    { running: true });
+  assert.ok(kinds(running.items).includes("thinking"), "thinking appears mid-gap");
+  const thinkingItem = running.items.find(item => item.kind === "thinking");
+  assert.equal(thinkingItem.key, "thinking:2");
+
+  const idle = projectTaskThread(trace({ terminal: null, rounds: [round(1)] }), {});
+  assert.ok(!kinds(idle.items).includes("thinking"), "no thinking when not running");
+
+  const waiting = projectTaskThread(
+    trace({ terminal: null, rounds: [round(1), { index: 2 }] }),
+    { running: true, pending: { id: "p1", tool: "write_file" } });
+  assert.ok(!kinds(waiting.items).includes("thinking"),
+    "no thinking while an approval is pending");
 });
 
 test("an empty trace projects to nothing and does not invent a status", () => {
@@ -659,11 +711,12 @@ test("an active tool reads as a Chinese action and streams in an open live row",
   const status = items.find(item => item.kind === "status");
   const tool = items.find(item => item.kind === "tool");
   assert.equal(status.label, "正在运行命令");
-  assert.equal(status.detail, "npm");
+  assert.equal(status.detail, "npm test");
   assert.equal(tool.status, "running");
   const html = threadItemHtml(tool);
-  assert.match(html, /th-tool-name">运行命令</);
-  assert.match(html, /th-tool-summary">npm</);
+  assert.match(html, /th-tool-id">run_command</);
+  assert.match(html, /th-tool-target">\(npm test\)</);
+  assert.match(html, /th-result-text[^>]*>…</);
   assert.match(html, /aria-expanded="true"/);
   assert.match(html, /th-live-spinner/);
   assert.match(html, /th-tool-raw">run_command</, "raw tool identity stays in details");

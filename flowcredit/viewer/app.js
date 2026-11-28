@@ -8,7 +8,8 @@ import { createLatestGate, createRunsPoller, settleLatest } from "./core/latest.
 import { resolveModelLabel, traceModelLabel } from "./core/model-label.js";
 import { connectionPresentation, initialConnection, reduceConnection } from "./core/sse-status.js";
 import { composerKeyAction, commitCancelAction } from "./core/keyboard.js";
-import { composerMode, workSubmissionRoute } from "./core/composer-mode.js";
+import { composerMode } from "./core/composer-mode.js";
+import { routeIntent } from "./core/intent-router.js";
 import { ledgerCardHtml, statusCardHtml, scheduledCardHtml } from "./core/workspace-cards.js";
 import { filterSlashCommands } from "./core/slash-scope.js";
 import { chainCardHtml, judgmentsCardHtml } from "./core/gov-cards.js";
@@ -226,7 +227,7 @@ function shownTrace() {
   const s = activeSession();
   return (s && s.trace) || store.trace;
 }
-let railTab = "events";
+let railTab = "summary";
 /* 证据面板是浮层，默认收起；打开动作只改变 CSS 状态，不影响任何运行数据。 */
 let railOpen = false;
 let railFilter = localStorage.getItem("fa.railFilter") || "key";
@@ -312,6 +313,8 @@ let modelBudget = { template: "", models: null };
 let fastMode = (() => {
   try { return localStorage.getItem("fa.fastMode") !== "0"; } catch { return true; }
 })();
+let computerUseMode = false; // 会话级：刷新即回默认关，避免"上次开了这次默认开"
+
 function setFastMode(on) {
   fastMode = on;
   try { localStorage.setItem("fa.fastMode", on ? "1" : "0"); } catch { /* 私有模式忽略 */ }
@@ -488,8 +491,7 @@ function paintGovChrome(gov) {
   const plusBtn = document.getElementById("composer-open");
   const ta = document.getElementById("composer-ta");
   if (gov) {
-    const fastBtn = document.getElementById("fast-btn");
-    for (const el of [modelBtn, apvBtn, plusBtn, fastBtn]) if (el) el.style.display = "none";
+    for (const el of [modelBtn, apvBtn, plusBtn]) if (el) el.style.display = "none";
     closeAddMenu();
     if (ta) {
       if (ta.dataset.govPlaceholder !== "1") {
@@ -505,8 +507,6 @@ function paintGovChrome(gov) {
     plusBtn.style.display = "";
     plusBtn.title = "添加内容";
   }
-  const fastBtn = document.getElementById("fast-btn");
-  if (fastBtn) fastBtn.style.display = "";
   if (ta && ta.dataset.govPlaceholder === "1") {
     ta.placeholder = ta.dataset.prevPlaceholder || "给 FCode 发消息…";
     delete ta.dataset.govPlaceholder;
@@ -603,6 +603,37 @@ function describe(observation) {
       return [`${esc(r.path || "")} · 锚定替换 · ${num(r.bytes)} bytes`, `<span class="dim">sha ${esc(shortHash(r.sha256_after))}…</span>`];
     case "run_command":
       return [`${esc(r.command || "")} · 退出码 ${esc(r.exit_code)} · ${num(r.duration_ms)} ms`, `<span class="dim">${esc(String(r.output || "").split("\n")[0].slice(0, 72))}…</span>`];
+    case "terminal": {
+      const code = r.exit_code;
+      const first = String(r.output || "").split("\n")[0].slice(0, 72);
+      return [`${code === undefined || code === null ? "完成" : `退出码 ${esc(code)}`}${first ? ` · ${esc(first)}` : ""}`];
+    }
+    case "git_status": {
+      const changes = Array.isArray(r.changes) ? r.changes : [];
+      return [changes.length
+        ? `${num(changes.length)} 处未提交变更${r.branch ? ` · ${esc(r.branch)}` : ""}`
+        : "无未提交变更"];
+    }
+    case "find_files": {
+      const paths = Array.isArray(r.paths) ? r.paths : [];
+      return [`${num(r.count ?? paths.length)} 个匹配${r.truncated ? "（已截断）" : ""}`,
+        paths.length ? `<span class="dim">${esc(paths[0])}</span>` : ""];
+    }
+    case "grep_workspace": {
+      const matches = r.matches ?? r.results ?? r.count ?? 0;
+      const n = Array.isArray(matches) ? matches.length : Number(matches) || 0;
+      return [`${num(n)} 处匹配${r.truncated ? "（已截断）" : ""}`];
+    }
+    case "search_codebase": {
+      const hits = r.files ?? r.hits ?? r.results ?? [];
+      const n = Array.isArray(hits) ? hits.length : Number(hits) || 0;
+      return [`${num(n)} 个命中 · ${num(r.indexed_files ?? 0)} 个文件已索引`];
+    }
+    case "repo_map": {
+      const files = r.files ?? r.entries ?? [];
+      const n = Array.isArray(files) ? files.length : Number(files) || 0;
+      return [`${num(n)} 个文件 · ${num(r.symbols ?? 0)} 个顶层符号`];
+    }
     case "fetch_url":
       return [`${esc(r.host || r.url || "")} · HTTP ${esc(r.status)} · ${num(r.bytes)} bytes`, `<span class="dim">${esc(r.title || r.url || "")}</span>`];
     default:
@@ -951,35 +982,35 @@ function failureJudgmentHtml(trace, terminal) {
   </section>`;
 }
 
+function threadFailureHtml(trace, terminal) {
+  /* 会话里的失败是一句诚实的话，不是一张判断面：状态 + 原因。
+     恢复动作（追加预算/重试）由线程的动作行统一渲染，这里不重复；
+     判断/复核在审计台完成，不再把治理仪式搬进对话流（Claude Code 式交互）。 */
+  const failure = terminal.failure || {};
+  const code = failure.code || String(terminal.status || "failed").toUpperCase();
+  const message = failure.message || FAILURE_REASONS[failure.code] || "";
+  return `<div class="card fail-note">
+    <div class="fail-line">
+      <span class="badge fail">${esc(terminal.status || "failed")}</span>
+      <span class="code">${esc(code)}</span>
+      ${message ? `<span class="msg">${esc(message)}</span>` : ""}
+    </div>
+  </div>`;
+}
+
 function generalResultHtml(trace, result, artifacts) {
   const plan = result.plan || {};
-  const truth = (artifacts.find(entry => entry.content_truth) || {}).content_truth || "runtime-verified-file-state";
   return `<div class="card result">
     <div class="card-head">
       <span class="card-title">${ICON.inkTick} 产物</span>
       <span class="badge pass" style="margin-left:2px">${doodleSvg("shield-check", "draw")}<span>已验证</span></span>
       <span class="grow"></span>
-      <span class="card-meta">succeeded · ${esc(result.verification || "runtime-recomputed")}</span>
+      <span class="card-meta">${esc(result.verification || "runtime-recomputed")}</span>
     </div>
     <p class="result-answer">任务已完成；${artifacts.length} 个文件通过 Runtime 文件状态复核。</p>
     <div class="metrics">
       ${artifacts.map(entry => `<div class="metric"><div class="k">${esc(entry.path)}</div><div class="v">${num(entry.bytes)} B</div></div>`).join("")}
       <div class="metric"><div class="k">计划</div><div class="v">${esc(plan.done ?? "—")}/${esc(plan.total ?? "—")}</div></div>
-    </div>
-    <div class="proof-line">
-      <span class="proof-mark">已复算</span>
-      <span>${esc(result.verification || "runtime-recomputed")}</span>
-      <span class="proof-sep">·</span>
-      <span>${artifacts.length} 个文件</span>
-      <span class="proof-sep">·</span>
-      <span>${(trace.events || []).length} 个事件</span>
-    </div>
-    <div class="result-foot">
-      <div class="chips" style="margin-top:2px">
-        ${artifacts.map(entry => `<span class="mini" title="${esc(entry.sha256 || "")}">${esc(entry.path)} · ${esc(shortHash(entry.sha256))}…</span>`).join("")}
-        <span class="mini">${esc(truth)}</span>
-      </div>
-      ${runActionsHtml(trace)}
     </div>
   </div>`;
 }
@@ -1255,7 +1286,7 @@ function bindToggles(root) {
 const threadSurface = createThreadSurface({
   describe,
   resultConclusion, failureConclusion, resultBlockKind, renderMeters,
-  judgmentSurfaceHtml, failureJudgmentHtml, generalResultHtml,
+  judgmentSurfaceHtml, failureJudgmentHtml, threadFailureHtml, generalResultHtml,
   runActionsHtml, tplTitle, currentWorkTab,
   projectWork,
   getStore: () => store,
@@ -1666,6 +1697,7 @@ const {
   getModelBudget: () => modelBudget,
   setModelBudget: value => { modelBudget = value; },
   getFastMode: () => fastMode,
+  getComputerUseMode: () => computerUseMode,
   getSettingsOpen: () => settingsOpen,
   closeSettingsPage: (...a) => closeSettingsPage(...a),
   leaveChat: (...args) => leaveChat(...args),
@@ -1946,7 +1978,25 @@ async function sendTask() {
     toast("回放模式：用 python3 viewer/server.py 启动后才能派任务");
     return;
   }
-  if (workSubmissionRoute(text) === "chat") {
+  // 三分流：chat / clarify / work。高置信度输入本地即时分流；残余的低置信
+  // 桶先问 /api/intake/route（服务端可选语义分类器，默认关闭），服务不可用
+  // 时退回 clarify——歧义输入永远不会因为一次故障自动变成 Run。
+  const context = {
+    has_project: Boolean((attach.project?.path || "").trim()),
+    recent_work_thread: Boolean(activeSession()?.id),
+  };
+  let plan = routeIntent(text, context);
+  if (plan.certainty === "low") {
+    const remote = await askIntentRoute(text, context);
+    if (remote && remote.decision) {
+      plan = { route: remote.decision.route, via: remote.decision.via,
+               reason: remote.decision.reason, certainty: "model" };
+    } else if (remote === null) {
+      plan = { route: "clarify", via: "fallback",
+               reason: "route-service-unavailable", certainty: "low" };
+    }
+  }
+  if (plan.route === "chat") {
     // 问候、问答与歧义输入不能创建 Run。复用真实 chat 流回答，而不是伪造回复。
     newChat();
     const chatInput = document.getElementById("composer-ta");
@@ -1956,9 +2006,22 @@ async function sendTask() {
   }
   ta.value = "";
   autosize(ta);
-  // 只有明确任务直接开跑：clarifier 在后台准备，就绪即创建运行；
-  // 财务问卷仍走原 intake 页（它确实需要多轮问答）。
-  startIntake(text, null, { direct: isGeneralTemplate() });
+  // work 直接开跑（保住既有体验）；clarify 停在任务确认页，等操作员放行。
+  startIntake(text, null, { direct: plan.route === "work" && isGeneralTemplate() });
+}
+
+async function askIntentRoute(text, context) {
+  try {
+    const response = await fetch("/api/intake/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, context, classify: true }),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 async function stopRun() {
@@ -2132,6 +2195,8 @@ const {
   setModelBudget: value => { modelBudget = value; },
   getFastMode: () => fastMode,
   setFastMode,
+  getComputerUseMode: () => computerUseMode,
+  setComputerUseMode: value => { computerUseMode = value; },
   getChatModels: () => chatModels,
   fetchImpl: (...args) => fetch(...args),
 });
@@ -2399,13 +2464,12 @@ function costChipsHtml(trace) {
 }
 
 function runActionsHtml(trace) {
+  /* 对话流里只有恢复动作（Claude Code 式：会话是会话，治理在审计台）。
+     签发报告走 /report 命令，诊断复制在运行详情页——不再是常驻卡片。 */
   const terminal = trace.terminal || {};
   const status = terminal.status || "";
-  if (!status) return "";
-  const report = `<button class="a-btn strong" data-act="report">签发报告</button>`;
-  if (!(store.key && store.key.startsWith("run:"))) {
-    return `<div class="chips">${costChipsHtml(trace)}</div><div class="actions">${report}</div>`;
-  }
+  if (!status || status === "succeeded") return "";
+  if (!(store.key && store.key.startsWith("run:"))) return "";
   const failure = terminal.failure || {};
   const run = currentRun();
   const session = activeSession();
@@ -2417,7 +2481,8 @@ function runActionsHtml(trace) {
   const resume = resumable ? `<button class="a-btn strong" data-act="resume">追加预算并继续</button>` : "";
   const retry = status && status !== "succeeded"
     ? `<button class="a-btn" data-act="retry">重试</button>` : "";
-  return `<div class="chips">${costChipsHtml(trace)}</div><div class="actions">${resume}${retry}${report}<button class="a-btn" data-act="diag">复制诊断</button></div>`;
+  if (!resume && !retry) return "";
+  return `<div class="actions">${resume}${retry}</div>`;
 }
 
 /* ---------------- MIXED — 报告构建/链验证逻辑（不改）+ 浮层 DOM 操作 */
@@ -2499,6 +2564,7 @@ function openResumeForm() {
   const calls = (lim.max_calls || 0) + 6;
   const reads = (lim.max_reads || 0) + 10;
   const cost = (lim.max_cost_microusd || 0) + 20000;
+  const tokens = (lim.max_tokens || 0) + 60000;
   const form = document.createElement("div");
   form.className = "resume-form";
   form.innerHTML = `
@@ -2507,6 +2573,7 @@ function openResumeForm() {
       <label>calls <input type="number" data-resume="maxCalls" min="${lim.max_calls || 0}" value="${calls}" inputmode="numeric"></label>
       <label>reads <input type="number" data-resume="maxReads" min="${lim.max_reads || 0}" value="${reads}" inputmode="numeric"></label>
       <label>µUSD <input type="number" data-resume="maxCostMicrousd" min="${lim.max_cost_microusd || 0}" value="${cost}" inputmode="numeric"></label>
+      <label>tokens <input type="number" data-resume="maxTokens" min="${lim.max_tokens || 0}" value="${tokens}" inputmode="numeric"></label>
     </div>
     <div class="rf-foot">
       <span class="hint">从事件日志续跑，已读资料不重发 · 轮次上限 +6</span>
@@ -2533,9 +2600,12 @@ async function resumeRun() {
     maxCalls: read("maxCalls"),
     maxReads: read("maxReads"),
     maxCostMicrousd: read("maxCostMicrousd"),
+    maxTokens: read("maxTokens"),
     extraRounds: 6,
+    requestId: (globalThis.crypto?.randomUUID?.() || `resume-${Date.now()}-${Math.random().toString(16).slice(2)}`),
   };
-  if (payload.maxCalls < 1 || payload.maxReads < 1 || payload.maxCostMicrousd < 1) {
+  if (payload.maxCalls < 1 || payload.maxReads < 1 || payload.maxCostMicrousd < 1
+      || payload.maxTokens < 1) {
     toast("预算上限必须是正整数");
     return;
   }
@@ -4542,6 +4612,8 @@ function renderAddMenu() {
       toolCount: attach.tools.length,
       template: String(template).split("：")[0],
       budget: `${Number(budget.maxCalls || 0)} calls · ${num(budget.maxCostMicrousd || 0)} µ`,
+      fast: fastMode,
+      computer: computerUseMode,
     });
   }
   menu.hidden = false;
@@ -4595,7 +4667,11 @@ function toggleAddMenu() {
   if (!chat.active) {
     refreshAttachData().then(() => {
       const live = document.getElementById("composer-add-menu");
-      if (live && !live.hidden && !chat.active) renderAddMenu();
+      // 异步重绘若落在指针交互（按下~抬起）之间会吞掉整次点击：挂起到 mouseup 后补发
+      if (live && !live.hidden && !chat.active) {
+        if (window.__pointerBusy?.()) window.__markPendingChromeRepaint?.();
+        else renderAddMenu();
+      }
     });
   }
 }
@@ -4949,24 +5025,39 @@ function bindComposer() {
       apvBtn.focus({ preventScroll: true });
     }
   });
-  const fastBtn = document.getElementById("fast-btn");
-  fastBtn?.addEventListener("click", () => {
-    const next = !getFastMode();
-    setFastMode(next);
-    paintModelBadge();
-    toast(next
-      ? "Fast 已开：一轮多动作 · 免逐步审批 · 项目走隔离副本"
-      : "Fast 已关：恢复逐步审批与单动作");
-  });
-  const computerBtn = document.getElementById("computer-btn");
-  computerBtn?.addEventListener("click", () => {
-    const next = computerBtn.getAttribute("aria-pressed") !== "true";
-    computerBtn.setAttribute("aria-pressed", next ? "true" : "false");
-    computerBtn.classList.toggle("on", next);
+  /* 执行模式开关（Fast / 电脑）住在「+」面板里，面板每次展开都会重绘，
+     所以用事件委托而不是按钮直绑；状态本体在 app 侧，重渲染不会丢。 */
+  const handleModeToggle = event => {
+    const row = event.target instanceof Element
+      ? event.target.closest("#fast-btn, #computer-btn") : null;
+    if (!row) return;
+    // 重绘必须推迟到本一次点击事件走完：同步 innerHTML 重建会让正在冒泡的
+    // event.target 变成游离节点，document 层的 outside-click 会误判为
+    // "点击了面板外面"，把菜单/面板当场关掉。
+    const repaint = () => {
+      renderAttachPanel();
+      if (document.getElementById("composer-add-menu")?.hidden === false) renderAddMenu();
+      paintModelBadge();
+    };
+    setTimeout(repaint, 0);
+    if (row.id === "fast-btn") {
+      const next = !fastMode;
+      setFastMode(next);
+      repaint();
+      toast(next
+        ? "Fast 已开：一轮多动作 · 免逐步审批 · 项目走隔离副本"
+        : "Fast 已关：恢复逐步审批与单动作");
+      return;
+    }
+    const next = !computerUseMode;
+    computerUseMode = next;
+    repaint();
     toast(next
       ? "电脑使用已开启：模型仍需先申请范围，由你批准会话"
       : "电脑使用已关闭：新任务不会注册 computer 工具");
-  });
+  };
+  document.getElementById("attach-panel")?.addEventListener("click", handleModeToggle);
+  document.getElementById("composer-add-menu")?.addEventListener("click", handleModeToggle);
   const plusBtn = document.getElementById("composer-open");
   const attachPanel = document.getElementById("attach-panel");
   plusBtn.addEventListener("click", event => {
@@ -5188,7 +5279,30 @@ function bindGlobalActions() {
   const workModelMenu = document.getElementById("work-model-menu");
   const plusBtn = document.getElementById("composer-open");
   const attachPanel = document.getElementById("attach-panel");
+  /* 指针交互期间挂起「+」菜单/面板的重绘：refreshAttachData 的异步刷新
+     若恰好落在按下与抬起之间，会把整次点击吞掉（目标节点被替换成游离
+     节点）。挂起期间的重绘请求在 mouseup 后统一补发一次。 */
+  let pointerBusy = false;
+  let pendingChromeRepaint = false;
+  document.addEventListener("mousedown", () => { pointerBusy = true; }, true);
+  document.addEventListener("mouseup", () => {
+    setTimeout(() => {
+      pointerBusy = false;
+      if (pendingChromeRepaint) {
+        pendingChromeRepaint = false;
+        // 补发的只是 async refresh 的重绘：两张浮层的开合状态与挂起时一致
+        if (attach.open) renderAttachPanel();
+        if (document.getElementById("composer-add-menu")?.hidden === false) renderAddMenu();
+        paintModelBadge();
+      }
+    }, 0);
+  }, true);
+  window.__pointerBusy = () => pointerBusy;
+  window.__markPendingChromeRepaint = () => { pendingChromeRepaint = true; };
   document.addEventListener("click", event => {
+    // 「+」菜单/面板的异步重绘可能落在点击冒泡的监听器间隙：此时 event.target
+    // 已是游离节点，对它判断"点击发生在外部"永远是假，会误关刚点过的菜单。
+    if (event.target instanceof Node && !event.target.isConnected) return;
     if (!apvMenu.hidden && !apvBtn.contains(event.target) && !apvMenu.contains(event.target)) apvMenu.hidden = true;
     apvBtn.setAttribute("aria-expanded", apvMenu.hidden ? "false" : "true");
     for (const menu of [chatModelMenu, workModelMenu]) {
@@ -5779,6 +5893,15 @@ function bindNavigation() {
     });
   }
   sidebarContainer.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    // Chat rows are composite div controls because they carry pin/delete
+    // buttons; activate only when the row itself—not an inner action—has focus.
+    const chatRow = event.target.closest("#chat-nav [data-chat-id], [data-pin-nav] [data-chat-id]");
+    if (chatRow && event.target === chatRow) {
+      event.preventDefault();
+      openChat(chatRow.dataset.chatId);
+      return;
+    }
     const row = event.target.closest("[data-run]");
     if (!row || event.target !== row) return;
     if (event.key === "Enter" || event.key === " ") {
@@ -6324,6 +6447,22 @@ function bindShell() {
   });
   document.getElementById("rail-toggle").addEventListener("click", () => {
     if (railOpen) closeRailPanel(); else setChromeState({ rail: true });
+  });
+  /* 夜间模式切换：翻 html[data-theme]，localStorage 持久化，图标随态。 */
+  const themeToggle = document.getElementById("theme-toggle");
+  const themeIconSync = () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    document.getElementById("theme-icon-moon").hidden = dark;
+    document.getElementById("theme-icon-sun").hidden = !dark;
+    themeToggle.title = dark ? "切换日间模式" : "切换夜间模式";
+  };
+  themeIconSync();
+  themeToggle.addEventListener("click", () => {
+    const root = document.documentElement;
+    const dark = root.dataset.theme === "dark" ? "" : "dark";
+    if (dark) root.dataset.theme = dark; else delete root.dataset.theme;
+    try { localStorage.setItem("fcode-theme", dark ? "dark" : "light"); } catch { /* 私密模式忽略 */ }
+    themeIconSync();
   });
   document.querySelectorAll("[data-rail-open]").forEach(button => {
     button.addEventListener("click", () => {

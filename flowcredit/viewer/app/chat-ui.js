@@ -252,9 +252,6 @@ export function createChatUI(deps) {
       ? "当前对话权限：从下一条消息开始生效"
       : "审批档位：只在需要你确认的地方暂停（对新任务生效）";
     d.renderApprovalMenu?.();
-    show("fast-btn", !on);
-    // Computer use only exists for Work runs; Chat has no computer tools.
-    show("computer-btn", !on);
     // The same + is the add-content menu in both modes; Work's menu then
     // routes to the context/settings detail sheet. It is never hidden by the
     // chat switch alone.

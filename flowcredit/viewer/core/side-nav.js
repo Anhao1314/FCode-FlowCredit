@@ -75,11 +75,17 @@ function pinnedRunRowHtml(item, rowHtml) {
 
 function pinnedChatRowHtml(item, options) {
   const pinnedOf = (options && options.pinnedOf) || function () { return true; };
-  return '<button class="session chat-row pin-row" data-chat-id="' + esc(item.id) + '" title="' + esc(item.title) + '">'
+  // The row is a composite control: opening the chat and toggling its pin are
+  // two separate actions, so the outer element must not be a real <button>
+  // (nested interactive elements are invalid and trap the inner action).
+  return '<div class="session chat-row pin-row" data-chat-id="' + esc(item.id)
+    + '" role="button" tabindex="0" title="' + esc(item.title) + '"'
+    + ' aria-label="打开对话 ' + esc(item.title) + '">'
     + '<span class="slabel">' + esc(item.title) + "</span>"
-    + '<span class="chat-pin" data-chat-pin="' + esc(item.id) + '" role="button" title="'
-    + (pinnedOf(item.id) ? "取消置顶" : "置顶") + '">' + (pinnedOf(item.id) ? "★" : "☆") + "</span>"
-    + "</button>";
+    + '<button type="button" class="chat-pin" data-chat-pin="' + esc(item.id) + '" title="'
+    + (pinnedOf(item.id) ? "取消置顶" : "置顶") + '" aria-label="'
+    + (pinnedOf(item.id) ? "取消置顶" : "置顶") + '">' + (pinnedOf(item.id) ? "★" : "☆") + "</button>"
+    + "</div>";
 }
 
 /* 可折叠的"行"区：Kimi 的 .sidebar-reveal-content。标题必须留在它外面，
@@ -221,15 +227,20 @@ export function chatRowsHtml(threads, options) {
   const pinnedOf = opts.pinnedOf || function () { return false; };
   const items = list.map(function (thread) {
     const active = opts.activeId && opts.activeId === thread.id ? " active" : "";
-    // 行内动作与 Kimi 的 history-item 一致：置顶 + 删除（悬停才显现）。
-    // 可及名称不能依赖字形（☆/×），role=button 配 aria-label。
-    const pin = '<span class="chat-pin" data-chat-pin="' + esc(thread.id) + '" role="button" title="'
-      + (pinnedOf(thread.id) ? "取消置顶" : "置顶") + '" aria-label="'
-      + (pinnedOf(thread.id) ? "取消置顶" : "置顶") + '">' + (pinnedOf(thread.id) ? "★" : "☆") + "</span>";
+    // Row actions are separate controls: opening a chat, pinning it, and
+    // deleting it must all stay independently reachable. A <button> wrapper
+    // would nest interactive elements, so the row is a div-based composite
+    // control with keyboard activation supplied by the sidebar container.
+    const pin = '<button type="button" class="chat-pin" data-chat-pin="' + esc(thread.id)
+      + '" title="' + (pinnedOf(thread.id) ? "取消置顶" : "置顶") + '" aria-label="'
+      + (pinnedOf(thread.id) ? "取消置顶" : "置顶") + '">' + (pinnedOf(thread.id) ? "★" : "☆") + "</button>";
     const del = opts.deletable === false ? ""
-      : '<span class="chat-del" data-chat-delete="' + esc(thread.id) + '" role="button" title="从列表移除（事件链保留）" aria-label="从列表移除">×</span>';
-    return '<button class="session chat-row' + active + '" data-chat-id="' + esc(thread.id) + '" title="' + esc(thread.title) + '">'
-      + '<span class="slabel">' + esc(thread.title) + "</span>" + pin + del + "</button>";
+      : '<button type="button" class="chat-del" data-chat-delete="' + esc(thread.id)
+        + '" title="从列表移除（事件链保留）" aria-label="从列表移除">×</button>';
+    return '<div class="session chat-row' + active + '" data-chat-id="' + esc(thread.id)
+      + '" role="button" tabindex="0" title="' + esc(thread.title) + '"'
+      + ' aria-label="打开对话 ' + esc(thread.title) + '">'
+      + '<span class="slabel">' + esc(thread.title) + "</span>" + pin + del + "</div>";
   }).join("");
   return items + more;
 }

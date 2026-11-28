@@ -23,6 +23,7 @@ that instruction was refused as ``TOOL_NOT_REGISTERED`` and the run ended
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -30,8 +31,10 @@ from ...core.contracts import AgentError
 from ..base import EFFECT_NETWORK, EFFECT_READ, EFFECT_WRITE, Param, ToolSpec
 from .browser import BrowserRunner
 from .code_index import WorkspaceIndex
+from .coding_contract import coding_path_violation
 from .commands import CommandRunner, MAX_TIMEOUT_SECONDS
 from .fetch import UrlFetcher
+from .knowledge import KnowledgeIndex, KnowledgeSource, summarize_search_knowledge
 from .motion_quality import analyze_motion, merge_quality
 from .sandbox import MAX_WRITE_CHARS, WorkspaceSandbox
 from . import summaries
@@ -64,6 +67,9 @@ def build_general_tools(
     repair_policy: bool = False,
     scaffolded_paths: tuple[str, ...] = (),
     computer: Any = None,
+    knowledge_sources: list[KnowledgeSource] | tuple[KnowledgeSource, ...] = (),
+    coding_contract: dict[str, Any] | None = None,
+    browser_backend: str | None = None,
 ) -> list[ToolSpec]:
     """Bind the sandbox, fetcher and command runner to their tool specs.
 
@@ -75,7 +81,24 @@ def build_general_tools(
     # One lazy index per registry: a run builds it on the first search and
     # reuses it for every later search; no disk cache and no new effect.
     code_index = WorkspaceIndex(sandbox.root)
-    browser = BrowserRunner(sandbox.root, artifact_root=browser_artifact_root)
+    # Host-configured knowledge roots (policy docs, runbooks, specs). Empty
+    # means the search_knowledge tool is not registered at all — a deployment
+    # with no knowledge base must not advertise a search that would fail.
+    knowledge_sources = list(knowledge_sources or [])
+    knowledge_index = KnowledgeIndex(knowledge_sources) if knowledge_sources else None
+    # Browser backend: the Playwright sidecar stays the default; opt in to the
+    # agent-browser CLI (a11y-tree snapshot with element refs) per deployment.
+    # Both runners speak the same contract, and the loopback URL gate is
+    # host-side in either case.
+    browser_backend = str(
+        browser_backend or os.environ.get("FCODE_BROWSER_BACKEND") or ""
+    ).strip().lower()
+    if browser_backend == "agent-browser":
+        from .agent_browser import AgentBrowserRunner
+
+        browser = AgentBrowserRunner(sandbox.root, artifact_root=browser_artifact_root)
+    else:
+        browser = BrowserRunner(sandbox.root, artifact_root=browser_artifact_root)
     # Full-file reads already returned in this run, keyed by the sandbox's
     # canonical path. A repeat with the same hash is projected as an
     # ``unchanged`` marker instead of resending the body; the handler still
@@ -291,6 +314,12 @@ def build_general_tools(
 
     def write_file(arguments: dict[str, Any]) -> dict[str, Any]:
         _, relative = sandbox.resolve(str(arguments["path"]))
+        violation = coding_path_violation(coding_contract, relative)
+        if violation:
+            raise AgentError(
+                "CODING_CONTRACT_PATH_DENIED",
+                f"{relative!r} is off-limits under this coding contract: {violation}",
+            )
         rewrite = bool(arguments.get("rewrite"))
         append = bool(arguments.get("append"))
         content = str(arguments["content"])
@@ -338,6 +367,13 @@ def build_general_tools(
         return record
 
     def edit_file(arguments: dict[str, Any]) -> dict[str, Any]:
+        _, relative = sandbox.resolve(str(arguments["path"]))
+        violation = coding_path_violation(coding_contract, relative)
+        if violation:
+            raise AgentError(
+                "CODING_CONTRACT_PATH_DENIED",
+                f"{relative!r} is off-limits under this coding contract: {violation}",
+            )
         new_text = arguments.get("new_text") or ""
         if repair_policy and len(str(new_text)) > MOTION_MAX_SINGLE_WRITE_CHARS:
             raise AgentError(
@@ -503,6 +539,28 @@ def build_general_tools(
             str(arguments.get("query") or ""),
             limit=limit,
             subtree=subtree,
+        )
+
+    def search_knowledge(arguments: dict[str, Any]) -> dict[str, Any]:
+        """BM25 retrieval over the operator's configured knowledge base.
+
+        Read-only over host-configured roots: no workspace write, no network,
+        no model-named path. Results carry source/path/headings/line range so
+        the model can cite the document instead of inventing it.
+        """
+        if knowledge_index is None:
+            raise AgentError(
+                "KNOWLEDGE_UNAVAILABLE",
+                "this deployment has no configured knowledge sources",
+            )
+        try:
+            limit = int(arguments.get("limit") or 6)
+        except (TypeError, ValueError):
+            limit = 6
+        return knowledge_index.search(
+            str(arguments.get("query") or ""),
+            limit=limit,
+            source=str(arguments.get("source") or ""),
         )
 
     def fetch_url(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1229,6 +1287,56 @@ def build_general_tools(
         from .computer import build_computer_tools
 
         tools.extend(build_computer_tools(computer))
+    if knowledge_index is not None:
+        tools.append(ToolSpec(
+            name="search_knowledge",
+            summarize=summarize_search_knowledge,
+            summary=(
+                "Search the operator's configured knowledge base (BM25): returns "
+                "citations with source, document title, heading path, line range "
+                "and a bounded snippet; cite the document instead of guessing"
+            ),
+            effect=EFFECT_READ,
+            params=(
+                Param(
+                    name="query",
+                    kind="string",
+                    required=True,
+                    max_length=400,
+                    description=(
+                        "natural-language query over the knowledge base, e.g. "
+                        "'refund policy approval limit' or '退款审批上限'"
+                    ),
+                ),
+                Param(
+                    name="source",
+                    kind="string",
+                    required=False,
+                    nullable=True,
+                    description="optional knowledge source name to narrow the search",
+                ),
+                Param(
+                    name="limit",
+                    kind="integer",
+                    required=False,
+                    nullable=True,
+                    minimum=1, maximum=10,
+                    description="max citations returned (default 6, max 10)",
+                ),
+            ),
+            handler=search_knowledge,
+            outputs=(
+                _out("query", "string"),
+                _out("results", "array"),
+                _out("count", "integer"),
+                _out("sources", "array"),
+                _out("indexed_files", "integer"),
+                _out("indexed_chunks", "integer"),
+                _out("truncated", "boolean"),
+                _out("index_ms", "integer"),
+            ),
+            version="1.1",
+        ))
     return tools
 
 

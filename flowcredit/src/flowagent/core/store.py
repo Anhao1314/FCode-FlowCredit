@@ -154,6 +154,32 @@ class TaskStore:
             )
         return committed
 
+    def save_many(
+        self,
+        task: Task,
+        events: list[tuple[str, dict[str, Any]]],
+    ) -> Task:
+        """Append several events in one transaction; all or none.
+
+        Used when a tool result and its governance fact must not be separated
+        (a budget adjustment without its audit event, or vice versa). Sequence
+        CAS and state-machine validation still run for every event.
+        """
+        if not events:
+            raise AgentError("EVENT_BATCH_EMPTY", "save_many needs at least one event")
+        at = utc_now()
+        with self.transaction():
+            committed = task
+            for event_type, detail in events:
+                committed = self._write(
+                    committed,
+                    expected_sequence=committed.sequence,
+                    event_type=event_type,
+                    detail=detail or {},
+                    at=at,
+                )
+        return committed
+
     def _write(
         self,
         task: Task,

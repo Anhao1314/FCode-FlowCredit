@@ -295,14 +295,48 @@ def _take_match(pool: list[dict], finding: dict) -> dict | None:
     return None
 
 
+def _coverage_index(coverage: dict | None) -> tuple[dict[str, str], dict[tuple[str, str], list[str]]]:
+    by_rule: dict[str, str] = {}
+    by_pair: dict[tuple[str, str], list[str]] = {}
+    for item in (coverage or {}).get("rules") or []:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "")
+        rule_id = str(item.get("rule_id") or "")
+        if rule_id:
+            by_rule[rule_id] = status
+        pair = (str(item.get("category") or ""), str(item.get("root_cause_group") or ""))
+        if pair != ("", ""):
+            by_pair.setdefault(pair, []).append(status)
+    return by_rule, by_pair
+
+
+def _finding_covered(finding: dict, coverage: dict | None) -> bool:
+    """A prior finding may only become `fixed` if its rule actually ran now."""
+    if not isinstance(coverage, dict):
+        return True  # legacy callers keep the old pure-function behavior
+    by_rule, by_pair = _coverage_index(coverage)
+    rule_id = str(finding.get("rule_id") or "")
+    if rule_id:
+        return by_rule.get(rule_id) == "executed"
+    pair = (str(finding.get("category") or ""), str(finding.get("root_cause_group") or ""))
+    statuses = by_pair.get(pair) or []
+    return any(status == "executed" for status in statuses)
+
+
 def regression(prior: list[dict], current: list[dict],
-               earlier: list[list[dict]] | None = None) -> dict[str, list[dict]]:
+               earlier: list[list[dict]] | None = None,
+               coverage: dict | None = None) -> dict[str, list[dict]]:
     """Compare two finding sets by stable identity.
 
     `earlier` is the episode history *before* `prior` (oldest → newest),
     used only for `regressed`: absent in prior, present now, but seen in
     an earlier episode. Missing prior (first audit) returns every bucket
     empty — no prior, no regression judgment.
+
+    `coverage` is the current audit's rule ledger. A prior finding that is
+    absent now only becomes `fixed` when its rule is `executed`; otherwise it
+    is `unverified` — "not scanned" is not "repaired".
     """
     pool = list(prior)
     known: list[dict] = []
@@ -312,7 +346,13 @@ def regression(prior: list[dict], current: list[dict],
             known.append(finding)
         else:
             candidates.append(finding)
-    fixed = pool
+    fixed: list[dict] = []
+    unverified: list[dict] = []
+    for finding in pool:
+        if _finding_covered(finding, coverage):
+            fixed.append(finding)
+        else:
+            unverified.append(finding)
     regressed: list[dict] = []
     new: list[dict] = []
     for finding in candidates:
@@ -321,7 +361,10 @@ def regression(prior: list[dict], current: list[dict],
             regressed.append(finding)
         else:
             new.append(finding)
-    return {"known": known, "new": new, "fixed": fixed, "regressed": regressed}
+    return {
+        "known": known, "new": new, "fixed": fixed,
+        "unverified": unverified, "regressed": regressed,
+    }
 
 
 class EpisodeStore:

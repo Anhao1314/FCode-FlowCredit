@@ -26,16 +26,16 @@ EXPECTED = {
         "ec0ba6d412b34fbb60682a0bd07bb8d4d233e3b0b728863a1f1cdc5b69693408",
     ),
     "general": (
-        "fcode.prompt/general-v11", 3466,
-        "7fc5d4d070c4b387af501ca90bc721c6226588dd9f2b74416d5f5e0d25861b11",
+        "fcode.prompt/general-v12", 3807,
+        "71c966f34b2ff4e29a545e60ff4110166dd2ddb3600987fb1ec570854e97f24e",
     ),
     "general-fast": (
-        "fcode.prompt/general-fast-v3", 3905,
-        "db591d38c6725814a9c067f9c59745478cab71ca53a860283748b256e46efc55",
+        "fcode.prompt/general-fast-v5", 4453,
+        "25b944d225e049ee290a76e288879729b691b72c86288cf8e2924a3e1af7f70b",
     ),
     "general-fast-native": (
-        "fcode.prompt/general-fast-native-v3", 3846,
-        "a93ba5b28f43456c89af83ae22b7bd9ef1aa1e97d3f51667d150ce58db598def",
+        "fcode.prompt/general-fast-native-v5", 4511,
+        "26eb1eed77a2f7081747751b5729a39506341c03bc046059417fb06360b2ead9",
     ),
     "motion-render": (
         "fcode.prompt/motion-render-v12", 3287,

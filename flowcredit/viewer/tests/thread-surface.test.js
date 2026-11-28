@@ -51,7 +51,7 @@ function fakeContainer() {
 
 function makeSurface(overrides = {}) {
   const calls = { describe: 0, resultBlockKind: 0, tplTitle: 0, renderMeters: 0,
-    judgmentSurfaceHtml: 0, failureJudgmentHtml: 0, generalResultHtml: 0,
+    judgmentSurfaceHtml: 0, threadFailureHtml: 0, generalResultHtml: 0,
     runActionsHtml: 0, failureConclusion: 0, resultConclusion: 0 };
   const store = {};
   const surface = createThreadSurface({
@@ -61,7 +61,7 @@ function makeSurface(overrides = {}) {
     resultBlockKind: () => { calls.resultBlockKind += 1; return "metric"; },
     renderMeters: () => { calls.renderMeters += 1; return "<div class='meters'></div>"; },
     judgmentSurfaceHtml: () => { calls.judgmentSurfaceHtml += 1; return "<section class='judgment'></section>"; },
-    failureJudgmentHtml: () => { calls.failureJudgmentHtml += 1; return "<div class='fj'></div>"; },
+    threadFailureHtml: () => { calls.threadFailureHtml += 1; return "<div class='fail-note'></div>"; },
     generalResultHtml: () => { calls.generalResultHtml += 1; return "<div class='gr'></div>"; },
     runActionsHtml: () => { calls.runActionsHtml += 1; return "<button>导出</button>"; },
     tplTitle: key => { calls.tplTitle += 1; return "通用委托"; },
@@ -109,7 +109,7 @@ test("answerTextFor:真实总结优先，其余路径只陈述可验证事实", 
 test("answerDetailFor:按 trace 形态路由到对应渲染器", () => {
   const { surface, calls } = makeSurface();
   assert.equal(surface.answerDetailFor({ terminal: { status: "failed" } }),
-    "<div class='fj'></div>");
+    "<div class='fail-note'></div>");
   assert.equal(surface.answerDetailFor({
     task: { binding: { spec: { project: { path: "/repo" } } } },
     terminal: { status: "succeeded" },
@@ -121,7 +121,7 @@ test("answerDetailFor:按 trace 形态路由到对应渲染器", () => {
     surface.answerDetailFor({ terminal: { status: "succeeded", result: { path: "x" } } }),
     "<div class='gr'></div>");
   assert.equal(surface.answerDetailFor({ terminal: { status: "succeeded", result: {} } }), "");
-  assert.equal(calls.failureJudgmentHtml, 1);
+  assert.equal(calls.threadFailureHtml, 1);
   assert.equal(calls.judgmentSurfaceHtml, 1);
   assert.equal(calls.generalResultHtml, 1);
 });

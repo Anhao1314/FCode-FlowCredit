@@ -67,7 +67,8 @@ def _run_retire(snapshot: Path) -> dict[str, Any]:
 def _run_gitleaks(snapshot: Path) -> dict[str, Any]:
     report = snapshot / "_gitleaks-raw.json"
     proc = subprocess.run(
-        ["gitleaks", "dir", str(snapshot), "--report-format", "json", "--report-path", str(report), "--no-banner"],
+        ["gitleaks", "dir", str(snapshot), "--report-format", "json",
+         "--report-path", str(report), "--redact", "--no-banner"],
         capture_output=True, text=True, timeout=SCAN_TIMEOUT,
     )
     findings: list[dict[str, Any]] = []

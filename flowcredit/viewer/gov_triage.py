@@ -72,6 +72,17 @@ def triage_context(bundle: Any) -> dict[str, Any]:
         })
     target = data.get("target") or {}
     regression = data.get("regression")
+    coverage = data.get("coverage") if isinstance(data.get("coverage"), dict) else {}
+    coverage_rules = coverage.get("rules") if isinstance(coverage.get("rules"), list) else []
+    not_executed = [
+        {
+            "rule_id": str(item.get("rule_id") or "")[:48],
+            "status": str(item.get("status") or "")[:24],
+            "reason": str(item.get("reason") or "")[:120],
+        }
+        for item in coverage_rules
+        if isinstance(item, dict) and item.get("status") != "executed"
+    ][:8]
     return {
         "audit_id": str(data.get("audit_id") or "")[:64],
         "target": str(
@@ -80,6 +91,12 @@ def triage_context(bundle: Any) -> dict[str, Any]:
         "findings_total": len(findings),
         "findings_in_context": capped,
         "evidence_count": len(data.get("poc_evidence_refs") or []),
+        "coverage": {
+            "total": len(coverage_rules),
+            "executed": sum(1 for item in coverage_rules
+                            if isinstance(item, dict) and item.get("status") == "executed"),
+            "not_executed": not_executed,
+        } if coverage_rules else {},
         "uncovered_surfaces": [
             str(item.get("surface") if isinstance(item, dict) else item)[:120]
             for item in (data.get("uncovered_surfaces") or [])[:8]
@@ -87,7 +104,7 @@ def triage_context(bundle: Any) -> dict[str, Any]:
         # 没有基线时不带回归字段，避免把"首次审计"读成"0 回归"。
         "regression": {
             key: len(regression.get(key) or [])
-            for key in ("known", "new", "fixed", "regressed")
+            for key in ("known", "new", "fixed", "unverified", "regressed")
         } if isinstance(regression, dict) and regression else {},
     }
 

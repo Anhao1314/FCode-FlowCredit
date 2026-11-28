@@ -28,7 +28,7 @@ python viewer/server.py --repo . --port 8642   # / → 侧栏「审计台」(#/a
 ## 分层与依赖方向
 
 ```
-demo/ benchmark/  CLI、场景、任务评测、provider 显式选择
+demo/ benchmark/ evaluation/  CLI、场景、任务评测、provider 显式选择
    │
 runtime/          门控、预算、harness、loop、恢复与只读回放
    │
@@ -150,6 +150,8 @@ hash_n = sha256(canonical_json({sequence, type, payload, prev_hash, at}))
 3. `FinanceWorld.apply_state(memory.state())` 让世界也知道"哪些资料读过了"。
 4. `Loop.pending_step(task)` 检查是否有已批准但未执行的提案（对账后的情况）。
 5. 继续跑，轮次号取自 `task.model.attempts`，不会重复。
+
+预算追加也走同一条链，而不是另建账本：`budget_adjusted`（policy_version 2）记录 `before`/`after`/`requested`/`granted`/`capped`/`request_id`，模型工具、操作员与续跑三条路径共用 `plan_adjustment`（单次 ≤50% base，累计 ≤2× base）。恢复时 `replay_limits` 从 `task.binding.budget_base` 按事件序号严格校验，旧格式事件只在缺少 base 的旧运行上兼容一次；永远不会用当前用量抬高上限。`extraRounds` 是 Driver 独立语义，不与 `max_calls` 合并，也不写进 `BudgetLimits`。详见 [work-mode](work-mode.md#预算追加的唯一口径s1)。
 
 Console 的人工等待还有一层持久索引：审批 `paused + approval_requested` 与提问 `running + tool_started` 的 pending 保存在 run meta。重启后先核对 pending、链尾和已验证 proposal 完全一致，再恢复同一个等待；批准步骤凭 `approval_granted` 只越过自己的重复审批门，提问答案只补写原 `tool_started` 的结果，不重放模型、不重复调用工具 handler。没有 pending 的普通中断仍只标为 stopped。
 

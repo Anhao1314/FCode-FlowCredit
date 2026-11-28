@@ -84,6 +84,27 @@ Finding 结构见 `flowaudit.report`。**候选发现必须 PoC 重放成功才�
 PoC/oracle/重放器版本、负对照与清理结果、**未覆盖面与无法测试项单列**、
 以及审计自身事件链的校验入口。验收标准:第三方仅依据审计包即可重放结论。
 
+### 规则覆盖账本
+
+审计包里的 `coverage`（`fcode.audit-coverage/v1`）记录**本次到底跑了哪些规则、扫了哪些面**。每条 active 规则只有四种相关状态：
+
+| 状态 | 含义 |
+|---|---|
+| `executed` | 输入面存在且规则实际执行；零命中是干净的，不是没扫 |
+| `not_applicable` | 没有匹配的文件/选择器面，规则没有看到输入 |
+| `skipped` | 工具被禁用或不可用 |
+| `error` | 工具/规则执行失败 |
+
+`coverage` 与 `chain_verification.coverage_sha256` 一起进包，`verify-bundle` 会重算并拒绝被篡改的覆盖账本。
+
+回归只允许在**当前规则确实执行过**时把历史发现判为 `fixed`；规则没跑、面缺失或旧包没有 coverage 时，只能进 `unverified`，文案是「本次未覆盖，不能判定已修复」。这样“扫描器缺席”不会被读成“漏洞修好”。
+
+### 外部工具信号
+
+`retire`、`gitleaks`、`lighthouse` 作为外部证据面接入：结果写进 bundle 的 `external_tools`，同时在 `coverage.tools` 记录 `executed / skipped / error`、版本和原因。原始输出落在 `external-tools/` 并用 SHA-256 钉住；`verify-bundle` 会重算工具摘要和原始文件哈希。
+
+外部工具**不自动晋升为 finding**：它们只是独立信号，仍需本系统 POC 与宿主 oracle。工具缺失、失败或离线快照无法跑 Lighthouse（除非显式设置 `FCODE_LIGHTHOUSE_URL`）都记为 `skipped/error`，不会伪装成干净结果。`gitleaks` 使用 `--redact`，原始证据里也不保留密钥明文。
+
 ## 二、证据纪律
 
 1. **只看权限位,不读密钥内容。** 秘密检测报"存在 key 形态字符串"的计数

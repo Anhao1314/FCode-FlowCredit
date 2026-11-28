@@ -31,6 +31,8 @@ export function workAddMenuHtml({
   toolCount = 0,
   template = "",
   budget = "",
+  fast = true,
+  computer = false,
 } = {}) {
   const sourceDesc = general
     ? `${Number(sourceCount) || 0}/5 个外部来源 · fetch_url 白名单`
@@ -38,7 +40,22 @@ export function workAddMenuHtml({
   const projectDesc = general
     ? (project ? project : "未选择 · 真实仓库的隔离副本")
     : "仅任务模式支持";
+  const modeRow = (id, name, desc, on, onTitle, offTitle) => `
+    <button type="button" class="add-menu-item add-menu-mode" id="${id}" aria-pressed="${on}"
+      title="${on ? onTitle : offTitle}">
+      <span class="add-menu-copy"><span class="add-menu-title">${name}</span>
+        <span class="add-menu-desc">${desc}</span></span>
+      <span class="mode-pill${on ? " on" : ""}">${on ? "开" : "关"}</span>
+    </button>`;
   return `<div class="add-menu-head"><span>添加内容</span><span class="add-menu-count">Work</span></div>
+    <div class="add-menu-modes">
+      ${modeRow("fast-btn", "Fast 快速模式",
+        "一轮多动作 · 免逐步审批 · 项目走隔离副本 · 预算封底放大", fast,
+        "点击关闭：恢复逐步审批与单动作", "点击开启：一轮多动作 + 原生工具调用")}
+      ${modeRow("computer-btn", "电脑使用",
+        "桌面 App / 外部浏览器控制；会话范围仍需你批准 · 默认关闭", computer,
+        "点击关闭：新任务不注册 computer 工具", "点击开启：模型仍需先申请范围，由你批准会话")}
+    </div>
     <button type="button" class="add-menu-item" data-work-add="sources">
       <span class="add-menu-ic add-menu-at" aria-hidden="true">@</span>
       <span class="add-menu-copy"><span class="add-menu-title">资料与来源</span><span class="add-menu-desc">${esc(sourceDesc)}</span></span>

@@ -8,9 +8,9 @@
 | key | version | system prompt | 消费者 | frozen | 关键契约 |
 | --- | --- | --- | --- | --- | --- |
 | `finance` | `fcode.prompt/v10` | `providers/prompt.py::SYSTEM_PROMPT` | `FINANCE_DOMAIN` | **是**（SFT 金色哈希） | 单动作 JSON；数字只能来自观测；`report_blocked` 说明原因 |
-| `general` | `fcode.prompt/general-v11` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开；先 `search_codebase` 再 grep |
-| `general-fast` | `fcode.prompt/general-fast-v3` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
-| `general-fast-native` | `fcode.prompt/general-fast-native-v3` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
+| `general` | `fcode.prompt/general-v12` | `providers/prompt.py::GENERAL_SYSTEM_PROMPT` | `GENERAL_DOMAIN` | 否 | 单动作 JSON；additions 逐项校验、部分接受；恢复/证据规则分开；先 `search_codebase` 再 grep |
+| `general-fast` | `fcode.prompt/general-fast-v5` | `providers/prompt.py::GENERAL_FAST_SYSTEM_PROMPT` | `spec.fast` 的 JSON 链路 | 否 | 一轮 1–4 动作；读可批量；写/terminal 单独；plan-first；路径纪律；检索优先 |
+| `general-fast-native` | `fcode.prompt/general-fast-native-v5` | `providers/prompt.py::GENERAL_FAST_NATIVE_SYSTEM_PROMPT` | `spec.fast` 的默认原生 tools 链路 | 否 | 原生 tool calling；`submit_plan`；批量/写规则同上；检索优先 |
 | `motion-render` | `fcode.prompt/motion-render-v12` | `providers/prompt.py::MOTION_SYSTEM_PROMPT` | 单文件 HTML/SVG/CSS 动效任务（intake 自动识别） | 否 | 原生 tool calling；6 工具；`max_steps=4`；宿主预置 SECTION 骨架，`index.html` 只允许 edit_file 锚点填充（每次 ≤3000 字符）；明确禁止未列出的 grep/terminal；verify + motion_check（轮速/相位、髋锚点/腿长、脚-踏板/支撑面、关键帧名、coverage、required_fixes） |
 | `capability-motion` | `fcode.prompt/capability-motion-v5` | `providers/prompt.py::CAPABILITY_MOTION_SYSTEM_PROMPT` | Work `motion.render` capability 的 Harness adapter | 否 | 原生 tool calling；每轮恰好一个阶段内动作；无 plan/submit_plan/additions；只依据 bounded stage packet + constraints（raw prompt/scene descriptor/verifier contract）+ repair ticket；单次 edit ≤3000 字符；delivery 验证失败允许有界修复；stage budget 只是护栏，质量/no-progress 决定停止；delivery RESULT_MISSING 触发一次 write result 修复；最终 host probe 与声明验证独立验收 |
 | `chat` | 无独立 profile（inline） | `chat.py::CHAT_SYSTEM_PROMPT` | `ChatService` | 否 | 只读工具直接执行；写/网络逐次审批；完整任务用执行提案转委托 |
@@ -43,6 +43,8 @@
 - **2026-11-14 · motion-render-v3**：`motion_check` 增加确定性浏览器几何：0/300/600/900 ms 采样，检查脚中心到最近踏板的距离（≤25 px）与腿/轮包围盒相交，返回具体 foot class 和时间点；prompt 明确把 `max_foot_pedal_px`、`leg_wheel_overlap_px2`、`unpaired_feet` 作为修正依据。仍为 6 工具、目标 ≤6 calls；最终质量由 host 用偏移采样 150/450/750/1050 ms 再独立测一次，4 帧合成 contact sheet 供交付卡展示。该 profile 同时启用 stall guard：连续只读/跑命令而待写 todo 未动时先注入 `progress_guard`，第 4 轮仍无写入则以 `NO_PROGRESS` 终止。原始 prompt 实测 4 calls / 66,114 tokens / 21,357 µUSD，质量 100/100。
 - **2026-11-14 · motion-render-v2**：新增单文件 HTML/SVG/CSS 动效 profile。intake 识别“单文件 HTML + SVG/CSS 动画”后注入 `fastProfile=motion-render` 和 6 工具白名单；短契约要求 plan-first、批量读、verify + `motion_check`，物理速度/相位不合格时修正一次。鹈鹕测试 v1 实测 4 calls / 50,814 tokens（带工程提示）与 5 calls / 62,000 tokens（原始 prompt）。
 
+- **2026-11-28 · fast-v5 / fast-native-v5**：探索先行（C1）——第 1 轮不再强制提交计划，直接批量只读侦察；submit_plan/additions 后置为"第一次写/执行动作之前的承诺"（2–5 步短计划，arguments 只带已确定键，没把握留空）。runtime 语义零变化：open 模式初始计划自带 out 交付锚点，零计划探索→直接写交付物→验证→succeeded 的路径全程合法。
+- **2026-11-28 · general-v12**：恢复规则新增第 3 条——宿主独立验证失败（`verification_failures`）不再即死，模型按 code/exit_code/output 定位失败原因、修复产物后继续提交计划；修复机会最多两次，禁止重复无效修改或绕过检查。配套 runtime 修复回路（W3）。`general-fast-v4` / `general-fast-native-v4` 复用同一段恢复规则。
 - **2026-11-11 · general-v11 / fast-v3 / fast-native-v3**：非 frozen prompt 的 user context 改为 cache-friendly 排序——稳定契约/工具字段在前，观测其次，`budget` / `round` 等每轮字段最后；JSON 内容不变，provider prompt cache 的稳定前缀更长。provider 收据新增 prefix similarity 与 cache hit rate。
 
 - **2026-11-10 · general-v10 / fast-v2 / fast-native-v2**：加入 `search_codebase` 检索层。知道概念但不知道精确字符串时，先按自然语言检索（路径/行号/片段），再用 `grep_workspace` 精确确认；`repo_map` 仍负责结构总览。

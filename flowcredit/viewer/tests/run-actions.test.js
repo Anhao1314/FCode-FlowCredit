@@ -138,6 +138,7 @@ test("queueBudget:上限只许调高;违规不发起请求", async () => {
     },
     budgetInputs: {
       maxCalls: makeInput("1"), maxReads: makeInput("5"), maxCostMicrousd: makeInput("10"),
+      maxTokens: makeInput("50"),
     },
     fetchImpl: async () => { calls += 1; return { ok: true, json: async () => ({}) }; },
   });
@@ -157,6 +158,7 @@ test("queueBudget:全部高于现有上限 → POST 载荷与排队态", async (
     session,
     budgetInputs: {
       maxCalls: makeInput("8"), maxReads: makeInput("12"), maxCostMicrousd: makeInput("200"),
+      maxTokens: makeInput("300"),
     },
     fetchImpl: async (url, init) => {
       posts.push({ url, body: JSON.parse(init.body) });
@@ -164,7 +166,10 @@ test("queueBudget:全部高于现有上限 → POST 载荷与排队态", async (
     },
   });
   await actions.queueBudget();
-  assert.deepEqual(posts[0].body, { maxCalls: 8, maxReads: 12, maxCostMicrousd: 200 });
+  assert.deepEqual(
+    { ...posts[0].body, requestId: undefined },
+    { maxCalls: 8, maxReads: 12, maxCostMicrousd: 200, maxTokens: 300, requestId: undefined });
+  assert.ok(posts[0].body.requestId, "每次调整绑定一个 request id");
   assert.equal(s.budgetEditing, false);
   assert.deepEqual(s.budgetQueued, { events: 1 });
   assert.match(toasts.at(-1), /预算调整已排队/);

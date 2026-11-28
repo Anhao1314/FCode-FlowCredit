@@ -64,6 +64,8 @@ def create_world(partial: bool = False, spec: dict[str, Any] | None = None, **kw
         budget_channel=kwargs.get("budget_channel"),
         motion_probe=kwargs.get("motion_probe"),
         computer=kwargs.get("computer"),
+        knowledge_sources=kwargs.get("knowledge_sources"),
+        coding_contract=kwargs.get("coding_contract"),
     )
 
 

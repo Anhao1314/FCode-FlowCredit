@@ -331,6 +331,37 @@ def _control_rea_vibe_generic(facts: dict) -> tuple[bool, str]:
     return not selected, "control projection is empty"
 
 
+def _oracle_rea_web_facts(facts: dict) -> tuple[bool, str]:
+    """Host oracle for WEB rules: the pinned web facts still select rows.
+
+    The worker only re-reads the pinned facts snapshot. Whether that fact is a
+    finding is decided here, from the selected rows, not from a scanner exit
+    code or a model claim.
+    """
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        hits = [item for item in selected if item]
+        if not hits:
+            return False, "no web fact rows were selected"
+        preview = "; ".join(_vibe_row_label(item) for item in hits[:6])
+        suffix = f" … (+{len(hits) - 6})" if len(hits) > 6 else ""
+        return True, f"selected {len(hits)} web fact rows: {preview}{suffix}"
+    return bool(selected), (
+        f"selected value: {str(selected)[:200]}"
+        if selected else "no web fact value was selected"
+    )
+
+
+def _control_rea_web_facts(facts: dict) -> tuple[bool, str]:
+    selected = facts.get("selected")
+    if isinstance(selected, list):
+        return not selected, (
+            "control web projection has no fact rows"
+            if not selected else "control web projection still has fact rows"
+        )
+    return not selected, "control web projection is empty"
+
+
 def _oracle_rea_runtime_install(facts: dict) -> tuple[bool, str]:
     selected = facts.get("selected")
     hits = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
@@ -405,11 +436,15 @@ _ORACLE_CONTROL = {
 
 def _control_oracle_for(scenario: str, rule_id: str):
     """Prefer a rule-specific control, then the scenario-level fallback."""
+    if scenario == "rea_fact_evidence" and rule_id.startswith("RULE-WEB"):
+        return _control_rea_web_facts
     return _ORACLE_CONTROL.get((scenario, rule_id)) or _ORACLE_CONTROL.get(scenario)
 
 
 def _poc_oracle_for(scenario: str, rule_id: str, oracle_kind: str):
     """Prefer a rule-specific oracle, then the (scenario, kind) contract."""
+    if scenario == "rea_fact_evidence" and rule_id.startswith("RULE-WEB"):
+        return _oracle_rea_web_facts
     return _ORACLE_POC.get((scenario, rule_id)) or _ORACLE_POC.get((scenario, oracle_kind))
 
 

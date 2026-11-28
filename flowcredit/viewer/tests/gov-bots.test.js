@@ -152,13 +152,13 @@ test("运行消息:复核员完成态显示链完整与回归桶", () => {
   const run = {
     run_id: "r3", bot_id: "verifier", target: "demo-2026", status: "done",
     audit_id: "demo-2026", chain_intact: true, events: 12,
-    regression: { new: 1, fixed: 2, regressed: 0 },
+    regression: { new: 1, fixed: 2, unverified: 3, regressed: 0 },
   };
   const html = govBotRunHtml(bots[1], run);
   assert.match(html, /@复核员 验证 demo-2026/);
   assert.match(html, /链完整/);
   assert.match(html, /12 事件/);
-  assert.match(html, /new 1 \/ fixed 2 \/ regressed 0/);
+  assert.match(html, /new 1 \/ fixed 2 \/ unverified 3 \/ regressed 0/);
 });
 
 test("运行消息:失败与运行中都不伪造完成", () => {

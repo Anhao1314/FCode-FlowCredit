@@ -101,6 +101,25 @@ class WebFactsTests(unittest.TestCase):
                         if c.rule.id.startswith("RULE-WEB")]
         self.assertEqual(control_hits, [])
 
+    def test_cli_audit_promotes_web_findings_from_pinned_facts(self) -> None:
+        """The governed CLI path, not only the unit projection, must see WEB."""
+        from flowaudit import cli
+
+        out = pathlib.Path(self._tmp.name) / "bundle"
+        rc = cli.main([
+            "audit", str(self.root), "--out", str(out), "--operator", "test",
+        ])
+        self.assertEqual(rc, 0)
+        bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
+        categories = {finding["category"] for finding in bundle["findings"]}
+        self.assertIn("WEB-06", categories)
+        self.assertIn("WEB-07", categories)
+        self.assertEqual(bundle["toolchain"]["ruleset_version"], 11)
+        for ref in bundle["poc_evidence_refs"]:
+            record = json.loads((out / f"{ref}.json").read_text(encoding="utf-8"))
+            if record["category"].startswith("WEB"):
+                self.assertEqual(record["replay"]["outcome"], "finding")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,8 @@ class GeneralWorld:
         budget_channel: Any = None,
         motion_probe: Any = None,
         computer: Any = None,
+        knowledge_sources: list[Any] | tuple[Any, ...] = (),
+        coding_contract: Any = None,
     ) -> None:
         self.spec = dict(spec or {})
         # An unrecognised mode falls back to research, which is what a
@@ -137,6 +139,23 @@ class GeneralWorld:
         #: Session-scoped computer use (desktop/external browser). None means
         #: this run did not opt in, so the tools are not registered at all.
         self.computer = computer
+        #: Host-configured knowledge roots (policy docs, runbooks, specs).
+        #: Empty means the `search_knowledge` tool is not registered at all.
+        self.knowledge_sources = list(knowledge_sources or [])
+        #: Explicit coding contract, if any. Parsed here so an invalid shape is
+        #: refused when the world is built, and every file tool sees the same
+        #: normalized policy.
+        from .coding_contract import contract_path_state, normalize_coding_contract
+
+        self.coding_contract = normalize_coding_contract(coding_contract)
+        #: The forbidden surface at world-build time — the workspace is already
+        #: seeded, the model has not run. At completion the loop re-hashes these
+        #: paths; any drift proves a bypass (terminal writes included), which is
+        #: exactly what the file-tool denials alone cannot catch.
+        self.contract_baseline: dict[str, str] = (
+            contract_path_state(self.sandbox.root, self.coding_contract)
+            if self.coding_contract else {}
+        )
         #: The declared engineering-result obligation, or None. Validated here —
         #: the one place both the CLI and the console build a world — so a bad
         #: declaration is refused before any work happens.
@@ -163,6 +182,22 @@ class GeneralWorld:
     #: (where approvals wait); CLI and offline deployments leave it unset and
     #: the tool answers "no operator channel" instead of hanging.
     ask_operator: Any = None
+
+    def completion_gate(self) -> list[str]:
+        """Contract violations at completion time, for the loop's success gate.
+
+        The loop consults this before it may finalize ``succeeded``. Empty list
+        means the contract holds (or there is no contract); every entry is a
+        plain reason string, safe for the chain.
+        """
+        if not self.coding_contract:
+            return []
+        from .coding_contract import coding_contract_violations
+
+        return coding_contract_violations(
+            self.sandbox.root, self.coding_contract,
+            baseline=self.contract_baseline,
+        )
 
     def build_tools(self) -> list[ToolSpec]:
         runner = self.command_runner
@@ -208,6 +243,8 @@ class GeneralWorld:
             repair_policy=repair,
             scaffolded_paths=scaffolded,
             computer=self.computer,
+            knowledge_sources=self.knowledge_sources,
+            coding_contract=self.coding_contract,
         )
         # The tool is always registered; the *channel* is resolved when a
         # question is actually asked. Assemblies wire it after the world exists
@@ -241,7 +278,7 @@ class GeneralWorld:
         if self.budget_channel is not None:
             from .budget import build_budget_extension_tool
 
-            tools.append(build_budget_extension_tool(self.budget_channel.request))
+            tools.append(build_budget_extension_tool(self.budget_channel.request, channel=self.budget_channel))
         return tools
 
     def apply_state(self, state: dict[str, Any]) -> None:

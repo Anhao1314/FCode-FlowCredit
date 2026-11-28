@@ -312,6 +312,30 @@ class RunManager:
                     self.runtime.build_obligation(spec.get("verification"))
                 except self.runtime.AgentError as error:
                     raise ValueError(f"{error.code}: {error.message}") from error
+            # Coding contract (W2): validated here so an invalid shape is a 400
+            # at creation, not a failed run after the work. requireVerification
+            # is explicit by design — a contract that demands completion must
+            # either name the command that proves it or say out loud that it
+            # does not want command-backed verification.
+            contract_spec = spec.get("codingContract")
+            if contract_spec is not None:
+                if str(spec.get("fastProfile") or "") == "motion-render":
+                    raise ValueError(
+                        "codingContract is not enforced by the motion capability runtime"
+                    )
+                try:
+                    from flowagent.tools.general.coding_contract import (
+                        normalize_coding_contract,
+                    )
+
+                    contract = normalize_coding_contract(contract_spec)
+                except ValueError as error:
+                    raise ValueError(f"codingContract is invalid: {error}") from error
+                if contract and contract.get("require_verification") and spec.get("verification") is None:
+                    raise ValueError(
+                        "codingContract.requireVerification needs spec.verification; "
+                        "declare the command or set requireVerification=false"
+                    )
             project = spec.get("project")
             if project is not None:
                 if mode != "open":
@@ -381,6 +405,8 @@ class RunManager:
         else:
             if spec.get("project") is not None:
                 raise ValueError("a project delegation requires a general-work template")
+            if spec.get("codingContract") is not None:
+                raise ValueError("codingContract requires a general-work template")
             scope = spec.get("scope")
             if scope is not None:
                 if not isinstance(scope, list) or not all(isinstance(item, str) for item in scope):
@@ -944,7 +970,8 @@ class RunManager:
                     run.finished = True
                 run.bump()
 
-    def resume(self, run: Run, *, limits: dict, extra_rounds: int = 6) -> Run:
+    def resume(self, run: Run, *, limits: dict, extra_rounds: int = 6,
+               request_id: str | None = None) -> Run:
         """Continue a run that stopped on a resource limit, without re-paying."""
         rt = self.runtime
         if rt is None:
@@ -978,7 +1005,8 @@ class RunManager:
         thread = threading.Thread(
             target=self._run_thread,
             args=(run,),
-            kwargs={"resume_limits": limits, "extra_rounds": extra_rounds},
+            kwargs={"resume_limits": limits, "extra_rounds": extra_rounds,
+                    "resume_request_id": request_id},
             name=f"run:{run.id}",
             daemon=True,
         )

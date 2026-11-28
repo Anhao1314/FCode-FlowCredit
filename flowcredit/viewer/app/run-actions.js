@@ -120,11 +120,14 @@ export function createRunActions(deps) {
       maxCalls: read("maxCalls"),
       maxReads: read("maxReads"),
       maxCostMicrousd: read("maxCostMicrousd"),
+      maxTokens: read("maxTokens"),
+      requestId: (globalThis.crypto?.randomUUID?.() || `budget-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     };
     if (
       !payload.maxCalls || payload.maxCalls < (limits.max_calls || 0) ||
       !payload.maxReads || payload.maxReads < (limits.max_reads || 0) ||
-      !payload.maxCostMicrousd || payload.maxCostMicrousd < (limits.max_cost_microusd || 0)
+      !payload.maxCostMicrousd || payload.maxCostMicrousd < (limits.max_cost_microusd || 0) ||
+      !payload.maxTokens || payload.maxTokens < (limits.max_tokens || 0)
     ) {
       d.toast("上限只能调高，且必须是整数");
       return;

@@ -177,6 +177,26 @@ class ProposalNumberBoundaryTests(unittest.TestCase):
         self.assertIsInstance(steps[0]["arguments"]["timeout"], int)
         self.assertEqual((len(steps), additions, dropped, normalized), (1, [], 0, 1))
 
+    def test_native_explore_only_reply_needs_no_submit_plan(self) -> None:
+        """C1: a reply of only read calls maps to steps with no additions and
+        no error — exploration before commitment is legal at the provider
+        layer, so the round-one plan tax lives nowhere in the runtime."""
+        provider = _provider()
+        steps, additions, dropped, normalized = provider._steps_from_tool_calls(
+            [
+                {"id": "call-1",
+                 "function": {"name": "ls_workspace", "arguments": "{}"}},
+                {"id": "call-2", "function": {
+                    "name": "read_file",
+                    "arguments": '{"path": "stats.py"}'}},
+            ],
+            max_steps=4,
+            request_id="req-1",
+        )
+        self.assertEqual(
+            [item["tool"] for item in steps], ["ls_workspace", "read_file"])
+        self.assertEqual((additions, dropped, normalized), ([], 0, 0))
+
     def test_native_submit_plan_arguments_are_normalized(self) -> None:
         provider = _provider()
         steps, additions, dropped, normalized = provider._steps_from_tool_calls(

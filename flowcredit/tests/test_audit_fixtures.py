@@ -34,9 +34,15 @@ from flowaudit.targets import repo as repo_adapter  # noqa: E402
 
 RUNTIME = pathlib.Path("viewer") / "console_runtime.py"
 
-REMEMBER_CHECK = "        if tool in self._remembered:"
-REMEMBER_ADD = "                    self._remembered.add(tool)"
-GRANT_BLOCK = """        if tool in self._remembered:
+REMEMBER_CHECK = (
+    '        remember_key = self._remember_key(tool, step.get("arguments") or {})\n'
+    "        if remember_key and remember_key in self._remembered:"
+)
+REMEMBER_ADD = "                    self._remembered.add(remember_key)"
+#: The historical FCODE-02 shape, used to build a restructured regression
+#: fixture for the active static rule. The current runtime already keys the
+#: remembered grant on (tool, arguments), so the file is clean as shipped.
+LEGACY_GRANT_BLOCK = """        if tool in self._remembered:
             task = self.harness.record(
                 task,
                 "approval_granted",
@@ -44,6 +50,7 @@ GRANT_BLOCK = """        if tool in self._remembered:
             )
             return task, None
 """
+LEGACY_ADD = "                    self._remembered.add(tool)"
 #: prepare_approval 的放行分支（TOOL_LINE 会先在 approval_required 里出现，
 #: 直接 replace(…,1) 会把 step_key 插错方法——用这个方法级锚点）。
 PREPARE_FAST_PATH = "        if not self.approval_required(round_no=round_no, task=task, step=step):"
@@ -70,29 +77,17 @@ def _write_decoy(copy: pathlib.Path) -> None:
 
 
 def make_clean_control(workdir: pathlib.Path) -> pathlib.Path:
-    """Patch BOTH dev defects so the target is genuinely clean:
-    FCODE-02 → remember keyed on (tool, arguments digest);
-    FCODE-06 → execute refuses tools outside the task allow list.
-    Plus a decoy file that still trips the static trigger."""
+    """Verify the shipped runtime is genuinely clean, then add the FCODE-06
+    defense and a decoy file that still trips the static trigger.
+
+    FCODE-02 (tool-name-only approval memory) is fixed in the runtime itself:
+    the grant is keyed on the risk-aware match key, not the tool name. The
+    decoy keeps a candidate in play so replay clearing is still exercised.
+    """
     copy, runtime, text = _copy_and_read(workdir)
-    assert REMEMBER_CHECK in text and REMEMBER_ADD in text, "anchor strings drifted"
+    assert REMEMBER_CHECK in text and REMEMBER_ADD in text, "argument-scoped remember anchors drifted"
+    assert LEGACY_GRANT_BLOCK not in text, "FCODE-02 regressed: tool-name-only memory returned"
     assert PREPARE_FAST_PATH in text, "prepare fast-path anchor drifted"
-    text = text.replace(
-        PREPARE_FAST_PATH,
-        '        step_key = json.dumps(step.get("arguments") or {}, sort_keys=True)\n'
-        + PREPARE_FAST_PATH,
-        1,
-    )
-    text = text.replace(
-        REMEMBER_CHECK,
-        "        if (tool, step_key) in self._remembered:",
-        1,
-    )
-    text = text.replace(
-        REMEMBER_ADD,
-        "                    self._remembered.add((tool, step_key))",
-        1,
-    )
     # FCODE-06 minimal fix: defense inside execute itself (harness.py, not
     # console_runtime.py — different file, different patch).
     harness_rel = (
@@ -130,12 +125,22 @@ def make_clean_control(workdir: pathlib.Path) -> pathlib.Path:
 
 
 def make_structural_variant(workdir: pathlib.Path) -> pathlib.Path:
-    """Extract the remembered-grant block into a helper: same tokens,
-    different shape. Detection must survive it."""
+    """Introduce the historical FCODE-02 shape, then extract it into a helper:
+    same tokens, different shape. Detection must survive the restructuring."""
     copy, runtime, text = _copy_and_read(workdir)
-    assert GRANT_BLOCK in text, "grant block anchor drifted"
+    assert REMEMBER_CHECK in text and REMEMBER_ADD in text, "argument-scoped remember anchors drifted"
+    # Reconstruct a self-consistent legacy runtime: history keyed by tool name,
+    # and the remember write stores the tool name as before. Keep the
+    # remember_key assignment because the approval payload still reads it.
+    legacy_check = (
+        '        remember_key = self._remember_key(tool, step.get("arguments") or {})\n'
+        + LEGACY_GRANT_BLOCK
+    )
+    text = text.replace(REMEMBER_CHECK, legacy_check, 1)
+    text = text.replace(REMEMBER_ADD, LEGACY_ADD, 1)
+    assert LEGACY_GRANT_BLOCK in text and LEGACY_ADD in text, "legacy injection failed"
     text = text.replace(
-        GRANT_BLOCK,
+        LEGACY_GRANT_BLOCK,
         "        granted = self._grant_from_memory(tool, round_no, task)\n"
         "        if granted is not None:\n"
         "            return granted\n",

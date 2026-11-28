@@ -287,22 +287,62 @@ def post_chat_memory_delete(handler):
     return handler._json({"ok": True, "count": chat.memory.count()})
 
 def post_intake_classify(handler):
-    """S-B 意图分类端点：短而模糊的 composer 输入问一次廉价模型。
+    """旧 S-B 兼容端点：现在由 intent router 统一回答。
 
-    provider 缺位/分类失败一律回退 {"intent": "task"}——分类是优化不是门，
-    fail-closed 的方向是"宁可走原来的路"。只对 ≤30 字输入有意义，长度门在前端。
+    之前它 import 的 ``classify_composer_text`` 并不存在（请求时 500）。
+    兼容形状 {"intent": "chat" | "task"}：clarify/work 都算有执行倾向。
     """
-    mgr = handler.manager
-    if mgr.runtime is None:
-        return handler._json({"error": f"live mode unavailable: {mgr.runtime_error}"}, 503)
     body = handler._read_body()
     message = str(body.get("message") or "")[:120]
     if not message.strip():
         return handler._json({"error": "message is required"}, 400)
-    provider = mgr.gov_explainer_provider(None)
-    from flowagent.intake import classify_composer_text
+    from flowagent.intent_router import route_intent
 
-    result = classify_composer_text(message, provider)
-    if result is None:
-        result = {"intent": "task", "question": ""}
-    return handler._json(result)
+    decision = route_intent(message, {})
+    return handler._json({
+        "intent": "chat" if decision["route"] == "chat" else "task",
+        "route": decision["route"],
+        "via": decision["via"],
+    })
+
+
+def post_intake_route(handler):
+    """Work 入口三分流：确定性规则 + 可选语义分类器。
+
+    分类器只在环境变量 FCODE_INTENT_CLASSIFIER=1 且请求带 classify:true 时
+    使用默认对话模型（mock 永不伪造分类）；失败/缺位一律落到确定性结果，
+    歧义输入不会因为分类器故障自动变成 Run。路由结果不改变工具授权。
+    """
+    import os
+
+    body = handler._read_body()
+    message = str(body.get("message") or "")[:2000]
+    if not message.strip():
+        return handler._json({"error": "message is required"}, 400)
+    context = body.get("context")
+    context = context if isinstance(context, dict) else {}
+    classifier = None
+    model_name = None
+    classifier_note = "deterministic-only"
+    if body.get("classify") and os.environ.get("FCODE_INTENT_CLASSIFIER") == "1":
+        chat = getattr(handler.manager, "chat", None)
+        if chat is None:
+            classifier_note = "chat-service-unavailable"
+        else:
+            config, provider = chat.router_provider()
+            if provider is None:
+                classifier_note = "mock-or-unavailable"
+            else:
+                from flowagent.intent_router import classifier_from_provider
+
+                classifier = classifier_from_provider(provider)
+                model_name = config.model
+                classifier_note = "enabled"
+    from flowagent.intent_router import intent_router_version, route_intent
+
+    decision = route_intent(message, context, classifier=classifier, model_name=model_name)
+    return handler._json({
+        "decision": decision,
+        "router_version": intent_router_version(),
+        "classifier": classifier_note,
+    })

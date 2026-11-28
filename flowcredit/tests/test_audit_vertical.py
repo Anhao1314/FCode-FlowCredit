@@ -1,11 +1,12 @@
 """Vertical slice: rule → candidate → constrained replay → finding → bundle.
 
 The expensive but decisive test: the audit engine runs end to end against
-the real checkout (copied into a temp workdir), the FCODE-02 probe drives
-the target's real RunControl inside a sandboxed worker subprocess, and
-the exported bundle must validate against the frozen audit-bundle schema
-and re-verify through the CLI. The draft rule (RULE-AGI02-002) must stay
-invisible to detection and scoring the whole way through.
+the real checkout (copied into a temp workdir), the probes drive the
+target's real seams inside a sandboxed worker subprocess, and the exported
+bundle must validate against the frozen audit-bundle schema and re-verify
+through the CLI. FCODE-02 is fixed in this checkout; FCODE-06 remains the
+live finding. The draft rule (RULE-AGI02-002) must stay invisible to
+detection and scoring the whole way through.
 """
 
 from __future__ import annotations
@@ -87,8 +88,12 @@ class EndToEndTests(unittest.TestCase):
             bundle = json.loads((out / "audit-bundle.json").read_text(encoding="utf-8"))
             self.assertEqual(bundle["schema_version"], "fcode.audit-bundle/v1")
             groups = {f["root_cause_group"] for f in bundle["findings"]}
-            self.assertIn("approval-memory", groups,
-                          "the FCODE-02 finding must be promoted by replay")
+            # S1 fixed FCODE-02 in the checkout itself (argument-scoped
+            # memory), so the honest audit must not resurrect it. The active
+            # static rule still finds the historical shape in synthetic and
+            # restructured fixtures (see test_audit_fixtures).
+            self.assertNotIn("approval-memory", groups,
+                             "the fixed checkout must not be reported with FCODE-02")
             self.assertIn("ungated-execute", groups,
                           "the FCODE-06 finding must be promoted by replay")
 

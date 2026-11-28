@@ -55,24 +55,37 @@ def main() -> int:
     calibration = os.environ.get("FLOWAGENT_KIMI_CALIBRATION", "").strip()
     scenario = get_scenario(os.environ.get("FLOWAGENT_SCENARIO", "crash"))
 
-    # Patch save(), not _write(): _write runs *inside* the transaction, so killing
-    # there would roll the event back and the crash would test nothing. save()
-    # returns only after COMMIT, which is the moment a real crash becomes
-    # interesting — the work is durable and the process is gone.
+    # Patch the commit entry points, not _write(): _write runs *inside* the
+    # transaction, so killing there would roll the event back and the crash
+    # would test nothing. save()/save_many() return only after COMMIT, which is
+    # the moment a real crash becomes interesting — the work is durable and the
+    # process is gone.
     original_save = TaskStore.save
+    original_save_many = TaskStore.save_many
     seen = {"n": 0}
+
+    def maybe_kill(event_type: str) -> None:
+        if event_type != crash_at:
+            return
+        seen["n"] += 1
+        if seen["n"] == crash_count:
+            sys.stdout.write(f"stoppedAt={event_type}#{seen['n']}\n")
+            sys.stdout.flush()
+            os.kill(os.getpid(), signal.SIGKILL)
 
     def patched_save(self, task, expected_sequence, event_type, detail=None):  # type: ignore[no-untyped-def]
         result = original_save(self, task, expected_sequence, event_type, detail)
-        if event_type == crash_at:
-            seen["n"] += 1
-            if seen["n"] == crash_count:
-                sys.stdout.write(f"stoppedAt={event_type}#{seen['n']}\n")
-                sys.stdout.flush()
-                os.kill(os.getpid(), signal.SIGKILL)
+        maybe_kill(event_type)
+        return result
+
+    def patched_save_many(self, task, events):  # type: ignore[no-untyped-def]
+        result = original_save_many(self, task, events)
+        for event_type, _ in events:
+            maybe_kill(event_type)
         return result
 
     TaskStore.save = patched_save  # type: ignore[method-assign]
+    TaskStore.save_many = patched_save_many  # type: ignore[method-assign]
 
     store = TaskStore(Path(db))
     world = FinanceWorld(partial=scenario.partial_corpus)

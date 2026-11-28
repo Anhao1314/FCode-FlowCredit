@@ -59,9 +59,10 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 
 ## 主区
 
-- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`。`sendTask` 先用保守的确定性规则分流：只有明确的执行/交付意图进入 `后台 clarifier → /api/runs`；问候、知识问答、解释和歧义输入进入真实 Chat 回答，不创建 Run。它不是语义模型分类器；Chat 中仍可确认执行提案后进入治理运行。舞台按 Kimi Work 的中轴排布：标题、说明、composer、快捷建议居中，不再叠轨道插图。
+- Work 默认落地 = 任务舞台（`Build your own work.`），`chat.active=false`。`sendTask` 先经意图三分流（`core/intent-router.js`，与 Python 端 `flowagent.intent_router` 逐条对齐）：**chat**（问候/问答/解释）进真实 Chat 回答；**clarify**（有执行倾向但缺对象/来源/交付条件，或无上下文的"继续刚才那个修改"）停在任务确认页；**work**（明确可交付）保持提交即开跑。只有低置信残余桶会请求 `/api/intake/route`，可选语义分类器默认关闭（`FCODE_INTENT_CLASSIFIER=1`），失败/缺位一律回退确定性结果，歧义输入绝不自动变成 Run；路由结果不改变工具授权。详见 [general-benchmark.md](general-benchmark.md)。舞台按 Kimi Work 的中轴排布：标题、说明、composer、快捷建议居中，不再叠轨道插图。
 - **明确任务提交即开跑（Kimi 式）**：任务不再进入独立的「需求确认」页。`sendTask` 先把明确任务交给后台 clarifier 准备执行方式/预算，返回 readyTask 后立即创建运行并进入任务线程；准备期间只显示任务卡与「正在准备任务」。返回 choices 时先留在任务页，选择后再次 ready 即自动开跑；在途的重复选择被忽略，双击只创建一次运行，刷新不会重放建 run。research 缺来源或项目缺验证命令时停在任务页，保留 `+` 面板补充；open/script 无需 URL。财务模板仍走原问卷。
 - 选中项目后，composer 占位符变成「在『项目名』中要完成什么？」，提交时带 `spec.project_id`。
+- Composer 工具栏只保留「+ / 审批档位 / 模型」；**Fast 与电脑使用合并进「+」菜单的执行模式区**（一级菜单直接切换，「+」按钮角标只在偏离默认时点亮：Fast 关 / 电脑开）。状态随 spec 提交，语义不变。
 - 运行默认模型由 `FCODE_DEFAULT_RUN_MODEL` 指定（缺省 `mock`），与设置页的聊天默认模型解耦；未手动选择时，失效的历史模型会自动回落到第一个可用 provider。
 - 运行视图以任务线程为主体：执行线程常驻；「变更 / 文件」收进右侧扩展栏（rail），主区不被替换。代码变更栏显示文件列表、Patch、应用到原项目与下载；文件栏只读浏览隔离副本（运行期 `.shell-home`/缓存不列）。关闭 rail 或点「执行」回到线程。Work 不再有主区项目卡或看板。
 - 最终回复里直接给交付物卡：列出本次变更文件；`gif/png/jpg/webp` 用 `<img>`、`mp4/webm` 用 `<video>` 内联预览，原始字节走 `GET /api/runs/{id}/workspace-media?path=…`（同一 WorkspaceSandbox 路径狱、20 MiB 上限、only 同源）。媒体文件不必先打开右侧 rail 才能看到。
@@ -95,6 +96,32 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 
 传输层只有 `RemoteDisconnected` 与 `partial` 为空的 `IncompleteRead` 会自动重试一次，并把 `transport_retries`（整数）写进 usage、metadata 与签名回执；HTTP 4xx/5xx、超时、半包、非 JSON 一律不重试，仍走 `MODEL_CALL_FAILED` → unknown。
 
+## 预算追加的唯一口径（S1）
+
+模型工具 `request_budget_extension`、操作员 `/budget`、失败续跑 `/resume` 共用同一个纯策略 `flowagent.runtime.budget.plan_adjustment`，不再各自实现上限：
+
+- `base` 是 Run 创建时、价格缩放之后写入 `task.binding.budget_base` 的不可变信封。续跑只读它，不重算价格、不重置 base，因此不能靠 Resume 获得新的 2× 额度。
+- 单次申请任一维度最多 `+50% base`；累计最多 `+100% base`（2×）。超出部分按维度截断并记 `capped`；没有剩余 headroom 时拒绝，不产生负额度。
+- `extraRounds` 仍是独立 Driver 语义，不与 calls 合并：一次 Loop Round 可以包含两次 Provider 尝试（首次失败、一次重试），轮次预算用 `rounds_base` 与历次 `task_resumed.rounds.granted` 独立累计，单次最多 `+50%`、累计最多 `+100%`；它不写入 `BudgetLimits`。
+- `request_budget_extension` 永不允许「本次运行内记住」：预算决定必须逐次审批。其他 Work 工具按参数范围记忆：`run_command` 全参数哈希、`fetch_url` 主机、`write_file`/`edit_file` 路径、`browser_act` action+target；`terminal`、`computer_request`、`apply_child_changes`、`spawn_subagents` 与未分类 `mcp__*` 永不记住。
+- `budget_adjusted` 与其对应的 `tool_succeeded` 在同一 SQLite 事务提交；内存 `limits` 只在提交成功后更新，apply 失败不会留下「已加预算但工具未成功」的半状态。
+- `request_id` 幂等：同一 id 且同一申请（包括当时被截断的原申请）重放为空操作；同一 id 不同申请拒绝；不同 id 是新的独立申请。操作员路径在计算新 delta 之前先查链上同 id 事件，因此重试不会二次消耗累计额度；续跑请求的 `task_resumed.rounds` 也带同一个 `request_id`，重放不会二次发放 `extraRounds`。
+
+事件只记录整数，`before`/`after` 是完整四维信封：
+
+```json
+{"type":"budget_adjusted","payload":{"detail":{
+  "policy_version":2,"request_id":"op-1","by":"operator",
+  "before":{"max_calls":12,"max_reads":30,"max_cost_microusd":500000,"max_tokens":120000},
+  "after":{"max_calls":18,"max_reads":30,"max_cost_microusd":500000,"max_tokens":120000},
+  "requested":{"calls":20,"reads":0,"cost_microusd":0,"tokens":0},
+  "granted":{"calls":6,"reads":0,"cost_microusd":0,"tokens":0},
+  "capped":{"calls":true,"reads":false,"cost_microusd":false,"tokens":false}
+}}}
+```
+
+恢复时 `replay_limits` 从 base 按事件序号严格重建：v2 事件要求 `before == effective`、`after == before + granted`、任何维度 `<= 2× base`；同一 `request_id` 的 after 必须一致。旧格式事件（无 `policy_version`）只在没有 `budget_base` 的旧运行上按 raise-only/2× 兼容一次，并写诊断；它不会成为第二套预算事实来源。恢复永远不以 `max(effective, usage)` 抬限。发送前被预算拒绝时另记 `budget_reservation_rejected`（含 `blocked_dimensions` 与 `provider_request_sent=false`），与消耗口径分开看。
+
 ## 人工等待的持久恢复
 
 审批与提问的 pending 会随 run meta 落盘。Console 重启后，只有同时具备 `taskId`、pending id 且能识别为审批或提问的中断运行会启动恢复 worker；普通中断运行仍标为 `stopped`，不会自动重放模型或工具。
@@ -104,6 +131,147 @@ POST /api/runs/{id}/project     {projectId}            事后归属（meta-only�
 - 同一 pending 的重复决策或回答返回 409；meta 与哈希链不匹配时恢复失败，不执行原工具。
 
 定向验证：`python3 -m unittest tests.test_pending_recovery tests.test_ask_operator -v`。前两条测试硬杀并重建真实服务进程，覆盖批准、拒绝、重复决策与一次执行；提问测试以新 SQLite 连接和全新 Harness/Loop 实例覆盖答案续接与单次计费。
+
+## Coding Context Pack（W1）
+
+通用 Work 的 coding 任务现在有第一轮宿主预取的 **代码上下文包**：
+
+- 根据 objective 用确定性 BM25 选出最多 5 个候选实现文件；
+- 为候选文件匹配相关测试（文件名 / tests 目录 / 候选模块名）；
+- 解析 Python AST 与 JS/TS 常见 symbol/import 形状，给出有界符号边；
+- 若 spec 声明了 verification 命令，同时注入模型可运行的公共检查；
+- block 上限 3,200 字符，截断时必须标 `truncated`；
+- 每个候选/测试文件带 SHA-256、行号和有界 snippet；
+- `block_sha256` 与完整 citations 写入 task binding，审计可见模型第一轮看到了哪些文件；
+- 没有 objective、没有可检索词或没有命中时不注入空块。
+
+这不是权限放大，也不是最终事实：候选文件和 snippet 只是导航，模型编辑前仍须
+`read_file / read_file_raw` 打开原文件；执行仍走既有 gate、approval、budget 和 receipt。
+
+定向验证：`python3 -m unittest tests.test_code_context -v`。
+
+## Coding Task Contract（W2）
+
+一句 objective 不是契约。操作员可以通过 `spec.codingContract` 把 coding 任务
+升级为**显式、可强制执行的交付契约**：
+
+```json
+{
+  "codingContract": {
+    "deliverables": ["src/fix.py", "REPORT.md"],
+    "forbiddenPaths": ["src/legacy/**"],
+    "noNewDependencies": true,
+    "allowTestEdits": false,
+    "requireVerification": true,
+    "definitionOfDone": ["声明的验证命令必须通过"]
+  }
+}
+```
+
+**运行时强制，不是 prompt 提醒**：
+
+- **文件工具层**：`write_file` / `edit_file` 直接拒绝测试路径（`tests/**`、
+  `test_*`、`*_test.*`、`*.test.*`、`*.spec.*`，`allowTestEdits=true` 可豁免）、
+  声明的禁区路径、以及 `noNewDependencies=true` 时任意深度的依赖清单
+  （`package.json`、lockfiles、`requirements*.txt`、`pyproject.toml` 等），
+  错误码 `CODING_CONTRACT_PATH_DENIED`。
+- **终态门**：`Loop._succeed` 在落 `succeeded` 前向 world 查询完成检查——
+  交付文件缺失 → `CODING_CONTRACT_INCOMPLETE`；禁区/测试/依赖面相对
+  **构建时基线哈希**有任何漂移（包括 terminal 命令绕过文件工具的写入）→
+  `CODING_CONTRACT_VIOLATED`。基线在世界构建时（工作区已播种、模型未运行）
+  采集，测试面用与工具层同一套 glob 模式，保证"工具拒绝的路径也是基线盯住的路径"。
+- **创建时校验**：`validate_delegation_spec` 拒绝非法形状（未知字段、绝对路径、
+  `..`、非字符串项）；`requireVerification=true` 必须配套 `spec.verification`
+  命令，否则显式声明 `requireVerification=false`；motion capability 运行时
+  不经过该门，拒绝与 `fastProfile=motion-render` 组合；非 general 模块拒绝携带契约。
+- **审计链**：契约以 `coding_contract_binding` 写入 task binding；禁区基线
+  （路径 → SHA-256）以 `coding_contract_baseline` 入链；注入 prompt 的契约
+  说明只复述同一份 normalized 策略——判定来自门，不来自模型读了多少遍文字。
+- **无契约不受影响**：没有 `codingContract` 时工具不拒绝、门直通、binding
+  不新增字段，既有行为零变化。
+
+拒绝自然语言契约解析：操作员没声明的，runtime 不假装约定过；`definitionOfDone`
+只是给模型和审计者的说明文字，永远不是判定依据。
+
+定向验证：`python3 -m unittest tests.test_coding_contract -v`。
+
+## 验证修复回路（W3）
+
+以前 Work 的宿主独立验证一旦失败，run 当场判死——模型写完产物、测试挂了，
+它永远不知道自己错在哪。现在**验证失败是反馈，不是死刑**：
+
+- **失败回喂**：宿主独立重跑声明的验证命令失败时，loop 从链上取回这次运行的
+  命令、退出码和**有界输出尾**（≤800 字符，链上保留全文），写入工作记忆的
+  `verification_failures`；下一轮模型上下文直接看到真实的 `AssertionError`，
+  而不是一句"验证未通过"。
+- **有界修复回合**：每个 run 最多 **2 次**修复机会（与 proposal 形状修复同预算），
+  每次以链事件 `verification_repair_requested` 记录 attempt 序号——计数存在链上，
+  跨进程恢复不重置。耗尽后仍以**原始验证失败代码**（如 `RESULT_VERIFICATION_FAILED`）终止。
+- **复用既有扩展路径**：修复回合靠 `plan_extension`（open/project 模式本来就有）
+  让模型用 additions 声明修复步骤；验证通过前不许成功，第二次完成检查会重新独立验证。
+- **治理类拒绝不重试**：`VERIFICATION_NOT_AUTHORIZED`（授权撤回）、
+  `VERIFICATION_DECLARATION_INVALID`、`VERIFICATION_UNAVAILABLE` 不进修复环——
+  权限结论不因重试而改变，反复重提的模型是在试图绕门，不是在修复产物。
+- **蓝图域冻结**：`plan_extension=False` 的域保持原语义：第一次失败立即 abort。
+- **prompt 同步**：general/general-fast/general-fast-native 的恢复规则新增
+  第 3 条（按 code/exit_code/output 定位、修复后继续提交、禁止重复无效修改），
+  prompt 版本 bump 至 v12 / fast-v4 / fast-native-v4。
+
+负例仍然成立：假装修好、跑无关命令替代声明验证、耗尽修复预算，最终都是
+failed 且 `task_succeeded` 不出现——只是多了一次诚实的机会，不是一个豁免。
+
+定向验证：`python3 -m unittest tests.test_verification -v`。
+
+## agent-browser 后端（可选）
+
+`browser_inspect` / `browser_act` 的浏览器后端可切换为
+[vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser)
+（54k★，Apache-2.0）：页面读成**紧凑无障碍树文本 + 元素引用**（`@e1`），
+动作按引用执行，被遮挡/失效的点击**如实失败**不假成功；每工作区一个
+`--session` 守护进程跨调用保活。
+
+```bash
+npm install -g agent-browser        # CLI
+FCODE_BROWSER_BACKEND=agent-browser # 部署开关（默认仍是 Playwright sidecar）
+```
+
+- 快照以 `snapshot -i` 读取（token 效率远高于 DOM dump），解析为证据
+  `elements`（role/name/ref），`text` 即快照原文（有界截断如实标注）；
+- 动作支持 ref（`@eN`）与 CSS/文本选择器；点击前后双截图 + 像素 diff 证据不变；
+- 同页复访不重开：先 `get url` 比对，保住会话状态与 refs 新鲜度；
+  open 后的快照竞态自动重试一次；"selector not found" 重拍快照重试一次；
+- **安全边界不变**：loopback URL 门禁在宿主侧（`validate_browser_url`），
+  agent-browser 本身不设限，策略必须由 FCode 持有；审批/预算/证据链全部照旧；
+- CLI 缺席时工具如实返回 `available:false` + 安装提示，不炸 run。
+
+定向验证：`python3 -m unittest tests.test_agent_browser -v`
+（含真 CLI 用例，未安装时自动跳过）。
+
+## 知识库检索（R1）
+
+操作员可以通过环境变量给部署配置**本地知识库**（政策、规范、runbook）：
+
+```bash
+FCODE_KNOWLEDGE_ROOTS="policy=/path/to/policy-docs:ops=/path/to/runbooks"
+```
+
+- 来源只由**宿主**配置，模型和 run spec 都不能指定路径；没有配置时 `search_knowledge` 工具完全不注册，不会出现“看起来能搜但其实为空”的工具。
+- 检索是确定性 BM25：markdown 按标题分块（长章节退化为行窗口），命中返回 `source / path / title / headings / 行号 / 有界摘要`，模型引用文档而不是凭空编造。
+- 相关性只作为内部排序信号，观察结果里的 `score_bp` 是整数基点；FCode 证据链拒绝浮点。
+- 敏感文件（`secrets.md`、`id_rsa*`、`*.pem` 等）不索引；符号链接不跟随；单文件/总量有上限，超限如实标 `truncated`。
+- 工具是 read effect，不写工作区、不联网；run 的 binding 记录启用的 source/root，审计可见模型看到了哪套知识库。
+
+### R1.5：目标相关上下文预取
+
+Work 启动时还会按 objective 做一次有界知识库预取：
+
+- 最多取 3 条命中，block 上限 2,400 字符，超出如实标 `truncated`；
+- 注入内容只是“候选证据”，并明确要求模型引用前尽量打开原文件确认；
+- 没有来源、没有 query 或没有命中时不注入空块；
+- 精确注入的 block 会计算 `block_sha256`，与 citations、截断标记一起写入 task binding；
+- `search_knowledge` 仍是模型主动检索工具；预取只是让 Work 第一轮就知道“有这套知识库存在”。
+
+定向验证：`python3 -m unittest tests.test_knowledge_index -v`。
 
 ## 迁移与兼容
 

@@ -85,6 +85,7 @@ _CACHE_CONTEXT_ORDER = (
     "state",
     "operator_messages",
     "rejected_proposals",
+    "verification_failures",
     "budget",
     "round",
     "intent",
@@ -341,6 +342,11 @@ class WorkingMemory:
     #: loop so the next proposal can be corrected instead of the run ending —
     #: emitted only when non-empty, so runs that never hit one keep their bytes.
     rejected_proposals: list[dict[str, Any]] | None = None
+    #: Host verification runs that failed, with the chain's own command result:
+    #: exit code and a bounded output tail. Written by the loop's repair path so
+    #: the model fixes the cause instead of the run dying on the first failed
+    #: check — emitted only when non-empty, same byte-stability rule as above.
+    verification_failures: list[dict[str, Any]] | None = None
 
     def record(self, round_no: int, observation: Observation,
                source_trust: "SourceTrust | None" = None,
@@ -583,6 +589,23 @@ class WorkingMemory:
                     "message": str(item.get("message") or "")[:300],
                 }
                 for item in self.rejected_proposals[-3:]
+            ]
+        if self.verification_failures:
+            # The host's own verification run failed. The command, the exit
+            # code and a bounded output tail are the model's diagnosis input;
+            # everything is a plain string or integer — chain-safe if a packet
+            # hash ever covers it.
+            context["verification_failures"] = [
+                {
+                    "round": int(item.get("round") or 0),
+                    "code": str(item.get("code") or "")[:100],
+                    "command": str(item.get("command") or "")[:200],
+                    "exit_code": item.get("exit_code"),
+                    "output": str(item.get("output") or "")[-600:],
+                    "output_truncated": bool(item.get("output_truncated")),
+                    "message": str(item.get("message") or "")[:200],
+                }
+                for item in self.verification_failures[-2:]
             ]
         if self.prior_cases:
             context["prior_cases"] = [

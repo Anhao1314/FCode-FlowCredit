@@ -150,7 +150,9 @@ class GovBotServiceTest(unittest.TestCase):
         self.assertEqual(settled["status"], "done")
         self.assertTrue(settled["chain_intact"])
         self.assertEqual(settled["events"], 12)
-        self.assertEqual(settled["regression"], {"known": 1, "new": 2, "fixed": 0, "regressed": 1})
+        self.assertEqual(settled["regression"], {
+            "known": 1, "new": 2, "fixed": 0, "unverified": 0, "regressed": 1,
+        })
 
     def test_verifier_prefers_latest_completed_auditor_run(self):
         """目标留空以运行流为准，不再按目录名猜“最新”。"""

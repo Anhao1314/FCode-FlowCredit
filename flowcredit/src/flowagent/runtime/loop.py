@@ -34,6 +34,7 @@ from ..memory.policy import (
     policy_profile_allowed,
 )
 from ..memory.summary_cache import SummaryCache
+from ..core.verification import VERIFICATION_TOOL
 from ..tools.trust import trust_for_tool
 from ..providers.base import Proposal
 from ..tools.base import Observation
@@ -68,6 +69,28 @@ RECOVERABLE_TOOL_ERRORS = frozenset({
 })
 #: Bounded on purpose: two extra model calls, each charged and recorded.
 MAX_PROPOSAL_REPAIRS = 2
+
+#: A failed host verification is repairable, not terminal — the same budget a
+#: proposal-shape repair gets. The failure detail (exit code, bounded output
+#: tail from the chain's own verification run) goes back into the model's
+#: context and the run continues on the plan-extension path it already has;
+#: each repair is charged, recorded (``verification_repair_requested``) and
+#: the next completion check re-verifies whatever the model did. Exhaustion
+#: keeps the original failure: the code that would have aborted the run cold.
+MAX_VERIFY_REPAIRS = 2
+#: Governance verdicts are not the model's to retry: an authorization refusal,
+#: an invalid declaration or an unavailable verifier does not change by trying
+#: again — and a model that keeps proposing after a withdrawal is trying to
+#: sneak past a gate, not repair a result. Only "the check ran and failed"
+#: evidence failures enter the repair loop.
+NON_REPAIRABLE_VERIFICATION_CODES = frozenset({
+    "VERIFICATION_NOT_AUTHORIZED",
+    "VERIFICATION_DECLARATION_INVALID",
+    "VERIFICATION_UNAVAILABLE",
+})
+#: How much of the failed verification run's output the model sees. The chain
+#: keeps everything; this is a context-economy bound, not an evidence one.
+VERIFY_OUTPUT_TAIL_CHARS = 800
 
 #: P1-1.5 收尾:SQLite summary 缓存**默认关闭**。数据见
 #: work/cache-benchmark/large-payload-report.json:90KB 载荷下单次 detailed
@@ -223,8 +246,15 @@ class Loop:
                         task, obligation = self._verify_obligation(
                             task, verified, plan, round_no)
                     except AgentError as error:
-                        return self._abort(task.id, error)
-                    return self._succeed(task, verified, plan, obligation, sources)
+                        if not self._repair_failed_verification(
+                                task.id, error, round_no, memory):
+                            return self._abort(task.id, error)
+                        # Repair round: fall through to the proposal phase —
+                        # plan_extension lets the model act on the feedback,
+                        # and the next settlement check re-verifies its work.
+                        task = self.harness.store.load(task.id)
+                    else:
+                        return self._succeed(task, verified, plan, obligation, sources)
                 if plan.is_complete() or plan.next_open() is None:
                     # A plan the domain opened to the model is not finished just
                     # because the steps it currently holds are: the model may
@@ -430,6 +460,7 @@ class Loop:
 
             completed_without_result = False
             batch_recover = False
+            verify_repair = False
             parallel_reads = (
                 self.harness.max_steps > 1
                 and len(steps) > 1
@@ -514,9 +545,20 @@ class Loop:
                             sources = self._check_evidence(task, verified, round_no)
                             task, obligation = self._verify_obligation(task, verified, plan, round_no)
                         except AgentError as error:
-                            return self._abort(task.id, error)
-                        self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
-                        return self._succeed(task, verified, plan, obligation, sources)
+                            if not self._repair_failed_verification(
+                                    task.id, error, round_no, memory):
+                                return self._abort(task.id, error)
+                            task = self.harness.store.load(task.id)
+                            # End the round as unfinished business; the next
+                            # iteration reaches the proposal phase (the plan is
+                            # complete but plan_extension re-opens it) instead
+                            # of re-verifying nothing.
+                            completed_without_result = True
+                        else:
+                            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                            return self._succeed(task, verified, plan, obligation, sources)
+                    # No result obligation this plan can verify: end the round
+                    # and let the proposal phase (or the round limit) decide.
                     completed_without_result = True
                 self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
                 if completed_without_result:
@@ -586,7 +628,17 @@ class Loop:
                             sources = self._check_evidence(task, verified, round_no)
                             task, obligation = self._verify_obligation(task, verified, plan, round_no)
                         except AgentError as error:
-                            return self._abort(task.id, error)
+                            if not self._repair_failed_verification(
+                                    task_id, error, round_no, memory):
+                                return self._abort(task_id, error)
+                            task = self.harness.store.load(task_id)
+                            # The verification feedback must reach the model
+                            # before anything else runs: stop consuming the
+                            # rest of this batch and let the next round's
+                            # proposal phase act on it.
+                            self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
+                            verify_repair = True
+                            break
                         self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
                         return self._succeed(task, verified, plan, obligation, sources)
                     # No result obligation: stop consuming the rest of the batch
@@ -594,7 +646,7 @@ class Loop:
                     completed_without_result = True
                     break
 
-            if batch_recover:
+            if batch_recover or verify_repair:
                 continue
             self.observer.round_end(round_no, self.harness.budget(task).snapshot(), plan)
             if completed_without_result:
@@ -1015,6 +1067,77 @@ class Loop:
             "snapshot_sha256": snapshot.get("sha256"),
         })
         return task, outcome
+
+    def _repair_failed_verification(
+        self,
+        task_id: str,
+        error: AgentError,
+        round_no: int,
+        memory: Any,
+    ) -> bool:
+        """Feed a failed host verification back to the model, or concede death.
+
+        Returns True when the loop should continue with a repair round. The
+        attempt count lives on the chain (``verification_repair_requested``
+        events), so it survives a process restart the way every other budget
+        does. Blueprint domains have no plan-extension path to repair on, and
+        a task the verification run already closed (a timeout failed it at
+        dispatch) cannot be kept alive — both keep the old instant abort.
+        """
+        if not self.plan_extension or not isinstance(error, AgentError):
+            return False
+        if error.code in NON_REPAIRABLE_VERIFICATION_CODES:
+            return False
+        fresh = self.harness.store.load(task_id)
+        if fresh.status in ("succeeded", "denied", "failed", "recovery_required"):
+            return False
+        attempt = 1 + sum(
+            1 for event in self.harness.store.events(task_id)
+            if event["type"] == "verification_repair_requested"
+        )
+        if attempt > MAX_VERIFY_REPAIRS:
+            return False
+        failure: dict[str, Any] = {
+            "round": int(round_no),
+            "code": str(error.code),
+            "message": str(error.message)[:300],
+        }
+        # The host's independent re-run is already on the chain: the tool event
+        # committed after the last ``verification_obligation`` marker carries
+        # the command, the exit code and the capped output. Cite it — do not
+        # re-run the check here, and never trust a model-repeated one.
+        for event in reversed(self.harness.store.events(task_id)):
+            detail = (event.get("payload") or {}).get("detail", {})
+            etype = event.get("type")
+            if etype == "verification_obligation":
+                break
+            if etype in ("tool_succeeded", "tool_failed", "tool_unknown") \
+                    and detail.get("tool") == VERIFICATION_TOOL:
+                arguments = dict(detail.get("arguments") or {})
+                result = dict(detail.get("result") or {})
+                output = str(result.get("output") or "")
+                command = " ".join(
+                    [str(arguments.get("command") or "")]
+                    + [str(arg) for arg in (arguments.get("args") or [])]
+                ).strip()
+                failure.update({
+                    "command": command[:200],
+                    "exit_code": result.get("exit_code"),
+                    "output": output[-VERIFY_OUTPUT_TAIL_CHARS:],
+                    "output_truncated": bool(result.get("truncated"))
+                    or len(output) > VERIFY_OUTPUT_TAIL_CHARS,
+                })
+                break
+        memory.verification_failures = list(
+            getattr(memory, "verification_failures", None) or []
+        ) + [failure]
+        self.harness.record(fresh, "verification_repair_requested", {
+            "round": int(round_no),
+            "attempt": attempt,
+            "max_attempts": MAX_VERIFY_REPAIRS,
+            "code": str(error.code),
+        })
+        return True
 
     def _record_verification_rejected(
         self,
@@ -1553,6 +1676,36 @@ class Loop:
         obligation: dict[str, Any] | None = None,
         sources: dict[str, Any] | None = None,
     ) -> Task:
+        # Coding-contract gate (W2): a verified answer is not a compliant
+        # delivery. The world — when this run carries a contract — re-hashes
+        # the forbidden surface against its build-time baseline and re-checks
+        # the declared deliverables, so terminal writes that bypassed the file
+        # tools are caught here, not trusted away. Missing deliverables fail
+        # INCOMPLETE; any forbidden-surface drift fails VIOLATED.
+        gate = getattr(getattr(self.harness, "world", None), "completion_gate", None)
+        violations = list(gate() or []) if callable(gate) else []
+        if violations:
+            breached = any(
+                item.startswith("forbidden path") for item in violations
+            )
+            code = "CODING_CONTRACT_VIOLATED" if breached else "CODING_CONTRACT_INCOMPLETE"
+            task = self.harness.finalize(
+                task,
+                "failed",
+                failure={
+                    "code": code,
+                    "message": "; ".join(violations)[:300],
+                    "retryable": False,
+                },
+                event="task_failed",
+                detail={
+                    "code": code,
+                    "violations": violations,
+                    "plan": plan.progress(),
+                },
+            )
+            self.observer.terminal(task, None)
+            return task
         if "results" in verified:
             result = {
                 "verified": True,
@@ -1687,12 +1840,28 @@ class Loop:
         if task.status in ("succeeded", "denied", "failed", "recovery_required"):
             self.observer.terminal(task, None)
             return task
+        diagnostics = dict(error.details or {})
+        if error.code == "BUDGET_EXCEEDED" and diagnostics.get("provider_request_sent") is False:
+            # The reservation failed before dispatch: record the fact explicitly
+            # (no Provider request exists to reconcile) and keep the diagnostics.
+            task = self.harness.record(
+                task,
+                "budget_reservation_rejected",
+                {
+                    "call_index": task.model.attempts,
+                    "blocked_dimensions": list(diagnostics.get("blocked_dimensions") or []),
+                    "provider_request_sent": False,
+                },
+            )
+        failure = error.to_dict()
+        if diagnostics:
+            failure["diagnostics"] = diagnostics
         task = self.harness.finalize(
             task,
             "failed",
-            failure=error.to_dict(),
+            failure=failure,
             event="task_failed",
-            detail={"code": error.code},
+            detail={"code": error.code, **({"diagnostics": diagnostics} if diagnostics else {})},
         )
         self.observer.terminal(task, None)
         return task
