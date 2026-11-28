@@ -39,7 +39,7 @@ test("官方像素机器人比例：暖橙机体、两只竖眼、短四肢与 F
   assert.match(html, /class="ai-avatar-mouth"/);
   assert.equal((html.match(/ai-avatar-arm ai-avatar-arm--/g) || []).length, 2);
   assert.equal((html.match(/ai-avatar-leg ai-avatar-leg--/g) || []).length, 2);
-  assert.match(html, /fill="#D97757"/);
+  assert.match(html, /fill="#2FA371"/);
   assert.doesNotMatch(html, /ellipse/);
 });
 

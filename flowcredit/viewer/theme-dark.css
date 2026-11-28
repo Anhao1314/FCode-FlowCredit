@@ -1,0 +1,144 @@
+/* FCode 夜间模式：末位加载，只在 html[data-theme="dark"] 时生效。
+   色板不是手拍的——从本地 Kimi 桌面端「月之暗面」实测采样映射而来：
+   画布 #121212、卡片 #1f1f1f、侧栏 #181816（微暖黑）、主文本 #f7f7f5、
+   次文本 #b9b9b9、分区靠色差不画线。两层结构：
+   ①全量暗色令牌（app.css :root 是唯一令牌源，本文件是它唯一的主题变体）；
+   ②对历史硬编码品牌墨色（#111/#1a1a1a 实心底 + 白字）与白底的定点覆写。 */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #121212;
+  --panel: #1f1f1f;
+  --raised: #242424;
+  --inset: #1a1a1a;
+  --surface-hover: rgba(255, 255, 255, .06);
+  --surface-selected: rgba(255, 255, 255, .10);
+  --overlay: rgba(0, 0, 0, .55);
+
+  --line: rgba(255, 255, 255, .10);
+  --line-soft: rgba(255, 255, 255, .06);
+  --line-strong: rgba(255, 255, 255, .22);
+  --shadow-stage: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .45);
+  --shadow-menu: 0 12px 36px rgba(0, 0, 0, .55);
+
+  --text-1: #f7f7f5;
+  --text-2: #b9b9b9;
+  --text-3: #8e8e8c;
+  --text-4: #858583;
+  --accent: #f7f7f5;
+  --accent-hover: #ffffff;
+  --accent-soft: rgba(255, 255, 255, .08);
+  --accent-line: rgba(255, 255, 255, .28);
+  --text-on-accent: #121212;
+  --focus-ring: 2px solid rgba(255, 255, 255, .68);
+
+  --ok: #4cc38a;
+  --ok-soft: rgba(76, 195, 138, .13);
+  --bad: #e5695e;
+  --bad-soft: rgba(229, 105, 94, .13);
+  --warn: #d9a441;
+  --warn-soft: rgba(217, 164, 65, .13);
+
+  /* Kimi 兼容令牌翻面 */
+  --k-fill-1: rgba(255, 255, 255, .05);
+  --k-fill-2: rgba(255, 255, 255, .08);
+  --k-label-2: rgba(255, 255, 255, .62);
+  --k-label-3: rgba(255, 255, 255, .46);
+  --k-flavor: #f7f7f5;
+  --k-label-1-hover: rgba(247, 247, 245, .9);
+  --k-fill-1-hover: rgba(255, 255, 255, .07);
+  --k-fill-1-invert: rgba(0, 0, 0, .06);
+  --k-fill-2-active: rgba(255, 255, 255, .10);
+  --k-white: #121212;
+}
+
+/* 侧栏有一套 design.css 里作用域限定的 Kimi 亮色令牌（--canvas #fbfaf7 等），
+   夜间在这里给出它的暗面对应体——色值同样来自 Kimi「月之暗面」实测采样。 */
+[data-theme="dark"] .sidebar {
+  --canvas: #181816;
+  --panel: #202020;
+  --raised: #262626;
+  --text-1: rgba(247, 247, 245, .92);
+  --text-2: rgba(247, 247, 245, .62);
+  --text-3: rgba(247, 247, 245, .46);
+  --text-4: rgba(247, 247, 245, .32);
+  --line: rgba(255, 255, 255, .09);
+  --line-strong: rgba(255, 255, 255, .14);
+  --active: rgba(255, 255, 255, .05);
+}
+[data-theme="dark"] .sidebar .side-new {
+  border-color: rgba(255, 255, 255, .14);
+  background: #232321;
+}
+[data-theme="dark"] .sidebar .side-new:hover {
+  background: #2b2b29;
+  border-color: rgba(255, 255, 255, .22);
+}
+[data-theme="dark"] .sidebar .side-flavor {
+  background: rgba(88, 131, 255, .14);
+  color: #7aa7ff;
+}
+[data-theme="dark"] .sidebar .side-list:hover { scrollbar-color: rgba(255, 255, 255, .14) transparent; }
+
+/* 选区翻面：亮主题是墨底白字，夜间反过来。 */
+::selection { background: #f7f7f5; color: #121212; }
+::selection:window-inactive { background: rgba(247, 247, 245, .35); }
+
+/* ---- 品牌墨色组件翻面：#111/#1a1a1a 实心底 + 白字 → 亮墨底 + 暗字 ---- */
+[data-theme="dark"] .apv-choice:first-child,
+[data-theme="dark"] .apv-choice.primary,
+[data-theme="dark"] .run-card-mode.active,
+[data-theme="dark"] .run-card .a-btn.primary,
+[data-theme="dark"] .a-btn.primary,
+[data-theme="dark"] .a-btn.strong,
+[data-theme="dark"] button.primary,
+[data-theme="dark"] .btn.primary {
+  background: #f7f7f5;
+  color: #121212;
+  border-color: #f7f7f5;
+}
+[data-theme="dark"] html.desktop-app .side-new,
+[data-theme="dark"] .side-new {
+  border: .5px solid rgba(255, 255, 255, .14);
+  background: #262626;
+  color: var(--text-1);
+}
+
+/* 主按钮悬停保持可读 */
+[data-theme="dark"] .a-btn.primary:hover,
+[data-theme="dark"] .run-card .a-btn.primary:hover,
+[data-theme="dark"] .apv-choice.primary:hover {
+  background: #ffffff;
+  color: #121212;
+}
+
+/* 发光/状态点在暗底上用亮墨 */
+[data-theme="dark"] .fdot.live,
+[data-theme="dark"] .session .sdot.live { background: var(--accent); }
+
+/* ---- 字面量浅色残留（chat/thread 组件层的定稿值）---- */
+/* 用户气泡：#efefef 实底 → 抬升灰（Kimi 暗面气泡同层）。
+   Work 线程是 .th-user-text；Chat 对话是 .chat-bubble（chat.css:33 定稿）。 */
+[data-theme="dark"] .th-user-text,
+[data-theme="dark"] .task-thread .th-user-text,
+[data-theme="dark"] .chat-bubble {
+  background: #262626;
+}
+/* 内联代码与代码块：#F5F5F5 → 抬升面 + 弱描边 */
+[data-theme="dark"] .chat-md code {
+  background: #262626;
+  color: var(--text-1);
+}
+[data-theme="dark"] .chat-code {
+  background: #1a1a1a;
+  border: 1px solid var(--line-soft);
+}
+[data-theme="dark"] .chat-code code { background: none; }
+/* 思考块 / 动作按钮 / 附件 chips 的 #F5F5F5 井 */
+[data-theme="dark"] .chat-reasoning,
+[data-theme="dark"] .chat-act:hover,
+[data-theme="dark"] .chat-act {
+  background: #1e1e1e;
+}
+[data-theme="dark"] .chat-reasoning summary { color: var(--text-2); }

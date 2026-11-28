@@ -248,6 +248,14 @@ test("intakeRequest:只把显式开启的电脑使用带进 spec", async () => {
   assert.equal("computerUse" in off.fetchCalls[0].body.spec, false,
     "默认关闭:没有开关就不注册 computer 工具");
 
+  // 状态源（+ 面板的 mode row）优先
+  const stateful = setup();
+  stateful.deps.getComputerUseMode = () => true;
+  stateful.intake.intake.active = true;
+  await stateful.intake.intakeRequest("把 TextEdit 里的文档整理一下", null);
+  assert.equal(stateful.fetchCalls[0].body.spec.computerUse, true);
+
+  // DOM 兜底（旧工具栏位置/无依赖注入时）
   const on = setup();
   on.els["computer-btn"] = makeEl({ attrs: { "aria-pressed": "true" } });
   on.intake.startIntake("把 TextEdit 里的文档整理一下");

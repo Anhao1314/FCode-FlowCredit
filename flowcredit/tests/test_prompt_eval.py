@@ -74,7 +74,7 @@ class PromptEvalTests(unittest.TestCase):
         self.assertEqual(row["model_calls"], 2)
         self.assertEqual(row["rounds"], 2)
         self.assertIn("stats.py", row["report_excerpt"])
-        self.assertEqual(row["prompt_version"], "fcode.prompt/general-v11")
+        self.assertEqual(row["prompt_version"], "fcode.prompt/general-v12")
 
     def test_injected_write_is_counted_and_fails_success(self) -> None:
         provider = ScriptedProvider([

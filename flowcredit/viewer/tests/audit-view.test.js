@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   actorBadge, capabilityChips, createAuditSurface, groupFindings, mapOutcome, outcomeBadge,
   renderAuthorization, renderBundle, renderBundles, renderChain, renderGoDeps, renderEntitlementDiff, renderSidecarDetail, renderReaEvidence, renderReaFacts, renderRegression, renderSpecGap,
-  renderUncovered, summarizeBundle,
+  renderUncovered, renderCoverage, renderExternalTools, summarizeBundle,
 } from "../audit/audit-view.js";
 
 test("四值结果各有唯一的 UI 语气,未知值不猜测", () => {
@@ -279,20 +279,63 @@ test("sidecar 详情表:展示 flags", () => {
   assert.ok(html.includes("未授权 listener"), "unauth flag");
 });
 
-test("回归对比:known/new/fixed/regressed 四桶展示", () => {
+test("回归对比:known/new/fixed/unverified/regressed 五桶展示", () => {
   const html = renderRegression({
     prior_audit_id: "prior-001",
     known: [{ category: "AGI-07", root_cause_group: "entitlement" }],
     new: [{ category: "AGI-05", root_cause_group: "supply-chain" }],
     fixed: [{ category: "AGI-03", root_cause_group: "secret-leak" }],
+    unverified: [{ category: "WEB-06", root_cause_group: "missing-security-headers" }],
     regressed: [{ category: "AGI-02", root_cause_group: "approval" }],
   });
   assert.ok(html.includes("known"), "known badge");
   assert.ok(html.includes("new"), "new badge");
   assert.ok(html.includes("fixed"), "fixed badge");
+  assert.ok(html.includes("unverified"), "unverified badge");
   assert.ok(html.includes("regressed"), "regressed badge");
   assert.ok(html.includes("prior-001"), "prior audit id");
   assert.ok(html.includes("entitlement"), "known finding detail");
+  assert.ok(html.includes("missing-security-headers"), "unverified finding detail");
+});
+
+test("回归对比:只有 unverified 也要展示，不能误读成干净", () => {
+  const html = renderRegression({
+    unverified: [{ category: "WEB-06", root_cause_group: "missing-security-headers" }],
+  });
+  assert.ok(html.includes("unverified"));
+  assert.ok(html.includes("1 项"));
+});
+
+test("覆盖摘要:执行的规则数与未执行原因都可见", () => {
+  const html = renderCoverage({
+    coverage: {
+      rules: [
+        { rule_id: "RULE-WEB06-001", status: "executed", candidates: 1 },
+        { rule_id: "RULE-AGI02-001", status: "not_applicable", reason: "no files matched '**/*.py'" },
+      ],
+    },
+  });
+  assert.ok(html.includes("1/2 已执行"));
+  assert.ok(html.includes("RULE-AGI02-001"));
+  assert.ok(html.includes("not_applicable"));
+  assert.ok(html.includes("no files matched"));
+});
+
+test("外部工具信号:执行/跳过/失败分明，且不冒充 finding", () => {
+  const html = renderExternalTools({
+    external_tools: [
+      { tool: "retire", status: "executed", version: "6.1.1", findings_count: 0 },
+      { tool: "gitleaks", status: "executed", version: "8.24.3", findings_count: 1,
+        findings: [{ file: "app.js", rule: "generic-api-key" }] },
+      { tool: "lighthouse", status: "skipped", reason: "not installed", findings_count: 0 },
+    ],
+  });
+  assert.ok(html.includes("retire"));
+  assert.ok(html.includes("gitleaks"));
+  assert.ok(html.includes("lighthouse"));
+  assert.ok(html.includes("skipped"));
+  assert.ok(html.includes("not installed"));
+  assert.ok(html.includes("不自动晋升为 finding"));
 });
 
 test("回归对比:有指纹的发现显示短指纹,便于跨审计对齐", () => {

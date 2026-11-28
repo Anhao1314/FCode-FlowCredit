@@ -158,3 +158,48 @@ test("Work direct：choices 确认后自动开跑，双击也只创建一次运�
   const runs = await response.json();
   expect(runs.filter(run => run.objective === objective)).toHaveLength(1);
 });
+
+/* S1: 预算失败后的续跑表单必须把 token 顶一起提交，且每次请求带 requestId。 */
+test("预算失败续跑：表单提交 tokens 与 requestId", async ({ page }) => {
+  const objective = `E2E 预算续跑 ${Date.now()}`;
+  const created = await page.request.post("/api/runs", {
+    data: { objective, template: "budget", approval: "off" },
+  });
+  expect(created.ok()).toBeTruthy();
+  const seed = await created.json();
+  await expect(async () => {
+    const res = await page.request.get(`/api/runs/${seed.id}/trace`);
+    expect(res.ok()).toBeTruthy();
+    const trace = await res.json();
+    expect(trace.terminal?.status).toBe("failed");
+    expect(trace.terminal?.failure?.code).toBe("BUDGET_EXCEEDED");
+  }).toPass({ timeout: 60_000, intervals: [2_000] });
+
+  const posts = [];
+  await page.route("**/api/runs/*/resume", async route => {
+    posts.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ id: seed.id, status: "running" }),
+    });
+  });
+
+  await page.goto("/");
+  await slashCommand(page, "/账本");
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "ledger");
+  await page.getByText(objective).first().click();
+  await expect(page.locator('#thread [data-thread-item="error"]')).toBeVisible({ timeout: 20_000 });
+  await page.locator('[data-act="resume"]').click();
+
+  const tokens = page.locator('[data-resume="maxTokens"]');
+  await expect(tokens).toBeVisible();
+  const tokenValue = Number(await tokens.inputValue());
+  expect(tokenValue).toBeGreaterThan(0);
+  await page.locator("[data-resume-apply]").click();
+
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].maxTokens).toBe(tokenValue);
+  expect(posts[0].requestId).toBeTruthy();
+  expect(posts[0].extraRounds).toBe(6);
+});

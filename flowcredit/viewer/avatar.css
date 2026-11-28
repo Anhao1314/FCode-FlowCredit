@@ -42,13 +42,13 @@
 }
 .ai-avatar-mascot .ai-avatar-ring {
   inset: 1px;
-  border: 1px solid #D97757;
+  border: 1px solid #2FA371;
   border-radius: 8px;
   opacity: .25;
   animation: ai-mascot-ring 1.6s ease-in-out infinite;
 }
 .ai-avatar-mascot .ai-avatar-ring.is-pending {
-  border-color: #D97757;
+  border-color: #2FA371;
   opacity: .34;
   animation-duration: 2.8s;
 }

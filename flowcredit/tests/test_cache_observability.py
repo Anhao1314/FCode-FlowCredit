@@ -91,7 +91,7 @@ class CacheFriendlyPromptTests(unittest.TestCase):
         self.assertLess(user.index('"prompt_profile"'), user.index('"round"'))
         self.assertLess(user.index('"instruction"'), user.index('"budget"'))
         self.assertIn('"round":7', user)
-        self.assertIn('"prompt_version": "fcode.prompt/general-v11"', user)
+        self.assertIn('"prompt_version": "fcode.prompt/general-v12"', user)
 
     def test_finance_prompt_keeps_frozen_sorted_rendering(self) -> None:
         context = {

@@ -180,14 +180,31 @@ class AuditService:
         path = self._within(name, "regression.json")
         if path is None:
             return {"error": "not found"}, 404
+        empty = {"prior_audit_id": None, "known": [], "new": [],
+                 "fixed": [], "unverified": [], "regressed": []}
         if not path.exists():
-            return {"prior_audit_id": None, "known": [], "new": [],
-                    "fixed": [], "regressed": []}
+            return empty
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data.setdefault("unverified", [])
+                # Legacy bundles predate the coverage ledger. We cannot tell
+                # whether a missing finding was fixed or simply not scanned,
+                # so fail closed: fixed -> unverified.
+                bundle_path = self._within(name, "audit-bundle.json")
+                coverage = None
+                if bundle_path is not None and bundle_path.exists():
+                    try:
+                        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+                        coverage = bundle.get("coverage") if isinstance(bundle, dict) else None
+                    except (OSError, ValueError):
+                        coverage = None
+                if bundle_path is not None and coverage is None and data.get("fixed"):
+                    data["unverified"] = list(data.get("unverified") or []) + list(data["fixed"])
+                    data["fixed"] = []
+            return data
         except (OSError, ValueError):
-            return {"prior_audit_id": None, "known": [], "new": [],
-                    "fixed": [], "regressed": []}
+            return empty
 
     def spec_gap(self, name: str) -> dict | tuple[dict, int]:
         path = self._within(name, "spec-gap-report.json")

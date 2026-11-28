@@ -293,6 +293,51 @@ export function renderUncovered(bundle) {
   return `<details class="at-uncovered at-secondary"><summary class="at-secondary-summary"><span>未覆盖面</span><span class="at-secondary-hint">${items.length} 项</span></summary><div class="at-secondary-body"><ul>${rows}</ul></div></details>`;
 }
 
+export function renderExternalTools(bundle) {
+  const tools = bundle.external_tools;
+  if (!Array.isArray(tools) || !tools.length) return "";
+  const rows = tools.map((tool) => {
+    const status = tool.status || "?";
+    const tone = status === "executed" ? "ok" : status === "error" ? "bad" : "dim";
+    const count = Number(tool.findings_count || 0);
+    const version = tool.version ? ` · v${esc(tool.version)}` : "";
+    const reason = tool.reason ? ` <span class="dim">${esc(tool.reason)}</span>` : "";
+    const findings = Array.isArray(tool.findings) && tool.findings.length
+      ? `<div class="at-mono dim">${tool.findings.slice(0, 3).map((item) =>
+          esc(item.file || item.audit || item.rule || JSON.stringify(item))).join(" · ")}</div>`
+      : "";
+    return `<li><strong>${esc(tool.tool || "?")}</strong> `
+      + `<span class="at-badge at-${tone}">${esc(status)}</span>`
+      + ` <span class="dim">${count} 条信号</span>${version}${reason}${findings}</li>`;
+  }).join("");
+  return `<details class="at-external at-secondary">
+    <summary class="at-secondary-summary"><span>外部工具信号</span><span class="at-secondary-hint">${tools.length} 个工具</span></summary>
+    <div class="at-secondary-body">
+      <ul>${rows}</ul>
+      <div class="dim">外部工具输出是第二证据面，不自动晋升为 finding；晋升仍需本系统 POC 与宿主 oracle。</div>
+    </div>
+  </details>`;
+}
+
+export function renderCoverage(bundle) {
+  const coverage = bundle.coverage;
+  if (!coverage || !Array.isArray(coverage.rules) || !coverage.rules.length) return "";
+  const executed = coverage.rules.filter((rule) => rule.status === "executed").length;
+  const pending = coverage.rules.filter((rule) => rule.status !== "executed");
+  const rows = pending.slice(0, 40).map((rule) =>
+    `<li><strong>${esc(rule.rule_id || "?")}</strong>`
+    + ` <span class="at-mono dim">${esc(rule.status || "?")}</span>`
+    + ` <span class="dim">${esc(rule.reason || "")}</span></li>`
+  ).join("");
+  const more = pending.length > 40 ? `<div class="dim">… +${pending.length - 40}</div>` : "";
+  return `<details class="at-coverage at-secondary">
+    <summary class="at-secondary-summary"><span>规则覆盖</span><span class="at-secondary-hint">${executed}/${coverage.rules.length} 已执行</span></summary>
+    <div class="at-secondary-body">
+      ${pending.length ? `<ul>${rows}</ul>${more}` : '<div class="dim">本次所有 active 规则均已执行</div>'}
+    </div>
+  </details>`;
+}
+
 export function renderAuthorization(bundle) {
   const auth = bundle.authorization || {};
   const target = bundle.target || {};
@@ -411,7 +456,7 @@ export function renderSpecGap(report) {
 export function renderRegression(reg) {
   if (!reg || typeof reg !== "object") return "";
   const has = (key) => Array.isArray(reg[key]) && reg[key].length > 0;
-  if (!has("known") && !has("new") && !has("fixed") && !has("regressed")) return "";
+  if (!has("known") && !has("new") && !has("fixed") && !has("unverified") && !has("regressed")) return "";
   const badge = (label, tone) => `<span class="at-badge at-${tone}">${esc(label)}</span>`;
   const fp = (f) => {
     const value = f.fingerprint || f.semantic_fingerprint;
@@ -428,12 +473,13 @@ export function renderRegression(reg) {
     ? `<div class="at-kv"><span class="k">prior audit</span><span class="v">${esc(reg.prior_audit_id)}</span></div>`
     : "";
   return `<details class="at-reg at-secondary">
-    <summary class="at-secondary-summary"><span>回归对比</span><span class="at-secondary-hint">${["known", "new", "fixed", "regressed"].reduce((total, key) => total + (reg[key] || []).length, 0)} 项</span></summary>
+    <summary class="at-secondary-summary"><span>回归对比</span><span class="at-secondary-hint">${["known", "new", "fixed", "unverified", "regressed"].reduce((total, key) => total + (reg[key] || []).length, 0)} 项</span></summary>
     <div class="at-secondary-body">
       ${prior}
       ${section("known", "known", "dim")}
       ${section("new", "new", "warn")}
       ${section("fixed", "fixed", "ok")}
+      ${section("unverified", "unverified", "warn")}
       ${section("regressed", "regressed", "bad")}
     </div>
   </details>`;
@@ -519,6 +565,8 @@ export function renderBundle(bundle, records, options = {}) {
     ${renderReaEvidence(bundle, dir)}
     ${renderReaFacts(reaFacts)}
     ${renderUncovered(bundle)}
+    ${renderCoverage(bundle)}
+    ${renderExternalTools(bundle)}
     ${options.chain ? renderChain(options.chain) : ""}
     ${options.specGap ? renderSpecGap(options.specGap) : ""}
     ${options.regression ? renderRegression(options.regression) : ""}

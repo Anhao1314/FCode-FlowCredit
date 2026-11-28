@@ -79,7 +79,7 @@ export function createThreadSurface(deps) {
   function answerDetailFor(trace) {
     const terminal = trace.terminal || {};
     const result = terminal.result || {};
-    if (terminal.status !== "succeeded") return d.failureJudgmentHtml(trace, terminal);
+    if (terminal.status !== "succeeded") return d.threadFailureHtml(trace, terminal);
     if (isProjectTrace(trace)) return d.projectWork.projectResultHtml(trace) || "";
     if (result.change_bp !== undefined) return d.judgmentSurfaceHtml(trace, result);
     const artifacts = artifactsOf(result);
@@ -136,7 +136,7 @@ export function createThreadSurface(deps) {
         return isProjectTrace(source)
           ? d.projectWork.projectArtifactStateHtml(source) || "" : "";
       },
-      failureDetailHtml: source => d.failureJudgmentHtml(source, source.terminal || {}),
+      failureDetailHtml: source => d.threadFailureHtml(source, source.terminal || {}),
     };
   }
 

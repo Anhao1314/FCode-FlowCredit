@@ -529,6 +529,23 @@ class Harness:
         cleared = replace(task, failure=None)
         return self._commit(task, cleared.advance("running"), "task_resumed", detail or {})
 
+    def resume_with_budget(
+        self,
+        task: Task,
+        *,
+        resume_detail: dict[str, Any],
+        budget_detail: dict[str, Any],
+    ) -> Task:
+        """Resume and record the approved limits in the same transaction."""
+        if task.status != "failed":
+            raise AgentError("RESUME_BLOCKED", f"task is {task.status}, not failed")
+        cleared = replace(task, failure=None)
+        running = cleared.advance("running")
+        return self._commit_many(task, running, [
+            ("task_resumed", resume_detail),
+            ("budget_adjusted", budget_detail),
+        ])
+
     def _intent(self, task: Task, context: dict[str, Any]) -> dict[str, Any]:
         """Describe one call precisely enough that a receipt can only match it."""
         from ..core.hashing import digest
@@ -616,10 +633,25 @@ class Harness:
                 "round": round_no,
             })
             raise
-        return self._commit(
-            task, task, "tool_succeeded",
-            self._success_detail(observation, round_no),
-        ), observation
+        spec = self.registry.get(step["tool"])
+        audit = spec.audit(observation.result) if spec.audit is not None else None
+        events: list[tuple[str, dict[str, Any]]] = [
+            ("tool_succeeded", self._success_detail(observation, round_no)),
+        ]
+        if audit is not None:
+            events.append((audit.event, audit.detail))
+        task = self._commit_many(task, task, events)
+        if audit is not None and audit.apply is not None:
+            try:
+                audit.apply()
+            except AgentError:
+                raise
+            except Exception as error:  # noqa: BLE001 — the chain is committed
+                raise AgentError(
+                    "BUDGET_APPLY_FAILED",
+                    f"the adjustment was recorded but could not be applied: {error}",
+                ) from error
+        return task, observation
 
     def complete_started_tool(
         self, task: Task, observation: Observation, *, round_no: int = 0,
@@ -811,3 +843,13 @@ class Harness:
         expected = previous.sequence
         updated.sequence = expected + 1
         return self.store.save(updated, expected, event, detail)
+
+    def _commit_many(
+        self,
+        previous: Task,
+        updated: Task,
+        events: list[tuple[str, dict[str, Any]]],
+    ) -> Task:
+        """Commit several events (and one body) in a single transaction."""
+        updated.sequence = previous.sequence
+        return self.store.save_many(updated, events)

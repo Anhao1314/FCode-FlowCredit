@@ -8,6 +8,7 @@ It does not know about HTTP or the run history index.
 from __future__ import annotations
 
 import importlib
+import hashlib
 import json
 import os
 import sqlite3
@@ -22,8 +23,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from console_common import DOMAIN_KEY
+from flowagent.runtime.budget import find_budget_request, plan_adjustment
 
 class StopRequested(Exception):
     """Raised inside an observer callback when the operator stops the run."""
@@ -416,9 +419,12 @@ class RunControl:
         preview=None,
         classify_consequential=None,
         persist=None,
+        base_limits=None,
     ) -> None:
         self.run = run
         self.harness = harness
+        #: Immutable envelope captured at run creation; the only cap reference.
+        self.base_limits = base_limits
         self.Plan = runtime.Plan
         self.BudgetLimits = runtime.BudgetLimits
         self.RoundControl = runtime.RoundControl
@@ -757,6 +763,45 @@ class RunControl:
                 required = True
         return required
 
+    #: High-risk tools never become a run-wide memory, even if the operator
+    #: clicks "allow for this run". Budget decisions are per-request by design.
+    REMEMBER_NEVER = (
+        "terminal",
+        "request_budget_extension",
+        "computer_request",
+        "apply_child_changes",
+        "spawn_subagents",
+    )
+
+    def _remember_key(self, tool: str, arguments: dict[str, Any]) -> str:
+        """Risk-aware key for "allow for this run" (empty = not rememberable).
+
+        run_command matches its complete argument set; fetch_url matches the
+        host; file writes match the path; browser actions match action+target.
+        High-risk tools and unclassified MCP imports are never remembered by
+        name.
+        """
+        name = str(tool or "")
+        if not name or name in self.REMEMBER_NEVER or name.startswith("mcp__"):
+            return ""
+        args = dict(arguments or {})
+        if name == "run_command":
+            # Key on every argument, not one assumed schema: a remembered
+            # "ls -la" must not exempt "python payload.py", and an unfamiliar
+            # shape (e.g. {"argv": [...]}) must not collapse to a constant.
+            material = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+            return "run_command:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+        if name == "fetch_url":
+            host = urlsplit(str(args.get("url") or "")).hostname or ""
+            return f"fetch_url:{host}" if host else ""
+        if name in ("write_file", "edit_file"):
+            path = str(args.get("path") or "")
+            return f"{name}:{path}" if path else ""
+        if name == "browser_act":
+            target = str(args.get("selector") or args.get("url") or "")
+            return f"browser_act:{args.get('action')}:{target}"
+        return name
+
     def prepare_approval(self, *, round_no: int, task, step: dict):
         """before_tool 的挂起段（无等待）：提交 approval_requested + paused，
         发布 pending，返回 interrupt() 的载荷。
@@ -767,11 +812,13 @@ class RunControl:
         tool = step["tool"]
         if not self.approval_required(round_no=round_no, task=task, step=step):
             return task, None
-        if tool in self._remembered:
+        remember_key = self._remember_key(tool, step.get("arguments") or {})
+        if remember_key and remember_key in self._remembered:
             task = self.harness.record(
                 task,
                 "approval_granted",
-                {"round": round_no, "tool": tool, "by": "operator-rule", "scope": "run"},
+                {"round": round_no, "tool": tool, "by": "operator-rule",
+                 "scope": "run", "match_key": remember_key},
             )
             return task, None
 
@@ -784,6 +831,8 @@ class RunControl:
             "tool": tool,
             "arguments": step.get("arguments") or {},
             "policy": "every-step" if mode == "all" else "consequential",
+            "rememberable": bool(remember_key),
+            "remember_scope": "本运行内相同的操作" if remember_key else "每次都需要确认",
             "expiresIn": int(self.timeout),
             "requestedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
@@ -826,6 +875,8 @@ class RunControl:
             )
             return task, False, {"stop": True}
         if result.get("allow"):
+            remember_key = self._remember_key(tool, step.get("arguments") or {})
+            remember = bool(result.get("remember")) and bool(remember_key)
             task = self.harness.transition(
                 task,
                 "running",
@@ -834,12 +885,13 @@ class RunControl:
                     "round": round_no,
                     "tool": tool,
                     "by": "operator",
-                    "remember": bool(result.get("remember")),
+                    "remember": remember,
+                    **({"match_key": remember_key} if remember else {}),
                 },
             )
-            if result.get("remember"):
+            if remember:
                 with self._lock:
-                    self._remembered.add(tool)
+                    self._remembered.add(remember_key)
             return task, True, None
 
         code = "APPROVAL_TIMEOUT" if result.get("timeout") else "OPERATOR_DENIED"
@@ -969,40 +1021,72 @@ class RunControl:
 
     def _apply_budget(self, task, round_no: int, command: dict):
         before = self.harness.limits
+        base = self.base_limits or before
         try:
-            new = self.BudgetLimits(
-                max_calls=int(command["maxCalls"]),
-                max_reads=int(command["maxReads"]),
-                max_cost_microusd=int(command["maxCostMicrousd"]),
-                max_tokens=int(command.get("maxTokens") or before.max_tokens),
-            )
+            requested = {
+                "calls": int(command["maxCalls"]),
+                "reads": int(command["maxReads"]),
+                "cost_microusd": int(command["maxCostMicrousd"]),
+                "tokens": int(command.get("maxTokens") or before.max_tokens),
+            }
         except (KeyError, TypeError, ValueError) as exc:
             return self._reject(task, round_no, "budget", f"invalid limits: {exc}")
-        if (
-            new.max_calls < before.max_calls
-            or new.max_reads < before.max_reads
-            or new.max_cost_microusd < before.max_cost_microusd
-            or new.max_tokens < before.max_tokens
-        ):
-            return self._reject(task, round_no, "budget", "limits can only be raised")
+        request_id = str(command.get("requestId") or f"operator-{self.run.id}-{round_no}")
+        existing = find_budget_request(self.harness.store.events(task.id), request_id)
+        if existing is not None:
+            # Replaying the same request must not consume cap twice, and must
+            # stay idempotent even when the grant was capped or later requests
+            # moved the effective limits. A new request id is independent.
+            wanted = {
+                "max_calls": requested["calls"],
+                "max_reads": requested["reads"],
+                "max_cost_microusd": requested["cost_microusd"],
+                "max_tokens": requested["tokens"],
+            }
+            stored_after = dict(existing.get("after") or {})
+            stored_before = dict(existing.get("before") or {})
+            stored_asked = {
+                field: int(stored_before.get(field) or 0) + int((existing.get("requested") or {}).get(dimension) or 0)
+                for dimension, field in (
+                    ("calls", "max_calls"), ("reads", "max_reads"),
+                    ("cost_microusd", "max_cost_microusd"), ("tokens", "max_tokens"),
+                )
+            }
+            if wanted == stored_after or wanted == stored_asked:
+                return task
+            return self._reject(task, round_no, "budget", "requestId was already used with other limits")
+        try:
+            adjustment = plan_adjustment(base, before, total=requested)
+        except Exception as exc:  # noqa: BLE001 — policy refusal is a control rejection
+            return self._reject(task, round_no, "budget", str(exc))
+        if adjustment.exhausted:
+            return self._reject(task, round_no, "budget", "no extension headroom remains")
         used = self.harness.budget(task).snapshot()
         if (
-            used["calls_used"] > new.max_calls
-            or used["reads_used"] > new.max_reads
-            or used["cost_used_microusd"] > new.max_cost_microusd
+            used["calls_used"] > adjustment.after.max_calls
+            or used["reads_used"] > adjustment.after.max_reads
+            or used["cost_used_microusd"] > adjustment.after.max_cost_microusd
+            or used["tokens_used"] > adjustment.after.max_tokens
         ):
             return self._reject(task, round_no, "budget", "new limits are below current usage")
-        self.harness.limits = new
-        return self.harness.record(
+        task = self.harness.record(
             task,
             "budget_adjusted",
             {
+                "policy_version": 2,
                 "round": round_no,
-                "before": before.to_dict(),
-                "after": new.to_dict(),
+                "request_id": request_id,
                 "by": "operator",
+                "decision_source": "operator",
+                "before": adjustment.before.to_dict(),
+                "after": adjustment.after.to_dict(),
+                "requested": adjustment.requested,
+                "granted": adjustment.granted,
+                "capped": adjustment.capped,
             },
         )
+        self.harness.limits = adjustment.after
+        return task
 
     def _apply_message(self, task, round_no: int, command: dict):
         # A mid-run operator note. The deterministic mock cannot read free

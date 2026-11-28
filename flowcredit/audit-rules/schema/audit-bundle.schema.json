@@ -257,6 +257,9 @@
             "description": "Identity algorithm version; 2 adds semantic anchors and file-move matching.",
             "type": "integer",
             "minimum": 1
+          },
+          "rule_id": {
+            "type": "string"
           }
         }
       }
@@ -294,6 +297,10 @@
           "minimum": 0
         },
         "regressed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
           "type": "integer",
           "minimum": 0
         }
@@ -395,6 +402,247 @@
         },
         "command": {
           "type": "string"
+        },
+        "coverage_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "external_tools_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "coverage": {
+      "description": "Rule-execution ledger for this audit: which surfaces were present and which active rules actually ran. A rule that did not run must not be read as clean.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ruleset_version",
+        "surfaces",
+        "rules"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "fcode.audit-coverage/v1"
+        },
+        "ruleset_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_profile": {
+          "type": "string"
+        },
+        "surfaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "surface",
+              "status"
+            ],
+            "properties": {
+              "surface": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "executed",
+                  "not_applicable",
+                  "skipped",
+                  "error"
+                ]
+              },
+              "present": {
+                "type": "boolean"
+              },
+              "pages": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "headers": {
+                "type": "boolean"
+              },
+              "runtime_evidence": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rule_id",
+              "trigger",
+              "status",
+              "candidates"
+            ],
+            "properties": {
+              "rule_id": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "root_cause_group": {
+                "type": "string"
+              },
+              "trigger": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "selector": {
+                "type": "string"
+              },
+              "file_glob": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "executed",
+                  "not_applicable",
+                  "skipped",
+                  "error",
+                  "not_supported"
+                ]
+              },
+              "files_seen": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "files_scanned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "candidates": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "status",
+              "findings"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "executed",
+                  "skipped",
+                  "error"
+                ]
+              },
+              "version": {
+                "type": "string"
+              },
+              "findings": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "external_tools": {
+      "description": "Independent scanner signals (retire/gitleaks/lighthouse). Pinned evidence, never a verdict; findings are promoted only through a first-party POC.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "status",
+          "findings_count"
+        ],
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "executed",
+              "skipped",
+              "error"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "input_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "findings_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "raw_path": {
+            "type": "string"
+          },
+          "raw_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "external_tool_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
     }

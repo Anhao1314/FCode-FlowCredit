@@ -234,6 +234,8 @@ def _crash_worker(definition: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "PYTHONPATH": str(PROJECT_ROOT / "src"),
         "BENCHMARK_RUN_DIR": str(run_dir),
         "BENCHMARK_TASK_ID": definition["task_id"],
+        "BENCHMARK_TASKSET": "general" if definition.get("version", "").startswith(
+            "general-agent-benchmark") else "runtime",
     }
     with (run_dir / "worker.stdout.txt").open("w", encoding="utf-8") as stdout, (
         run_dir / "worker.stderr.txt"
@@ -262,6 +264,10 @@ def _crash_worker(definition: dict[str, Any], run_dir: Path) -> dict[str, Any]:
         "stdout": "worker.stdout.txt",
         "stderr": "worker.stderr.txt",
     }
+
+
+#: Public name for the evaluation suite; the SIGKILL worker is shared machinery.
+spawn_crash_worker = _crash_worker
 
 
 def _tamper(store: TaskStore, task_id: str) -> dict[str, Any]:

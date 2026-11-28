@@ -134,8 +134,11 @@ function toolTarget(args = {}) {
   if (args.action) parts.push(String(args.action));
   if (args.selector) parts.push(String(args.selector));
   if (args.element_id) parts.push(String(args.element_id));
+  const command = typeof args.command === "string" && Array.isArray(args.args)
+    ? [args.command, ...args.args.map(String)].join(" ")
+    : args.command;
   const value = parts.length ? parts.join(" · ")
-    : (args.path ?? args.file ?? args.command ?? args.url ?? args.query ?? args.pattern ?? args.name ?? "");
+    : (args.path ?? args.file ?? command ?? args.url ?? args.query ?? args.pattern ?? args.name ?? "");
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > 120 ? `${text.slice(0, 119)}…` : text;
 }
@@ -566,6 +569,8 @@ export function projectTaskThread(trace, live = {}, options = {}) {
       continue;
     }
     if (!isRoundEmpty(round)) {
+      const pairs = roundPairs(round);
+      if (pairs.length === 1 && !Array.isArray(round.decisions)) {
       const observation = round.observation || null;
       const decision = round.decision || {};
       const step = ((round.proposal || {}).steps || [])[0] || {};
@@ -599,6 +604,43 @@ export function projectTaskThread(trace, live = {}, options = {}) {
         blockKind: options.blockKindOf ? options.blockKindOf(round) : "brief",
         detailHtml: "",
       });
+      } else {
+        // 批量轮：逐对渲染，连续只读成功项折叠为一组（Claude Code 式读取组）。
+        const steps = ((round.proposal || {}).steps || []);
+        const pairItems = pairs.map((pair, k) => {
+          const observation = pair.observation;
+          const decision = pair.decision || {};
+          const step = steps[k] || {};
+          const tool = (observation && observation.tool) || decision.tool || step.tool || "工具调用";
+          const args = (observation && observation.arguments) || decision.arguments || step.arguments || {};
+          const liveNow = !!live.running && !terminal.status;
+          const status = observation ? "succeeded"
+            : liveNow ? "running" : "unknown";
+          return {
+            kind: "tool",
+            key: `tool:${round.index}:${k}`,
+            index: round.index,
+            tool,
+            args,
+            status,
+            tone: (TOOL_STATUS[status] || TOOL_STATUS.unknown)[2],
+            label: (TOOL_STATUS[status] || TOOL_STATUS.unknown)[1],
+            code: observation ? "" : (decision.code || ""),
+            message: observation ? "" : (liveNow ? "" : "未观察到结果"),
+            denied: false,
+            summary: observation && options.summaryOf
+              ? String(options.summaryOf(observation, round) || "") : "",
+            observation: observation || null,
+            decision,
+            proposal: null,
+            receipt: null,
+            planUpdate: null,
+            blockKind: "brief",
+            detailHtml: "",
+          };
+        });
+        items.push(...groupReadItems(pairItems, round.index));
+      }
     } else if (ann.unknown) {
       items.push({
         kind: "tool",
@@ -622,6 +664,20 @@ export function projectTaskThread(trace, live = {}, options = {}) {
         detailHtml: "",
       });
     }
+  }
+
+  // 思考窗：运行中、无待审批、最后一轮还只有 round_start（模型在生成提议）。
+  // Claude Code 式的流式空白填充——没有它，模型调用期间线程是死的。
+  const lastRound = rounds[rounds.length - 1];
+  const thinking = !!live.running && !terminal.status && !pending
+    && (!rounds.length || (isRoundEmpty(lastRound)
+      && !(annotations[rounds.length - 1] || {}).unknown));
+  if (thinking) {
+    items.push({
+      kind: "thinking",
+      key: `thinking:${lastRound ? lastRound.index : "start"}`,
+      index: lastRound ? lastRound.index : 0,
+    });
   }
 
   if (pending && !pendingPlaced) {
@@ -787,6 +843,61 @@ function argsLine(args) {
   }).join("");
 }
 
+/* ---------------------------------------------------- 批量轮与只读分组 */
+
+export const READ_TOOLS = new Set([
+  "ls_workspace", "read_file", "read_file_raw", "grep_workspace",
+  "find_files", "search_codebase", "repo_map", "git_status",
+  "list_documents", "read_document", "read_slice",
+]);
+
+function roundPairs(round) {
+  /* 批量轮带 decisions[]/observations[]（保持末位镜像旧单数）；单动轮只有单数。 */
+  const decisions = Array.isArray(round.decisions) ? round.decisions : [];
+  const observations = Array.isArray(round.observations) ? round.observations : [];
+  if (!decisions.length && !observations.length) {
+    return [{ decision: round.decision || {}, observation: round.observation || null }];
+  }
+  const n = Math.max(decisions.length, observations.length);
+  return Array.from({ length: n }, (_, k) => ({
+    decision: decisions[k] || null,
+    observation: observations[k] || null,
+  }));
+}
+
+function groupReadItems(pairItems, roundIndex) {
+  /* 连续 ≥2 个成功只读调用折叠为一组；写/命令/失败/运行中保持独立行。 */
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      out.push({
+        kind: "tool-group",
+        key: `toolgroup:${roundIndex}:${run[0].key}`,
+        index: roundIndex,
+        status: "succeeded",
+        count: run.length,
+        label: (() => {
+          const first = run[0].tool;
+          return run.every(item => item.tool === first)
+            ? (TOOL_ACTION[first] || "只读侦察") : "只读侦察";
+        })(),
+        summary: String(run[0].summary || "") + (run.length > 1 ? ` 等 ${num(run.length)} 项` : ""),
+        items: run,
+      });
+    } else {
+      out.push(...run);
+    }
+    run = [];
+  };
+  for (const item of pairItems) {
+    if (item.status === "succeeded" && READ_TOOLS.has(item.tool)) run.push(item);
+    else { flush(); out.push(item); }
+  }
+  flush();
+  return out;
+}
+
 function commandOf(item) {
   const args = item.args || {};
   const result = (item.observation || {}).result || {};
@@ -885,24 +996,120 @@ function toolBodyHtml(item, ctx) {
   return sections.join("");
 }
 
+/* Claude Code 式结果行：⎿ 后一句话说清这次调用发生了什么。 */
+function resultLineOf(item) {
+  if (item.status === "running" || item.status === "waiting") return "…";
+  if (item.status !== "succeeded") {
+    const failure = item.observation || {};
+    const text = failure.message || item.message || item.code || "调用失败";
+    return String(text).slice(0, 200);
+  }
+  const result = (item.observation || {}).result || {};
+  if (["run_command", "terminal"].includes(item.tool)) {
+    const code = result.exit_code;
+    return code === undefined || code === null ? "完成" : `Exit ${code}`;
+  }
+  return String(item.summary || item.message || "完成").slice(0, 200);
+}
+
+function editDiffFromArgs(args) {
+  /* edit_file 的 diff 直接来自提议参数（old_text/new_text）——
+     这正是执行前审批看到的同一份内容，运行中即可显示。 */
+  const oldText = typeof (args || {}).old_text === "string" ? args.old_text : "";
+  const newText = typeof (args || {}).new_text === "string" ? args.new_text : "";
+  if (!oldText && !newText) return "";
+  const maxLines = 12;
+  const rows = [];
+  for (const line of oldText.split("\n")) rows.push({ kind: "del", text: line });
+  for (const line of newText.split("\n")) rows.push({ kind: "add", text: line });
+  const shown = rows.slice(0, maxLines);
+  const rest = rows.length - shown.length;
+  const lines = shown.map(row =>
+    `<div class="th-diff-line ${row.kind}">${esc(row.text) || " "}</div>`).join("");
+  const more = rest > 0 ? `<div class="th-diff-more">… 还有 ${num(rest)} 行，展开查看</div>` : "";
+  return `<div class="th-inline-diff" role="group" aria-label="修改内容">${lines}${more}</div>`;
+}
+
+function outputPreviewHtml(output) {
+  /* 命令输出的前几行内联在结果行下；完整输出仍在展开体里。 */
+  const lines = String(output).replace(/\s+$/, "").split("\n");
+  const shown = lines.slice(0, 3).map(line => {
+    const text = line.length > 200 ? `${line.slice(0, 199)}…` : line;
+    return `<div class="th-out-line">${esc(text) || " "}</div>`;
+  }).join("");
+  const rest = lines.length - 3;
+  const more = rest > 0 ? `<div class="th-out-more">… +${num(rest)} 行，展开查看</div>` : "";
+  return `<div class="th-inline-out" aria-label="输出预览">${shown}${more}</div>`;
+}
+
+function inlineExtrasOf(item) {
+  const sections = [];
+  const args = item.args || {};
+  if (item.tool === "edit_file") {
+    const diff = editDiffFromArgs(args);
+    if (diff) sections.push(diff);
+  }
+  if (["run_command", "terminal"].includes(item.tool)) {
+    const result = (item.observation || {}).result || {};
+    const output = result.output ?? result.stdout ?? "";
+    if (typeof output === "string" && output.trim()) {
+      sections.push(outputPreviewHtml(output));
+    }
+  }
+  return sections.join("");
+}
+
+function toolGroupHtml(item, ctx) {
+  /* 同轮连续只读调用的折叠组：头部一行 + 成员的两行式调用，点开展开。 */
+  const members = (item.items || []).map(member => toolItemHtml(member, ctx)).join("");
+  return `<article class="th-item th-tool th-tool-group succeeded" data-thread-key="${esc(item.key)}" data-open="false" data-thread-item="tool-group">
+    <button type="button" class="th-tool-head" data-thread-toggle aria-expanded="false">
+      <span class="th-mark succeeded" aria-hidden="true">⏺</span>
+      <span class="th-tool-call"><code class="th-tool-id">${esc(item.label)}</code><span class="th-tool-target">(×${num(item.count)})</span></span>
+      <span class="grow"></span>
+      <span class="th-chev" aria-hidden="true">▾</span>
+    </button>
+    <div class="th-result-line">
+      <span class="th-result-mark" aria-hidden="true">⎿</span>
+      <span class="th-result-text">${esc(item.summary || `${num(item.count)} 个只读操作`)}</span>
+    </div>
+    <div class="th-group-body">${members}</div>
+  </article>`;
+}
+
+function thinkingItemHtml(item) {
+  return `<article class="th-item th-thinking" data-thread-key="${esc(item.key)}" data-thread-item="thinking" aria-live="polite">
+    <span class="th-mark running" aria-hidden="true">⏺</span>
+    <span class="th-thinking-text">正在思考…</span>
+  </article>`;
+}
+
 function toolItemHtml(item, ctx) {
   const body = toolBodyHtml(item, ctx);
   const active = item.status === "waiting" || item.status === "running";
   const open = active ? "true" : "false";
   const action = toolAction(item.tool, item.args);
-  const summary = action.target || item.summary || (!active ? item.message : "");
+  const target = action.target || toolTarget(item.args || {});
+  const resultLine = resultLineOf(item);
+  const resultFail = !active && (item.status !== "succeeded"
+    || (["run_command", "terminal"].includes(item.tool)
+      && Number((item.observation || {}).result?.exit_code || 0) !== 0));
   const plan = item.planUpdate ? `<div class="th-plan-delta"><div class="th-plan-delta-head">计划更新 · rev ${esc(item.planUpdate.fromRevision)} → ${esc(item.planUpdate.revision)}</div>${item.planUpdate.rows.filter(row => row.changed).map(row => `<div class="th-plan-delta-row ${esc(row.status)}"><span>${PLAN_GLYPH[row.status] || "○"}</span><span>${esc(row.text)}</span><span class="tag">${row.added ? "新增" : "修订"}</span></div>`).join("")}</div>` : "";
   return `<article class="th-item th-tool ${esc(item.status)}" data-thread-key="${esc(item.key)}" data-open="${open}" data-thread-item="tool">
     <button type="button" class="th-tool-head" data-thread-toggle aria-expanded="${open}">
-      <span class="th-ic ${esc(item.status)}">${glyphForTool(item.tool)}</span>
-      <span class="th-tool-name">${esc(action.label)}</span>
-      ${summary ? `<span class="th-tool-summary">${esc(summary)}</span>` : ""}
+      <span class="th-mark ${esc(item.status)}" aria-hidden="true">⏺</span>
+      <span class="th-tool-call"><code class="th-tool-id">${esc(item.tool)}</code>${target ? `<span class="th-tool-target">(${esc(target)})</span>` : ""}</span>
       <span class="grow"></span>
       ${item.code && item.status !== "succeeded" ? `<code class="th-tool-code">${esc(item.code)}</code>` : ""}
       ${item.status === "running" ? '<span class="th-live-spinner" aria-hidden="true"></span>' : ""}
       ${badge(item.tone, item.label)}
       <span class="th-chev" aria-hidden="true">▾</span>
     </button>
+    <div class="th-result-line">
+      <span class="th-result-mark" aria-hidden="true">⎿</span>
+      <span class="th-result-text ${resultFail ? "fail" : ""}">${esc(resultLine)}</span>
+    </div>
+    ${inlineExtrasOf(item)}
     <div class="th-tool-body">
       <div class="th-tool-meta"><code class="th-tool-raw">${esc(item.tool)}</code><span class="th-round-no">第 ${esc(item.index)} 轮</span>${item.receipt && item.receipt.tokens !== undefined ? `<span>· ${num(item.receipt.tokens)} tokens</span>` : ""}${item.receipt && item.receipt.cost_microusd !== undefined ? `<span>· ${num(item.receipt.cost_microusd)} µUSD</span>` : ""}</div>
       ${active && item.message ? `<p class="th-note th-tool-live-note">${esc(item.message)}</p>` : ""}
@@ -1059,7 +1266,7 @@ function approvalItemHtml(item, ctx) {
       <p class="th-note">${esc(ctx.approvalWhy ? ctx.approvalWhy(pending) : "关键步骤：这个动作会改变结论或宣告任务受阻，执行前需要你确认。")}</p>
       <div class="th-approval-actions" role="group" aria-label="审批选项">
         <button type="button" class="th-btn primary apv-choice-inline" data-decision="allow" aria-keyshortcuts="1"${deciding ? " disabled" : ""}><kbd class="apv-key">1</kbd><span>本次允许</span></button>
-        <button type="button" class="th-btn apv-choice-inline" data-decision="allow-remember" aria-keyshortcuts="2"${deciding ? " disabled" : ""}><kbd class="apv-key">2</kbd><span>本运行允许</span></button>
+        ${pending.rememberable === false ? "" : `<button type="button" class="th-btn apv-choice-inline" data-decision="allow-remember" aria-keyshortcuts="2" title="${esc(pending.remember_scope || "本运行内相同的操作")}"${deciding ? " disabled" : ""}><kbd class="apv-key">2</kbd><span>本运行允许</span></button>`}
         <button type="button" class="th-btn danger apv-choice-inline" data-decision="deny" aria-keyshortcuts="3"${deciding ? " disabled" : ""}><kbd class="apv-key">3</kbd><span>拒绝</span></button>
         <span class="grow"></span>
         <span class="th-approval-hint">${deciding
@@ -1137,6 +1344,8 @@ export function threadItemHtml(item, ctx = {}) {
     case "plan": return planItemHtml(item);
     case "process": return processItemHtml(item);
     case "tool": return toolItemHtml(item, ctx);
+    case "tool-group": return toolGroupHtml(item, ctx);
+    case "thinking": return thinkingItemHtml(item);
     case "approval": return approvalItemHtml(item, ctx);
     case "answer": return answerItemHtml(item);
     case "error": return errorItemHtml(item);
@@ -1166,4 +1375,4 @@ export function changedThreadKeys(cache, htmlMap) {
   return changed;
 }
 
-export const THREAD_KINDS = Object.freeze(["user", "operator", "status", "plan", "process", "tool", "approval", "answer", "error"]);
+export const THREAD_KINDS = Object.freeze(["user", "operator", "status", "plan", "process", "tool", "tool-group", "thinking", "approval", "answer", "error"]);

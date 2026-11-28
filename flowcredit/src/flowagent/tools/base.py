@@ -87,6 +87,19 @@ class Param:
 
 
 @dataclass(frozen=True)
+class ToolAudit:
+    """A governance fact a tool's result must commit beside its success event.
+
+    ``apply`` runs only after the atomic commit succeeded, so an in-memory
+    limit change can never exist without its chain event (or vice versa).
+    """
+
+    event: str
+    detail: dict[str, Any]
+    apply: Callable[[], None] | None = None
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     """A registered tool: schema, effect and the callable that implements it."""
 
@@ -117,6 +130,10 @@ class ToolSpec:
     #: (不自动推断版本——不哈希函数源码、不读常量值,fail-closed 显式声明)。
     #: 不 bump 会让增量缓存返回旧产物。
     summary_version: int = 1
+    #: Optional governance event committed atomically with ``tool_succeeded``
+    #: (used by request_budget_extension). The callable must be pure; any
+    #: mutation belongs in ``ToolAudit.apply`` and runs after the commit.
+    audit: Callable[[dict[str, Any]], ToolAudit | None] | None = None
     # 合法策略全集;registry 注册时校验,memory/context.summarizer_for 同源引用。
 
     def to_schema(self) -> dict[str, Any]:

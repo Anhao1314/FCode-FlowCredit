@@ -32,11 +32,61 @@ export function createRunEvidence(deps) {
     return `<div class="rail-empty-doc">${doodleSvg("file-text")}<div class="t">案卷尚未展开</div><div class="dim">从左侧选择一条委托，或运行一个新的任务</div></div>`;
   }
 
+  /* Kimi 式人话摘要行：事件类型名退到 title，一句话说发生了什么。 */
+  const EVENT_LABEL = {
+    task_created: "任务创建", model_started: "开始思考",
+    plan_validated: "计划校验通过", plan_updated: "计划更新", plan_steered: "计划调整",
+    execution_started: "开始执行", execution_resumed: "恢复执行",
+    tool_started: "调用工具", tool_failed: "工具失败", tool_unknown: "工具结果未知",
+    auto_action: "主机自动执行", memory_recalled: "召回旧案",
+    policy_requested: "策略选择", policy_decided: "策略决定",
+    approval_requested: "请求批准", approval_granted: "已批准",
+    approval_denied: "已拒绝", approval_aborted: "审批中止",
+    budget_adjusted: "预算调整", control_rejected: "提议被拒",
+    task_resumed: "运行恢复", operator_message: "操作员消息",
+    review_decided: "判断记录", verification_started: "开始验证",
+    verification_obligation: "执行验证命令", verification_result: "验证完成",
+    task_succeeded: "任务完成", task_failed: "任务失败", task_stopped: "任务停止",
+  };
+
+  function humanEventLine(e) {
+    const d = (e.payload || {}).detail || {};
+    const args = d.arguments || {};
+    const result = d.result || {};
+    if (e.type === "tool_succeeded" || e.type === "tool_started") {
+      const tool = d.tool || "";
+      const running = e.type === "tool_started";
+      if (tool === "write_file") return `${running ? "正在写入" : "已写入"} ${args.path || result.path || ""}`;
+      if (tool === "edit_file") return `${running ? "正在修改" : "已修改"} ${args.path || result.path || ""}`;
+      if (tool === "run_command" || tool === "terminal") {
+        const code = result.exit_code;
+        return `${running ? "正在运行命令" : "运行了命令"}${!running && code !== undefined ? ` · 退出码 ${esc(code)}` : ""}`;
+      }
+      if (tool === "read_file" || tool === "read_file_raw" || tool === "read_document" || tool === "read_slice") {
+        return `${running ? "正在读取" : "读取了"} ${args.path || args.doc_id || ""}`;
+      }
+      if (tool === "ls_workspace") return "查看了工作区";
+      if (tool === "git_status") return "检查了版本状态";
+      if (tool === "find_files") return `查找了文件 ${args.pattern ? `“${esc(args.pattern)}”` : ""}`.trim();
+      if (tool === "grep_workspace") return `检索了 ${esc(args.pattern || "")}`;
+      if (tool === "search_codebase") return "检索了代码库";
+      if (tool === "repo_map") return "梳理了项目结构";
+      if (tool === "fetch_url") return `访问了 ${esc(args.url || result.host || "")}`;
+      if (tool === "spawn_subagents") return "派出了子代理";
+      if (tool === "ask_operator") return "向操作员提问";
+      if (tool === "report_blocked") return "声明受阻";
+      return `${running ? "调用" : "调用了"} ${tool}`;
+    }
+    return EVENT_LABEL[e.type] || e.type;
+  }
+
   function eventItemHtml(e) {
     const human = HUMAN_EVENTS.has(e.type);
-    const detail = summariseEvent(e);
+    // 人话行已带事实；机器类型名进 title，参数堆不再铺在明细里（人话事件保留原因行）。
+    const detail = human ? summariseEvent(e) : "";
     const mark = human ? `<span class="ev-human">人</span>` : `<span class="ev-mark ${EVENT_DOT[e.type] || ""}"></span>`;
-    return `<div class="ev-item${human ? " human" : ""}"><div class="ev-line">${mark}<span class="ev-type">${esc(e.type)}</span><span class="grow"></span><span class="ev-ref" data-copy="${esc(e.hash || "")}" title="点击复制完整哈希">#${e.sequence} · ${esc(shortHash(e.hash))}</span></div>${detail ? `<div class="ev-detail">${detail}</div>` : ""}</div>`;
+    const phrase = humanEventLine(e) || EVENT_LABEL[e.type] || e.type;
+    return `<div class="ev-item${human ? " human" : ""}" title="${esc(e.type)}"><div class="ev-line">${mark}<span class="ev-phrase">${phrase}</span><span class="grow"></span><span class="ev-ref" data-copy="${esc(e.hash || "")}" title="${esc(e.type)} · 点击复制完整哈希">#${e.sequence} · ${esc(shortHash(e.hash))}</span></div>${detail ? `<div class="ev-detail">${detail}</div>` : ""}</div>`;
   }
 
   function renderEvents(trace) {
@@ -84,7 +134,60 @@ export function createRunEvidence(deps) {
 
   function renderRaw(trace) {
     const lines = JSON.stringify(trace, null, 2).split("\n").map((line, index) => `<span class="raw-line"><i>${index + 1}</i>${esc(line)}</span>`).join("");
-    return `<div class="raw-head"><button class="rf" data-copy-raw>复制原文</button><button class="rf" data-download-raw>下载 trace</button></div><pre class="raw-pre">${lines}</pre>`;
+    return `<div class="raw-head"><button class="rf" data-copy-raw>复制原文</button><button class="rf" data-download-raw>下载 trace</button></div><details class="th-raw" data-keep="rawtrace"><summary>展开完整 JSON</summary><pre class="raw-pre">${lines}</pre></details>`;
+  }
+
+  /* 概要：任务结束后"干了什么"的一眼答案——状态、产出、验证、用量、失败原因。 */
+  function renderOverview(trace, check) {
+    const terminal = trace.terminal || {};
+    const status = terminal.status || "";
+    const result = terminal.result || {};
+    const failure = terminal.failure || {};
+    const model = trace.model || {};
+    const budget = lastBudget(trace);
+    const limits = (budget || {}).limits || {};
+    const artifacts = (Array.isArray(result.results) ? result.results : (result.path ? [result] : []))
+      .filter(entry => entry && entry.path);
+    const running = !status;
+    const states = {
+      succeeded: ["ok", "已完成", "任务通过运行时独立验证"],
+      failed: ["bad", "运行失败", FAILURE_REASONS[failure.code] || failure.message || "运行未完成"],
+      denied: ["warn", "已拒绝", "动作被门控拒绝"],
+      stopped: ["warn", "已停止", "操作员在轮次边界停止了运行"],
+      recovery_required: ["warn", "待恢复", "存在需要对账的未知结果"],
+      unknown: ["warn", "状态未知", "运行时长未知，等待签名收据对账"],
+    };
+    const [tone, title, sub] = running
+      ? ["run", "运行中", model.model || ""]
+      : (states[status] || states.unknown);
+    const code = !running && status !== "succeeded" && failure.code
+      ? `<code class="rail-ov-code">${esc(String(failure.code).toUpperCase())}</code>` : "";
+    const rows = [];
+    if (artifacts.length) {
+      rows.push(`<div class="rail-ov-sec"><div class="rail-sec-title">产出</div>${artifacts.map(entry => `<div class="rail-ov-file"><span class="p">${esc(entry.path)}</span><span class="m">${num(entry.bytes || 0)} B</span></div>`).join("")}</div>`);
+    }
+    const obligations = Array.isArray(result.obligations) ? result.obligations : [];
+    if (result.verification || obligations.length) {
+      const obligationLine = obligations.length
+        ? ` · 退出码 ${obligations.map(o => esc(o.exit_code ?? "—")).join("/")}` : "";
+      rows.push(`<div class="rail-ov-sec"><div class="rail-sec-title">验证</div><div class="rail-ov-kv"><span class="k">方式</span><span class="v">${esc(result.verification || "runtime-recomputed")}${obligationLine}</span></div></div>`);
+    }
+    if (budget) {
+      rows.push(`<div class="rail-ov-sec"><div class="rail-sec-title">用量</div><div class="rail-ov-grid">
+        <div class="cell"><span class="k">calls</span><span class="v">${num(budget.calls_used || 0)}${limits.max_calls ? "/" + num(limits.max_calls) : ""}</span></div>
+        <div class="cell"><span class="k">reads</span><span class="v">${num(budget.reads_used || 0)}${limits.max_reads ? "/" + num(limits.max_reads) : ""}</span></div>
+        <div class="cell"><span class="k">tokens</span><span class="v">${num(budget.tokens_used || 0)}</span></div>
+        <div class="cell"><span class="k">成本</span><span class="v">${num(budget.cost_used_microusd || 0)} µ$</span></div>
+      </div></div>`);
+    }
+    const modelLine = model.provider || model.model
+      ? `<div class="rail-ov-kv"><span class="k">模型</span><span class="v">${esc([model.provider, model.model].filter(Boolean).join(" · "))}</span></div>` : "";
+    return `<div class="rail-ov ${tone}">
+      <div class="rail-ov-state"><span class="rail-ov-dot" aria-hidden="true"></span><div><div class="t">${esc(title)}${code}</div><div class="s">${esc(sub)}</div></div></div>
+      ${modelLine}
+      ${rows.join("")}
+      ${running ? "" : `<div class="rail-ov-foot">完整过程见「活动」；签名链与 trace 原文见「证据」。</div>`}
+    </div>`;
   }
 
   function renderRail(trace, check) {
@@ -105,10 +208,10 @@ export function createRunEvidence(deps) {
     const contracts = getToolContracts();
     setTabCount("tools", contracts ? contracts.length : "");
     setTabCount("chain", events.length);
+    if (railTab === "summary") { body.innerHTML = renderOverview(trace, check); return; }
     if (railTab === "events") { body.innerHTML = renderEvents(trace); return; }
     if (railTab === "tools") { body.innerHTML = renderTools(trace); return; }
-    if (railTab === "chain") { body.innerHTML = renderChain(trace, check); return; }
-    body.innerHTML = renderRaw(trace);
+    body.innerHTML = renderChain(trace, check) + `<div class="rail-sec-title">Trace 原文</div>` + renderRaw(trace);
   }
 
   function renderTools(trace) {
@@ -293,7 +396,7 @@ export function createRunEvidence(deps) {
   }
 
   function budgetForm(lim) {
-    return `<div class="budget-edit"><label>calls <input type="number" data-budget="maxCalls" min="${lim.max_calls}" value="${lim.max_calls}" inputmode="numeric"></label><label>reads <input type="number" data-budget="maxReads" min="${lim.max_reads}" value="${lim.max_reads}" inputmode="numeric"></label><label>µUSD <input type="number" data-budget="maxCostMicrousd" min="${lim.max_cost_microusd}" value="${lim.max_cost_microusd}" inputmode="numeric"></label><span class="hint">只允许调高 · 下一轮生效</span><span class="grow"></span><button class="a-btn" data-budget-cancel>取消</button><button class="a-btn strong" data-budget-apply>提交调整</button></div>`;
+    return `<div class="budget-edit"><label>calls <input type="number" data-budget="maxCalls" min="${lim.max_calls}" value="${lim.max_calls}" inputmode="numeric"></label><label>reads <input type="number" data-budget="maxReads" min="${lim.max_reads}" value="${lim.max_reads}" inputmode="numeric"></label><label>µUSD <input type="number" data-budget="maxCostMicrousd" min="${lim.max_cost_microusd}" value="${lim.max_cost_microusd}" inputmode="numeric"></label><label>tokens <input type="number" data-budget="maxTokens" min="${lim.max_tokens}" value="${lim.max_tokens}" inputmode="numeric"></label><span class="hint">只允许调高 · 下一轮生效</span><span class="grow"></span><button class="a-btn" data-budget-cancel>取消</button><button class="a-btn strong" data-budget-apply>提交调整</button></div>`;
   }
 
   function kvDetail(rows) {

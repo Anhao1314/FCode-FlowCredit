@@ -30,14 +30,22 @@ def _driver(max_calls=20, max_reads=40, max_cost=100_000, max_tokens=50_000):
 
     limits = BudgetLimits(max_calls, max_reads, max_cost, max_tokens)
     harness = SimpleNamespace(limits=limits)
-    return SimpleNamespace(limits=limits, base_limits=limits, harness=harness)
+    run = SimpleNamespace(approval="consequential")
+    return SimpleNamespace(limits=limits, base_limits=limits, harness=harness, run=run)
+
+
+def grant(channel, **kwargs):
+    """request + apply, mirroring the post-commit hook in Harness.execute."""
+    result = channel.request(**kwargs)
+    channel.apply(result)
+    return result
 
 
 class BudgetChannelTest(unittest.TestCase):
     def test_grant_extends_limits_and_snapshots_values(self) -> None:
         driver = _driver()
         channel = BudgetChannel(driver)
-        result = channel.request(reason="长任务还差几轮", extra_calls=5, extra_cost_microusd=20_000)
+        result = grant(channel, reason="长任务还差几轮", extra_calls=5, extra_cost_microusd=20_000)
         self.assertTrue(result["granted"])
         self.assertEqual(result["extra_calls"], 5)
         self.assertEqual(result["limits"]["max_calls"], 25)
@@ -63,21 +71,21 @@ class BudgetChannelTest(unittest.TestCase):
     def test_per_request_cap_clamps_to_half_of_original(self) -> None:
         # 超封底夹取而不是拒绝:申请 6、封底 5 → 授 5 并标注 capped
         driver = _driver(max_calls=10)
-        result = BudgetChannel(driver).request(reason="理由", extra_calls=6)
+        result = grant(BudgetChannel(driver), reason="理由", extra_calls=6)
         self.assertTrue(result["granted"])
         self.assertEqual(result["extra_calls"], 5)
         self.assertEqual(result["requested_calls"], 6)
         self.assertTrue(result["capped"])
         self.assertEqual(driver.harness.limits.max_calls, 15)
         # 恰好 50% → 不夹取
-        exact = BudgetChannel(_driver(max_calls=10)).request(reason="理由", extra_calls=5)
+        exact = grant(BudgetChannel(_driver(max_calls=10)), reason="理由", extra_calls=5)
         self.assertFalse(exact["capped"])
 
     def test_cumulative_cap_clamps_then_exhausts(self) -> None:
         driver = _driver(max_calls=10)
         channel = BudgetChannel(driver)
-        channel.request(reason="第一次", extra_calls=5)   # 累计 5
-        third = channel.request(reason="第二次", extra_calls=5)  # 累计 10 = 封底
+        grant(channel, reason="第一次", extra_calls=5)   # 累计 5
+        third = grant(channel, reason="第二次", extra_calls=5)  # 累计 10 = 封底
         self.assertEqual(third["extra_calls"], 5)
         with self.assertRaises(AgentError) as ctx:
             channel.request(reason="第三次", extra_calls=1)  # 没有额度了 → 诚实拒绝
@@ -90,28 +98,35 @@ class BudgetChannelTest(unittest.TestCase):
         driver.base_limits = None  # 模拟"limits 还没定稿"
         channel = BudgetChannel(driver)
         driver.base_limits = driver.limits
-        result = channel.request(reason="理由", extra_calls=5)
+        result = grant(channel, reason="理由", extra_calls=5)
         self.assertTrue(result["granted"])
 
 
 class BudgetToolTest(unittest.TestCase):
     def test_tool_grants_through_channel(self) -> None:
         driver = _driver()
-        tool = build_budget_extension_tool(BudgetChannel(driver).request)
+        channel = BudgetChannel(driver)
+        tool = build_budget_extension_tool(channel.request, channel=channel)
         result = tool.handler({"reason": "需要更多轮次", "extra_calls": 4})
         self.assertTrue(result["granted"])
+        self.assertIsNotNone(tool.audit)
+        audit = tool.audit(result)
+        self.assertEqual(audit.event, "budget_adjusted")
+        self.assertEqual(audit.detail["policy_version"], 2)
+        audit.apply()
         self.assertEqual(driver.harness.limits.max_calls, 24)
 
     def test_tool_grants_clamped_amount(self) -> None:
-        tool = build_budget_extension_tool(BudgetChannel(_driver(max_calls=4)).request)
+        channel = BudgetChannel(_driver(max_calls=4))
+        tool = build_budget_extension_tool(channel.request, channel=channel)
         result = tool.handler({"reason": "理由", "extra_calls": 4})
         self.assertEqual(result["extra_calls"], 2, "超封底夹取到 50%")
         self.assertTrue(result["capped"])
 
     def test_tool_raises_agent_error_when_headroom_exhausted(self) -> None:
         channel = BudgetChannel(_driver(max_calls=4))
-        channel.request(reason="先占满", extra_calls=2)
-        channel.request(reason="再占满", extra_calls=2)
+        grant(channel, reason="先占满", extra_calls=2)
+        grant(channel, reason="再占满", extra_calls=2)
         tool = build_budget_extension_tool(channel.request)
         with self.assertRaises(AgentError) as ctx:
             tool.handler({"reason": "理由", "extra_calls": 1})
@@ -150,3 +165,48 @@ class BudgetRegistrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BudgetTokenAndApplyTests(unittest.TestCase):
+    def test_tokens_share_the_same_caps_and_apply(self) -> None:
+        driver = _driver(max_tokens=120_000)
+        channel = BudgetChannel(driver)
+        first = grant(channel, reason="需要修复一轮", extra_tokens=60_000)
+        self.assertEqual(first["extra_tokens"], 60_000)
+        self.assertEqual(driver.harness.limits.max_tokens, 180_000)
+        second = grant(channel, reason="再修一轮", extra_tokens=10_000)
+        self.assertEqual(second["extra_tokens"], 10_000)
+        self.assertEqual(driver.harness.limits.max_tokens, 190_000)
+        third = grant(channel, reason="继续", extra_tokens=50_000)
+        self.assertEqual(third["extra_tokens"], 50_000, "remaining cumulative headroom")
+        self.assertFalse(third["capped"], "exactly the remaining headroom is not a clamp")
+        self.assertEqual(driver.harness.limits.max_tokens, 240_000)
+        with self.assertRaises(AgentError) as ctx:
+            channel.request(reason="没了", extra_tokens=1)
+        self.assertEqual(ctx.exception.code, "BUDGET_EXTENSION_EXHAUSTED")
+
+    def test_apply_is_idempotent_and_conflicts_are_refused(self) -> None:
+        driver = _driver(max_tokens=120_000)
+        channel = BudgetChannel(driver)
+        result = channel.request(reason="理由", extra_tokens=60_000)
+        channel.apply(result)
+        channel.apply(result)  # replay of the same committed result
+        self.assertEqual(driver.harness.limits.max_tokens, 180_000)
+        other = channel.request(reason="第二条", extra_tokens=10_000)
+        channel.apply(other)
+        with self.assertRaises(AgentError) as ctx:
+            channel.apply(result)  # stale result after a newer adjustment
+        self.assertEqual(ctx.exception.code, "BUDGET_APPLY_CONFLICT")
+
+    def test_off_tier_is_recorded_as_configured_policy_not_operator(self) -> None:
+        driver = _driver()
+        driver.run.approval = "off"
+        result = grant(BudgetChannel(driver), reason="自动档", extra_calls=1)
+        self.assertEqual(result["decision_source"], "configured_policy_auto")
+
+    def test_tool_schema_exposes_tokens(self) -> None:
+        driver = _driver()
+        tool = build_budget_extension_tool(BudgetChannel(driver).request)
+        names = [param.name for param in tool.params]
+        self.assertIn("extra_tokens", names)
+        self.assertEqual(tool.version, "1.1")

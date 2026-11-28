@@ -167,6 +167,8 @@ def _compact_bundle(bundle: dict[str, Any], name: str) -> dict[str, Any]:
             "fingerprint": str(finding.get("fingerprint") or "")[:24],
         })
     regression = bundle.get("regression") or {}
+    coverage = bundle.get("coverage") if isinstance(bundle.get("coverage"), dict) else {}
+    coverage_rules = coverage.get("rules") if isinstance(coverage.get("rules"), list) else []
     return {
         "audit_id": str(bundle.get("audit_id") or name),
         "target": str(target.get("identity") or ""),
@@ -174,6 +176,20 @@ def _compact_bundle(bundle: dict[str, Any], name: str) -> dict[str, Any]:
         "ruleset_version": str((bundle.get("toolchain") or {}).get("ruleset_version") or ""),
         "evidence": len(bundle.get("poc_evidence_refs") or []),
         "findings": findings,
+        "coverage": {
+            "total": len(coverage_rules),
+            "executed": sum(1 for item in coverage_rules
+                            if isinstance(item, dict) and item.get("status") == "executed"),
+            "not_executed": [
+                {
+                    "rule_id": str(item.get("rule_id") or "")[:48],
+                    "status": str(item.get("status") or "")[:24],
+                    "reason": str(item.get("reason") or "")[:120],
+                }
+                for item in coverage_rules
+                if isinstance(item, dict) and item.get("status") != "executed"
+            ][:8],
+        } if coverage_rules else {},
         "uncovered": [
             str(item.get("surface") or "")[:160]
             for item in (bundle.get("uncovered_surfaces") or [])[:8]
@@ -183,6 +199,7 @@ def _compact_bundle(bundle: dict[str, Any], name: str) -> dict[str, Any]:
             "known": int(regression.get("known") or 0),
             "new": int(regression.get("new") or 0),
             "fixed": int(regression.get("fixed") or 0),
+            "unverified": int(regression.get("unverified") or 0),
             "regressed": int(regression.get("regressed") or 0),
         } if regression else {},
     }
@@ -453,6 +470,7 @@ class GovChatService(ChatService):
                 + (f" · regression=+{int(regression.get('new') or 0)}"
                    f"/~{int(regression.get('regressed') or 0)}"
                    f"/-{int(regression.get('fixed') or 0)}"
+                   f"/?{int(regression.get('unverified') or 0)}"
                    if regression else "")
             )
         if not bundles:

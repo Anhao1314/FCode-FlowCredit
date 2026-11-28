@@ -271,6 +271,8 @@ def post_run_budget(handler, run_id: str):
         max_calls = int(body["maxCalls"])
         max_reads = int(body["maxReads"])
         max_cost = int(body["maxCostMicrousd"])
+        max_tokens = int(body["maxTokens"]) if body.get("maxTokens") is not None else None
+        request_id = str(body.get("requestId") or "").strip()[:120] or None
     except (KeyError, TypeError, ValueError):
         return handler._json(
             {"error": "maxCalls, maxReads and maxCostMicrousd are required integers"}, 400,
@@ -280,11 +282,18 @@ def post_run_budget(handler, run_id: str):
         max_calls < current["max_calls"]
         or max_reads < current["max_reads"]
         or max_cost < current["max_cost_microusd"]
+        or (max_tokens is not None and max_tokens < current["max_tokens"])
     ):
         return handler._json({"error": "limits can only be raised"}, 400)
-    control.queue({
-        "kind": "budget", "maxCalls": max_calls, "maxReads": max_reads, "maxCostMicrousd": max_cost,
-    })
+    command = {
+        "kind": "budget", "maxCalls": max_calls, "maxReads": max_reads,
+        "maxCostMicrousd": max_cost,
+    }
+    if max_tokens is not None:
+        command["maxTokens"] = max_tokens
+    if request_id is not None:
+        command["requestId"] = request_id
+    control.queue(command)
     return handler._json({"queued": True, "applies": "next-round"})
 
 
@@ -300,6 +309,7 @@ def post_run_resume(handler, run_id: str):
         extra_rounds = int(body.get("extraRounds") or 6)
         # 可选:token 顶。价格缩放按 tokens 换算可负担调用数,长任务需要它。
         max_tokens = int(body["maxTokens"]) if body.get("maxTokens") is not None else None
+        request_id = str(body.get("requestId") or "").strip()[:120] or None
     except (KeyError, TypeError, ValueError):
         return handler._json(
             {"error": "maxCalls, maxReads and maxCostMicrousd are required integers"}, 400,
@@ -314,7 +324,9 @@ def post_run_resume(handler, run_id: str):
             return handler._json({"error": "maxTokens must be positive"}, 400)
         limits["maxTokens"] = max_tokens
     try:
-        handler.manager.resume(run, limits=limits, extra_rounds=extra_rounds)
+        handler.manager.resume(
+            run, limits=limits, extra_rounds=extra_rounds, request_id=request_id,
+        )
     except ValueError as exc:
         return handler._json({"error": str(exc)}, 409)
     return handler._json(run.to_json(detail=True), 202)

@@ -31,3 +31,6 @@ workspace-general/
 
 # 内部交接记录不随公开仓库发布
 docs/handoff-*.md
+
+# 依赖目录（含符号链接形态）
+node_modules/

@@ -1051,9 +1051,20 @@ class GovBotService:
                             prune_archives(snapshot_dir, keep=5)
                     except Exception as error:  # noqa: BLE001 — 加密失败要可见
                         self._update(run_id, error=f"encrypt degraded: {error}"[:160])
-                # 外部刀（第二证据面）：只对快照类靶子跑，结果落审计目录旁
-                # （external-scanners.json，不进 bundle 哈希）；缺刀如实降级。
-                if snapshot_dir:
+                # 外部刀（第二证据面）：新版审计 CLI 已把 retire/gitleaks/
+                # lighthouse 的结果写进 bundle（external_tools + coverage.tools），
+                # 这里不再重复运行；只有旧 bundle 才走 legacy external-scanners.json。
+                try:
+                    bundle_view = (
+                        self.audit.bundle(audit_id)
+                        if audit_id and hasattr(self.audit, "bundle") else None
+                    )
+                except Exception:  # noqa: BLE001 — bundle read is an optimization
+                    bundle_view = None
+                has_external_tools = (
+                    isinstance(bundle_view, dict) and bool(bundle_view.get("external_tools"))
+                )
+                if snapshot_dir and not has_external_tools:
                     try:
                         from web_scanners import run_scanners
 
@@ -1134,7 +1145,7 @@ class GovBotService:
             regression = {}
         counts = {
             key: len(regression.get(key) or [])
-            for key in ("known", "new", "fixed", "regressed")
+            for key in ("known", "new", "fixed", "unverified", "regressed")
         }
         self._finish(
             run_id,

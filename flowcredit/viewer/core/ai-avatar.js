@@ -1,7 +1,7 @@
 /* FCode 的实时像素伙伴。
 
    造型借鉴 Claude Code 官方终端像素机器人的方块比例、深色竖眼与短四肢，
-   但不复制官方素材：暖橙机体、信号天线与右侧光标尾都是内联 SVG 原语。
+   
 
    - 眼睛跟随指针轻微偏移（app.js 的 pointermove 写入 --look-x/y）；
    - 待机眨眼与浮动，思考时敲击，等待时举手，成功时跳起庆祝；
@@ -52,7 +52,7 @@ export function userAvatarHtml(size = 28) {
 
 /* 三层容器分离指针跟随、思考扫视与眨眼，CSS transform 不相互覆盖。 */
 function face(state) {
-  const ink = "#282321";
+  const ink = "#1F2A24";
   const faces = {
     idle: '<rect class="ai-eye" x="23" y="27" width="4" height="9" fill="' + ink + '"/>'
       + '<rect class="ai-eye" x="38" y="27" width="4" height="9" fill="' + ink + '"/>'
@@ -82,12 +82,12 @@ function face(state) {
 
 function statePixels(state) {
   if (state === "thinking") {
-    return '<g class="ai-avatar-thoughts" fill="#D97757" aria-hidden="true">'
+    return '<g class="ai-avatar-thoughts" fill="#2FA371" aria-hidden="true">'
       + '<rect x="53" y="18" width="4" height="4"/><rect x="57" y="12" width="3" height="3"/>'
       + '<rect x="52" y="7" width="2" height="2"/></g>';
   }
   if (state === "ok") {
-    return '<g class="ai-avatar-confetti" fill="#D97757" aria-hidden="true">'
+    return '<g class="ai-avatar-confetti" fill="#2FA371" aria-hidden="true">'
       + '<rect x="8" y="13" width="4" height="4"/><rect x="53" y="18" width="4" height="4"/>'
       + '<rect x="4" y="27" width="3" height="3"/><rect x="58" y="29" width="3" height="3"/>'
       + '<rect x="15" y="6" width="3" height="3"/><rect x="46" y="5" width="3" height="3"/></g>';
@@ -106,19 +106,19 @@ export function aiAvatarHtml(state = "idle", size = 28, labelOverride = "") {
     + ' data-ai-state="' + key + '" data-live="1">'
     + '<svg class="ai-avatar-sprite" viewBox="0 0 64 64" width="' + size + '" height="' + size + '"'
     + ' shape-rendering="crispEdges" aria-hidden="true">'
-    + '<g class="ai-avatar-ground"><rect x="18" y="58" width="29" height="3" fill="#282321" opacity=".12"/></g>'
+    + '<g class="ai-avatar-ground"><rect x="18" y="58" width="29" height="3" fill="#1F2A24" opacity=".12"/></g>'
     + '<g class="ai-avatar-bounce">'
     + statePixels(key)
-    + '<g class="ai-avatar-antenna" fill="#D97757"><rect x="30" y="10" width="4" height="9"/>'
+    + '<g class="ai-avatar-antenna" fill="#2FA371"><rect x="30" y="10" width="4" height="9"/>'
     + '<rect x="27" y="6" width="10" height="5"/><rect x="30" y="4" width="4" height="2"/></g>'
-    + '<g class="ai-avatar-tail" fill="#B85F45"><path d="M51 38h4v3h3v3h3v4h-3v3h-3v3h-4z"/></g>'
-    + '<g class="ai-avatar-arm ai-avatar-arm--left" fill="#D97757"><path d="M9 28h6v14h-3v4H8V31h1z"/></g>'
-    + '<g class="ai-avatar-arm ai-avatar-arm--right" fill="#D97757"><path d="M49 28h6v3h1v15h-4v-4h-3z"/></g>'
-    + '<g class="ai-avatar-leg ai-avatar-leg--left" fill="#B85F45"><path d="M19 45h8v10h-2v4h-8v-4h2z"/></g>'
-    + '<g class="ai-avatar-leg ai-avatar-leg--right" fill="#B85F45"><path d="M37 45h8v10h2v4h-8v-4h-2z"/></g>'
-    + '<path class="ai-avatar-body" d="M18 17h28v2h4v27h-4v3H18v-3h-4V20h4z" fill="#D97757"/>'
-    + '<path class="ai-avatar-body-shade" d="M14 40h36v6h-4v3H18v-3h-4z" fill="#C96B4F"/>'
-    + '<rect class="ai-avatar-body-light" x="18" y="20" width="28" height="3" fill="#E99A80"/>'
+    + '<g class="ai-avatar-tail" fill="#1F7A54"><path d="M51 38h4v3h3v3h3v4h-3v3h-3v3h-4z"/></g>'
+    + '<g class="ai-avatar-arm ai-avatar-arm--left" fill="#2FA371"><path d="M9 28h6v14h-3v4H8V31h1z"/></g>'
+    + '<g class="ai-avatar-arm ai-avatar-arm--right" fill="#2FA371"><path d="M49 28h6v3h1v15h-4v-4h-3z"/></g>'
+    + '<g class="ai-avatar-leg ai-avatar-leg--left" fill="#1F7A54"><path d="M19 45h8v10h-2v4h-8v-4h2z"/></g>'
+    + '<g class="ai-avatar-leg ai-avatar-leg--right" fill="#1F7A54"><path d="M37 45h8v10h2v4h-8v-4h-2z"/></g>'
+    + '<path class="ai-avatar-body" d="M18 17h28v2h4v27h-4v3H18v-3h-4V20h4z" fill="#2FA371"/>'
+    + '<path class="ai-avatar-body-shade" d="M14 40h36v6h-4v3H18v-3h-4z" fill="#27875D"/>'
+    + '<rect class="ai-avatar-body-light" x="18" y="20" width="28" height="3" fill="#5FC493"/>'
     + face(key)
     + "</g></svg>"
     + (ring ? '<span class="ai-avatar-ring' + (key === "pending" ? " is-pending" : "") + '" aria-hidden="true"></span>' : "")

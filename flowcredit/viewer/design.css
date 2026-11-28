@@ -642,6 +642,59 @@ details.raw pre {
   font: 500 10px var(--font-mono); letter-spacing: .08em;
 }
 .attach-group { margin: 8px 0 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+
+/* 「+」一级菜单里的执行模式行与状态 pill */
+.add-menu-modes { display: flex; flex-direction: column; padding: 2px 0 6px; border-bottom: 1px dashed var(--line); margin-bottom: 4px; }
+.add-menu-mode .mode-pill {
+  margin-left: auto; flex: none;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--line-strong); color: var(--text-3); background: var(--panel);
+}
+.add-menu-mode .mode-pill.on {
+  border-color: var(--ok, #2f9e44); color: var(--ok, #2f9e44);
+  background: color-mix(in srgb, var(--ok, #2f9e44) 12%, var(--panel));
+}
+
+/* 执行模式（Fast / 电脑）：并入「+」附加面板的两条固定开关行；
+   工具栏不再出现独立开关，+ 徽章只在偏离默认时点亮。 */
+.attach-modes {
+  margin: 8px 0 0; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+}
+.attach-mode {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+}
+.attach-mode + .attach-mode { border-top: 1px dashed var(--line); }
+.attach-mode .mode-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.attach-mode .mode-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.attach-mode .mode-desc { font-size: 11px; color: var(--text-3); line-height: 1.5; }
+.mode-switch {
+  position: relative; flex: none;
+  width: 52px; height: 26px; border-radius: 13px;
+  border: 1px solid var(--line-strong); background: var(--panel);
+  cursor: pointer; display: inline-flex; align-items: center;
+  padding: 0 4px 0 22px; gap: 4px;
+  transition: background-color .18s var(--ease), border-color .18s var(--ease), padding .18s var(--ease);
+}
+.mode-switch .knob {
+  position: absolute; left: 3px; top: 50%; translate: 0 -50%;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--text-3); transition: left .18s var(--ease), background-color .18s var(--ease);
+}
+.mode-switch .mode-state { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.mode-switch.on { background: color-mix(in srgb, var(--ok, #2f9e44) 14%, var(--panel)); border-color: var(--ok, #2f9e44); padding: 0 6px 0 24px; }
+.mode-switch.on .knob { left: calc(100% - 21px); background: var(--ok, #2f9e44); }
+.mode-switch.on .mode-state { color: var(--ok, #2f9e44); }
+#composer-open { position: relative; }
+#composer-open .mode-badge {
+  position: absolute; top: -3px; right: -4px;
+  padding: 1px 5px; border-radius: 8px;
+  font-size: 10px; line-height: 1.4; font-weight: 600;
+  background: var(--warn, #e8a13d); color: #1c1408;
+  pointer-events: none; white-space: nowrap;
+}
 .attach-group header {
   display: flex; align-items: baseline; gap: 8px; padding: 8px 10px;
   border-bottom: 1px solid var(--line); color: var(--text-1); font-size: var(--fs-2); font-weight: 600;
@@ -741,6 +794,29 @@ details.raw pre {
 .rf-hint { color: var(--text-3); font-size: 10.5px; font-family: var(--font-mono); }
 .rail-tools { display: flex; align-items: center; gap: 8px; padding: 2px 2px 9px; border-bottom: 1px solid var(--line); }
 .rail-empty { padding: 24px 4px; color: var(--text-3); font-size: var(--fs-2); }
+/* 概要 tab：任务结束后的一眼答案 */
+.rail-ov { display: flex; flex-direction: column; gap: 4px; }
+.rail-ov-state { display: flex; align-items: center; gap: 10px; padding: 10px 2px 12px; }
+.rail-ov-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
+.rail-ov.ok .rail-ov-dot { background: var(--ok); }
+.rail-ov.bad .rail-ov-dot { background: var(--bad); }
+.rail-ov.warn .rail-ov-dot { background: var(--warn); }
+.rail-ov.run .rail-ov-dot { background: var(--text-2); animation: pulse 1.4s ease-in-out infinite; }
+.rail-ov-state .t { font-size: var(--fs-4); font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 8px; }
+.rail-ov-state .s { font-size: var(--fs-2); color: var(--text-2); margin-top: 2px; }
+.rail-ov-code { font: 11px var(--font-mono); color: var(--bad); background: var(--bad-soft); padding: 1px 6px; border-radius: 5px; }
+.rail-ov-kv { display: flex; gap: 10px; padding: 3px 2px; font-size: var(--fs-2); }
+.rail-ov-kv .k { flex: none; width: 44px; color: var(--text-3); }
+.rail-ov-kv .v { color: var(--text-1); font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
+.rail-ov-file { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px; font-size: var(--fs-2); }
+.rail-ov-file .p { font-family: var(--font-mono); color: var(--text-1); }
+.rail-ov-file .m { margin-left: auto; font: 11px var(--font-mono); color: var(--text-3); }
+.rail-ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 4px 2px; }
+.rail-ov-grid .cell { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.rail-ov-grid .k { font-size: 10px; letter-spacing: .05em; color: var(--text-3); }
+.rail-ov-grid .v { font: 12px var(--font-mono); color: var(--text-1); font-variant-numeric: tabular-nums; }
+.rail-ov-foot { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--text-3); }
+.rail-ov .th-raw summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-2); padding: 4px 2px; }
 .rail-sec { margin: 10px 2px; padding-top: 10px; border-top: 1px solid var(--line); }
 .rail-sec:first-child { border-top: 0; margin-top: 0; }
 .rail-sec-title {
@@ -769,7 +845,7 @@ details.raw pre {
   font: 600 10px var(--font-mono); padding: 0 5px; flex: none;
   border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text-2);
 }
-.ev-type { font: 11px var(--font-mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-phrase { font: 11px var(--font-mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ev-ref { font: 10.5px var(--font-mono); color: var(--text-3); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ev-ref:hover { color: var(--text-1); text-decoration: underline; }
 .ev-detail {
@@ -2837,8 +2913,8 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 .pal-item:hover, .pal-item.active { background: #F5F5F5; }
 
 /* Docked composer: the panel opens upward as an overlay (Kimi's + menu never
-   pushes the page or clips off the bottom). The stage composer keeps the
-   connected downward sheet because it has room below it. */
+   pushes the page or clips off the bottom). The stage composer does the same:
+   the panel floats above the input instead of a connected downward sheet. */
 .attach-panel {
   top: auto; bottom: calc(100% + 8px);
   border: 1px solid var(--line); border-radius: 16px;
@@ -2847,13 +2923,11 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   animation: kimiPanelUp .15s var(--ease);
 }
 #app.stage-mode .attach-panel {
-  top: 100%; bottom: auto;
-  border-radius: 0 0 24px 24px;
-  border-top: 1px solid var(--line-strong);
-  transform-origin: top center;
-  animation: attachIn .15s var(--ease);
+  top: auto; bottom: calc(100% + 8px);
+  transform-origin: bottom center;
+  animation: kimiPanelUp .15s var(--ease);
 }
-#app:not(.stage-mode) .composer-box.open-attach {
+.composer-box.open-attach {
   border-radius: 24px;
   border-color: rgba(0, 0, 0, .09);
 }
@@ -2870,6 +2944,11 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
 .composer-add-menu {
   position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 45;
   width: min(330px, calc(100vw - 32px));
+  /* The Work menu opens upward from the composer. On common desktop heights
+     (especially 720px windows) a 460px card would slide under the fixed
+     topbar, so bound it to the space above the composer. */
+  max-height: min(460px, calc(100vh - 340px));
+  overflow: auto; overscroll-behavior: contain;
   padding: 8px; border: 1px solid var(--line); border-radius: 16px;
   background: var(--raised); box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
   transform-origin: bottom left; animation: kimiMenuIn .15s var(--ease);
@@ -2915,7 +2994,6 @@ body.reduce-motion .moonshot-title-line { clip-path: none; }
   margin-top: 4px; padding: 8px 9px 3px; border-top: 1px solid var(--line-soft);
   color: var(--text-4); font-size: 10px; line-height: 15px;
 }
-#app.stage-mode .composer-add-menu { bottom: auto; top: calc(100% + 8px); transform-origin: top left; }
 @media (max-width: 640px) {
   .composer-add-menu { left: -8px; width: min(320px, calc(100vw - 24px)); }
 }

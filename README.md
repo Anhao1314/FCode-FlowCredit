@@ -40,6 +40,19 @@ FCode 是一个本地优先、可恢复、可审计的 Agent Runtime。它把目
 
 详见 [Capability Runtime](flowcredit/docs/capabilities.md) 与 [Work 模式](flowcredit/docs/work-mode.md)。
 
+### 工作能力批次：契约、修复回路与检查器（2026-11）
+
+在这一批里，Work 从"听话的执行器"长成了对齐 Codex / Claude Code 的通用编码代理，而每一步都保持可审计：
+
+- **Coding Task Contract**：`spec.codingContract` 把目标变成显式契约——交付物、禁区路径、依赖冻结由文件工具与终态门强制执行（`CODING_CONTRACT_*`），不做 prompt 提醒。
+- **验证修复回路**：宿主独立验证失败不再即死——退出码与输出尾回喂给模型，有界修复两轮；授权类拒绝照旧秒杀。
+- **探索先行**：第 1 轮直接批量只读侦察，计划后置为"动手前的承诺"；同轮批量只读调用折叠为一组。
+- **任务检查器**：右侧栏四页——概要（状态/产出/验证/用量）、活动（「已写入 report.md」人话事件流）、工具、证据（签名链 + trace 原文）。
+- **夜间模式**：色板从 Kimi 桌面端「月之暗面」逐区域实测采样，顶栏一键切换。
+- **agent-browser 后端**（可选）：浏览器工具可切换到 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser)——页面读成紧凑无障碍树 + 元素引用，被遮挡的点击如实失败；loopback 门禁仍在宿主侧。
+
+详见 [Work 模式](flowcredit/docs/work-mode.md) 与 [编码基准](flowcredit/docs/work-coding-benchmark.md)（12 项隐藏测试基准）。
+
 ## 一条可检查的责任链
 
 ```text

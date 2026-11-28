@@ -1270,6 +1270,18 @@ CREATE TABLE IF NOT EXISTS chat_thread_meta (
             return config, _MockProvider(config.model)
         return config, _RemoteProvider(config)
 
+    def router_provider(self, model: str | None = None):
+        """Provider pair for one-shot text helpers such as intent routing.
+
+        The mock is excluded: a scripted reply must never fabricate a
+        classification. Callers treat ``(None, None)`` as "classifier
+        unavailable" and fall back to deterministic rules.
+        """
+        config, provider = self._provider(model)
+        if config.key == "mock":
+            return None, None
+        return config, provider
+
     def _answer(
         self,
         thread: Task,

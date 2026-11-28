@@ -528,9 +528,9 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .rail-kicker { font-size: 14px; font-weight: 550; }
 .rail-count { color: var(--text-3); font-size: 11px; }
 .rail-close { border-radius: 7px; }
-.seg { padding: 3px; border: 0; border-radius: 9px; background: rgba(0,0,0,.045); }
+.seg { padding: 3px; border: 0; border-radius: 9px; background: var(--surface-hover); }
 .seg button { border-radius: 7px; font-size: 12px; }
-.seg button.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.seg button.active { background: var(--raised); box-shadow: 0 1px 3px rgba(0,0,0,.10); }
 /* Kimi segmented-tabs--md：36 高 / r10 / p2；tab 32 / r8 / 14-20。
    .seg 是通用底座，招呼式选择器要在它之后覆盖共享属性。 */
 .zone-switch.seg { padding: 2px; border-radius: 10px; background: var(--k-fill-2); }
@@ -538,7 +538,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .zone-switch .zone-btn.active { font-weight: 500; box-shadow: 0 1px 2px #0000000f; }
 .rail-body { padding: 10px 14px 24px; }
 .ev-item { border-left-color: var(--line-strong); }
-.ev-type { font-family: var(--font-ui); }
+.ev-phrase { font-family: var(--font-ui); font-size: 12px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rf, .ev-more { border-radius: 6px; }
 .raw-pre, .doc-body { border-radius: 8px; }
 
@@ -785,6 +785,61 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
   max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: none;
 }
+/* ------- Claude Code 式工具行：⏺ 调用行 + ⎿ 结果行 ------- */
+.th-mark {
+  flex: none; font: 13px/20px var(--font-mono); color: var(--text-1);
+  width: 16px; text-align: center;
+}
+.th-mark.running, .th-mark.waiting { color: var(--accent, var(--text-1)); animation: th-mark-pulse 1.1s ease-in-out infinite; }
+.th-mark.failed, .th-mark.denied { color: var(--bad); }
+.th-mark.stopped, .th-mark.unknown { color: var(--warn); }
+@keyframes th-mark-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+.th-tool-call {
+  min-width: 0; display: inline-flex; align-items: baseline; gap: 2px;
+  font: 13px/20px var(--font-mono); color: var(--text-1);
+  overflow: hidden; white-space: nowrap;
+}
+.th-tool-id { font: inherit; color: inherit; }
+.th-tool-target { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.th-result-line {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 0 12px 4px 36px; margin-top: -2px;
+}
+.th-result-mark { flex: none; font: 13px/18px var(--font-mono); color: var(--text-3); }
+.th-result-text {
+  min-width: 0; font-size: 12px; line-height: 18px; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.th-result-text.fail { color: var(--bad); }
+/* ------- 同轮只读分组 + 思考指示 ------- */
+.th-tool-group { border-radius: var(--radius); }
+.th-tool-group > .th-tool-head { min-height: 32px; }
+.th-tool-group[data-open="false"] .th-group-body { display: none; }
+.th-tool-group[data-open="true"] .th-group-body { animation: thFade .18s var(--ease) both; }
+.th-tool-group[data-open="false"] .th-chev { transform: rotate(-90deg); }
+.th-group-body { padding: 2px 0 4px 20px; }
+.th-group-body .th-tool { margin: 0; }
+.th-thinking {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; margin: 1px 0;
+}
+.th-thinking-text {
+  font-size: 13px; line-height: 20px; color: var(--text-3);
+  animation: th-mark-pulse 1.4s ease-in-out infinite;
+}
+
+.th-inline-diff, .th-inline-out {
+  margin: 0 12px 6px 36px; padding: 4px 0;
+  border-left: 2px solid var(--line-soft);
+  font: 12px/17px var(--font-mono);
+}
+.th-inline-out { color: var(--text-2); }
+.th-diff-more, .th-out-more { color: var(--text-3); font-size: 11px; padding-left: 12px; }
+.th-out-line { white-space: pre-wrap; word-break: break-all; }
+
 .th-tool-summary {
   min-width: 0; flex: 1 1 auto;
   font-size: 12px; line-height: 18px; color: var(--text-3);

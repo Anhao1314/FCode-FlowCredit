@@ -1,5 +1,8 @@
 # Runtime 真实任务基准
 
+> 本基准证明治理机制；真实模型任务效果与 Work 入口分流评测见
+> [general-benchmark.md](general-benchmark.md)。两套指标分开报告，不得互相解释。
+
 本基准回答的是“正式 Runtime 的治理与恢复是否真实生效”，不是“离线脚本能否冒充模型能力”。任务复用 `Loop`、`Harness`、封闭工具注册表、Schema／权限／预算／审批门控、SQLite 事件存储和恢复链路。`ScriptedProvider` 只提供动作提议，不能直接执行工具。
 
 ## 运行

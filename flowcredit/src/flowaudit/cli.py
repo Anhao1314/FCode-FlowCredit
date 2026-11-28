@@ -50,6 +50,26 @@ def _parse_declared_features(raw: str | None) -> list[str] | None:
     return items or None
 
 
+#: A governed web snapshot carries at least one of these pins. Requiring a
+#: marker (instead of "any target with index.html") keeps WEB rules from
+#: firing on incidental HTML in a source tree.
+_WEB_SNAPSHOT_MARKERS = ("headers.json", "runtime-evidence.json")
+
+
+def _is_web_snapshot(root: Path) -> bool:
+    return any((Path(root) / name).is_file() for name in _WEB_SNAPSHOT_MARKERS)
+
+
+def _neutralize_web_facts(facts: dict) -> dict:
+    """Negative control for WEB rules: every fact row list is emptied."""
+    control = json.loads(json.dumps(facts, ensure_ascii=False))
+    for key, value in list(control.items()):
+        if isinstance(value, list):
+            control[key] = []
+    control["pages"] = 0
+    return control
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     if not target.exists():
@@ -128,24 +148,36 @@ def cmd_audit(args: argparse.Namespace) -> int:
         profile = repo_adapter.detect_profile(target_copy)
 
     ruleset = engine.load_ruleset(rules_dir)
-    candidates = engine.static_scan(target_copy, ruleset)
+    coverage_rules: list[dict] = []
+    candidates = engine.static_scan(target_copy, ruleset, coverage=coverage_rules)
 
     # VIBE scan: code-quality patterns for both adapters
     from .rea.vibe import scan_code_quality
     from .rea.facts import _json_safe
     vibe_facts = _json_safe(scan_code_quality(target_copy))
 
-    # Write vibe facts so rea_fact_evidence scenario can read them during replay.
+    # Web scan: only for a governed web snapshot. The facts are pinned into the
+    # same facts.json the replay worker re-reads, so WEB findings have the same
+    # evidence chain as VIBE/REA facts.
+    web_facts = None
+    if rea_snapshot is None and _is_web_snapshot(target_copy):
+        from .rea.web import scan_web_surface
+        web_facts = _json_safe(scan_web_surface(target_copy))
+
+    facts_host = {"vibe_scan": vibe_facts}
+    if web_facts is not None:
+        facts_host["web_scan"] = web_facts
+    facts_doc = {"schema_version": "fcode.rea-facts/v1",
+                 "target": {"identity": str(target)},
+                 "host": facts_host}
+
+    # Write facts so rea_fact_evidence scenario can read them during replay.
     # For REA audits the adapter already wrote facts.json to the snapshot; for
-    # repo audits we write it to the target copy here.
-    vibe_facts_doc = {"host": {"vibe_scan": vibe_facts}}
+    # repo/web audits we write it to the target copy here.
     if rea_snapshot is None:
         facts_file = target_copy / "facts.json"
-        facts_file.write_text(json.dumps(
-            {"schema_version": "fcode.rea-facts/v1",
-             "target": {"identity": str(target)},
-             "host": {"vibe_scan": vibe_facts}},
-            ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        facts_file.write_text(json.dumps(facts_doc, ensure_ascii=False, sort_keys=True),
+                              encoding="utf-8")
         control_file = target_copy / "control-facts.json"
         neutralized = json.loads(json.dumps(vibe_facts, default=str))
         # 负对照：把每类 VIBE 事实清零——oracle 若"总是报"会在这里露馅。
@@ -161,18 +193,91 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 for key in ("god_functions", "silent_catches"):
                     if key in issues:
                         issues[key] = []
+        control_host = {"vibe_scan": neutralized}
+        if web_facts is not None:
+            control_host["web_scan"] = _neutralize_web_facts(web_facts)
         control_file.write_text(json.dumps(
             {"schema_version": "fcode.rea-facts/v1",
              "target": {"identity": str(target)},
-             "host": {"vibe_scan": neutralized}},
+             "host": control_host},
             ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
     if rea_snapshot is not None:
         # REA adapter already includes vibe_scan in its facts — no duplicate scan
-        candidates.extend(engine.rea_scan(rea_snapshot.facts, ruleset))
+        candidates.extend(engine.rea_scan(
+            rea_snapshot.facts, ruleset, coverage=coverage_rules))
+        coverage_surfaces = [{
+            "surface": "artifact_facts",
+            "status": "executed",
+            "reason": "",
+        }]
     else:
-        # Repo adapter: VIBE rules match against the separate vibe facts document
-        candidates.extend(engine.rea_scan(vibe_facts_doc, ruleset))
+        # Repo/web adapter: VIBE and WEB rules match the pinned facts document.
+        candidates.extend(engine.rea_scan(
+            facts_doc, ruleset, coverage=coverage_rules))
+        coverage_surfaces = [{
+            "surface": "repo_copy",
+            "status": "executed",
+            "reason": "",
+        }]
+        coverage_surfaces.append({
+            "surface": "web_scan",
+            "status": "executed" if web_facts is not None else "not_applicable",
+            "present": web_facts is not None,
+            "pages": int((web_facts or {}).get("pages") or 0),
+            "headers": bool((target_copy / "headers.json").is_file()),
+            "runtime_evidence": bool((target_copy / "runtime-evidence.json").is_file()),
+            "reason": "" if web_facts is not None else "no headers.json/runtime-evidence.json",
+        })
+
+    # Every active rule appears in the ledger, including trigger types this
+    # build cannot execute. Silence is recorded as not_supported/error, never
+    # as a clean run.
+    covered = {item["rule_id"] for item in coverage_rules}
+    for rule in engine.active_rules(ruleset):
+        if rule.id in covered:
+            continue
+        trigger_type = str(rule.trigger.get("type") or "unknown")
+        coverage_rules.append({
+            "rule_id": rule.id,
+            "category": rule.category,
+            "root_cause_group": rule.root_cause_group,
+            "trigger": trigger_type,
+            "status": "not_supported" if trigger_type not in ("static", "rea") else "error",
+            "candidates": 0,
+            "reason": f"trigger type {trigger_type!r} is not implemented by this audit",
+        })
+    coverage_rules.sort(key=lambda item: item["rule_id"])
+    coverage = {
+        "schema_version": "fcode.audit-coverage/v1",
+        "ruleset_version": ruleset["version"],
+        "target_profile": profile,
+        "surfaces": coverage_surfaces,
+        "rules": coverage_rules,
+        "tools": [],
+    }
+
+    # External signals (retire/gitleaks/lighthouse) are pinned next to the
+    # bundle and recorded in coverage, but never promoted directly. A missing
+    # or failed tool is skipped/error, not a clean pass.
+    external_tools: list[dict] = []
+    external_tool_refs: list[dict] = []
+    if web_facts is not None:
+        from .rea.external import run_external_tools
+        external = run_external_tools(
+            target_copy, out_dir, input_sha256=manifest_sha256)
+        external_tools = list(external.get("tools") or [])
+        external_tool_refs = list(external.get("refs") or [])
+        coverage["tools"] = [
+            {
+                "tool": item["tool"],
+                "status": item["status"],
+                "version": item.get("version", ""),
+                "findings": item.get("findings_count", 0),
+                "reason": item.get("reason", ""),
+            }
+            for item in external_tools
+        ]
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     target_ref = {
@@ -240,6 +345,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         identity = finding_identity(category, root_cause_group, evidence)
         findings.append({
             "finding_id": finding["finding_id"],
+            "rule_id": candidate.get("rule_id", ""),
             "root_cause_group": root_cause_group,
             "category": category,
             "severity": candidate.get("severity", "info"),
@@ -273,8 +379,10 @@ def cmd_audit(args: argparse.Namespace) -> int:
     # 纯函数只对给定两方诚实(prior 空=干净靶子,发现即 new)。
     regression = compute_regression(
         prior_findings, findings,
-        earlier=[e["findings"] for e in timeline[:-1]]) if prior else {
-            "known": [], "new": [], "fixed": [], "regressed": []}
+        earlier=[e["findings"] for e in timeline[:-1]],
+        coverage=coverage) if prior else {
+            "known": [], "new": [], "fixed": [],
+            "unverified": [], "regressed": []}
     (out_dir / "regression.json").write_text(
         json.dumps({
             "prior_audit_id": (prior or {}).get("audit_id"),
@@ -305,6 +413,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
              "prior_manifest_sha256": prior["target_hash"],
              **{key: len(value) for key, value in regression.items()}}
             if prior else None),
+        coverage=coverage,
         uncovered_surfaces=[
             {"surface": "dynamic probing (message/HTTP/behavior)",
              "reason": "this bundle records static REA facts; separate isolated runtime observation is retained outside the bundle and is not full dynamic probing"},
@@ -324,6 +433,8 @@ def cmd_audit(args: argparse.Namespace) -> int:
         target_profile=target_profile,
         rea_facts_ref=rea_facts_ref,
         rea_control_facts_ref=rea_control_facts_ref,
+        external_tools=external_tools or None,
+        external_tool_refs=external_tool_refs or None,
     )
 
     analyst_result = None
@@ -436,6 +547,41 @@ def cmd_verify_bundle(args: argparse.Namespace) -> int:
     if head != bundle["chain_verification"]["head_hash"]:
         print(json.dumps({"verify": "failed", "reason": "evidence-set hash mismatch"}))
         return 1
+    coverage = bundle.get("coverage")
+    coverage_sha = (bundle.get("chain_verification") or {}).get("coverage_sha256")
+    if coverage is not None:
+        if not coverage_sha:
+            print(json.dumps({"verify": "failed", "reason": "coverage present without coverage_sha256"}))
+            return 1
+        if bundle_mod.coverage_hash(coverage) != coverage_sha:
+            print(json.dumps({"verify": "failed", "reason": "coverage hash mismatch"}))
+            return 1
+    elif coverage_sha:
+        print(json.dumps({"verify": "failed", "reason": "coverage_sha256 present without coverage"}))
+        return 1
+    external_tools = bundle.get("external_tools")
+    external_sha = (bundle.get("chain_verification") or {}).get("external_tools_sha256")
+    if external_tools is not None:
+        if not external_sha or bundle_mod.external_tools_hash(external_tools) != external_sha:
+            print(json.dumps({"verify": "failed", "reason": "external tools hash mismatch"}))
+            return 1
+    elif external_sha:
+        print(json.dumps({"verify": "failed", "reason": "external_tools_sha256 present without external_tools"}))
+        return 1
+    for ref in bundle.get("external_tool_refs") or []:
+        path = Path(args.evidence) / str(ref.get("path") or "")
+        try:
+            raw = path.read_bytes()
+        except OSError as error:
+            print(json.dumps({"verify": "failed", "tool": ref.get("tool"),
+                              "reason": f"external tool raw evidence missing or unreadable: {error}"},
+                             ensure_ascii=False))
+            return 1
+        if hashlib.sha256(raw).hexdigest() != ref.get("sha256"):
+            print(json.dumps({"verify": "failed", "tool": ref.get("tool"),
+                              "reason": "external tool raw evidence sha256 mismatch"},
+                             ensure_ascii=False))
+            return 1
     for key in ("rea_facts_ref", "rea_control_facts_ref"):
         ref = bundle.get(key)
         if not ref:

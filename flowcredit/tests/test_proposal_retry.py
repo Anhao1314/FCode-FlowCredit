@@ -114,6 +114,23 @@ class RetryTest(unittest.TestCase):
         # 两次调度都计费（第一次不退款）
         self.assertEqual(self.harness.budget(task).snapshot()["calls_used"], 2)
 
+    def test_one_round_can_consume_two_calls(self) -> None:
+        """A retry is a second Provider attempt inside the same round.
+
+        This is why max_calls and max_rounds stay separate counters: merging
+        them would either hide the retry's cost or double-count the round.
+        """
+        provider, task, proposal = self._run(
+            AgentError("PROPOSAL_MALFORMED", "truncated JSON"),
+            _proposal(),
+        )
+        self.assertIsNotNone(proposal)
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(self.harness.budget(task).snapshot()["calls_used"], 2)
+        rounds = {int((event["payload"].get("detail") or {}).get("round") or 0)
+                  for event in self._events(task) if event["type"].startswith(("model_", "proposal_"))}
+        self.assertLessEqual(rounds, {0, 1}, "both attempts belong to round 1")
+
     def test_invalid_plan_shape_is_retried_with_feedback(self) -> None:
         """A 0-step plan is a model formatting mistake, not a task verdict.
 

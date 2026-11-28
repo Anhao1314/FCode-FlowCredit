@@ -62,7 +62,7 @@ export function createComposerPanel(deps) {
   function paintModelBadge() {
     const labelEl = document.getElementById("model-label");
     const btn = document.getElementById("model-btn");
-    paintFastToggle();
+    paintModeToggles();
     if (!labelEl || !btn) return;
     const s = d.activeSession();
     if (s && s.running && !s.finished) return paintRunModelBadge(labelEl, btn, s);
@@ -70,14 +70,33 @@ export function createComposerPanel(deps) {
     paintWorkModelBadge(labelEl, btn);
   }
 
-  /* Fast 开关的点亮态。对话/治理视图隐藏按钮（paintChatChrome/paintGovChrome），
-     这里只负责 Work 视图的 on/off 形态。 */
-  function paintFastToggle() {
-    const btn = document.getElementById("fast-btn");
-    if (!btn) return;
-    const on = d.getFastMode();
-    btn.classList.toggle("on", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  /* 执行模式开关的点亮态（Fast / 电脑），以及「+」按钮上的模式徽章。
+     Fast 默认开、电脑默认关：只有偏离默认时徽章才出现，工具栏保持干净。 */
+  function paintModeToggles() {
+    const fastBtn = document.getElementById("fast-btn");
+    if (fastBtn) {
+      const on = d.getFastMode();
+      fastBtn.classList.toggle("on", on);
+      fastBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    const computerBtn = document.getElementById("computer-btn");
+    if (computerBtn) {
+      const on = d.getComputerUseMode();
+      computerBtn.classList.toggle("on", on);
+      computerBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    const badge = document.getElementById("composer-mode-badge");
+    if (badge) {
+      const marks = [];
+      if (!d.getFastMode()) marks.push("逐步");
+      if (d.getComputerUseMode()) marks.push("电脑");
+      badge.textContent = marks.join("·");
+      badge.hidden = marks.length === 0;
+      const plus = document.getElementById("composer-open");
+      if (plus) plus.title = marks.length
+        ? `添加内容 · ${marks.join(" · ")}`
+        : "添加内容 · Fast 开 · 电脑关";
+    }
   }
 
   /* 运行中：徽章只读显示会话实际使用的模型与思考强度。 */
@@ -287,7 +306,30 @@ export function createComposerPanel(deps) {
     const head = d.attach.fromMenu
       ? `<div class="attach-head"><button type="button" class="attach-back" data-attach-back>‹ 添加内容</button><span class="attach-head-note">本次委托</span></div>`
       : "";
-    panel.innerHTML = head + groups.map(g => {
+    const modes = `
+      <div class="attach-modes">
+        <div class="attach-mode">
+          <div class="mode-text">
+            <span class="mode-name">Fast 快速模式</span>
+            <span class="mode-desc">一轮多动作 · 原生工具调用 · 免逐步审批 · 项目走隔离副本 · 预算封底放大</span>
+          </div>
+          <button type="button" class="mode-switch${d.getFastMode() ? " on" : ""}" id="fast-btn"
+            aria-pressed="${d.getFastMode()}" title="关闭后恢复逐步审批与单动作">
+            <span class="knob"></span><span class="mode-state">${d.getFastMode() ? "开" : "关"}</span>
+          </button>
+        </div>
+        <div class="attach-mode">
+          <div class="mode-text">
+            <span class="mode-name">电脑使用</span>
+            <span class="mode-desc">允许本任务申请桌面 App / 外部浏览器控制；会话范围仍需你批准，默认关闭</span>
+          </div>
+          <button type="button" class="mode-switch${d.getComputerUseMode() ? " on" : ""}" id="computer-btn"
+            aria-pressed="${d.getComputerUseMode()}" title="开启只代表允许申请；真正的授权来自会话审批">
+            <span class="knob"></span><span class="mode-state">${d.getComputerUseMode() ? "开" : "关"}</span>
+          </button>
+        </div>
+      </div>`;
+    panel.innerHTML = head + modes + groups.map(g => {
       const open = d.attach.openGroup === g.key;
       return `<section class="attach-group${open ? " open" : ""}">
         <button class="attach-sum" data-attach-sum="${g.key}" aria-expanded="${open}">
@@ -338,7 +380,11 @@ export function createComposerPanel(deps) {
         }).catch(() => { d.attach.mcp.loaded = true; }));
     }
     await Promise.all(jobs);
-    if (d.attach.open) renderAttachPanel();
+    // 异步重绘落在指针交互之间会吞掉进行中的点击：挂起，mouseup 后补发
+    if (d.attach.open) {
+      if (window.__pointerBusy?.()) window.__markPendingChromeRepaint?.();
+      else renderAttachPanel();
+    }
     if (d.getIntake().active) d.renderIntake();
   }
 
@@ -371,6 +417,7 @@ export function createComposerPanel(deps) {
       // Fast（默认开）：一轮多动作 + 原生工具调用 + 免逐步审批；
       // 服务端据此走 worktree/信封/批量协议。关闭 = 严格路径。
       if (d.getFastMode()) spec.fast = true;
+      if (d.getComputerUseMode()) spec.computerUse = true;
       if (d.attach.sources.length) spec.sources = [...d.attach.sources];
       if (d.attach.project.path.trim()) {
         const verification = parseVerificationCommand(d.attach.project.verification);

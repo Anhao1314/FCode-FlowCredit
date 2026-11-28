@@ -58,6 +58,10 @@ test("置顶段只在真的置顶过东西时出现，任务行复用运行行",
   assert.match(chats, /data-chat-id="t1"/);
   assert.match(chats, /data-chat-pin="t1"/);
   assert.match(chats, /取消置顶/);
+  // 行是复合控件：打开对话与置顶是两个动作，外层不能再是 <button>。
+  assert.match(chats, /<div class="session chat-row pin-row"[^>]*role="button"/);
+  assert.doesNotMatch(chats, /<button[^>]*data-chat-id/);
+  assert.match(chats, /<button type="button" class="chat-pin"/);
 });
 
 test("Projects 段：标题可折叠 + ＋动作，项目展开后嵌运行", () => {
@@ -91,6 +95,11 @@ test("任务/对话列表交给调用方决定行渲染，空态文案是 Kimi �
   assert.match(chats, /data-chat-pin="t1"/);
   assert.match(chats, /data-chat-delete="t1"/);
   assert.match(chats, /显示全部 · 还有 4 条/);
+  // 复合控件语义：外层可键盘打开，pin/delete 是真按钮。
+  assert.match(chats, /<div class="session chat-row[^"]*"[^>]*role="button" tabindex="0"/);
+  assert.doesNotMatch(chats, /<button[^>]*data-chat-id/);
+  assert.match(chats, /<button type="button" class="chat-pin"/);
+  assert.match(chats, /<button type="button" class="chat-del"/);
 });
 
 test("对话行置顶状态写回文案与标志", () => {
